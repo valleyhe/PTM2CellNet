@@ -1,0 +1,19 @@
+# ==================== Whitelist (only these are tracked) ====================
+# Allowed: scripts/, src/, tests/, requirements.txt, README.md, .gitignore
+# Everything else is ignored below.
+
+# ==================== Ignore everything by default ====================
+/*
+
+# ==================== Whitelist specific paths ====================
+!.gitignore
+!README.md
+!requirements.txt
+!scripts/
+!src/
+!tests/
+
+# ==================== Python bytecode (within whitelisted dirs) ====================
+__pycache__/
+*.py[cod]
+*$py.class

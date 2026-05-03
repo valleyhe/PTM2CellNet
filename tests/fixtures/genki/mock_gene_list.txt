@@ -1,0 +1,4 @@
+EGFR
+TP53
+BAX
+MDM2
