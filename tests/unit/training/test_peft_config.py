@@ -114,7 +114,7 @@ class TestApplyLoRA:
 
     def test_apply_lora_to_linear(self, simple_encoder):
         # 直接在线性模型上应用LoRA（使用mock）
-        with patch("src.training.peft_config.get_peft_model") as mock_get_peft:
+        with patch("src.training.peft_config._get_peft_model_fn") as mock_get_peft:
             mock_lora = MockLoraModel(simple_encoder)
             mock_get_peft.return_value = mock_lora
 
@@ -124,7 +124,7 @@ class TestApplyLoRA:
             assert result is mock_lora
 
     def test_apply_lora_to_encoder(self, simple_encoder):
-        with patch("src.training.peft_config.get_peft_model") as mock_get_peft:
+        with patch("src.training.peft_config._get_peft_model_fn") as mock_get_peft:
             mock_lora = MockLoraModel(simple_encoder)
             mock_get_peft.return_value = mock_lora
 
@@ -255,7 +255,7 @@ class TestLoRAIntegration:
     """LoRA集成测试"""
 
     def test_forward_with_lora(self, simple_encoder):
-        with patch("src.training.peft_config.get_peft_model") as mock_get_peft:
+        with patch("src.training.peft_config._get_peft_model_fn") as mock_get_peft:
             mock_lora = MockLoraModel(simple_encoder)
             mock_get_peft.return_value = mock_lora
 
