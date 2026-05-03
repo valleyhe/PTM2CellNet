@@ -58,25 +58,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TEST-01 | — | Pending |
-| TEST-02 | — | Pending |
-| TEST-03 | — | Pending |
-| TEST-04 | — | Pending |
-| DEPS-01 | — | Pending |
-| DEPS-02 | — | Pending |
-| DEPS-03 | — | Pending |
-| CODE-01 | — | Pending |
-| CODE-02 | — | Pending |
-| CODE-03 | — | Pending |
-| CONF-01 | — | Pending |
-| CONF-02 | — | Pending |
-| CONF-03 | — | Pending |
+| TEST-01 | Phase 15 | Pending |
+| TEST-02 | Phase 15 | Pending |
+| TEST-03 | Phase 15 | Pending |
+| TEST-04 | Phase 17 | Pending |
+| DEPS-01 | Phase 15 | Pending |
+| DEPS-02 | Phase 15 | Pending |
+| DEPS-03 | Phase 15 | Pending |
+| CODE-01 | Phase 16 | Pending |
+| CODE-02 | Phase 16 | Pending |
+| CODE-03 | Phase 16 | Pending |
+| CONF-01 | Phase 17 | Pending |
+| CONF-02 | Phase 17 | Pending |
+| CONF-03 | Phase 16 | Pending |
 
 **Coverage:**
 - v2.1 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13 ⚠️
+- Mapped to phases: 13
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after initial definition*
+*Last updated: 2026-05-04 — traceability mapped to Phases 15-17*
