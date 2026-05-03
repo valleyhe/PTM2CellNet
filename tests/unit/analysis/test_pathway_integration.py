@@ -8,18 +8,24 @@ import sys
 
 import networkx as nx
 
-# Mock sspa module before importing pathway_integration
-if 'sspa' in sys.modules and isinstance(sys.modules['sspa'], MagicMock):
-    mock_sspa = sys.modules['sspa']
-else:
-    mock_sspa = MagicMock()
-    sys.modules['sspa'] = mock_sspa
-
 from src.analysis.pathway_integration import (
     PathwayDatabaseIntegration,
     load_kegg_pathways,
     load_reactome_pathways,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_sspa_mock(_sspa_mock_session):
+    """Reset sspa mock state between tests to prevent leakage."""
+    _sspa_mock_session.reset_mock()
+    # reset_mock() does NOT clear side_effect or return_value on child mocks,
+    # so clear them explicitly on the methods used by tests.
+    _sspa_mock_session.process_kegg.side_effect = None
+    _sspa_mock_session.process_kegg.return_value = MagicMock()
+    _sspa_mock_session.process_reactome.side_effect = None
+    _sspa_mock_session.process_reactome.return_value = MagicMock()
+    return _sspa_mock_session
 
 
 class TestPathwayDatabaseIntegration:
@@ -44,11 +50,9 @@ class TestPathwayDatabaseIntegration:
         for pathway in expected_pathways:
             assert pathway in integration.BUILTIN_PATHWAYS
 
-    def test_load_kegg_pathways(self):
+    def test_load_kegg_pathways(self, _reset_sspa_mock):
         """Test loading KEGG pathways."""
-        mock_sspa.process_kegg._mock_call_count = 0
-        mock_sspa.process_reactome._mock_call_count = 0
-        mock_sspa.process_kegg.return_value = {
+        _reset_sspa_mock.process_kegg.return_value = {
             'hsa00010': ['GAPDH', 'PGK1', 'ENO1'],
             'hsa00020': ['CS', 'ACO2', 'IDH1'],
         }
@@ -60,13 +64,11 @@ class TestPathwayDatabaseIntegration:
             assert integration._kegg_loaded is True
             assert 'hsa00010' in pathways
             assert 'hsa00020' in pathways
-            mock_sspa.process_kegg.assert_called_once_with(organism="hsa")
+            _reset_sspa_mock.process_kegg.assert_called_once_with(organism="hsa")
 
-    def test_load_reactome_pathways(self):
+    def test_load_reactome_pathways(self, _reset_sspa_mock):
         """Test loading Reactome pathways."""
-        mock_sspa.process_kegg._mock_call_count = 0
-        mock_sspa.process_reactome._mock_call_count = 0
-        mock_sspa.process_reactome.return_value = {
+        _reset_sspa_mock.process_reactome.return_value = {
             'R-HSA-12345': ['BRAF', 'MAPK1', 'MAPK3'],
             'R-HSA-67890': ['AKT1', 'MTOR', 'PIK3CA'],
         }
@@ -78,15 +80,11 @@ class TestPathwayDatabaseIntegration:
             assert integration._reactome_loaded is True
             assert 'R-HSA-12345' in pathways
             assert 'R-HSA-67890' in pathways
-            mock_sspa.process_reactome.assert_called_once_with(organism="Homo sapiens")
+            _reset_sspa_mock.process_reactome.assert_called_once_with(organism="Homo sapiens")
 
-    def test_kegg_caching(self):
+    def test_kegg_caching(self, _reset_sspa_mock):
         """Test that KEGG pathways are cached after first load."""
-        mock_sspa.process_kegg._mock_call_count = 0
-        mock_sspa.process_reactome._mock_call_count = 0
-        mock_sspa.process_kegg.return_value = None
-        mock_sspa.process_kegg.side_effect = None
-        mock_sspa.process_kegg.return_value = {
+        _reset_sspa_mock.process_kegg.return_value = {
             'hsa00010': ['GAPDH', 'PGK1'],
         }
 
@@ -95,20 +93,16 @@ class TestPathwayDatabaseIntegration:
 
             # First load - should call sspa
             integration.load_kegg_pathways(organism="hsa")
-            assert mock_sspa.process_kegg.call_count == 1
+            assert _reset_sspa_mock.process_kegg.call_count == 1
 
             # Second load - should use cache
             integration2 = PathwayDatabaseIntegration(cache_dir=tmpdir)
             integration2.load_kegg_pathways(organism="hsa")
-            assert mock_sspa.process_kegg.call_count == 1  # No additional call
+            assert _reset_sspa_mock.process_kegg.call_count == 1  # No additional call
 
-    def test_reactome_caching(self):
+    def test_reactome_caching(self, _reset_sspa_mock):
         """Test that Reactome pathways are cached after first load."""
-        mock_sspa.process_kegg._mock_call_count = 0
-        mock_sspa.process_reactome._mock_call_count = 0
-        mock_sspa.process_reactome.return_value = None
-        mock_sspa.process_reactome.side_effect = None
-        mock_sspa.process_reactome.return_value = {
+        _reset_sspa_mock.process_reactome.return_value = {
             'R-HSA-12345': ['BRAF', 'MAPK1'],
         }
 
@@ -117,30 +111,25 @@ class TestPathwayDatabaseIntegration:
 
             # First load - should call sspa
             integration.load_reactome_pathways(organism="Homo sapiens")
-            assert mock_sspa.process_reactome.call_count == 1
+            assert _reset_sspa_mock.process_reactome.call_count == 1
 
             # Second load - should use cache
             integration2 = PathwayDatabaseIntegration(cache_dir=tmpdir)
             integration2.load_reactome_pathways(organism="Homo sapiens")
-            assert mock_sspa.process_reactome.call_count == 1  # No additional call
+            assert _reset_sspa_mock.process_reactome.call_count == 1  # No additional call
 
-    def test_kegg_network_error_handling(self):
+    def test_kegg_network_error_handling(self, _reset_sspa_mock):
         """Test graceful handling of network errors."""
-        mock_sspa.process_kegg.return_value = None
-        mock_sspa.process_kegg.side_effect = None
-        mock_sspa.process_kegg.side_effect = Exception("Network error")
+        _reset_sspa_mock.process_kegg.side_effect = Exception("Network error")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             integration = PathwayDatabaseIntegration(cache_dir=tmpdir)
             with pytest.raises(Exception, match="Network error"):
                 integration.load_kegg_pathways(organism="hsa")
 
-    def test_validate_builtin_pathways(self):
+    def test_validate_builtin_pathways(self, _reset_sspa_mock):
         """Test validation of built-in pathways."""
-        mock_sspa.process_reactome.return_value = None
-        mock_sspa.process_reactome.side_effect = None
-        # Mock Reactome pathways with overlapping genes
-        mock_sspa.process_reactome.return_value = {
+        _reset_sspa_mock.process_reactome.return_value = {
             'R-HSA-MAPK': ['BRAF', 'RAF1', 'MAP2K1', 'MAP2K2', 'MAPK1', 'MAPK3', 'EGFR'],
             'R-HSA-PI3K': ['PIK3CA', 'PIK3CB', 'AKT1', 'AKT2', 'MTOR', 'PTEN'],
             'R-HSA-JAK': ['JAK1', 'JAK2', 'JAK3', 'TYK2', 'STAT1', 'STAT3'],
@@ -163,11 +152,9 @@ class TestPathwayDatabaseIntegration:
             assert mapk_report['coverage'] > 0.5
             assert mapk_report['validated'] is True
 
-    def test_build_pathway_graph(self):
+    def test_build_pathway_graph(self, _reset_sspa_mock):
         """Test building NetworkX graph from pathway."""
-        mock_sspa.process_reactome.return_value = None
-        mock_sspa.process_reactome.side_effect = None
-        mock_sspa.process_reactome.return_value = {
+        _reset_sspa_mock.process_reactome.return_value = {
             'R-HSA-12345': ['BRAF', 'MAPK1', 'MAPK3'],
         }
 
@@ -182,11 +169,9 @@ class TestPathwayDatabaseIntegration:
             assert 'MAPK1' in G.nodes
             assert 'MAPK3' in G.nodes
 
-    def test_build_pathway_graph_invalid_id(self):
+    def test_build_pathway_graph_invalid_id(self, _reset_sspa_mock):
         """Test building graph with invalid pathway ID."""
-        mock_sspa.process_reactome.return_value = None
-        mock_sspa.process_reactome.side_effect = None
-        mock_sspa.process_reactome.return_value = {}
+        _reset_sspa_mock.process_reactome.return_value = {}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             integration = PathwayDatabaseIntegration(cache_dir=tmpdir)
@@ -212,12 +197,9 @@ class TestPathwayDatabaseIntegration:
 class TestConvenienceFunctions:
     """Test convenience functions."""
 
-    def test_load_kegg_pathways_function(self):
+    def test_load_kegg_pathways_function(self, _reset_sspa_mock):
         """Test load_kegg_pathways convenience function."""
-        mock_sspa.process_kegg.return_value = None
-        mock_sspa.process_kegg.side_effect = None
-        mock_sspa.process_kegg.side_effect = None
-        mock_sspa.process_kegg.return_value = {'hsa00010': ['GAPDH']}
+        _reset_sspa_mock.process_kegg.return_value = {'hsa00010': ['GAPDH']}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
@@ -229,12 +211,9 @@ class TestConvenienceFunctions:
             finally:
                 os.chdir(original_dir)
 
-    def test_load_reactome_pathways_function(self):
+    def test_load_reactome_pathways_function(self, _reset_sspa_mock):
         """Test load_reactome_pathways convenience function."""
-        mock_sspa.process_reactome.return_value = None
-        mock_sspa.process_reactome.side_effect = None
-        mock_sspa.process_reactome.side_effect = None
-        mock_sspa.process_reactome.return_value = {'R-HSA-12345': ['BRAF']}
+        _reset_sspa_mock.process_reactome.return_value = {'R-HSA-12345': ['BRAF']}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import os

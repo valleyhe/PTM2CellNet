@@ -139,7 +139,12 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
             pass
 
     monkeypatch.setattr(train_pretrained.L, "Trainer", DummyTrainer)
-    monkeypatch.setattr(train_pretrained.L.loggers, "TensorBoardLogger", DummyTBLogger)
+    # lightning does not expose loggers as a top-level attribute;
+    # inject a stub module so L.loggers.TensorBoardLogger resolves.
+    import types as _types
+    _stub_loggers = _types.ModuleType("lightning.loggers")
+    _stub_loggers.TensorBoardLogger = DummyTBLogger
+    monkeypatch.setattr(train_pretrained.L, "loggers", _stub_loggers, raising=False)
 
     train_pretrained.main()
 
