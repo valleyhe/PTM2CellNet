@@ -103,7 +103,7 @@ Phases execute in numeric order: 15 → 16 → 17
 | 12. DAVF Inference Wrapper | v2.0 | 1/1 | Complete | 2026-05-03 |
 | 13. Architecture Cascade Fusion | v2.0 | 1/1 | Complete | 2026-05-03 |
 | 14. Integration Testing & Verification | v2.0 | 1/1 | Complete | 2026-05-03 |
-| 15. Test & Dependency Fixes | v2.1 | 0/2 | Not started | - |
+| 15. Test & Dependency Fixes | v2.1 | 0/2 | Planned | - |
 | 16. Code Health & Consolidation | v2.1 | 0/3 | Not started | - |
 | 17. Configuration & Final Verification | v2.1 | 0/2 | Not started | - |
 
