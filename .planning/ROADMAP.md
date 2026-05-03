@@ -49,11 +49,11 @@
   3. `pytest tests/` pathway_integration tests pass consistently with no state leakage between test runs
   4. `pip install -r requirements.txt` installs `anndata` as a declared dependency; `sspa` listed as optional
   5. `lion-pytorch` is either confirmed used by training configs or removed from requirements.txt
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 15-01: Fix failing tests (TEST-01, TEST-02, TEST-03)
-- [ ] 15-02: Fix dependencies (DEPS-01, DEPS-02, DEPS-03)
+- [ ] 15-01-PLAN.md — Fix failing tests: peft_config mock targets, Lightning import, pathway_integration state leakage (TEST-01, TEST-02, TEST-03)
+- [ ] 15-02-PLAN.md — Fix dependencies: add anndata, add sspa optional, confirm lion-pytorch (DEPS-01, DEPS-02, DEPS-03)
 
 ### Phase 16: Code Health & Consolidation
 **Goal**: No silent error swallowing, no orphaned root scripts, no duplicate source files
