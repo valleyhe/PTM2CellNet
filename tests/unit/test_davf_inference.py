@@ -87,11 +87,12 @@ class TestDAVFInferenceConfig:
         assert config.feature_dim == 128
         assert config.hidden_dim == 256
 
-    def test_valid_config_gene(self):
-        """state_space='gene' remains a valid config value for future support."""
+    def test_gene_state_space_is_rejected_at_config_validation(self):
+        """state_space='gene' is rejected because only scvi_latent is supported."""
         from src.models.davf_inference import DAVFInferenceConfig
-        config = DAVFInferenceConfig(state_space="gene")
-        assert config.state_space == "gene"
+
+        with pytest.raises(ValueError, match="state_space must be 'scvi_latent'"):
+            DAVFInferenceConfig(state_space="gene")
 
     def test_invalid_state_space_raises(self):
         """Invalid state_space raises ValueError."""
@@ -155,18 +156,6 @@ class TestDeltaProjection:
 
 class TestDAVFInferenceModule:
     """Test suite for DAVFInferenceModule."""
-
-    def test_gene_state_space_is_rejected_at_runtime(self, mock_checkpoint):
-        """The wrapper must fail explicitly until gene-space inference is implemented."""
-        from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
-
-        config = DAVFInferenceConfig(
-            state_space="gene",
-            checkpoint_path=str(mock_checkpoint),
-        )
-
-        with pytest.raises(NotImplementedError, match="supports only state_space='scvi_latent'"):
-            DAVFInferenceModule(config)
 
     def test_checkpoint_loading_returns_correct_shape(self, mock_checkpoint, mock_mapper_output):
         """Load checkpoint and verify [B, 128] output."""
@@ -377,7 +366,7 @@ class TestCheckpointLoading:
     """Test suite for checkpoint loading edge cases."""
 
     def test_legacy_pickle_checkpoint_stays_unloaded_without_opt_in(self, tmp_path, mock_mapper_output):
-        """Legacy pickle fallback must not happen unless explicitly enabled."""
+        """Legacy pickle fallback retries with weights_only=False then degrades to zeros."""
         from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
 
         ckpt_path = tmp_path / "legacy_pickle.pt"
@@ -389,7 +378,9 @@ class TestCheckpointLoading:
             module = DAVFInferenceModule(DAVFInferenceConfig(checkpoint_path=str(ckpt_path)))
 
         assert module._checkpoint_loaded is False
-        assert mock_load.call_count == 1
+        # First attempt with weights_only=True fails, then auto-retry with
+        # weights_only=False also fails — both calls are expected.
+        assert mock_load.call_count == 2
 
         output = module(mock_mapper_output)
         assert output.davf_features.shape == (2, 128)
@@ -406,7 +397,9 @@ class TestCheckpointLoading:
         model = LatentDAVF(LatentDAVFConfig(latent_dim=10, hidden_dim=256, num_genes=5000))
         checkpoint = {"model_state_dict": model.state_dict()}
 
-        with patch("src.models.davf_inference.torch.load") as mock_load:
+        with patch("src.models.davf_inference.torch.load") as mock_load, patch(
+            "src.models.davf_inference.logger.warning"
+        ) as mock_warning:
             mock_load.side_effect = [pickle.UnpicklingError("legacy pickle"), checkpoint]
 
             module = DAVFInferenceModule(
@@ -418,6 +411,11 @@ class TestCheckpointLoading:
 
         assert module._checkpoint_loaded is True
         assert mock_load.call_count == 2
+        assert mock_load.call_args_list[0].kwargs["weights_only"] is True
+        assert mock_load.call_args_list[1].kwargs["weights_only"] is False
+        warning_message = mock_warning.call_args[0][0]
+        assert "unsafe" in warning_message
+        assert "Only use trusted checkpoints" in warning_message
 
         output = module(mock_mapper_output)
         assert output.davf_features.shape == (2, 128)

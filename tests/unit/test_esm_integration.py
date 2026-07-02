@@ -50,7 +50,7 @@ def integration_dfs():
 def test_esm_full_pipeline_flow(esm2_encoder, integration_dfs):
     """测试ESM完整数据流可连通并产出logits。"""
     from src.data.datasets import ESMTokenizedDataset
-    from src.data.lightning_datamodule import PTMDataModule
+    from src.data.lightning_datamodule import PTMLightningDataModule
     from src.models.architectures import PTM2CellNet
 
     train_df, val_df, test_df = integration_dfs
@@ -63,7 +63,7 @@ def test_esm_full_pipeline_flow(esm2_encoder, integration_dfs):
     sample = dataset[0]
     assert {"input_ids", "attention_mask", "ptm_mask", "ptm_types", "label"}.issubset(sample.keys())
 
-    dm = PTMDataModule(
+    dm = PTMLightningDataModule(
         train_df=train_df,
         val_df=val_df,
         test_df=test_df,

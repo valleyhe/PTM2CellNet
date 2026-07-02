@@ -10,6 +10,7 @@ import sys
 import argparse
 import logging
 from pathlib import Path
+from collections import defaultdict
 import json
 from datetime import datetime
 
@@ -17,6 +18,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
+from src.utils.io import safe_torch_load
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -25,7 +27,11 @@ from tqdm import tqdm
 import numpy as np
 
 from src.models.multitask_ptm import MultiTaskPTMPredictor, MultiTaskLoss
-from src.data.multitask_dataset import MultiTaskPTMDataModule, SampleDataset
+from src.data.multitask_dataset import (
+    MultiTaskPTMDataModule,
+    SampleDataset,
+    collate_multitask_batch,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -288,7 +294,9 @@ def main():
     logger.info("=" * 60)
 
     # 加载最佳模型
-    checkpoint = torch.load(checkpoint_dir / 'best_model.ckpt')
+    # 训练保存的 checkpoint 包含 optimizer state（含 numpy 标量），
+    # 需显式使用 weights_only=False 加载（文件由本项目自身写入，可信）。
+    checkpoint = safe_torch_load(checkpoint_dir / 'best_model.ckpt', weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     test_metrics = evaluate(

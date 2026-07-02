@@ -27,7 +27,7 @@ from lightning.pytorch.callbacks import (
 from src.utils.config import Config
 from src.data.loaders import DataLoader
 from src.data.preprocess import DataPreprocessor
-from src.data.lightning_datamodule import PTMDataModule
+from src.data.lightning_datamodule import PTMLightningDataModule
 from src.models.architectures import PTM2CellNet
 from src.training.lightning_module import PTM2CellNetLightning
 from src.utils.logging import setup_logger
@@ -134,7 +134,12 @@ def main():
     config = Config.from_yaml(config_path)
 
     # 确保encoder_type与模型名称匹配
-    config.set("model.encoder_type", args.model.lower().replace("m", "M"))
+    # PTM2CellNet 内部会对 encoder_type 做 .lower()，并使用
+    # ``encoder_type.startswith("esm2")`` 判定；model_size 通过
+    # ``split("_")[1]`` 取得（如 "esm2_8m" -> "8m"），ESM2Encoder 内部
+    # 再 normalize 为大写 "8M"。因此这里只需小写化，避免历史上的
+    # ``.replace("m", "M")`` 把 "esm2_8M" 错误变成 "esM2_8M"。
+    config.set("model.encoder_type", args.model.lower())
 
     # 命令行参数覆盖配置
     if args.freeze:
@@ -171,7 +176,7 @@ def main():
 
     # 创建数据模块
     logger.info("创建数据模块...")
-    data_module = PTMDataModule(
+    data_module = PTMLightningDataModule(
         train_df=train_df,
         val_df=val_df,
         test_df=test_df,

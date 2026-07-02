@@ -1,0 +1,60 @@
+# Transformer编码器配置 (Small) - GPU优化版
+# 与Mamba Small配置匹配，用于公平对比
+
+model:
+  encoder_type: "transformer"
+  hidden_dim: 256
+  num_layers: 6
+  num_heads: 8
+  num_classes: 4
+  num_ptm_types: 10
+  dropout: 0.1
+  vocab_size: 21
+
+data:
+  max_sequence_length: 500
+  batch_size: 8
+  num_workers: 4
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "Phosphorylation"
+    - "Acetylation"
+    - "Ubiquitination"
+    - "Methylation"
+    - "Glycosylation"
+    - "SUMOylation"
+    - "Palmitoylation"
+    - "Nitrosylation"
+    - "Hydroxylation"
+    - "ADP-ribosylation"
+
+training:
+  max_epochs: 100
+  learning_rate: 0.0002
+  optimizer: "adamw"
+  weight_decay: 0.01
+  scheduler: "cosine"
+  warmup_epochs: 5
+
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 8
+  precision: "16-mixed"
+
+  accelerator: "gpu"
+  devices: 1
+  strategy: "auto"
+
+callbacks:
+  model_checkpoint:
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 3
+    filename: "transformer-small-{epoch:02d}-{val_loss:.4f}"
+
+  early_stopping:
+    monitor: "val_loss"
+    patience: 10
+    mode: "min"
+
+  learning_rate_monitor:
+    logging_interval: "step"

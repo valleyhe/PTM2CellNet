@@ -63,6 +63,7 @@ class TestBackendDetection:
         assert info["uses_explicit_files"] is False
 
     def test_get_backend_info_genki_source(self) -> None:
+        pytest.importorskip("torch_geometric")
         adapter = GenKIAdapter(ref_root="ref/GenKI-master-src/GenKI-master")
         info = adapter.get_backend_info()
         assert info["backend"] == "genki_source"

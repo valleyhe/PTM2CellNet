@@ -4,16 +4,26 @@
 设计思路: 封装常见文件操作，提供类型安全的接口，自动处理目录创建
 """
 
-import os
 import importlib
-import pickle
 import json
+import os
+import pickle
+import warnings
 from typing import Any, Dict, List, Optional, Union, cast
 
 import numpy as np
-from numpy.typing import NDArray
 import pandas as pd
 import torch
+from numpy.typing import NDArray
+
+from .logging import setup_logger
+
+try:
+    import h5py
+except ImportError:  # pragma: no cover - exercised via monkeypatch
+    h5py = None
+
+logger = setup_logger(__name__)
 
 
 def _ensure_parent_dir(file_path: str) -> None:
@@ -22,7 +32,124 @@ def _ensure_parent_dir(file_path: str) -> None:
         os.makedirs(dir_path, exist_ok=True)
 
 
+def _warn_hdf5_fallback() -> None:
+    logger.warning("h5py is not available; falling back to a pickled archive for HDF5 IO")
+
+
+def _is_string_array(array: NDArray[Any]) -> bool:
+    if array.dtype.kind in {"U", "S"}:
+        return True
+    if array.dtype.kind != "O":
+        return False
+    flat = array.reshape(-1)
+    return all(isinstance(item, str) for item in flat)
+
+
+def _create_string_dataset(group: Any, key: str, value: Any) -> None:
+    if h5py is None:
+        raise RuntimeError("h5py is required to create string datasets")
+
+    string_dtype = h5py.string_dtype(encoding="utf-8")
+    data = value if isinstance(value, str) else np.asarray(value, dtype=object)
+    group.create_dataset(key, data=data, dtype=string_dtype)
+
+
+def _write_hdf5_value(group: Any, key: str, value: Any) -> None:
+    if h5py is None:
+        raise RuntimeError("h5py is required for HDF5 serialization")
+
+    if isinstance(value, torch.Tensor):
+        dataset = group.create_dataset(key, data=value.detach().cpu().numpy())
+        dataset.attrs["item_type"] = "torch_tensor"
+        return
+
+    if isinstance(value, pd.DataFrame):
+        dataframe_group = group.create_group(key)
+        dataframe_group.attrs["item_type"] = "dataframe"
+        _create_string_dataset(dataframe_group, "__columns__", value.columns.astype(str).tolist())
+        _write_hdf5_value(dataframe_group, "__index__", value.index.to_numpy())
+        columns_group = dataframe_group.create_group("columns")
+        for column in value.columns:
+            _write_hdf5_value(columns_group, str(column), value[column].to_numpy())
+        return
+
+    if isinstance(value, str):
+        _create_string_dataset(group, key, value)
+        group[key].attrs["item_type"] = "string"
+        return
+
+    if isinstance(value, np.ndarray):
+        if _is_string_array(value):
+            _create_string_dataset(group, key, value)
+        else:
+            group.create_dataset(key, data=value)
+        group[key].attrs["item_type"] = "ndarray"
+        return
+
+    if isinstance(value, (np.generic, int, float, bool)):
+        dataset = group.create_dataset(key, data=value)
+        dataset.attrs["item_type"] = "scalar"
+        return
+
+    raise TypeError(f"Unsupported HDF5 value type for key '{key}': {type(value)!r}")
+
+
+def _read_hdf5_dataset(dataset: Any) -> Any:
+    item_type = dataset.attrs.get("item_type", "ndarray")
+
+    if item_type == "string":
+        return dataset.asstr()[()]
+
+    if dataset.dtype.kind in {"O", "S"}:
+        return np.asarray(dataset.asstr()[()])
+
+    value = dataset[()]
+    if item_type == "torch_tensor":
+        return torch.from_numpy(np.asarray(value))
+    if item_type == "scalar":
+        return value.item() if hasattr(value, "item") else value
+    return np.asarray(value)
+
+
+def _read_hdf5_value(node: Any) -> Any:
+    if h5py is None:
+        raise RuntimeError("h5py is required for HDF5 deserialization")
+
+    if isinstance(node, h5py.Dataset):
+        return _read_hdf5_dataset(node)
+
+    item_type = node.attrs.get("item_type")
+    if item_type != "dataframe":
+        raise TypeError(f"Unsupported HDF5 group type: {item_type!r}")
+
+    columns = [str(column) for column in node["__columns__"].asstr()[()]]
+    index_values = _read_hdf5_value(node["__index__"])
+    column_group = node["columns"]
+    data = {column: _read_hdf5_value(column_group[column]) for column in columns}
+    return pd.DataFrame(data, index=pd.Index(index_values))
+
+
+def _load_pickle_archive(file_path: str) -> Dict[str, Any]:
+    with open(file_path, "rb") as file_obj:
+        data = pickle.load(file_obj)
+    if not isinstance(data, dict):
+        raise TypeError("Pickle fallback content must be a dictionary")
+    return cast(Dict[str, Any], data)
+
+
 class _SafeUnpickler(pickle.Unpickler):
+    """受控反序列化器：仅允许已知安全或显式声明的全局对象。
+
+    白名单覆盖：
+        - Python 内置容器/标量；
+        - NumPy 数组与 dtype（含 ``numpy.core.multiarray._reconstruct``、
+          ``numpy.core.multiarray.scalar``）；
+        - PyTorch 张量（``torch._utils._rebuild_tensor_v2``）；
+        - Pandas DataFrame / Series / Index；
+        - 项目自定义数据类（按需扩展 ``_PROJECT_SAFE_GLOBALS``）。
+    """
+
+    # 内置与常用库类型白名单
     _SAFE_GLOBALS = {
         "builtins": {
             "dict",
@@ -35,13 +162,57 @@ class _SafeUnpickler(pickle.Unpickler):
             "float",
             "bool",
             "bytes",
+            "complex",
+            "range",
+            "slice",
+            "object",
         },
-        "numpy": {"dtype", "ndarray"},
-        "numpy.core.multiarray": {"_reconstruct"},
+        "numpy": {"dtype", "ndarray", "scalar"},
+        # NumPy < 2.0 路径
+        "numpy.core.multiarray": {"_reconstruct", "scalar"},
+        "numpy.core.numeric": {"_frombuffer"},
+        # NumPy >= 2.0 路径
+        "numpy._core.multiarray": {"_reconstruct", "scalar"},
+        "numpy._core.numeric": {"_frombuffer"},
+        "torch._utils": {"_rebuild_tensor_v2", "_rebuild_parameter"},
+        "torch.storage": {"_load_from_bytes", "_TypedStorage"},
+        "pandas.core.frame": {"DataFrame"},
+        "pandas.core.series": {"Series"},
+        "pandas.core.indexes.base": {"Index", "_new_Index", "_UnfavorableIndex"},
+        "pandas.core.indexes.numeric": {"Int64Index", "Float64Index", "UInt64Index"},
+        "pandas.core.indexes.range": {"RangeIndex"},
+        "pandas.core.internals.managers": {"BlockManager", "SingleBlockManager"},
+        "pandas.core.internals.blocks": {"new_block"},
+        "pandas.core.internals": {"new_block"},
+        # Pandas C 扩展内部模块（用于 BlockManager 反序列化）
+        "pandas._libs.internals": {"_unpickle_block"},
+        "pandas": {"Timestamp"},
+        "_codecs": {"encode"},
+        "datetime": {"datetime", "date", "timedelta"},
+        "collections": {"OrderedDict", "defaultdict", "Counter"},
     }
 
+    # 项目自定义类白名单（按需扩展）。使用 ``module: {name}`` 形式。
+    _PROJECT_SAFE_GLOBALS: Dict[str, set] = {
+        # 示例：若未来需要 pickle 项目数据类，可在此显式声明
+        # "src.data.schemas": {"PTMSite", "PTMRecord"},
+    }
+
+    @classmethod
+    def _all_safe_globals(cls) -> Dict[str, set]:
+        merged: Dict[str, set] = {}
+        for source in (cls._SAFE_GLOBALS, cls._PROJECT_SAFE_GLOBALS):
+            for module, names in source.items():
+                merged.setdefault(module, set()).update(names)
+        return merged
+
     def find_class(self, module: str, name: str):
-        if module in self._SAFE_GLOBALS and name in self._SAFE_GLOBALS[module]:
+        # Python 2 pickle 使用 "builtin"/"__builtin__" 作为 builtins 模块名，
+        # 在 protocol 2 的历史 pickle 中仍可能出现（例如 slice 对象）。
+        if module in {"__builtin__", "builtin"} and name in {"slice", "object"}:
+            return getattr(importlib.import_module("builtins"), name)
+        safe_globals = self._all_safe_globals()
+        if module in safe_globals and name in safe_globals[module]:
             return getattr(importlib.import_module(module), name)
         raise pickle.UnpicklingError(f"Disallowed global: {module}.{name}")
 
@@ -62,12 +233,16 @@ def save_pickle(obj: Any, file_path: str) -> None:
         pickle.dump(obj, f)
 
 
-def load_pickle(file_path: str) -> Any:
+def load_pickle(file_path: str, safe: bool = True) -> Any:
     """
     从pickle文件加载对象
 
     参数:
         file_path: pickle文件路径
+        safe: 是否使用安全反序列化（白名单模式）。默认为 ``True``，
+            仅允许已知安全类型（内置容器、NumPy/Torch/Pandas 等）。
+            若需要加载自定义类实例等不在白名单内的对象，可显式传入
+            ``safe=False`` 使用标准 ``pickle.load``——仅对可信文件使用。
 
     返回:
         加载的Python对象
@@ -78,8 +253,57 @@ def load_pickle(file_path: str) -> Any:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
+    if not safe:
+        logger.warning(
+            "load_pickle(safe=False) 使用标准 pickle.load 加载 %s，"
+            "仅应用于可信文件以避免反序列化风险。", file_path,
+        )
+        with open(file_path, "rb") as f:
+            return pickle.load(f)
+
     with open(file_path, "rb") as f:
         return _SafeUnpickler(f).load()
+
+
+def save_hdf5(obj: Dict[str, Any], file_path: str) -> None:
+    """
+    将字典对象保存为HDF5文件。
+
+    支持NumPy数组、PyTorch张量、Pandas DataFrame和字符串；
+    当 ``h5py`` 不可用时回退为pickle归档并记录warning。
+    """
+    _ensure_parent_dir(file_path)
+
+    if h5py is None:
+        _warn_hdf5_fallback()
+        with open(file_path, "wb") as file_obj:
+            pickle.dump(obj, file_obj)
+        return
+
+    with h5py.File(file_path, "w") as handle:
+        for key, value in obj.items():
+            _write_hdf5_value(handle, key, value)
+
+
+def load_hdf5(file_path: str) -> Dict[str, Any]:
+    """
+    从HDF5文件加载字典对象。
+
+    若 ``h5py`` 不可用，或文件是由pickle fallback生成，则回退到pickle读取并记录warning。
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"文件不存在: {file_path}")
+
+    if h5py is None:
+        _warn_hdf5_fallback()
+        return _load_pickle_archive(file_path)
+
+    try:
+        with h5py.File(file_path, "r") as handle:
+            return {key: _read_hdf5_value(handle[key]) for key in handle.keys()}
+    except OSError:
+        logger.warning("File is not a valid HDF5 archive; falling back to pickle loading")
+        return _load_pickle_archive(file_path)
 
 
 def save_json(obj: Union[Dict[str, Any], List[Any]], file_path: str, indent: int = 2) -> None:
@@ -131,17 +355,65 @@ def save_model(model: torch.nn.Module, file_path: str) -> None:
     torch.save(model.state_dict(), file_path)
 
 
-def load_model(model: torch.nn.Module, file_path: str, device: Optional[str] = None) -> torch.nn.Module:
+def safe_torch_load(path: Any, map_location: Any = None, **kwargs: Any) -> Any:
+    """Load a PyTorch artifact with a safe-by-default ``weights_only`` strategy.
+
+    The helper prefers ``weights_only=True`` to avoid unpickling arbitrary
+    Python objects. If the installed PyTorch build rejects that argument or
+    value, it retries once with ``weights_only=False`` and emits a
+    ``UserWarning`` so callers know the safer path was unavailable.
+
+    Note: ``pickle.UnpicklingError`` (raised when ``weights_only=True`` rejects
+    non-allowlisted globals such as NumPy scalars in optimizer state) is
+    intentionally **not** auto-retried here — it is propagated so that callers
+    like DAVF can decide whether to opt in to ``weights_only=False`` loading.
+    For trusted checkpoints that you know contain such globals, pass
+    ``weights_only=False`` explicitly.
+    """
+    explicit_weights_only = kwargs.pop("weights_only", None)
+    if explicit_weights_only is False:
+        return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
+
+    try:
+        return torch.load(path, map_location=map_location, weights_only=True, **kwargs)
+    except (TypeError, ValueError) as exc:
+        warnings.warn(
+            (
+                "torch.load(..., weights_only=True) is unavailable for this runtime; "
+                "retrying with weights_only=False. Only load trusted files. "
+                f"Original error: {exc}"
+            ),
+            UserWarning,
+            stacklevel=2,
+        )
+        return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
+
+
+def load_model(
+    model: torch.nn.Module,
+    file_path: str,
+    device: Optional[str] = None,
+    strict: bool = True,
+) -> torch.nn.Module:
     """
     加载PyTorch模型权重
 
+    统一 checkpoint 合约（审计报告 P0-3）：自动识别并解析裸 ``state_dict``、
+    Lightning ``.ckpt``（含 ``state_dict`` + ``model.`` 前缀）以及旧格式
+    ``model_state_dict``，使推理 CLI 可直接消费任意训练入口的产物。
+
     参数:
         model: 模型实例
-        file_path: 权重文件路径
+        file_path: 权重文件路径（``.pt``/``.pth``/``.ckpt``）
         device: 加载到的设备
+        strict: 是否严格加载（默认 True）。不匹配时抛出 ``RuntimeError``。
 
     返回:
         加载权重后的模型
+
+    异常:
+        FileNotFoundError: 权重文件不存在。
+        RuntimeError: strict=True 且 missing/unexpected 键非空。
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"模型文件不存在: {file_path}")
@@ -149,10 +421,23 @@ def load_model(model: torch.nn.Module, file_path: str, device: Optional[str] = N
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    load_kwargs: Dict[str, Any] = {"map_location": device}
-    if "weights_only" in torch.load.__code__.co_varnames:
-        load_kwargs["weights_only"] = True
-    model.load_state_dict(torch.load(file_path, **load_kwargs))
+    # 延迟导入避免循环依赖
+    from .checkpoint_utils import extract_model_state_dict
+
+    raw = safe_torch_load(file_path, map_location=device)
+    state_dict = extract_model_state_dict(raw)
+
+    if strict:
+        # 严格模式：直接 load_state_dict，missing/unexpected 会触发 RuntimeError
+        model.load_state_dict(state_dict)
+    else:
+        # 兼容模式：记录但不报错（仅用于显式声明的迁移路径）
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing:
+            logger.warning("load_model(strict=False): 缺失键 %s", missing[:5])
+        if unexpected:
+            logger.warning("load_model(strict=False): 多余键 %s", unexpected[:5])
+
     return model
 
 

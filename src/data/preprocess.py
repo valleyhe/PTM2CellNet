@@ -179,7 +179,12 @@ class DataPreprocessor:
             df.at[idx, ptm_col] = json.dumps(valid_sites)
         return df
 
-    def remove_duplicate_sequences(self, df: pd.DataFrame, sequence_col: str = "sequence") -> pd.DataFrame:
+    def remove_duplicate_sequences(
+        self,
+        df: pd.DataFrame,
+        sequence_col: str = "sequence",
+        subset_columns: Optional[list[str]] = None,
+    ) -> pd.DataFrame:
         """
         移除重复序列
 
@@ -195,7 +200,8 @@ class DataPreprocessor:
 
         logger.info("移除重复序列")
         initial_count = len(df)
-        df = df.drop_duplicates(subset=[sequence_col], keep="first").reset_index(drop=True)
+        subset = subset_columns or [sequence_col]
+        df = df.drop_duplicates(subset=subset, keep="first").reset_index(drop=True)
         removed_count = initial_count - len(df)
 
         if removed_count > 0:
@@ -341,6 +347,160 @@ class DataPreprocessor:
         logger.info("数据集划分完成: train=%d, val=%d, test=%d", len(train), len(val), len(test))
         return train, val, test
 
+    def validate_data_quality(
+        self,
+        df: pd.DataFrame,
+        sequence_col: str = "sequence",
+        ptm_col: str = "ptm_sites",
+        label_col: str = "cell_state",
+        *,
+        strict: bool = False,
+    ) -> Dict[str, object]:
+        """Aggregate data-quality checks *before* the expensive preprocess pipeline.
+
+        Implements audit P1-2 strategy 4: surface label-distribution, sequence
+        and PTM-site problems early so users do not train a model on
+        degenerate data and then mistake the resulting weights for useful ones.
+
+        The method is non-destructive: it only inspects ``df`` and never mutates
+        it. It reports counts/distributions and, when ``strict=True``, raises
+        :class:`DataQualityError` on the first hard failure.
+
+        Args:
+            df: Raw input DataFrame.
+            sequence_col: Name of the sequence column.
+            ptm_col: Name of the PTM sites column (JSON string or list).
+            label_col: Name of the cell-state label column.
+            strict: When True, raise :class:`DataQualityError` on the first
+                hard failure instead of just collecting warnings.
+
+        Returns:
+            A dict with keys:
+
+            * ``ok`` (bool): True when no hard failures were found.
+            * ``warnings`` (list[str]): Soft issues (e.g. imbalance).
+            * ``hard_failures`` (list[str]): Issues that would make training
+              meaningless (no labels, single class, empty frame, etc.).
+            * ``label_distribution`` (dict): label -> count.
+            * ``sequence_length_stats`` (dict): min/max/mean length.
+            * ``invalid_ptm_site_count`` (int): sites failing positional/type
+              validation.
+            * ``row_count`` (int): rows inspected.
+
+        Raises:
+            DataQualityError: If ``strict`` is True and a hard failure occurs.
+        """
+        warnings: list[str] = []
+        hard_failures: list[str] = []
+
+        report: Dict[str, object] = {
+            "ok": True,
+            "warnings": warnings,
+            "hard_failures": hard_failures,
+            "label_distribution": {},
+            "sequence_length_stats": {},
+            "invalid_ptm_site_count": 0,
+            "row_count": int(len(df)),
+        }
+
+        if len(df) == 0:
+            hard_failures.append("输入 DataFrame 为空，无法训练。")
+            report["ok"] = False
+            if strict:
+                raise DataQualityError(hard_failures[0], report)
+            return report
+
+        # --- Label column -------------------------------------------------
+        if label_col not in df.columns:
+            hard_failures.append(
+                f"缺少标签列 '{label_col}'；训练数据必须包含 cell_state 标签。"
+            )
+        else:
+            non_null = df[label_col].dropna()
+            n_null = len(df) - len(non_null)
+            if n_null > 0:
+                warnings.append(f"标签列有 {n_null} 个空值（占比 {n_null / len(df):.1%}）。")
+            dist = non_null.astype(str).value_counts().to_dict()
+            report["label_distribution"] = {str(k): int(v) for k, v in dist.items()}
+            if len(dist) < 2:
+                hard_failures.append(
+                    f"标签列仅含 {len(dist)} 个类别（需 ≥ 2 才能训练）：" f"{list(dist)}"
+                )
+            elif len(dist) == 2:
+                # Binary is fine, but note it for awareness.
+                warnings.append("标签为二分类，将走二分类训练路径。")
+            # Imbalance check applies to binary and multi-class alike.
+            if len(dist) >= 2:
+                counts = list(dist.values())
+                max_c, min_c = max(counts), min(counts)
+                ratio = max_c / min_c if min_c > 0 else float("inf")
+                if ratio > 10:
+                    warnings.append(
+                        f"标签分布严重不均衡（最大/最小 = {ratio:.1f}），"
+                        "建议使用分层采样或类别加权。"
+                    )
+
+        # --- Sequence column ----------------------------------------------
+        if sequence_col not in df.columns:
+            hard_failures.append(
+                f"缺少序列列 '{sequence_col}'；训练数据必须包含蛋白质序列。"
+            )
+        else:
+            seqs = df[sequence_col].dropna().astype(str)
+            empty_seqs = int((seqs.str.len() == 0).sum())
+            if empty_seqs > 0:
+                warnings.append(f"序列列有 {empty_seqs} 条空字符串。")
+            too_long = int((seqs.str.len() > self.max_sequence_length).sum())
+            if too_long > 0:
+                warnings.append(
+                    f"{too_long} 条序列超过 max_sequence_length="
+                    f"{self.max_sequence_length}，预处理时会被删除。"
+                )
+            invalid_chars = 0
+            for s in seqs:
+                if s:
+                    invalid_chars += len(set(s) - self.valid_amino_acids)
+            if seqs.any():
+                lens = seqs.str.len()
+                report["sequence_length_stats"] = {
+                    "min": int(lens.min()),
+                    "max": int(lens.max()),
+                    "mean": float(lens.mean()),
+                }
+
+        # --- PTM sites column ---------------------------------------------
+        if ptm_col in df.columns:
+            invalid_sites = 0
+            for _, row in df.iterrows():
+                raw = row.get(ptm_col)
+                if pd.isna(raw):
+                    continue
+                try:
+                    sites = json.loads(raw) if isinstance(raw, str) else raw
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(sites, list):
+                    continue
+                seq_len = len(str(row[sequence_col])) if sequence_col in df.columns and pd.notna(row.get(sequence_col)) else None
+                for site in sites:
+                    ok, _ = validate_ptm_site(site, seq_len)
+                    if not ok:
+                        invalid_sites += 1
+            report["invalid_ptm_site_count"] = invalid_sites
+            if invalid_sites > 0:
+                warnings.append(
+                    f"{invalid_sites} 个 PTM 位点未通过校验（位置越界或类型未知），"
+                    "预处理时会被丢弃。"
+                )
+
+        report["ok"] = len(hard_failures) == 0
+        if hard_failures and strict:
+            raise DataQualityError(
+                "数据质量预检未通过：\n  - " + "\n  - ".join(hard_failures),
+                report,
+            )
+        return report
+
     def preprocess_pipeline(
         self,
         df: pd.DataFrame,
@@ -359,20 +519,97 @@ class DataPreprocessor:
 
         返回:
             (train_df, val_df, test_df)元组
+
+        异常:
+            EmptyDatasetError: 预处理后任一划分为空（尤其训练集），包含原始样本数、
+                过滤统计与当前 max_sequence_length，便于定位配置/数据问题。
         """
         logger.info("开始完整的预处理流程")
+
+        original_count = len(df)
+        seq_len_stats = None
+        if sequence_col in df.columns and original_count > 0:
+            seq_lens = df[sequence_col].astype(str).str.len()
+            seq_len_stats = {
+                "min": int(seq_lens.min()),
+                "max": int(seq_lens.max()),
+                "mean": float(seq_lens.mean()),
+            }
 
         if sequence_col in df.columns:
             # 先标准化非标准氨基酸字符
             df = self.standardize_amino_acids(df, sequence_col)
             # 再清洗序列
-            df = self.clean_sequences(df, sequence_col)
-            df = self.remove_duplicate_sequences(df, sequence_col)
+            after_clean = None
+            if self.handle_missing == "drop":
+                # clean_sequences 在 drop 模式下会删除无效序列；记录过滤量
+                before_clean = len(df)
+                df = self.clean_sequences(df, sequence_col)
+                after_clean = len(df)
+            else:
+                df = self.clean_sequences(df, sequence_col)
+                after_clean = len(df)
+            before_dedup = len(df)
+            dedup_subset = [sequence_col]
+            for col in (label_col, ptm_col):
+                if col in df.columns and col not in dedup_subset:
+                    dedup_subset.append(col)
+            df = self.remove_duplicate_sequences(df, sequence_col, dedup_subset)
+            after_dedup = len(df)
+        else:
+            before_clean = after_clean = before_dedup = after_dedup = len(df)
 
         if ptm_col in df.columns:
             df = self.normalize_ptm_labels(df, ptm_col)
 
         train, val, test = self.split_dataset(df, label_col)
 
+        # P1-3: 预处理后空数据集 fail-fast，带可操作上下文
+        filter_stats = {
+            "original_sample_count": original_count,
+            "after_clean_sequences": after_clean,
+            "after_dedup": after_dedup,
+            "removed_by_clean": before_clean - after_clean,
+            "removed_by_dedup": before_dedup - after_dedup,
+            "sequence_length_at_intake": seq_len_stats,
+            "max_sequence_length_config": self.max_sequence_length,
+            "split_sizes": {
+                "train": len(train),
+                "val": len(val),
+                "test": len(test),
+            },
+        }
+        if len(train) == 0:
+            raise EmptyDatasetError(
+                "预处理后训练集为空，无法继续训练。这通常意味着数据被全部过滤掉。"
+                f" 过滤统计: {filter_stats}。"
+                " 常见原因：max_sequence_length 过小（序列均超长被删）、"
+                "valid_amino_acids 不覆盖数据中出现的字符、或数据文件列名不匹配。"
+            )
+        if len(val) == 0 or len(test) == 0:
+            logger.warning(
+                "预处理后验证/测试集为空（但仍可训练）。过滤统计: %s", filter_stats
+            )
+
         logger.info("预处理流程完成")
         return train, val, test
+
+
+class EmptyDatasetError(ValueError):
+    """预处理后数据集为空（通常因配置/数据不匹配导致样本被全部过滤）。
+
+    抛出时携带原始样本数、各阶段过滤量与当前 ``max_sequence_length``，
+    供 CLI 捕获并打印可操作错误（对应审计报告 P1-3）。
+    """
+
+
+class DataQualityError(ValueError):
+    """原始数据未通过质量预检（审计 P1-2 策略 4）。
+
+    由 :meth:`DataPreprocessor.validate_data_quality` 在 ``strict=True`` 时抛出，
+    携带结构化 ``report`` 字典，供 CLI 打印聚合统计。
+    """
+
+    def __init__(self, message: str, report: Optional[Dict[str, object]] = None):
+        super().__init__(message)
+        self.report = report or {}

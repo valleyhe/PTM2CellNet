@@ -231,6 +231,7 @@ class CPTACValidator:
     def _load_models(self):
         """加载PTM预测模型"""
         import torch
+        from src.utils.io import safe_torch_load
         sys.path.insert(0, str(self.model_dir.parent.parent))
         from src.models.ptm_site_predictor import PTMSitePredictor
 
@@ -247,7 +248,7 @@ class CPTACValidator:
             best_model = sorted([f for f in ckpt_files if 'val_auroc' in f.stem],
                                key=lambda x: x.stem, reverse=True)[0]
 
-            checkpoint = torch.load(best_model, map_location='cpu')
+            checkpoint = safe_torch_load(best_model, map_location='cpu')
 
             model = PTMSitePredictor(
                 vocab_size=21,

@@ -1,0 +1,50 @@
+# Mamba编码器配置 (Tiny) - 用于GPU内存受限环境
+# 最小配置以确保能够训练
+
+model:
+  encoder_type: "mamba"
+  hidden_dim: 128           # 大幅减小隐藏维度
+  num_layers: 2             # 减少层数
+  state_dim: 8              # 减小状态维度
+  num_classes: 4
+  num_ptm_types: 10
+  dropout: 0.1
+  vocab_size: 21            # 20 amino acids + 1 padding token
+
+data:
+  max_sequence_length: 300  # 减小序列长度
+  batch_size: 8             # 小batch_size
+  num_workers: 2
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "Phosphorylation"
+    - "Acetylation"
+    - "Ubiquitination"
+    - "Methylation"
+
+training:
+  max_epochs: 50
+  learning_rate: 0.001
+  optimizer: "adamw"
+  weight_decay: 0.01
+  scheduler: "cosine"
+  warmup_epochs: 3
+
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 4
+
+  accelerator: "gpu"
+  devices: 1
+  precision: "16-mixed"
+
+callbacks:
+  model_checkpoint:
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 2
+    filename: "mamba-tiny-{epoch:02d}-{val_loss:.4f}"
+
+  early_stopping:
+    monitor: "val_loss"
+    patience: 10
+    mode: "min"

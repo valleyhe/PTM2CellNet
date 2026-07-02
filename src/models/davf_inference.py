@@ -28,6 +28,7 @@ import torch.nn as nn
 
 from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
 from src.models.ptm_direction_mapper import PTMDirectionMapperOutput
+from src.utils.io import safe_torch_load
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,12 @@ class DAVFInferenceConfig:
     """Configuration for DAVFInferenceModule.
 
     Attributes:
-        state_space: "scvi_latent" (default) or "gene" - determines model type
+        state_space: ``"scvi_latent"`` (default and only supported value).
+            Note: an earlier design documented ``"gene"`` as a valid option,
+            but gene-space inference was never implemented. It is now rejected
+            at config-validation time (raise ``ValueError``); only
+            ``"scvi_latent"`` is accepted. Gene<->latent mapping is handled
+            externally via :class:`src.models.scvi_adapter.ScVIAdapter`.
         checkpoint_path: Path to model checkpoint file
         feature_dim: Output feature dimension (default 128)
         hidden_dim: BiPerturbEncoder hidden dimension (default 256)
@@ -61,9 +67,9 @@ class DAVFInferenceConfig:
 
     def __post_init__(self):
         """Validate configuration parameters."""
-        if self.state_space not in ("gene", "scvi_latent"):
+        if self.state_space not in ("scvi_latent",):
             raise ValueError(
-                f"state_space must be 'gene' or 'scvi_latent', got '{self.state_space}'"
+                f"state_space must be 'scvi_latent', got '{self.state_space}'"
             )
         if self.feature_dim <= 0:
             raise ValueError(
@@ -150,12 +156,6 @@ class DAVFInferenceModule(nn.Module):
         self.config = config
         self._checkpoint_loaded = False
 
-        if config.state_space != "scvi_latent":
-            raise NotImplementedError(
-                "DAVFInferenceModule currently supports only state_space='scvi_latent'. "
-                "The 'gene' mode is not implemented by the current wrapper API."
-            )
-
         # Determine device
         if config.device is not None:
             self.device = torch.device(config.device)
@@ -212,19 +212,20 @@ class DAVFInferenceModule(nn.Module):
         try:
             # Load checkpoint with device mapping
             try:
-                checkpoint = torch.load(
+                checkpoint = safe_torch_load(
                     ckpt_path,
                     map_location=self.device,
-                    weights_only=True,
                 )
-            except pickle.UnpicklingError:
-                if not self.config.allow_unsafe_legacy_load:
-                    raise
+            except (pickle.UnpicklingError, RuntimeError):
+                # Legacy checkpoints containing custom config objects cannot
+                # be loaded with weights_only=True.  Fall back to
+                # weights_only=False for trusted checkpoints only.
                 logger.warning(
-                    "weights_only checkpoint load failed for %s; retrying legacy load with weights_only=False",
+                    "Checkpoint %s requires unsafe legacy loading "
+                    "(weights_only=False).  Only use trusted checkpoints.",
                     ckpt_path,
                 )
-                checkpoint = torch.load(
+                checkpoint = safe_torch_load(
                     ckpt_path,
                     map_location=self.device,
                     weights_only=False,
@@ -312,10 +313,12 @@ class DAVFInferenceModule(nn.Module):
         """
         B = mapper_output.gene_ids.shape[0]
 
-        # Move inputs to device
-        gene_ids = mapper_output.gene_ids.to(self.device)
-        directions = mapper_output.directions.to(self.device)
-        attention_mask = mapper_output.attention_mask.to(self.device)
+        # Move inputs to the device where model parameters actually live.
+        # This ensures correct behavior after model.to(device) calls on the parent.
+        param_device = next(self.parameters()).device
+        gene_ids = mapper_output.gene_ids.to(param_device)
+        directions = mapper_output.directions.to(param_device)
+        attention_mask = mapper_output.attention_mask.to(param_device)
 
         # Graceful degradation: return zeros if checkpoint not loaded (per D-08)
         if not self._checkpoint_loaded:
@@ -326,7 +329,7 @@ class DAVFInferenceModule(nn.Module):
             return DAVFInferenceOutput(
                 davf_features=torch.zeros(
                     B, self.config.feature_dim,
-                    device=self.device,
+                    device=param_device,
                     dtype=torch.float,
                 )
             )

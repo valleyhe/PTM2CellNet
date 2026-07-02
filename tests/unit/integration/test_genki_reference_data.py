@@ -71,6 +71,7 @@ class TestReferenceDataErrors:
         assert "nonexistent_module_xyz" in deps
 
     def test_load_reference_data_genki_source(self, tmp_path: Path, monkeypatch) -> None:
+        pytest.importorskip("torch_geometric")
         import numpy as np
         import scipy.sparse as sp
 

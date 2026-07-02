@@ -39,6 +39,25 @@ def _build_significance_payload(result):
     }
 
 
+def _assert_backend_ready(adapter) -> None:
+    """在 pipeline 启动前校验 GenKI backend 依赖是否就绪。
+
+    缺少 torch_geometric 等可选依赖时，给出明确的安装提示而非晦涩堆栈。
+    依赖就绪与否由 adapter 的 ``validate_runtime_ready`` 决定——基于 fixture
+    的后端会声明自己 runtime_ready，而真实 GenKI source 后端在缺 torch_geometric
+    时会报告 missing_dependencies（P1-2）。
+    """
+    try:
+        adapter.validate_runtime_ready()
+    except RuntimeError as exc:
+        raise SystemExit(
+            f"{exc}\n"
+            "GenKI source backend 依赖未就绪。请安装 genki 可选依赖：\n"
+            "    pip install -e .[genki]\n"
+            "注意 torch-geometric 需与当前 torch/CUDA 版本匹配，详见 README。"
+        )
+
+
 def main():
     _ensure_project_root()
 
@@ -91,6 +110,11 @@ def main():
         bagging_threshold=float(integration_cfg.get("bagging_threshold", 0.05)),
         bagging_cutoff=float(integration_cfg.get("bagging_cutoff", 0.95)),
     )
+
+    # 在进入耗时 pipeline 之前做 backend readiness 校验，避免因缺少可选依赖
+    # （如 torch_geometric）而在 pipeline 内部抛出不友好的堆栈。
+    _assert_backend_ready(adapter)
+
     hard = adapter.run(GenePerturbationRequest(args.gene, "", "", -1, 1.0, "hard_ko"))
     soft = adapter.run(GenePerturbationRequest(args.gene, "", "", -1, magnitude, "soft_ptm"))
 

@@ -33,13 +33,34 @@ class BatchPredictionRequest(BaseModel):
     samples: List[PredictionRequest] = Field(..., description="样本列表")
 
 
+# Variant prediction schemas (FEAT-01, FEAT-02)
+
+class PTMEffect(BaseModel):
+    """PTM effect prediction for a specific modification type."""
+    ptm_type: str = Field(..., description="PTM type (Phosphorylation, Ubiquitination, etc.)")
+    wildtype_prob: float = Field(..., description="PTM probability in wildtype", ge=0.0, le=1.0)
+    mutant_prob: float = Field(..., description="PTM probability in mutant", ge=0.0, le=1.0)
+    delta_prob: float = Field(..., description="Change in probability", ge=-1.0, le=1.0)
+    effect: str = Field(..., description="Effect classification: gain/loss/neutral/error")
+
+
+class PathwayImpact(BaseModel):
+    """Signal pathway impact from variant."""
+    pathway_name: str = Field(..., description="Pathway name")
+    activity_change: float = Field(..., description="Predicted activity change")
+    confidence: str = Field(..., description="Confidence level: high/medium/low")
+    key_genes: List[str] = Field(default_factory=list, description="Affected key genes")
+
+
 class PredictionResponse(BaseModel):
     """
     单样本预测响应模型
     """
+    predicted_cell_state: str = Field(..., description="预测的细胞状态")
     cell_state: str = Field(..., description="预测的细胞状态")
     confidence: float = Field(..., description="预测置信度", ge=0.0, le=1.0)
     probabilities: Dict[str, float] = Field(..., description="各类别的概率分布")
+    pathway_impacts: Optional[List["PathwayImpact"]] = Field(None, description="信号通路影响分析")
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
 
 
@@ -62,6 +83,33 @@ class HealthResponse(BaseModel):
     timestamp: str = Field(..., description="响应时间戳")
 
 
+class LiveResponse(BaseModel):
+    """
+    存活检查响应模型
+    """
+    status: str = Field(..., description="服务存活状态")
+
+
+class ReadyResponse(BaseModel):
+    """
+    就绪检查响应模型
+    """
+    status: str = Field(..., description="服务就绪状态")
+    model_loaded: bool = Field(..., description="模型是否已加载")
+
+
+class VariantReadyResponse(BaseModel):
+    """
+    变体预测就绪探针响应模型（P1-1）
+
+    核心模型已加载但变体 workflow 不可用时，``/predict`` 可用而
+    ``/predict/variant`` 不可用。该响应让运维/K8s 单独判断变体能力就绪状态。
+    """
+    status: str = Field(..., description="变体能力就绪状态：'ready' 或 'not_ready'")
+    variant_workflow_loaded: bool = Field(..., description="变体预测 workflow 是否已加载")
+    model_loaded: bool = Field(..., description="核心模型是否已加载")
+
+
 class ModelInfoResponse(BaseModel):
     """
     模型信息响应模型
@@ -73,25 +121,22 @@ class ModelInfoResponse(BaseModel):
     num_classes: int = Field(..., description="类别数量")
     cell_states: List[str] = Field(..., description="支持的细胞状态列表")
     supported_ptm_types: List[str] = Field(..., description="支持的PTM类型列表")
-
-
-# Variant prediction schemas (FEAT-01, FEAT-02)
-
-class PTMEffect(BaseModel):
-    """PTM effect prediction for a specific modification type."""
-    ptm_type: str = Field(..., description="PTM type (Phosphorylation, Ubiquitination, etc.)")
-    wildtype_prob: float = Field(..., description="PTM probability in wildtype", ge=0.0, le=1.0)
-    mutant_prob: float = Field(..., description="PTM probability in mutant", ge=0.0, le=1.0)
-    delta_prob: float = Field(..., description="Change in probability", ge=-1.0, le=1.0)
-    effect: str = Field(..., description="Effect classification: gain/loss/neutral/error")
-
-
-class PathwayImpact(BaseModel):
-    """Signal pathway impact from variant."""
-    pathway_name: str = Field(..., description="Pathway name")
-    activity_change: float = Field(..., description="Predicted activity change")
-    confidence: str = Field(..., description="Confidence level: high/medium/low")
-    key_genes: List[str] = Field(default_factory=list, description="Affected key genes")
+    # P1-1: capability flags so callers know which endpoints are usable.
+    variant_workflow_loaded: bool = Field(
+        False, description="变体预测 workflow 是否已加载"
+    )
+    pathway_mapper_loaded: bool = Field(
+        False, description="信号通路分析器是否已加载"
+    )
+    # P1-3: provenance — surface demo vs real so the model is not misused.
+    model_kind: Optional[str] = Field(
+        None, description="模型性质：'demo' / 'real' / None（未知）"
+    )
+    is_demo_model: bool = Field(
+        False, description="是否为合成数据训练的 demo 模型（不可用于真实生物学预测）"
+    )
+    checkpoint_path: Optional[str] = Field(None, description="当前加载的 checkpoint 路径")
+    config_path: Optional[str] = Field(None, description="当前加载的配置文件路径")
 
 
 class VariantInfo(BaseModel):
@@ -121,3 +166,12 @@ class VariantPredictionResponse(BaseModel):
     confidence: float = Field(..., description="Overall confidence", ge=0.0, le=1.0)
     processing_time_ms: Optional[float] = Field(None, description="Processing time")
     warnings: List[str] = Field(default_factory=list, description="Any warnings")
+
+
+# 解析 PredictionResponse 中对 PathwayImpact 的前向引用。
+# 在 Pydantic v1 下未调用 update_forward_refs() 会抛出 ConfigError，
+# 在 Pydantic v2 下则通过 model_rebuild() 完成解析。两者均安全调用。
+if hasattr(PredictionResponse, "update_forward_refs"):
+    PredictionResponse.update_forward_refs()
+if hasattr(PredictionResponse, "model_rebuild"):
+    PredictionResponse.model_rebuild()

@@ -27,6 +27,14 @@ def main():
     logger.info("开始数据准备流程")
     logger.info("=" * 60)
 
+    # DEMO 警告（审计 P1-2）：load_sample_data 生成的是随机序列 + 随机标签，
+    # 仅用于冒烟测试。在此显式提醒用户，避免把合成数据当作真实数据训练。
+    logger.warning(
+        "注意：load_sample_data() 生成的是随机合成数据（随机序列 + 随机标签），"
+        "仅用于端到端链路冒烟测试，不代表真实生物学分布。"
+        "如需真实预测能力，请按 docs/guides/data_integration.md 准备真实数据。"
+    )
+
     config = Config.from_yaml("configs/default.yaml")
 
     logger.info("步骤 1: 生成示例数据")

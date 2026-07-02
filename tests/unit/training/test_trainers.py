@@ -3,6 +3,8 @@ Trainers模块单元测试
 使用MockModel和MockDataLoader进行测试
 """
 
+import inspect
+from typing import Dict
 import pytest
 import torch
 import torch.nn as nn
@@ -189,7 +191,7 @@ class TestTrainerEvaluate:
     def test_evaluate_returns_metrics(self, mock_model, dict_loader):
         trainer = Trainer(mock_model, device="cpu")
         trainer.compile()
-        metrics = trainer.validate(dict_loader)
+        metrics = trainer.validate(mock_model, dict_loader)
         assert "loss" in metrics
         assert "accuracy" in metrics
         assert 0 <= metrics["accuracy"] <= 1
@@ -197,15 +199,35 @@ class TestTrainerEvaluate:
     def test_evaluate_with_loader(self, mock_model, dict_loader):
         trainer = Trainer(mock_model, device="cpu")
         trainer.compile()
-        metrics = trainer.validate(dict_loader)
+        metrics = trainer.validate(mock_model, dict_loader)
         assert isinstance(metrics, dict)
 
     def test_evaluate_sets_eval_mode(self, mock_model, dict_loader):
         trainer = Trainer(mock_model, device="cpu")
         trainer.compile()
         mock_model.train()
-        trainer.validate(dict_loader)
+        trainer.validate(mock_model, dict_loader)
         assert not mock_model.training
+
+    def test_evaluate_signature_matches_contract(self, mock_model):
+        trainer = Trainer(mock_model, device="cpu")
+        signature = inspect.signature(trainer.validate)
+        parameters = list(signature.parameters.values())
+
+        assert [parameter.name for parameter in parameters] == ["model", "dataloader"]
+        assert parameters[0].annotation is nn.Module
+        assert parameters[1].annotation == DataLoader
+        assert signature.return_annotation == Dict[str, float]
+
+    def test_evaluate_uses_supplied_model(self, mock_model, dict_loader):
+        trainer = Trainer(mock_model, device="cpu")
+        trainer.compile()
+        replacement_model = MockModel(num_classes=4)
+
+        trainer.validate(replacement_model, dict_loader)
+
+        assert trainer.model is replacement_model
+        assert next(trainer.model.parameters()).device.type == trainer.device
 
 
 class TestTrainerPredict:

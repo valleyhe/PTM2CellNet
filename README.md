@@ -2,6 +2,8 @@
 
 基于深度学习的蛋白质翻译后修饰(PTM)分析与细胞状态预测系统。
 
+> ⚠️ **DEMO 模型说明**：仓库自带的 `outputs/models/best_model.pt` 是在**随机生成的合成数据**上训练的冒烟测试模型，仅用于验证训练/推理链路可跑通，**不代表真实生物学预测能力**（评估准确率 ≈ 随机基线）。请勿直接用于真实预测。真实数据准备方式见 [数据接入指南](docs/guides/data_integration.md)，模型性质详情见 [outputs/models/README.md](outputs/models/README.md)。
+
 ## 目录结构
 
 ```
@@ -27,7 +29,7 @@ PTM2CellNet/
 │   └── fixtures/               # 测试固件
 ├── scripts/                    # 生产脚本
 │   ├── train*.py               # 训练入口（主/Lightning/PTM位点/多任务/二分类）
-│   ├── predict*.py             # 推理入口（单条/批量/变异效应）
+│   ├── predict*.py             # 推理入口（细胞状态推理、PTM位点推理、变异效应）
 │   ├── evaluate.py             # 模型评估
 │   ├── prepare_*.py            # 数据准备
 │   └── run_*.py                # 虚拟扰动、两阶段解释
@@ -50,9 +52,23 @@ PTM2CellNet/
 
 ## 安装
 
+按需选择安装范围（详见 [安装指南](docs/guides/installation.md)）：
+
 ```bash
+# 核心 + 大部分能力（推荐，包含 API / Lightning / 预训练编码器 / scVI）
 pip install -r requirements.txt
+
+# 或最小核心（仅训练/推理主链路）
+pip install -e .
+
+# 或按能力分组安装 extra，例如只要 API + Lightning：
+pip install -e ".[api,lightning]"
+
+# 全量能力（磁盘/网络充裕时）
+pip install -e ".[all]"
 ```
+
+> 未安装某个可选依赖时，对应能力（Lion 优化器、原生 Mamba、GenKI 图扰动、scVI 基因空间工作流）会**优雅降级**而非崩溃，并在 CLI 入口打印带 `pip install -e ".[<extra>]"` 提示的警告。
 
 ESM-2 等预训练模型需要 Hugging Face 访问，建议设置镜像：
 
@@ -65,9 +81,13 @@ export HF_ENDPOINT=https://hf-mirror.com
 ### 数据准备
 
 ```bash
+# 以下脚本生成的是随机合成数据，仅用于冒烟测试。
+# 真实数据格式与采集方式见 docs/guides/data_integration.md。
 python scripts/prepare_data.py
 python scripts/prepare_ptm_data.py
 ```
+
+> 📝 默认 `prepare_data.py` 产出 500 条随机序列 + 4 类随机标签，目的是让训练/推理链路立即可跑。要在真实数据上训练，请准备符合 [输入格式规范](docs/guides/data_integration.md#输入数据格式) 的 CSV。
 
 ### 训练
 
@@ -88,15 +108,24 @@ python scripts/train_multitask_ptm.py
 ### 推理
 
 ```bash
-# 单条预测
+# 单条细胞状态预测
 python scripts/predict.py
 
-# 批量预测
+# PTM位点批量预测（规范脚本名）
+python scripts/predict_ptm_sites.py
+
+# 兼容旧脚本名（同样执行 PTM 位点预测，不是细胞状态批量预测）
 python scripts/batch_predict.py
 
 # 变异效应预测
 python scripts/predict_variant_effect.py --variant "BRAF_V600E"
 ```
+
+### 脚本说明
+
+- `scripts/predict.py`: PTM2CellNet 细胞状态推理入口，可处理单条序列或 CSV 输入。
+- `scripts/predict_ptm_sites.py`: 批量 PTM 位点预测与 PTM 变异效应分析入口。
+- `scripts/batch_predict.py`: `predict_ptm_sites.py` 的兼容包装脚本，保留旧调用方式。
 
 ### 虚拟扰动与解释
 

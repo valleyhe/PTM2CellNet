@@ -17,9 +17,9 @@ from ..utils.logging import setup_logger
 logger = setup_logger(__name__)
 
 
-class PTMDataModule(L.LightningDataModule):
+class PTMLightningDataModule(L.LightningDataModule):
     """
-    Lightning数据模块
+    Lightning数据模块（Lightning data module）
     封装PTMDataset，提供训练/验证/测试数据加载器
     """
 
@@ -61,6 +61,7 @@ class PTMDataModule(L.LightningDataModule):
         self.batch_size = training_config.get("batch_size", 32)
         self.num_workers = data_config.get("num_workers", 4)
         self.pin_memory = data_config.get("pin_memory", True)
+        self.drop_last = training_config.get("drop_last", True)
 
         # 数据集实例（在setup中初始化）
         self.train_dataset: Optional[PTMDataset] = None
@@ -119,11 +120,13 @@ class PTMDataModule(L.LightningDataModule):
                     df=self.train_df,
                     feature_extractor=self.feature_extractor,
                     config=self.config,
+                    training=True,
                 )
                 ptm_val = PTMDataset(
                     df=self.val_df,
                     feature_extractor=self.feature_extractor,
                     config=self.config,
+                    training=False,
                 )
                 # 传播训练集的标签映射到验证集，确保编码一致
                 if ptm_train.label_to_idx:
@@ -140,6 +143,7 @@ class PTMDataModule(L.LightningDataModule):
                     df=self.test_df,
                     feature_extractor=self.feature_extractor,
                     config=self.config,
+                    training=False,
                 )
                 # 传播训练集的标签映射到测试集，确保编码一致
                 train_ds = self.train_dataset
@@ -165,7 +169,7 @@ class PTMDataModule(L.LightningDataModule):
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            drop_last=True,  # 训练时丢弃不完整的批次
+            drop_last=self.drop_last,  # 训练时丢弃不完整的批次
         )
 
     def val_dataloader(self) -> DataLoader:

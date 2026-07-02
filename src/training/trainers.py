@@ -63,6 +63,9 @@ class Trainer:
         self.global_step = 0
         self.train_losses: List[float] = []
         self.val_losses: List[float] = []
+        # S8: 训练曲线可视化依赖 accuracy 指标，与 train_losses/val_losses 对应记录
+        self.train_accuracies: List[float] = []
+        self.val_accuracies: List[float] = []
         self.best_val_loss = float("inf")
 
     def compile(
@@ -120,6 +123,8 @@ class Trainer:
         self.model.train()
         total_loss = 0.0
         num_samples = 0
+        # S8: 同时累积训练准确率，供 plot_training_curves 使用
+        correct_samples = 0
 
         for batch_idx, batch in enumerate(train_loader):
             if not isinstance(batch, dict):
@@ -134,8 +139,10 @@ class Trainer:
 
             if isinstance(outputs, dict):
                 logits = outputs.get("logits")
+                predictions = outputs.get("predictions")
             else:
                 logits = outputs
+                predictions = None
 
             if logits is None or not isinstance(logits, torch.Tensor):
                 raise TypeError("Model output must contain tensor logits")
@@ -148,8 +155,15 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
 
-            total_loss += loss.item() * targets.size(0)
-            num_samples += targets.size(0)
+            batch_size = targets.size(0)
+            total_loss += loss.item() * batch_size
+            num_samples += batch_size
+
+            # 计算训练批准确率（若模型未直接给出 predictions，则从 logits 取 argmax）
+            if predictions is None:
+                predictions = torch.argmax(logits, dim=1)
+            if isinstance(predictions, torch.Tensor) and predictions.dim() == 1:
+                correct_samples += (predictions == targets).sum().item()
 
             for callback in self.callbacks:
                 callback.on_batch_end(self, batch_idx, {"loss": loss.item()})
@@ -157,7 +171,8 @@ class Trainer:
             self.global_step += 1
 
         avg_loss = total_loss / num_samples
-        return {"loss": avg_loss}
+        avg_acc = correct_samples / num_samples if num_samples > 0 else 0.0
+        return {"loss": avg_loss, "accuracy": avg_acc}
 
     def _val_epoch(self, val_loader: DataLoader[Dict[str, torch.Tensor]]) -> Dict[str, float]:
         """
@@ -255,11 +270,15 @@ class Trainer:
 
             train_logs = self._train_epoch(train_loader)
             self.train_losses.append(train_logs["loss"])
+            if "accuracy" in train_logs:
+                self.train_accuracies.append(train_logs["accuracy"])
 
             val_logs: Dict[str, float] = {}
             if val_loader is not None:
                 val_logs = self._val_epoch(val_loader)
                 self.val_losses.append(val_logs["loss"])
+                if "accuracy" in val_logs:
+                    self.val_accuracies.append(val_logs["accuracy"])
 
             logs = {
                 "epoch": epoch,
@@ -300,20 +319,26 @@ class Trainer:
 
         logger.info("训练完成")
 
-    def validate(self, val_loader: DataLoader[Dict[str, torch.Tensor]]) -> Dict[str, float]:
+    def validate(self, model: nn.Module, dataloader: DataLoader) -> Dict[str, float]:
         """
-        验证模型
+        将给定模型移动到当前设备，运行一个验证epoch并返回损失与准确率。
 
         参数:
-            val_loader: 验证数据加载器
+            model: 待验证的PyTorch模型
+            dataloader: 验证数据加载器
 
         返回:
-            验证指标字典
+            包含 ``loss`` 和 ``accuracy`` 的验证指标字典
         """
         logger.info("开始验证")
-        val_logs = self._val_epoch(val_loader)
-        logger.info("验证完成: %s", val_logs)
-        return val_logs
+        self.model = model.to(self.device)
+        val_logs = self._val_epoch(dataloader)
+        metrics = {
+            "loss": float(val_logs["loss"]),
+            "accuracy": float(val_logs["accuracy"]),
+        }
+        logger.info("验证完成: %s", metrics)
+        return metrics
 
     def predict(self, test_loader: DataLoader[Dict[str, torch.Tensor]]) -> List[Dict[str, torch.Tensor]]:
         """

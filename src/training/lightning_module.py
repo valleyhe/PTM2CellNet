@@ -312,6 +312,11 @@ class PTM2CellNetLightning(L.LightningModule):
 
         # 更新torchmetrics指标
         if TORCHMETRICS_AVAILABLE and self.metrics:
+            # Ensure metrics live on the same device as the batch
+            device = batch["label"].device
+            for metric in self.metrics.values():
+                metric.to(device)
+
             probs = F.softmax(outputs["logits"], dim=1)
             num_classes = outputs["logits"].shape[1]
 
@@ -422,7 +427,8 @@ class PTM2CellNetLightning(L.LightningModule):
                 )
             except ImportError:
                 logger.warning(
-                    "lion_pytorch未安装，回退到AdamW优化器"
+                    "lion_pytorch 未安装，回退到 AdamW 优化器。"
+                    "如需使用 Lion，请安装 mamba extra：pip install -e '.[mamba]'"
                 )
                 optimizer = torch.optim.AdamW(
                     self.parameters(),

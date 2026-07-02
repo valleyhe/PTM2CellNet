@@ -21,8 +21,16 @@ networkx>=2.6.0
 biopython>=1.79
 hgvs==1.5.7
 uniprot-id-mapper==1.1.5
-anndata>=0.8.0
+# Pin anndata<0.12 together with scvi-tools>=1.2.0 (audit P1-1):
+# scvi-tools <1.2.0 imports `anndata._core.sparse_dataset.SparseDataset`,
+# which was removed/renamed in anndata 0.11, so the old "scvi-tools>=1.0.0"
+# constraint broke `import scvi`. scvi-tools 1.2.0+ falls back to the new
+# CSRDataset/CSCDataset and is verified against anndata>=0.11. See setup.py
+# extras for the same constraint applied to `[analysis]` / `[all]`.
+anndata>=0.10,<0.12
+scvi-tools>=1.2.0
 sspa>=0.2.0  # optional - pathway enrichment analysis
+zarr>=2,<3  # anndata 0.11.x 在 zarr>=3 上会 ImportError；scvi 链路需要
 
 # Visualization
 matplotlib>=3.4.0
@@ -42,3 +50,12 @@ tqdm>=4.62.0
 python-dotenv>=0.19.0
 h5py>=3.6.0
 typing_extensions>=4.0.0
+# Missing dependencies (audit 2026-06-28)
+# NOTE: setuptools>=81 removed the ``pkg_resources`` module, which scvi-tools
+# and several other scientific packages still import at runtime. Pinning below
+# 81 keeps ``pkg_resources`` importable so the scVI/DAVF pipeline works.
+# See setup.py extras for capability-grouped optional installs (api, genki,
+# analysis, mamba, pretrained, lightning).
+setuptools>=68.0,<81
+tensorboard>=2.13.0  # Lightning default logger
+mamba-ssm>=2.0.0  # optional - Mamba encoder support

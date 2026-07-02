@@ -1,0 +1,68 @@
+# Lightning训练配置
+# 使用PyTorch Lightning进行模型训练
+
+model:
+  encoder_type: "transformer"  # 可选：cnn, transformer, lstm, esm2_8M, esm2_150M, esm2_650M, protbert, prott5
+  num_classes: 4
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  dropout: 0.1
+  freeze_encoder: false
+  pretrained_cache_dir: null  # 预训练模型缓存目录
+
+training:
+  # 基础训练参数
+  max_epochs: 100
+  batch_size: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  optimizer: "adamw"  # 可选：adamw, adam, sgd, lion
+  scheduler: "cosine"  # 可选：cosine, plateau, step, null
+
+  # Lightning特定参数
+  accelerator: "gpu"  # 可选：gpu, cpu, tpu
+  devices: 1
+  strategy: "auto"  # 可选：auto, ddp, fsdp, deepspeed
+  precision: "16-mixed"  # 可选：32, 16-mixed, bf16-mixed
+  accumulate_grad_batches: 1  # 梯度累积
+  gradient_clip_val: 1.0  # 梯度裁剪
+
+  # 早停配置
+  early_stopping:
+    enabled: true
+    patience: 10
+    monitor: "val_loss"
+    mode: "min"
+
+  # 模型检查点配置
+  checkpoint:
+    enabled: true
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "min"
+    filename: "ptm2cellnet-{epoch:02d}-{val_loss:.4f}"
+
+  # 日志配置
+  logger:
+    type: "tensorboard"  # 可选：tensorboard, wandb, mlflow
+    save_dir: "outputs/logs"
+    name: "lightning_logs"
+
+data:
+  max_sequence_length: 1000
+  num_workers: 4
+  pin_memory: true
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+
+paths:
+  outputs_root: "outputs"
+  outputs_models: "outputs/models"
+  outputs_logs: "outputs/logs"
+  outputs_results: "outputs/results"

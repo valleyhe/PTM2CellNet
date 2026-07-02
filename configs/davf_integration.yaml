@@ -1,0 +1,25 @@
+# DAVF Integration Configuration
+# Used by PTM2CellNet when use_davf=True
+# See src/models/davf_inference.py for DAVFInferenceConfig documentation
+
+davf:
+  state_space: "scvi_latent"
+  checkpoint_path: "checkpoints/latent_davf_ibd_norman/best_model.pt"
+  scvi_model_path: null
+  geneformer_path: null
+  gene_names_path: null
+  feature_dim: 128
+  hidden_dim: 256
+  latent_dim: 10
+  num_genes: 5000
+  num_steps: 50
+  freeze: true
+  device: null
+
+ptm_mapper:
+  max_targets: 32
+
+integration:
+  concat_point: "before_predictor"
+  zero_features_on_missing_checkpoint: true
+  zero_features_on_empty_ptm: true

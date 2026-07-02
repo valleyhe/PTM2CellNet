@@ -11,6 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from ..utils.logging import setup_logger
+from .augmentation import PTMAugmenter, SequenceAugmenter, get_augmentation_config
 from .features import FeatureExtractor, DEFAULT_AMINO_ACIDS
 from .dataset_base import PTMDatasetBase
 
@@ -31,6 +32,10 @@ class PTMDataset(PTMDatasetBase):
         return_sequence: bool = True,
         return_ptm: bool = True,
         return_label: bool = True,
+        use_feature_extractor: bool = False,
+        sequence_augmenter: Optional[SequenceAugmenter] = None,
+        ptm_augmenter: Optional[PTMAugmenter] = None,
+        training: bool = True,
     ):
         """
         初始化数据集
@@ -48,6 +53,10 @@ class PTMDataset(PTMDatasetBase):
         self.return_sequence = return_sequence
         self.return_ptm = return_ptm
         self.return_label = return_label
+        self.use_feature_extractor = bool(
+            use_feature_extractor or self.config.get("features", {}).get("use_feature_extractor", False)
+        )
+        self.training = training
 
         self.max_sequence_length = self.config.get("data", {}).get("max_sequence_length", 1000)
         self.amino_acids = self.config.get("data", {}).get("valid_amino_acids", DEFAULT_AMINO_ACIDS)
@@ -58,6 +67,36 @@ class PTMDataset(PTMDatasetBase):
         self.non_standard_aa_map = {
             'U': 'C', 'X': 'A', 'J': 'L', 'B': 'D', 'Z': 'E', 'O': 'K',
         }
+        self.sequence_augmenter = sequence_augmenter
+        self.ptm_augmenter = ptm_augmenter
+
+        if self.sequence_augmenter is None or self.ptm_augmenter is None:
+            self._initialize_augmenters_from_config()
+
+    def _initialize_augmenters_from_config(self) -> None:
+        """按需从配置构建数据增强器。支持字符串预设（light/medium/heavy）或参数字典。"""
+        augmentation_config = self.config.get("augmentation")
+        if not augmentation_config:
+            return
+
+        if isinstance(augmentation_config, str):
+            augmentation_config = get_augmentation_config(augmentation_config)
+
+        if self.sequence_augmenter is None:
+            self.sequence_augmenter = SequenceAugmenter(
+                augment_prob=augmentation_config.get("sequence_augment_prob", 0.0),
+                max_truncate_ratio=augmentation_config.get("max_truncate_ratio", 0.1),
+                mask_token_id=augmentation_config.get("mask_token_id", 0),
+                mask_prob=augmentation_config.get("mask_prob", 0.0),
+                random_swap_prob=augmentation_config.get("random_swap_prob", 0.0),
+            )
+
+        if self.ptm_augmenter is None:
+            self.ptm_augmenter = PTMAugmenter(
+                drop_prob=augmentation_config.get("ptm_drop_prob", 0.0),
+                add_noise_prob=augmentation_config.get("ptm_noise_prob", 0.0),
+                noise_radius=augmentation_config.get("noise_radius", 1),
+            )
 
     def _standardize_sequence(self, sequence: str) -> str:
         """将非标准氨基酸字符映射为标准字符"""
@@ -79,7 +118,7 @@ class PTMDataset(PTMDatasetBase):
 
         return seq_tensor
 
-    def _encode_ptm(self, ptm_sites_json: str, sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _encode_ptm(self, ptm_sites_json: Any, sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """编码PTM位点"""
         ptm_sites = self._parse_ptm_sites(ptm_sites_json)
         ptm_mask = torch.zeros(self.max_sequence_length, dtype=torch.float32)
@@ -112,9 +151,30 @@ class PTMDataset(PTMDatasetBase):
 
         if self.return_ptm and "ptm_sites" in row:
             seq_len = len(str(row.get("sequence", "")))
-            ptm_mask, ptm_types = self._encode_ptm(str(row["ptm_sites"]), seq_len)
+            ptm_mask, ptm_types = self._encode_ptm(row["ptm_sites"], seq_len)
             sample["ptm_mask"] = ptm_mask
             sample["ptm_types"] = ptm_types
+
+        if self.use_feature_extractor and self.return_sequence and "sequence" in row:
+            sequence_features = self.feature_extractor.extract_sequence_features([sequence])
+            if sequence_features.size > 0:
+                sample["sequence_features"] = torch.tensor(sequence_features[0], dtype=torch.float32)
+
+            if self.feature_extractor.include_ptm_features and "ptm_sites" in row:
+                ptm_sites = self._parse_ptm_sites(row["ptm_sites"])
+                sample["ptm_features"] = torch.tensor(
+                    self.feature_extractor.extract_ptm_features_array(ptm_sites, len(sequence)),
+                    dtype=torch.float32,
+                )
+
+        if self.training:
+            if "sequence" in sample and self.sequence_augmenter is not None:
+                sample["sequence"] = self.sequence_augmenter(sample["sequence"])
+            if "ptm_mask" in sample and "ptm_types" in sample and self.ptm_augmenter is not None:
+                sample["ptm_mask"], sample["ptm_types"] = self.ptm_augmenter(
+                    sample["ptm_mask"],
+                    sample["ptm_types"],
+                )
 
         if self.return_label and "cell_state" in row:
             sample["label"] = self._encode_label(str(row["cell_state"]))
@@ -122,7 +182,7 @@ class PTMDataset(PTMDatasetBase):
         return sample
 
 
-class PTMDataModule:
+class PTMPlainDataModule:
     """
     PTM数据模块类
     管理训练、验证和测试数据集的加载
@@ -136,6 +196,7 @@ class PTMDataModule:
         config: Optional[Dict[str, Any]] = None,
         batch_size: int = 32,
         num_workers: int = 0,
+        use_feature_extractor: bool = False,
     ):
         """
         初始化数据模块
@@ -154,8 +215,11 @@ class PTMDataModule:
         self.config = config or {}
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.use_feature_extractor = bool(
+            use_feature_extractor or self.config.get("features", {}).get("use_feature_extractor", False)
+        )
 
-        self.feature_extractor = FeatureExtractor(config)
+        self.feature_extractor = FeatureExtractor(self.config)
         self.train_dataset: Optional[PTMDataset] = None
         self.val_dataset: Optional[PTMDataset] = None
         self.test_dataset: Optional[PTMDataset] = None
@@ -170,6 +234,8 @@ class PTMDataModule:
             self.train_df,
             self.feature_extractor,
             self.config,
+            use_feature_extractor=self.use_feature_extractor,
+            training=True,
         )
 
         if "cell_state" in self.train_df.columns:
@@ -181,6 +247,8 @@ class PTMDataModule:
                 self.val_df,
                 self.feature_extractor,
                 self.config,
+                use_feature_extractor=self.use_feature_extractor,
+                training=False,
             )
             # 传播训练集的标签映射到验证集，确保编码一致
             if self.label_to_idx:
@@ -192,6 +260,8 @@ class PTMDataModule:
                 self.test_df,
                 self.feature_extractor,
                 self.config,
+                use_feature_extractor=self.use_feature_extractor,
+                training=False,
             )
             # 传播训练集的标签映射到测试集，确保编码一致
             if self.label_to_idx:
@@ -375,3 +445,6 @@ class ESMTokenizedDataset(PTMDatasetBase):
             sample["label"] = self._encode_label(str(row["cell_state"]))
 
         return sample
+
+
+PTMDataModule = PTMPlainDataModule

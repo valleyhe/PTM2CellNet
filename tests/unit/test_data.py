@@ -13,7 +13,7 @@ import pytest
 from src.data.loaders import DataLoader
 from src.data.preprocess import DataPreprocessor
 from src.data.features import FeatureExtractor
-from src.data.datasets import PTMDataset, PTMDataModule
+from src.data.datasets import PTMDataset, PTMPlainDataModule
 
 
 class TestDataLoader:
@@ -90,6 +90,104 @@ class TestDataPreprocessor:
         preprocessor = DataPreprocessor()
         train, val, test = preprocessor.preprocess_pipeline(sample_df)
         assert len(train) > 0
+
+    def test_preprocess_pipeline_raises_on_empty_train_after_filter(self):
+        """P1-3: 过滤后训练集为空时 fail-fast，抛 EmptyDatasetError 并带上下文。"""
+        from src.data.preprocess import EmptyDatasetError
+
+        # max_sequence_length=5 但所有序列都更长 -> clean_sequences 全部删除
+        config = {"data": {"max_sequence_length": 5, "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY"}}
+        preprocessor = DataPreprocessor(config)
+        df = pd.DataFrame([
+            {"sequence": "ACDEFGHIKLMNPQRSTVWY", "cell_state": "a"},
+            {"sequence": "MKTVTASSFTWMKTVTASSFTW", "cell_state": "b"},
+        ])
+        with pytest.raises(EmptyDatasetError) as exc_info:
+            preprocessor.preprocess_pipeline(df)
+        msg = str(exc_info.value)
+        # 错误信息应包含可操作上下文
+        assert "训练集为空" in msg
+        assert "max_sequence_length_config" in msg
+
+    def test_preprocess_pipeline_empty_error_carries_filter_stats(self):
+        """P1-3: EmptyDatasetError 携带原始样本数与过滤统计。"""
+        from src.data.preprocess import EmptyDatasetError
+
+        config = {"data": {"max_sequence_length": 3, "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY"}}
+        preprocessor = DataPreprocessor(config)
+        df = pd.DataFrame([
+            {"sequence": "ACDEFG", "cell_state": "a"},
+            {"sequence": "GHIJKL", "cell_state": "b"},  # 含非标准 J->L 后仍超长
+        ])
+        with pytest.raises(EmptyDatasetError) as exc_info:
+            preprocessor.preprocess_pipeline(df)
+        # 原始样本数应在错误信息中可追溯
+        assert "original_sample_count" in str(exc_info.value)
+
+    # ------------------------------------------------------------------
+    # P1-2 strategy 4: validate_data_quality 数据质量预检
+    # ------------------------------------------------------------------
+    def test_validate_data_quality_passes_for_valid_frame(self, sample_df):
+        """健康的样本数据应通过预检，返回 ok=True 且无 hard_failures。"""
+        preprocessor = DataPreprocessor()
+        report = preprocessor.validate_data_quality(sample_df)
+        assert report["ok"] is True
+        assert report["hard_failures"] == []
+        assert report["row_count"] == 2
+        assert "proliferation" in report["label_distribution"]
+        assert report["sequence_length_stats"]["min"] > 0
+
+    def test_validate_data_quality_detects_empty_frame(self):
+        """空 DataFrame 是 hard failure。"""
+        preprocessor = DataPreprocessor()
+        report = preprocessor.validate_data_quality(pd.DataFrame())
+        assert report["ok"] is False
+        assert any("为空" in f for f in report["hard_failures"])
+
+    def test_validate_data_quality_detects_single_class(self):
+        """只有单一类别无法训练，是 hard failure。"""
+        preprocessor = DataPreprocessor()
+        df = pd.DataFrame([
+            {"sequence": "ACDEFGHIK", "cell_state": "proliferation"},
+            {"sequence": "KMNPQRSTV", "cell_state": "proliferation"},
+        ])
+        report = preprocessor.validate_data_quality(df)
+        assert report["ok"] is False
+        assert any("类别" in f for f in report["hard_failures"])
+
+    def test_validate_data_quality_flags_severe_imbalance(self):
+        """类别分布严重不均衡（>10x）应触发 warning（非 hard failure）。"""
+        preprocessor = DataPreprocessor()
+        rows = [{"sequence": "ACDE", "cell_state": "proliferation"}] * 100
+        rows += [{"sequence": "GHIK", "cell_state": "apoptosis"}]
+        df = pd.DataFrame(rows)
+        report = preprocessor.validate_data_quality(df)
+        assert report["ok"] is True  # 不平衡只是 warning
+        assert any("不均衡" in w for w in report["warnings"])
+
+    def test_validate_data_quality_counts_invalid_ptm_sites(self):
+        """越界 / 非法 PTM 位点应计入 invalid_ptm_site_count。"""
+        preprocessor = DataPreprocessor()
+        df = pd.DataFrame([
+            {"sequence": "ACDE", "cell_state": "a",
+             "ptm_sites": json.dumps([{"position": 99, "type": "phosphorylation"}])},
+            {"sequence": "ACDE", "cell_state": "b",
+             "ptm_sites": json.dumps([{"position": 2, "type": "phosphorylation"}])},
+        ])
+        report = preprocessor.validate_data_quality(df)
+        assert report["invalid_ptm_site_count"] >= 1
+        assert any("PTM" in w for w in report["warnings"])
+
+    def test_validate_data_quality_strict_raises(self, ):
+        """strict=True 时 hard failure 抛 DataQualityError。"""
+        from src.data.preprocess import DataQualityError
+
+        preprocessor = DataPreprocessor()
+        df = pd.DataFrame([{"sequence": "ACDE", "cell_state": "only"}])
+        with pytest.raises(DataQualityError) as exc_info:
+            preprocessor.validate_data_quality(df, strict=True)
+        assert "类别" in str(exc_info.value)
+        assert exc_info.value.report["ok"] is False
 
 
 class TestFeatureExtractor:
@@ -226,8 +324,8 @@ class TestPTMDataset:
             dataset._encode_label("unknown_label")
 
 
-class TestPTMDataModule:
-    """PTMDataModule类测试"""
+class TestPTMPlainDataModule:
+    """PTMPlainDataModule类测试"""
 
     @pytest.fixture
     def sample_dfs(self):
@@ -254,7 +352,7 @@ class TestPTMDataModule:
     def test_datamodule_setup(self, sample_dfs):
         """测试数据模块设置"""
         train_df, val_df, test_df = sample_dfs
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=8)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=8)
 
         assert datamodule.train_dataset is not None
         assert datamodule.val_dataset is not None
@@ -263,7 +361,7 @@ class TestPTMDataModule:
     def test_train_dataloader(self, sample_dfs):
         """测试训练数据加载器"""
         train_df, val_df, test_df = sample_dfs
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=8)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=8)
 
         train_loader = datamodule.train_dataloader()
         batch = next(iter(train_loader))
@@ -273,7 +371,7 @@ class TestPTMDataModule:
     def test_val_dataloader(self, sample_dfs):
         """测试验证数据加载器"""
         train_df, val_df, test_df = sample_dfs
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=5)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=5)
 
         val_loader = datamodule.val_dataloader()
         assert val_loader is not None
@@ -281,7 +379,7 @@ class TestPTMDataModule:
     def test_test_dataloader(self, sample_dfs):
         """测试测试数据加载器"""
         train_df, val_df, test_df = sample_dfs
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=5)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=5)
 
         test_loader = datamodule.test_dataloader()
         assert test_loader is not None
@@ -289,7 +387,7 @@ class TestPTMDataModule:
     def test_get_labels(self, sample_dfs):
         """测试获取标签"""
         train_df, val_df, test_df = sample_dfs
-        datamodule = PTMDataModule(train_df, val_df, test_df)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df)
 
         labels = datamodule.get_labels()
         assert len(labels) > 0

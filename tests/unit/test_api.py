@@ -18,6 +18,7 @@ from src.api.schemas import (
 )
 from src.api.app import create_app
 from src.api.routes import initialize_model, initialize_variant_workflow
+from src.api.routes.state import STATE, reset_state
 
 
 class SimpleModel(nn.Module):
@@ -43,6 +44,20 @@ class SimpleModel(nn.Module):
             "probabilities": probabilities,
             "predictions": predictions,
         }
+
+
+@pytest.fixture(autouse=True)
+def _isolate_state():
+    """Reset global STATE before and after each test (P0-1).
+
+    Without this, tests that call ``/api/v1/initialize`` (or production code
+    paths that initialize the variant workflow) leak state into later tests
+    that assert "workflow not initialized". ``reset_state`` is the single
+    source of truth for clearing every lifecycle field.
+    """
+    reset_state()
+    yield
+    reset_state()
 
 
 @pytest.fixture

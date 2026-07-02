@@ -5,7 +5,7 @@
 """
 
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
@@ -48,12 +48,37 @@ class FeatureExtractor:
         self.kmer_size = feature_config.get("kmer_size", 3)
         self.include_physicochemical = feature_config.get("include_physicochemical", True)
         self.include_ptm_features = feature_config.get("include_ptm_features", True)
+        self.include_structural_features = feature_config.get("include_structural_features", False)
+        self.use_feature_extractor = feature_config.get("use_feature_extractor", False)
         self.max_sequence_length = self.config.get("data", {}).get("max_sequence_length", 1000)
         self.amino_acids = self.config.get("data", {}).get("valid_amino_acids", DEFAULT_AMINO_ACIDS)
         # 序列索引从1开始，0保留给padding
         self.aa_to_idx = {aa: i + 1 for i, aa in enumerate(self.amino_acids)}
         self.ptm_types = self.config.get("data", {}).get("ptm_types", DEFAULT_PTM_TYPES)
         self.ptm_to_idx = {ptm: i for i, ptm in enumerate(self.ptm_types)}
+
+        self.chou_fasman_propensities = {
+            "A": (1.45, 0.97, 0.66),
+            "C": (0.77, 1.30, 1.19),
+            "D": (0.98, 0.80, 1.46),
+            "E": (1.53, 0.26, 0.74),
+            "F": (1.12, 1.28, 0.59),
+            "G": (0.53, 0.81, 1.56),
+            "H": (1.24, 0.71, 0.95),
+            "I": (1.00, 1.60, 0.47),
+            "K": (1.07, 0.74, 1.01),
+            "L": (1.34, 1.22, 0.59),
+            "M": (1.20, 1.67, 0.60),
+            "N": (0.73, 0.65, 1.56),
+            "P": (0.59, 0.62, 1.52),
+            "Q": (1.17, 1.23, 0.98),
+            "R": (0.79, 0.90, 0.95),
+            "S": (0.79, 0.72, 1.43),
+            "T": (0.82, 1.20, 0.96),
+            "V": (1.14, 1.65, 0.50),
+            "W": (1.14, 1.19, 0.96),
+            "Y": (0.61, 1.29, 1.14),
+        }
 
     def extract_onehot_sequence(self, sequence: str) -> np.ndarray:
         """
@@ -154,21 +179,34 @@ class FeatureExtractor:
 
         return np.array(features, dtype=np.float32)
 
-    def extract_ptm_features(self, ptm_sites_json: str, sequence_length: int) -> Dict[str, np.ndarray]:
+    def _load_ptm_sites(self, ptm_sites_input: Union[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """归一化PTM输入为列表。"""
+        if isinstance(ptm_sites_input, list):
+            return [site for site in ptm_sites_input if isinstance(site, dict)]
+
+        try:
+            ptm_sites = json.loads(ptm_sites_input)
+        except (json.JSONDecodeError, TypeError):
+            ptm_sites = []
+
+        return ptm_sites if isinstance(ptm_sites, list) else []
+
+    def extract_ptm_features(
+        self,
+        ptm_sites_input: Union[str, List[Dict[str, Any]]],
+        sequence_length: int,
+    ) -> Dict[str, np.ndarray]:
         """
         提取PTM特征
 
         参数:
-            ptm_sites_json: PTM位点JSON字符串
+            ptm_sites_input: PTM位点JSON字符串或位点字典列表
             sequence_length: 序列长度
 
         返回:
             PTM特征数组
         """
-        try:
-            ptm_sites = json.loads(ptm_sites_json)
-        except (json.JSONDecodeError, TypeError):
-            ptm_sites = []
+        ptm_sites = self._load_ptm_sites(ptm_sites_input)
 
         ptm_counts = {ptm: 0 for ptm in self.ptm_types}
         position_features = np.zeros((self.max_sequence_length, len(self.ptm_types)), dtype=np.float32)
@@ -189,6 +227,34 @@ class FeatureExtractor:
             "position_features": position_features,
             "count_features": count_features,
         }
+
+    def extract_ptm_features_array(self, ptm_sites: List[Dict[str, Any]], sequence_length: int) -> np.ndarray:
+        """返回 [position_features.flatten(), count_features] 的拼接向量。"""
+        feature_dict = self.extract_ptm_features(ptm_sites, sequence_length)
+        return np.concatenate(
+            [
+                feature_dict["position_features"].flatten(),
+                feature_dict["count_features"],
+            ]
+        ).astype(np.float32)
+
+    def extract_structural_features(self, sequence: str) -> np.ndarray:
+        """
+        使用简化的 Chou-Fasman propensity 表生成结构倾向特征。
+
+        返回:
+            形状为 (max_sequence_length, 3) 的数组，列依次表示 helix/sheet/coil。
+        """
+        structural = np.zeros((self.max_sequence_length, 3), dtype=np.float32)
+        seq_len = min(len(sequence), self.max_sequence_length)
+
+        for i in range(seq_len):
+            helix, sheet, coil = self.chou_fasman_propensities.get(sequence[i], (0.0, 0.0, 1.0))
+            total = helix + sheet + coil
+            if total > 0:
+                structural[i] = np.array([helix, sheet, coil], dtype=np.float32) / total
+
+        return structural
 
     def extract_sequence_features(self, sequences: List[str]) -> np.ndarray:
         """
@@ -219,6 +285,10 @@ class FeatureExtractor:
                 physchem = self.extract_physicochemical_features(seq)
                 seq_features.append(physchem)
 
+            if self.include_structural_features:
+                structural = self.extract_structural_features(seq)
+                seq_features.append(structural.flatten())
+
             if seq_features:
                 combined = np.concatenate(seq_features)
                 features_list.append(combined)
@@ -229,7 +299,28 @@ class FeatureExtractor:
 
         return np.array(features_list)
 
-    def extract_features_for_sample(self, sequence: str, ptm_sites_json: Optional[str] = None) -> np.ndarray:
+    def _extract_sample_vector(
+        self,
+        sequence: str,
+        ptm_sites_json: Optional[Union[str, List[Dict[str, Any]]]] = None,
+    ) -> np.ndarray:
+        """使用FeatureExtractor方法构建单个样本的向量。"""
+        seq_features = self.extract_sequence_features([sequence])
+        feature_dict: Dict[str, np.ndarray] = {}
+        if seq_features.size > 0:
+            feature_dict["sequence"] = seq_features[0]
+
+        if self.include_ptm_features and ptm_sites_json is not None:
+            ptm_sites = self._load_ptm_sites(ptm_sites_json)
+            feature_dict["ptm"] = self.extract_ptm_features_array(ptm_sites, len(sequence))
+
+        return self.combine_features(feature_dict)
+
+    def extract_features_for_sample(
+        self,
+        sequence: str,
+        ptm_sites_json: Optional[Union[str, List[Dict[str, Any]]]] = None,
+    ) -> np.ndarray:
         """
         提取单个样本的组合特征
 
@@ -240,14 +331,17 @@ class FeatureExtractor:
         返回:
             组合后的特征向量
         """
+        if self.use_feature_extractor:
+            return self._extract_sample_vector(sequence, ptm_sites_json)
+
         seq_features = self.extract_sequence_features([sequence])
         feature_dict: Dict[str, np.ndarray] = {}
         if seq_features.size > 0:
             feature_dict["sequence"] = seq_features[0]
 
         if self.include_ptm_features and ptm_sites_json is not None:
-            ptm_features = self.extract_ptm_features(ptm_sites_json, len(sequence))
-            feature_dict.update(ptm_features)
+            ptm_sites = self._load_ptm_sites(ptm_sites_json)
+            feature_dict["ptm"] = self.extract_ptm_features_array(ptm_sites, len(sequence))
 
         return self.combine_features(feature_dict)
 
@@ -271,7 +365,7 @@ class FeatureExtractor:
 
         features_list = []
         for sequence, ptm_sites_json in zip(sequences, ptm_sites_list):
-            features_list.append(self.extract_features_for_sample(sequence, ptm_sites_json))
+            features_list.append(self._extract_sample_vector(sequence, ptm_sites_json))
 
         return np.array(features_list) if features_list else np.array([])
 

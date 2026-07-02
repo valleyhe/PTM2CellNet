@@ -11,7 +11,7 @@ import torch.nn as nn
 from src.utils.logging import setup_logger
 from src.data.loaders import DataLoader as PTMDataLoader
 from src.data.preprocess import DataPreprocessor
-from src.data.datasets import PTMDataModule
+from src.data.datasets import PTMPlainDataModule
 from src.models.encoders import CNNEncoder
 from src.models.ptm_modules import PTMModule
 from src.models.predictors import ClassificationPredictor
@@ -40,7 +40,7 @@ class TestDataModelIntegration:
         preprocessor = DataPreprocessor()
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(df)
 
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=16)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=16)
 
         assert datamodule.train_dataset is not None
         assert datamodule.val_dataset is not None
@@ -62,7 +62,7 @@ class TestDataModelIntegration:
         preprocessor = DataPreprocessor()
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(df)
 
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=8)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=8)
         cell_states = datamodule.get_labels()
 
         model = PTM2CellNet(
@@ -99,7 +99,7 @@ class TestModelTrainingIntegration:
         preprocessor = DataPreprocessor()
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(df)
 
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=16)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=16)
         cell_states = datamodule.get_labels()
 
         model = PTM2CellNet(
@@ -173,7 +173,7 @@ class TestEndToEndIntegration:
         assert len(test_df) > 0
 
         logger.info("步骤 2: 创建数据模块")
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=16)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=16)
         cell_states = datamodule.get_labels()
 
         assert len(cell_states) > 0
@@ -244,7 +244,7 @@ class TestBoundaryConditions:
         preprocessor = DataPreprocessor()
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(df)
 
-        datamodule = PTMDataModule(train_df, val_df, test_df, batch_size=4)
+        datamodule = PTMPlainDataModule(train_df, val_df, test_df, batch_size=4)
         cell_states = datamodule.get_labels()
 
         model = PTM2CellNet(

@@ -1,5 +1,8 @@
 """评估模块 - 评估指标、评估器和结果可视化"""
+import logging
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 from .metrics import (
     calculate_accuracy,
@@ -14,6 +17,12 @@ from .metrics import (
     calculate_mse,
     calculate_rmse,
     calculate_r2,
+    calculate_ndcg,
+    calculate_map,
+    calculate_ranking_metrics,
+    calculate_bootstrap_ci,
+    calculate_metric_ci,
+    calculate_cross_validation_ci,
 )
 
 _Evaluator: Any = None
@@ -30,7 +39,7 @@ _plot_attention_heatmap: Any = None
 try:
     from .evaluators import Evaluator as _Evaluator
 except ImportError:
-    pass
+    _logger.warning("evaluators module not available (import failed)")
 
 try:
     from .explainers import (
@@ -39,7 +48,7 @@ try:
         aggregate_by_protein as _aggregate_by_protein,
     )
 except ImportError:
-    pass
+    _logger.warning("explainers module not available (import failed)")
 
 try:
     from .visualization import (
@@ -51,7 +60,7 @@ try:
         plot_attention_heatmap as _plot_attention_heatmap,
     )
 except ImportError:
-    pass
+    _logger.warning("visualization module not available (import failed)")
 
 Evaluator: Any = _Evaluator
 LeaveOnePTMOutScorer: Any = _LeaveOnePTMOutScorer
@@ -77,6 +86,12 @@ __all__ = [
     "calculate_mse",
     "calculate_rmse",
     "calculate_r2",
+    "calculate_ndcg",
+    "calculate_map",
+    "calculate_ranking_metrics",
+    "calculate_bootstrap_ci",
+    "calculate_metric_ci",
+    "calculate_cross_validation_ci",
     "Evaluator",
     "LeaveOnePTMOutScorer",
     "TwoStageExplanationPipeline",

@@ -1,0 +1,55 @@
+# ESM-2 650M 预训练模型配置
+# 使用ESM-2 650M模型作为序列编码器
+
+model:
+  encoder_type: "esm2_650M"
+  freeze_encoder: false
+  num_classes: 4
+  dropout: 0.1
+  pretrained_cache_dir: null
+
+training:
+  max_epochs: 50
+  batch_size: 8  # 650M模型需要更小batch size
+  learning_rate: 3.0e-5  # 更小的学习率
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "cosine"
+
+  accelerator: "gpu"
+  devices: 1
+  precision: "bf16-mixed"
+  accumulate_grad_batches: 8  # 增加梯度累积
+
+  early_stopping:
+    enabled: true
+    patience: 5
+    monitor: "val_loss"
+    mode: "min"
+
+  checkpoint:
+    enabled: true
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "min"
+
+  logger:
+    type: "tensorboard"
+    save_dir: "outputs/logs"
+    name: "esm2_650m"
+
+data:
+  max_sequence_length: 1024
+  num_workers: 4
+  pin_memory: true
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+
+paths:
+  outputs_root: "outputs"
+  outputs_models: "outputs/models/esm2_650m"

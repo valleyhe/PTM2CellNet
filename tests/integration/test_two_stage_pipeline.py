@@ -1,3 +1,5 @@
+import pytest
+
 import pandas as pd
 import subprocess
 import sys
@@ -155,6 +157,7 @@ def test_two_stage_cli_uses_top_k_and_perturbation_mode(tmp_path) -> None:
 
 
 def test_two_stage_cli_accepts_genki_source_backend(tmp_path) -> None:
+    pytest.importorskip("torch_geometric")
     import anndata as ad
     import scipy.sparse as sp
 

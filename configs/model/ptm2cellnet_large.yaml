@@ -1,0 +1,78 @@
+# PTM2CellNet Large configuration
+# Deeper and wider Transformer encoder for higher capacity.
+
+project:
+  name: "PTM2CellNet"
+  version: "1.0.0"
+  seed: 42
+
+paths:
+  data_raw: "data/raw"
+  data_processed: "data/processed"
+  outputs_models: "outputs/models"
+  outputs_logs: "outputs/logs"
+  outputs_results: "outputs/results"
+
+model:
+  name: "ptm2cellnet_large"
+  encoder_type: "transformer"
+  hidden_dim: 512
+  num_layers: 8
+  num_heads: 8
+  num_classes: 4
+  num_ptm_types: 10
+  dropout: 0.2
+  vocab_size: 21
+  ptm_fusion_type: "gated"
+  max_sequence_length: 1000
+
+data:
+  max_sequence_length: 1000
+  batch_size: 16
+  num_workers: 8
+  persistent_workers: true
+  pin_memory: true
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "Phosphorylation"
+    - "Acetylation"
+    - "Ubiquitination"
+    - "Methylation"
+    - "Glycosylation"
+    - "SUMOylation"
+    - "Palmitoylation"
+    - "Nitrosylation"
+    - "Hydroxylation"
+    - "ADP-ribosylation"
+
+training:
+  max_epochs: 150
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "cosine"
+  warmup_epochs: 5
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 2
+  precision: "16-mixed"
+  accelerator: "gpu"
+  devices: 1
+  strategy: "auto"
+
+callbacks:
+  model_checkpoint:
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 3
+    filename: "ptm2cellnet-large-{epoch:02d}-{val_loss:.4f}"
+  early_stopping:
+    monitor: "val_loss"
+    patience: 15
+    mode: "min"
+  learning_rate_monitor:
+    logging_interval: "step"
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_to_console: true

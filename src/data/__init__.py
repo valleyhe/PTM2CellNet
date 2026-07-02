@@ -3,7 +3,8 @@
 from .loaders import DataLoader
 from .preprocess import DataPreprocessor
 from .features import FeatureExtractor
-from .datasets import PTMDataset, PTMDataModule, ESMTokenizedDataset
+from .datasets import PTMDataset, PTMPlainDataModule, PTMDataModule, ESMTokenizedDataset
+from .lightning_datamodule import PTMLightningDataModule
 from .dataset_base import PTMDatasetBase, compute_class_weights
 from .augmentation import (
     SequenceAugmenter,
@@ -23,6 +24,7 @@ __all__ = [
     "DataPreprocessor",
     "FeatureExtractor",
     "PTMDataset",
+    "PTMPlainDataModule",
     "PTMDataModule",
     "ESMTokenizedDataset",
     "PTMDatasetBase",
@@ -35,4 +37,5 @@ __all__ = [
     "DatasetCache",
     "validate_and_report",
     "collate_sequences",
+    "PTMLightningDataModule",
 ]

@@ -4,7 +4,7 @@
 设计思路: 封装评估指标，支持批量评估和交叉验证
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from typing_extensions import TypeAlias
 
@@ -12,7 +12,7 @@ import numpy as np
 from numpy.typing import NDArray
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from ..utils.logging import setup_logger
 from .metrics import (
@@ -167,6 +167,149 @@ class Evaluator:
 
         return {"metrics": metrics}
 
+    def cross_validate(
+        self,
+        dataset: torch.utils.data.Dataset,
+        model_class: Optional[Type] = None,
+        n_splits: int = 5,
+        model_kwargs: Optional[Dict[str, Any]] = None,
+        batch_size: int = 32,
+        shuffle: bool = True,
+        seed: int = 42,
+        return_predictions: bool = False,
+        train_fn: Optional[Callable[..., Any]] = None,
+        train_fn_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """K-fold cross-validation.
+
+        Splits the dataset into *n_splits* roughly equal partitions, then
+        iteratively holds out one partition as the validation set while
+        training on the rest (via ``train_fn`` when provided, otherwise only
+        evaluating ``self.model`` / a fresh ``model_class`` instance).
+
+        Args:
+            dataset: A torch Dataset (not DataLoader) to split.
+            model_class: Optional model class to re-initialize per fold.
+                If None, uses ``self.model`` for all folds.
+            n_splits: Number of splits.  Clamped to ``len(dataset)`` when it
+                exceeds the dataset size so that every split has at least one
+                sample.
+            model_kwargs: Keyword arguments passed to ``model_class`` when
+                re-initializing per fold.
+            batch_size: Batch size for the DataLoaders created from each
+                train/val subset.
+            shuffle: Whether to shuffle indices before splitting.
+            seed: Random seed used when *shuffle* is True.
+            return_predictions: If True, include per-fold prediction arrays
+                under the ``"fold_predictions"`` key.
+            train_fn: Optional callable invoked as
+                ``train_fn(model, train_loader, **train_fn_kwargs)`` to train
+                the freshly initialized model on each fold's training subset.
+                When provided, each fold truly trains before evaluation
+                (historically only evaluation was performed, which made the
+                name "cross_validate" misleading). When omitted, behavior is
+                unchanged (evaluation-only) and a warning is logged.
+            train_fn_kwargs: Extra keyword arguments forwarded to ``train_fn``.
+
+        Returns:
+            Dict with keys:
+                - ``"fold_metrics"``: list of per-fold metric dicts.
+                - ``"mean_metrics"``: dict of metric name -> mean across folds.
+                - ``"std_metrics"``: dict of metric name -> std across folds.
+                - ``"n_splits"``: int, the actual number of splits used.
+                - ``"fold_predictions"`` (optional): list of prediction arrays,
+                  one per fold, only when *return_predictions* is True.
+        """
+        n_samples = len(dataset)
+        if n_samples == 0:
+            raise ValueError("Cannot cross-validate on an empty dataset")
+
+        effective_splits = min(n_splits, n_samples)
+
+        # 1. Generate and optionally shuffle indices
+        indices = np.arange(n_samples)
+        if shuffle:
+            rng = np.random.RandomState(seed)
+            rng.shuffle(indices)
+
+        # 2. Split into roughly equal chunks
+        fold_sizes = np.full(effective_splits, n_samples // effective_splits, dtype=int)
+        fold_sizes[: n_samples % effective_splits] += 1
+        fold_indices = np.split(indices, np.cumsum(fold_sizes)[:-1])
+
+        if train_fn is None:
+            logger.warning(
+                "cross_validate 在未提供 train_fn 时仅对未训练模型做评估，"
+                "结果不能反映训练后性能。请传入 train_fn 回调以启用真正的交叉验证训练。"
+            )
+
+        fold_metrics: List[Dict[str, Any]] = []
+        fold_predictions: List[Array] = []
+
+        # 3. Iterate folds
+        for fold_idx in range(effective_splits):
+            val_idx = fold_indices[fold_idx]
+            train_idx = np.concatenate(
+                [fold_indices[j] for j in range(effective_splits) if j != fold_idx]
+            )
+
+            train_subset = Subset(dataset, train_idx.tolist())
+            val_subset = Subset(dataset, val_idx.tolist())
+
+            train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+
+            logger.info("交叉验证 fold %d/%d", fold_idx + 1, effective_splits)
+
+            if model_class is not None:
+                kw = model_kwargs or {}
+                fold_model = model_class(**kw)
+                fold_model.to(self.device)
+                self.model = fold_model
+
+            # 真正训练当前 fold 的模型（当 train_fn 提供时）
+            if train_fn is not None:
+                try:
+                    train_fn(self.model, train_loader, **(train_fn_kwargs or {}))
+                except Exception as exc:
+                    logger.error("fold %d 训练失败: %s", fold_idx + 1, exc)
+                    raise
+                # 确保训练后切回评估模式
+                if hasattr(self.model, "eval"):
+                    self.model.eval()
+
+            result = self.evaluate(val_loader, return_predictions=return_predictions)
+            fold_metrics.append(result["metrics"])
+
+            if return_predictions and "predictions" in result:
+                fold_predictions.append(result["predictions"])
+
+        # 4. Aggregate mean and std across folds
+        all_keys = sorted(
+            key
+            for key in set().union(*fold_metrics)
+            if isinstance(fold_metrics[0].get(key), (int, float, np.integer, np.floating))
+        )
+        mean_metrics: Dict[str, float] = {}
+        std_metrics: Dict[str, float] = {}
+        for key in all_keys:
+            values = [float(fm[key]) for fm in fold_metrics]
+            mean_metrics[key] = float(np.mean(values))
+            std_metrics[key] = float(np.std(values))
+
+        # 5. Build result dict
+        cv_result: Dict[str, Any] = {
+            "fold_metrics": fold_metrics,
+            "mean_metrics": mean_metrics,
+            "std_metrics": std_metrics,
+            "n_splits": effective_splits,
+        }
+        if return_predictions:
+            cv_result["fold_predictions"] = fold_predictions
+
+        logger.info("交叉验证完成: mean=%s", mean_metrics)
+        return cv_result
+
     def _calculate_classification_metrics(
         self,
         y_true: Array,
@@ -175,6 +318,16 @@ class Evaluator:
         ptm_types: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """计算分类指标。"""
+        if y_score is not None and len(y_score.shape) > 1:
+            n_labels = len(np.unique(y_true))
+            n_score_columns = y_score.shape[1]
+            if n_labels > n_score_columns:
+                raise ValueError(
+                    f"标签类别数与模型输出类别数不一致: "
+                    f"y_true中包含{n_labels}个类别，但y_score只有{n_score_columns}列。"
+                    f"请确保评估数据与模型输出类别数匹配。"
+                )
+
         metrics: Dict[str, Any] = {
             "accuracy": calculate_accuracy(y_true, y_pred),
             "precision_macro": calculate_precision(y_true, y_pred, average="macro"),

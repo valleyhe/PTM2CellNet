@@ -1,0 +1,55 @@
+# ESM-2 150M 预训练模型配置
+# 使用ESM-2 150M模型作为序列编码器
+
+model:
+  encoder_type: "esm2_150M"
+  freeze_encoder: false  # 是否冻结预训练权重
+  num_classes: 4
+  dropout: 0.1
+  pretrained_cache_dir: null  # 预训练模型缓存目录
+
+training:
+  max_epochs: 50
+  batch_size: 16  # 预训练模型需要较小batch size
+  learning_rate: 5.0e-5  # 预训练模型使用更小学习率
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "cosine"
+
+  accelerator: "gpu"
+  devices: 1
+  precision: "bf16-mixed"  # 使用BF16混合精度
+  accumulate_grad_batches: 4  # 梯度累积
+
+  early_stopping:
+    enabled: true
+    patience: 5
+    monitor: "val_loss"
+    mode: "min"
+
+  checkpoint:
+    enabled: true
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "min"
+
+  logger:
+    type: "tensorboard"
+    save_dir: "outputs/logs"
+    name: "esm2_150m"
+
+data:
+  max_sequence_length: 1024  # ESM-2支持更长序列
+  num_workers: 4
+  pin_memory: true
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+
+paths:
+  outputs_root: "outputs"
+  outputs_models: "outputs/models/esm2_150m"

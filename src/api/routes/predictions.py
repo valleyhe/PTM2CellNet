@@ -2,8 +2,9 @@
 """Prediction endpoints."""
 
 import time
-from typing import Dict
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 from fastapi import APIRouter, HTTPException, status
 
@@ -41,10 +42,11 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
     sequence = clean_sequence(request.sequence)
 
     amino_acids = STATE.feature_extractor.amino_acids if STATE.feature_extractor else DEFAULT_AMINO_ACIDS
+    # Always use 1-based encoding (A=1, Y=20) to match FeatureExtractor
     aa_to_idx = (
         STATE.feature_extractor.aa_to_idx
         if STATE.feature_extractor
-        else {aa: i for i, aa in enumerate(amino_acids)}
+        else {aa: i + 1 for i, aa in enumerate(amino_acids)}
     )
 
     is_valid, error_msg = validate_sequence(
@@ -86,10 +88,65 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
                 ptm_types[pos] = ptm_idx
 
     return {
-        "sequence": seq_tensor.unsqueeze(0),
-        "ptm_mask": ptm_mask.unsqueeze(0),
-        "ptm_types": ptm_types.unsqueeze(0),
+        "sequence": seq_tensor,
+        "ptm_mask": ptm_mask,
+        "ptm_types": ptm_types,
     }
+
+
+def _run_prediction_on_batch(
+    batch: Dict[str, torch.Tensor],
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Run model inference on a batched tensor dict (already on device).
+
+    Returns:
+        (probabilities, predictions, confidence_scores) — all on CPU.
+        probabilities: (N, num_classes)
+        predictions: (N,) argmax class indices
+        confidence_scores: (N,) max probability per sample
+    """
+    with torch.no_grad():
+        outputs = STATE.model(batch)
+
+        if isinstance(outputs, dict):
+            probabilities = outputs.get("probabilities")
+        else:
+            probabilities = torch.softmax(outputs, dim=-1)
+
+        if not isinstance(probabilities, torch.Tensor):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="模型输出缺少有效概率张量",
+            )
+
+    probs = probabilities.cpu()
+    predictions = torch.argmax(probs, dim=-1)
+    confidence_scores = probs.gather(dim=-1, index=predictions.unsqueeze(-1)).squeeze(-1)
+    return probs, predictions, confidence_scores
+
+
+def _build_prediction_response(
+    probs_np: np.ndarray,
+    pred_idx: int,
+    timing_ms: float,
+    pathway_impacts: Optional[List[PathwayImpact]] = None,
+) -> PredictionResponse:
+    """Build a single PredictionResponse from model output tensors."""
+    pred_label = STATE.idx_to_label.get(pred_idx, "unknown")
+    confidence = float(probs_np[pred_idx])
+    prob_dict = {
+        STATE.idx_to_label.get(i, f"class_{i}"): float(probs_np[i])
+        for i in range(len(probs_np))
+    }
+    return PredictionResponse(
+        predicted_cell_state=pred_label,
+        cell_state=pred_label,
+        confidence=confidence,
+        probabilities=prob_dict,
+        pathway_impacts=pathway_impacts,
+        processing_time_ms=round(timing_ms, 2),
+    )
 
 
 @router.post("/predict", response_model=PredictionResponse)
@@ -114,44 +171,50 @@ async def predict(request: PredictionRequest):
     try:
         batch = preprocess_request(request)
 
-        with torch.no_grad():
-            for key in batch:
-                batch[key] = batch[key].to(STATE.device)
+        # Add batch dimension for single-sample inference
+        batch = {key: val.unsqueeze(0).to(STATE.device) for key, val in batch.items()}
 
-            outputs = STATE.model(batch)
+        probs_tensor, pred_tensor, _ = _run_prediction_on_batch(batch)
 
-            if isinstance(outputs, dict):
-                probabilities = outputs.get("probabilities")
-            else:
-                logits = outputs
-                probabilities = torch.softmax(logits, dim=-1)
+        probs_np = probs_tensor[0].numpy()
+        pred_idx = int(pred_tensor[0].item())
 
-            if isinstance(probabilities, torch.Tensor):
-                probs_tensor = probabilities
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="模型输出缺少有效概率张量",
-                )
+        # Optional pathway analysis via SignalingNetworkMapper
+        pathway_impacts = None
+        if STATE.pathway_mapper is not None and request.ptm_sites:
+            try:
+                import pandas as pd
 
-            probs_np = probs_tensor[0].cpu().numpy()
-            pred_idx = int(torch.argmax(probs_tensor[0]).item())
-            pred_label = STATE.idx_to_label.get(pred_idx, "unknown")
-            confidence = float(probs_np[pred_idx])
-
-            prob_dict = {
-                STATE.idx_to_label.get(i, f"class_{i}"): float(probs_np[i])
-                for i in range(len(probs_np))
-            }
+                rows = []
+                for ptm_site in request.ptm_sites:
+                    site = ptm_site.model_dump() if hasattr(ptm_site, "model_dump") else ptm_site.dict()
+                    rows.append({
+                        "gene_symbol": "",
+                        "ptm_type": site.get("type", ""),
+                        "effect": "gain",
+                        "delta_prob": 1.0,
+                    })
+                if rows:
+                    ptm_df = pd.DataFrame(rows)
+                    report = STATE.pathway_mapper.generate_network_report(ptm_df)
+                    if report and report.get("pathway_activities"):
+                        pathway_impacts = [
+                            PathwayImpact(
+                                pathway_name=name,
+                                activity_change=activity,
+                                confidence="high" if abs(activity) > 0.5 else "medium",
+                                key_genes=list(
+                                    STATE.pathway_mapper.pathways.get(name, {}).get("output_genes", [])
+                                ),
+                            )
+                            for name, activity in report["pathway_activities"].items()
+                        ]
+            except Exception as exc:
+                logger.warning("Optional pathway analysis failed: %s", exc)
 
         processing_time_ms = (time.time() - start_time) * 1000
 
-        return PredictionResponse(
-            cell_state=pred_label,
-            confidence=confidence,
-            probabilities=prob_dict,
-            processing_time_ms=round(processing_time_ms, 2),
-        )
+        return _build_prediction_response(probs_np, pred_idx, processing_time_ms, pathway_impacts)
 
     except HTTPException:
         raise
@@ -181,73 +244,53 @@ async def batch_predict(request: BatchPredictionRequest):
             detail="模型未初始化",
         )
 
+    # M4: 空样本列表直接返回空结果，而非在 torch.stack([]) 时抛 500
+    if not request.samples:
+        return BatchPredictionResponse(
+            predictions=[],
+            total_processing_time_ms=0.0,
+            sample_count=0,
+        )
+
     start_time = time.time()
 
-    predictions = []
+    try:
+        batches = [preprocess_request(sample) for sample in request.samples]
 
-    for sample in request.samples:
-        sample_start = time.time()
+        batch = {
+            "sequence": torch.stack([b["sequence"] for b in batches], dim=0).to(STATE.device),
+            "ptm_mask": torch.stack([b["ptm_mask"] for b in batches], dim=0).to(STATE.device),
+            "ptm_types": torch.stack([b["ptm_types"] for b in batches], dim=0).to(STATE.device),
+        }
 
-        try:
-            batch = preprocess_request(sample)
+        probs_tensor, pred_tensor, _ = _run_prediction_on_batch(batch)
 
-            with torch.no_grad():
-                for key in batch:
-                    batch[key] = batch[key].to(STATE.device)
+        total_time_ms = (time.time() - start_time) * 1000
+        per_sample_ms = total_time_ms / len(request.samples) if request.samples else 0
 
-                outputs = STATE.model(batch)
+        predictions = [
+            _build_prediction_response(
+                probs_tensor[i].numpy(),
+                int(pred_tensor[i].item()),
+                per_sample_ms,
+            )
+            for i in range(len(request.samples))
+        ]
 
-                if isinstance(outputs, dict):
-                    probabilities = outputs.get("probabilities")
-                else:
-                    logits = outputs
-                    probabilities = torch.softmax(logits, dim=-1)
+        return BatchPredictionResponse(
+            predictions=predictions,
+            total_processing_time_ms=round(total_time_ms, 2),
+            sample_count=len(predictions),
+        )
 
-                if isinstance(probabilities, torch.Tensor):
-                    probs_tensor = probabilities
-                else:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="模型输出缺少有效概率张量",
-                    )
-
-                probs_np = probs_tensor[0].cpu().numpy()
-                pred_idx = int(torch.argmax(probs_tensor[0]).item())
-                pred_label = STATE.idx_to_label.get(pred_idx, "unknown")
-                confidence = float(probs_np[pred_idx])
-
-                prob_dict = {
-                    STATE.idx_to_label.get(i, f"class_{i}"): float(probs_np[i])
-                    for i in range(len(probs_np))
-                }
-
-                sample_time_ms = (time.time() - sample_start) * 1000
-
-                predictions.append(
-                    PredictionResponse(
-                        cell_state=pred_label,
-                        confidence=confidence,
-                        probabilities=prob_dict,
-                        processing_time_ms=round(sample_time_ms, 2),
-                    )
-                )
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("批量预测错误: %s", e, exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="批量预测过程中发生错误",
-            ) from e
-
-    total_time_ms = (time.time() - start_time) * 1000
-
-    return BatchPredictionResponse(
-        predictions=predictions,
-        total_processing_time_ms=round(total_time_ms, 2),
-        sample_count=len(predictions),
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("批量预测错误: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="批量预测过程中发生错误",
+        ) from e
 
 
 @router.post("/predict/variant", response_model=VariantPredictionResponse)

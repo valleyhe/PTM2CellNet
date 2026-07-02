@@ -4,15 +4,18 @@ Lightning训练流程集成测试
 """
 
 import os
+import subprocess
+import sys
 import tempfile
 import pytest
 import torch
 import lightning as L
 import pandas as pd
+from lightning.pytorch.loggers import CSVLogger
 
 from src.models.architectures import PTM2CellNet
 from src.training.lightning_module import PTM2CellNetLightning
-from src.data.lightning_datamodule import PTMDataModule
+from src.data.lightning_datamodule import PTMLightningDataModule
 from src.data.loaders import DataLoader
 from src.data.preprocess import DataPreprocessor
 
@@ -75,7 +78,7 @@ class TestLightningPipeline:
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(sample_data)
 
         # 创建数据模块
-        datamodule = PTMDataModule(
+        datamodule = PTMLightningDataModule(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -106,7 +109,7 @@ class TestLightningPipeline:
         preprocessor = DataPreprocessor(sample_config)
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(sample_data)
 
-        datamodule = PTMDataModule(
+        datamodule = PTMLightningDataModule(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -134,7 +137,7 @@ class TestLightningPipeline:
         preprocessor = DataPreprocessor(sample_config)
         train_df, val_df, test_df = preprocessor.preprocess_pipeline(sample_data)
 
-        datamodule = PTMDataModule(
+        datamodule = PTMLightningDataModule(
             train_df=train_df,
             val_df=val_df,
             test_df=test_df,
@@ -146,10 +149,12 @@ class TestLightningPipeline:
         lightning_model = PTM2CellNetLightning(model, sample_config)
 
         # 创建Trainer（使用CPU进行快速测试）
+        # 使用 CSVLogger 避免 ``self.log(..., logger=True) but have no logger
+        # configured`` 警告（M3）；CSVLogger 轻量、无需 tensorboard 依赖。
         trainer = L.Trainer(
             accelerator="cpu",
             max_epochs=2,
-            logger=False,
+            logger=CSVLogger(save_dir=tempfile.gettempdir(), name="lightning_test"),
             enable_checkpointing=False,
             enable_progress_bar=False,
         )
@@ -167,7 +172,7 @@ class TestLightningPipeline:
             preprocessor = DataPreprocessor(sample_config)
             train_df, val_df, test_df = preprocessor.preprocess_pipeline(sample_data)
 
-            datamodule = PTMDataModule(
+            datamodule = PTMLightningDataModule(
                 train_df=train_df,
                 val_df=val_df,
                 test_df=test_df,
@@ -191,7 +196,7 @@ class TestLightningPipeline:
                 accelerator="cpu",
                 max_epochs=1,
                 callbacks=[checkpoint_callback],
-                logger=False,
+                logger=CSVLogger(save_dir=tmpdir, name="lightning_test"),
                 enable_progress_bar=False,
             )
 
@@ -253,6 +258,37 @@ class TestConfigIntegration:
 
         assert config.get("training.max_epochs") == 200
         assert config.get("training.max_epochs") != original_epochs
+
+
+def test_train_lightning_script_smoke():
+    """Smoke test the Lightning training script entrypoint."""
+    data_path = Path("data/raw/sample_data.csv")
+    if not data_path.exists():
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+        DataLoader().load_sample_data(num_samples=32).to_csv(data_path, index=False)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/train_lightning.py",
+            "--config",
+            "configs/lightning.yaml",
+            "--max-epochs",
+            "1",
+            "--data",
+            str(data_path),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "MPLCONFIGDIR": str(Path("/tmp") / "mplconfig")},
+    )
+
+    assert result.returncode == 0, (
+        "train_lightning.py smoke test failed\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
 
 
 # 需要导入Path

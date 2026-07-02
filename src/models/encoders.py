@@ -140,3 +140,36 @@ class LSTMEncoder(SequenceEncoder):
         x, _ = self.lstm(x)
         x = self.proj(x)
         return cast(torch.Tensor, self.dropout(x))
+
+
+class GRUEncoder(SequenceEncoder):
+    """基于GRU的序列编码器"""
+
+    def __init__(
+        self,
+        vocab_size: int,
+        embed_dim: int,
+        max_len: int = 1000,
+        hidden_dim: int = 256,
+        num_layers: int = 2,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.max_len = max_len
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        self.gru = nn.GRU(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=False,
+        )
+        self.proj = nn.Linear(hidden_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, sequences: torch.Tensor) -> torch.Tensor:
+        x = self.embedding(sequences)
+        x, _ = self.gru(x)
+        x = self.proj(x)
+        return cast(torch.Tensor, self.dropout(x))

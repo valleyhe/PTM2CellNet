@@ -223,7 +223,7 @@ class DatasetCache:
         if cache_path.exists():
             try:
                 with open(cache_path, "rb") as f:
-                    data = pickle.load(f)
+                    data = pickle.load(f)  # nosec - cached experiment results from trusted source
                 logger.info(f"从缓存加载数据: {cache_path.name}")
                 return data
             except Exception as e:

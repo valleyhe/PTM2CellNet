@@ -9,8 +9,9 @@ import pytest
 import torch
 from unittest.mock import Mock, MagicMock, patch
 from typing import Dict, Optional
+from pydantic import BaseModel
 
-from src.api.schemas import PTMSite
+from src.data.schemas import PTMSite
 
 
 # Mock fixtures for isolated testing
@@ -45,6 +46,15 @@ def ptm_mapper(mock_geneformer_loader, mock_gene_mapper):
 
 class TestPTMDirectionMapper:
     """Test suite for PTMDirectionMapper."""
+
+    def test_mapper_uses_data_layer_ptm_site_container(self):
+        """Mapper should depend on a data-layer PTMSite, not the API schema."""
+        from src.api.schemas import PTMSite as ApiPTMSite
+        from src.models import ptm_direction_mapper as mapper_module
+
+        assert issubclass(ApiPTMSite, BaseModel)
+        assert mapper_module.PTMSite is not ApiPTMSite
+        assert mapper_module.PTMSite.__module__ == "src.data.schemas"
 
     def test_phosphorylation_direction(self, ptm_mapper):
         """Phosphorylation on known gene produces direction=2 (OE), mask=1."""

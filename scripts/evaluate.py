@@ -35,9 +35,10 @@ def main():
     from src.utils.config import Config
     from src.utils.logging import setup_logger, get_timestamped_log_filename
     from src.utils.io import load_model
+    from src.utils.checkpoint_utils import resolve_inference_config
     from src.data.loaders import DataLoader
     from src.data.preprocess import DataPreprocessor
-    from src.data.datasets import PTMDataModule
+    from src.data.datasets import PTMPlainDataModule
     from src.models.architectures import PTM2CellNet
     from src.evaluation.evaluators import Evaluator
     from src.evaluation.visualization import (
@@ -52,7 +53,9 @@ def main():
     logger.info("=" * 60)
 
     args = parse_args()
-    config = Config.from_yaml(args.config)
+    # 优先使用与 checkpoint 同目录的 .config.yaml，避免与默认 config 不匹配
+    config, config_source = resolve_inference_config(args.model, args.config)
+    logger.info("使用配置文件: %s", config_source)
 
     os.makedirs(args.output, exist_ok=True)
 
@@ -70,7 +73,7 @@ def main():
 
     logger.info("步骤 3: 创建数据模块")
     batch_size = config.get("training.batch_size", 32)
-    datamodule = PTMDataModule(
+    datamodule = PTMPlainDataModule(
         test_df, None, test_df,
         config=config.to_dict(),
         batch_size=batch_size,
@@ -78,9 +81,25 @@ def main():
     cell_states = datamodule.get_labels()
 
     logger.info("步骤 4: 加载模型")
-    config.set("model.num_classes", len(cell_states))
+    # 以 checkpoint 配置中的 num_classes 为准，避免被数据标签覆盖导致 state_dict 不匹配
+    config_num_classes = config.get("model.num_classes")
+    if config_num_classes is None:
+        config.set("model.num_classes", len(cell_states))
+    elif len(cell_states) != config_num_classes:
+        logger.warning(
+            "数据标签数 (%d) 与配置 model.num_classes (%d) 不一致，"
+            "请提供与配置类别数匹配的评估数据。将以配置为准继续加载模型。",
+            len(cell_states), config_num_classes,
+        )
     model = PTM2CellNet.from_config(config.to_dict())
-    load_model(model, args.model)
+    try:
+        load_model(model, args.model)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"加载 checkpoint 失败：checkpoint 与 config 不匹配。"
+            f"请使用训练该 checkpoint 时的 config 文件，路径通常为 "
+            f"outputs/models/<model>.config.yaml。原始错误: {exc}"
+        ) from exc
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("模型已加载到 %s", device)
@@ -92,7 +111,14 @@ def main():
         device=device,
         task_type="classification",
     )
-    result = evaluator.evaluate(datamodule.test_dataloader(), return_predictions=True)
+    try:
+        result = evaluator.evaluate(datamodule.test_dataloader(), return_predictions=True)
+    except ValueError as exc:
+        raise ValueError(
+            "评估指标计算失败，可能是 config 中的 model.num_classes 与评估数据标签空间不匹配。"
+            f"配置类别数: {config.get('model.num_classes')}, 数据标签数: {len(cell_states)}。"
+            "请提供与配置类别数匹配的数据或使用匹配的配置/checkpoint。"
+        ) from exc
 
     metrics = result["metrics"]
     logger.info("评估指标:")

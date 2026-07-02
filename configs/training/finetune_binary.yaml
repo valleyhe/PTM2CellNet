@@ -1,0 +1,58 @@
+data:
+  cell_states:
+  - Quiescent
+  - Activated
+  data_path: data/processed/ptm_integrated_human_labeled.csv
+  max_sequence_length: 500
+  ptm_types:
+  - phosphorylation
+  - acetylation
+  - methylation
+  - ubiquitination
+  - sumoylation
+  split:
+    homology_aware: false
+    stratified: true
+    test_ratio: 0.15
+    train_ratio: 0.7
+    val_ratio: 0.15
+  valid_amino_acids: ACDEFGHIKLMNPQRSTVWY
+logging:
+  level: INFO
+  log_to_console: true
+  log_to_file: true
+  wandb_enabled: false
+model:
+  dropout: 0.2
+  encoder_type: transformer
+  hidden_dim: 256
+  num_classes: 2
+  num_heads: 8
+  num_layers: 6
+  pool_type: attention
+  ptm_fusion_type: attention
+  task_type: classification
+paths:
+  data_processed: data/processed
+  data_raw: data/raw
+  outputs_logs: outputs/logs
+  outputs_models: outputs/models
+  outputs_results: outputs/results
+project:
+  name: PTM2CellNet-Binary
+  seed: 42
+  version: 2.0.0
+training:
+  batch_size: 64
+  class_balanced_sampling: true
+  device: cuda
+  early_stopping_patience: 8
+  focal_alpha: 0.75
+  focal_gamma: 2.0
+  learning_rate: 1e-4
+  loss_type: focal
+  max_epochs: 30
+  optimizer: adamw
+  scheduler: cosine
+  warmup_ratio: 0.1
+  weight_decay: 0.01

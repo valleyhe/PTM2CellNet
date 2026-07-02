@@ -1,0 +1,58 @@
+# Mamba配置 - state_dim=4测试
+model:
+  encoder_type: "mamba"
+  hidden_dim: 256
+  num_layers: 6
+  state_dim: 4
+  expand_factor: 1
+  num_classes: 4
+  num_ptm_types: 10
+  dropout: 0.2
+  vocab_size: 21
+
+data:
+  max_sequence_length: 500
+  batch_size: 16
+  num_workers: 4
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "Phosphorylation"
+    - "Acetylation"
+    - "Ubiquitination"
+    - "Methylation"
+    - "Glycosylation"
+    - "SUMOylation"
+    - "Palmitoylation"
+    - "Nitrosylation"
+    - "Hydroxylation"
+    - "ADP-ribosylation"
+
+training:
+  max_epochs: 100
+  learning_rate: 0.0002
+  optimizer: "adamw"
+  weight_decay: 0.01
+  scheduler: "cosine"
+  warmup_epochs: 3
+
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 4
+  precision: "16-mixed"
+
+  accelerator: "gpu"
+  devices: 1
+
+callbacks:
+  model_checkpoint:
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 3
+    filename: "mamba-sd4-{epoch:02d}-{val_loss:.4f}"
+
+  early_stopping:
+    monitor: "val_loss"
+    patience: 10
+    mode: "min"
+
+  learning_rate_monitor:
+    logging_interval: "step"

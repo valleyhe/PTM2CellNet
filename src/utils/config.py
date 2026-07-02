@@ -128,8 +128,21 @@ class Config:
             yaml.dump(self._config, f, default_flow_style=False, allow_unicode=True)
 
     def __getitem__(self, key: str) -> Any:
-        """支持字典式访问"""
-        return self.get(key)
+        """支持字典式访问。
+
+        与 ``dict.__getitem__`` 契约一致：当键不存在时抛出 ``KeyError``，
+        而非静默返回 ``None``（M6）。这避免拼写错误或缺失配置被隐藏。
+
+        注意：本方法支持点号分隔的嵌套键（与 ``get`` 一致）。对嵌套访问，
+        任一层缺失都会抛出 ``KeyError``。
+        """
+        keys = key.split(".")
+        value: Any = self._config
+        for k in keys:
+            if not isinstance(value, dict) or k not in value:
+                raise KeyError(key)
+            value = value[k]
+        return value
 
     def __setitem__(self, key: str, value: Any) -> None:
         """支持字典式设置"""

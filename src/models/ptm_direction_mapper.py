@@ -12,30 +12,152 @@ Direction codes (from BiPerturbEncoder):
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
-from src.api.schemas import PTMSite
+from src.data.schemas import PTMSite
 
 logger = logging.getLogger(__name__)
 
 
-# PTM type → direction mapping (from CONTEXT.md decisions D-01 through D-07)
-PTM_DIRECTION_MAP = {
-    "phosphorylation": 2,   # OE - activates signaling pathways
-    "ubiquitination": 0,    # KO - marks for degradation
-    "acetylation": 2,       # OE - enhances activity
-    "methylation": 2,       # OE - stabilizing/activating
-    "sumoylation": 1,       # KD - partial inhibition
-    "neddylation": 2,       # OE - activates ligases
+# --------------------------------------------------------------------------
+# Direction codes
+# --------------------------------------------------------------------------
+DIRECTION_KO = 0  # Knockout  — effect=-1   (e.g. ubiquitination → degradation)
+DIRECTION_KD = 1  # Knockdown — effect=-0.5 (e.g. partial inhibition)
+DIRECTION_OE = 2  # Overexpr  — effect=+1   (e.g. activating PTMs)
+
+
+# --------------------------------------------------------------------------
+# V22-05: Extensible PTM direction registry
+# --------------------------------------------------------------------------
+# Each entry records the *default* direction for a PTM type. New PTM types can
+# be added at runtime via ``register_ptm_direction`` (or
+# ``PTMDirectionMapper.register_ptm_type``) without editing this module.
+#
+# Defaults follow CONTEXT.md decisions D-01..D-07 and were extended (V22-05) to
+# cover additional biologically relevant PTM types.
+PTM_DIRECTION_MAP: Dict[str, int] = {
+    # Core signaling PTMs (D-01..D-07)
+    "phosphorylation": DIRECTION_OE,   # activates signaling pathways
+    "ubiquitination":  DIRECTION_KO,   # marks for degradation
+    "acetylation":     DIRECTION_OE,   # enhances activity
+    "methylation":     DIRECTION_OE,   # stabilizing/activating (context-dependent, see below)
+    "sumoylation":     DIRECTION_KD,   # partial inhibition
+    "neddylation":     DIRECTION_OE,   # activates cullin-RING ligases
+    # Extended PTM types (V22-05)
+    "succinylation":   DIRECTION_OE,   # metabolic / mitochondrial activation
+    "malonylation":    DIRECTION_KD,   # metabolic regulation, often repressive
+    "glutarylation":   DIRECTION_KD,   # metabolic regulation, often repressive
+    "glycosylation":   DIRECTION_OE,   # enhances stability / secretion
+    "palmitoylation":  DIRECTION_OE,   # enhances membrane localization
+    "hydroxylation":   DIRECTION_OE,   # stabilizing (e.g. HIF1A context)
+    "oxidation":       DIRECTION_OE,   # redox signaling activation
+    "nitrosylation":   DIRECTION_OE,   # activates signaling (e.g. SNO)
+    "adpribosylation": DIRECTION_KD,   # modifies / inhibits target
+    "deamidation":     DIRECTION_KD,   # alters function, often inactivating
+    "citrullination":  DIRECTION_KD,   # alters charge, often inactivating
+    "lactylation":     DIRECTION_OE,   # activates gene expression (recent)
+    "crotonylation":   DIRECTION_OE,   # activates gene expression
+    "propionylation":  DIRECTION_OE,   # activates gene expression
+    "butyrylation":    DIRECTION_OE,   # activates gene expression
+    "formylation":     DIRECTION_OE,   # regulatory
+    "carbonylation":   DIRECTION_KD,   # oxidative damage marker, inactivating
+    "sulfation":       DIRECTION_OE,   # enhances protein-protein interaction
+    "myristoylation":  DIRECTION_OE,   # enhances membrane localization
+    "prenylation":     DIRECTION_OE,   # enhances membrane localization
+    "disulfidebond":   DIRECTION_OE,   # stabilizes structure
+    "amidation":       DIRECTION_OE,   # stabilizes / activates peptide
 }
 
 # Default direction for unknown PTM types (D-07)
-DEFAULT_DIRECTION = 2  # OE - conservative default
+DEFAULT_DIRECTION = DIRECTION_OE  # OE - conservative default
 
 # Maximum targets per sample (D-13)
 MAX_TARGETS = 32
+
+
+def register_ptm_direction(ptm_type: str, direction: int, overwrite: bool = False) -> None:
+    """V22-05: Register or override a PTM type → direction mapping at runtime.
+
+    Enables callers (plugins, user config) to extend the PTM registry without
+    editing this module.
+
+    Args:
+        ptm_type: PTM type name (case-insensitive; normalized on lookup).
+        direction: Direction code (0=KO, 1=KD, 2=OE).
+        overwrite: If False (default), raise ValueError when the PTM type is
+            already registered. Set True to override an existing entry.
+
+    Raises:
+        ValueError: If ``direction`` is not in {0, 1, 2}, or if ``overwrite``
+            is False and ``ptm_type`` is already registered.
+    """
+    if direction not in (DIRECTION_KO, DIRECTION_KD, DIRECTION_OE):
+        raise ValueError(
+            f"direction must be 0 (KO), 1 (KD) or 2 (OE), got {direction}"
+        )
+    normalized = ptm_type.lower().replace("-", "").replace("_", "").replace(" ", "")
+    if not overwrite and normalized in PTM_DIRECTION_MAP:
+        raise ValueError(
+            f"PTM type '{ptm_type}' already registered; "
+            "pass overwrite=True to override"
+        )
+    PTM_DIRECTION_MAP[normalized] = direction
+    logger.debug("Registered PTM direction: %s -> %d", ptm_type, direction)
+
+
+# --------------------------------------------------------------------------
+# V22-03: Pathway-context-aware direction overrides
+# --------------------------------------------------------------------------
+# Some PTMs are bidirectional depending on biological context. The canonical
+# example is methylation: on histones / chromatin / DNA-damage contexts it is
+# typically *repressive* (KD), whereas on signaling kinases it is stabilizing
+# (OE). This table maps ``(normalized_ptm_type, pathway_keyword) -> direction``
+# and takes precedence over the static default.
+#
+# Pathway keywords are matched case-insensitively against the supplied
+# ``pathway_context`` string.
+PTM_PATHWAY_CONTEXT_OVERRIDES: Dict[Tuple[str, str], int] = {
+    # Methylation is repressive in chromatin / gene-regulation contexts
+    ("methylation", "chromatin"):     DIRECTION_KD,
+    ("methylation", "histone"):       DIRECTION_KD,
+    ("methylation", "dna damage"):    DIRECTION_KD,
+    ("methylation", "gene regulation"): DIRECTION_KD,
+    ("methylation", "transcription"): DIRECTION_KD,
+    # Ubiquitination can be activating in NF-kB context (degradation of IkB)
+    ("ubiquitination", "nf-kb"):      DIRECTION_OE,
+    ("ubiquitination", "inflammation"): DIRECTION_OE,
+    # Sumoylation is activating in nuclear transcription contexts
+    ("sumoylation", "transcription"): DIRECTION_OE,
+    ("sumoylation", "nuclear"):       DIRECTION_OE,
+}
+
+
+def register_pathway_context_override(
+    ptm_type: str, pathway_keyword: str, direction: int
+) -> None:
+    """V22-03: Register a context-aware direction override at runtime.
+
+    Args:
+        ptm_type: PTM type name (normalized on lookup).
+        pathway_keyword: Substring to match against the pathway context.
+        direction: Direction code (0=KO, 1=KD, 2=OE).
+
+    Raises:
+        ValueError: If ``direction`` is not in {0, 1, 2}.
+    """
+    if direction not in (DIRECTION_KO, DIRECTION_KD, DIRECTION_OE):
+        raise ValueError(
+            f"direction must be 0 (KO), 1 (KD) or 2 (OE), got {direction}"
+        )
+    normalized = ptm_type.lower().replace("-", "").replace("_", "").replace(" ", "")
+    PTM_PATHWAY_CONTEXT_OVERRIDES[(normalized, pathway_keyword.lower())] = direction
+    logger.debug(
+        "Registered context override: (%s, %s) -> %d",
+        ptm_type, pathway_keyword, direction,
+    )
 
 
 @dataclass
@@ -116,17 +238,43 @@ class PTMDirectionMapper:
             .replace(" ", "")
         )
 
-    def _get_direction(self, ptm_type: str) -> int:
+    def _get_direction(
+        self,
+        ptm_type: str,
+        pathway_context: Optional[str] = None,
+    ) -> int:
         """
-        Map PTM type to direction code.
+        Map PTM type to a direction code (V22-03: pathway-context-aware).
+
+        Resolution order:
+            1. If ``pathway_context`` is provided and matches a registered
+               ``(ptm_type, keyword)`` override, use the override (V22-03).
+            2. Otherwise use the static ``PTM_DIRECTION_MAP`` default (V22-05).
+            3. Fall back to ``DEFAULT_DIRECTION`` for unknown PTM types.
 
         Args:
-            ptm_type: PTM type string (will be normalized)
+            ptm_type: PTM type string (will be normalized).
+            pathway_context: Optional pathway / biological context string.
+                When supplied, context-aware overrides (e.g. repressive
+                methylation in chromatin/DNA-damage contexts) take precedence.
 
         Returns:
             Direction code: 0=KO, 1=KD, 2=OE
         """
         normalized = self._normalize_ptm_type(ptm_type)
+
+        # 1. Context-aware override (V22-03)
+        if pathway_context:
+            ctx_lower = pathway_context.lower()
+            for (ctx_ptm, keyword), direction in PTM_PATHWAY_CONTEXT_OVERRIDES.items():
+                if ctx_ptm == normalized and keyword in ctx_lower:
+                    logger.debug(
+                        "Context override for '%s' in context '%s' -> direction=%d",
+                        ptm_type, pathway_context, direction,
+                    )
+                    return direction
+
+        # 2. Static registry default (V22-05)
         direction = PTM_DIRECTION_MAP.get(normalized, DEFAULT_DIRECTION)
 
         if normalized not in PTM_DIRECTION_MAP:
@@ -173,6 +321,7 @@ class PTMDirectionMapper:
         self,
         ptm_sites: List[PTMSite],
         gene_names: List[str],
+        pathway_context: Optional[str] = None,
     ) -> PTMDirectionMapperOutput:
         """
         Map PTM sites to DAVF input tensors.
@@ -180,6 +329,9 @@ class PTMDirectionMapper:
         Args:
             ptm_sites: List of PTM modification events (from API schema)
             gene_names: Gene name for each PTM site (parallel list, D-11, D-17)
+            pathway_context: Optional pathway / biological context used to
+                resolve context-aware direction overrides (V22-03). When None,
+                the static per-PTM defaults are used.
 
         Returns:
             PTMDirectionMapperOutput with gene_ids, directions, attention_mask tensors
@@ -211,8 +363,8 @@ class PTMDirectionMapper:
             # Resolve gene ID
             gene_id, valid = self._resolve_gene_id(gene_name)
 
-            # Get direction code
-            direction = self._get_direction(ptm_site.type)
+            # Get direction code (context-aware when pathway_context given, V22-03)
+            direction = self._get_direction(ptm_site.type, pathway_context)
 
             gene_ids.append(gene_id if valid else 0)
             directions.append(direction)
@@ -236,6 +388,7 @@ class PTMDirectionMapper:
         self,
         batch_ptm_sites: List[List[PTMSite]],
         batch_gene_names: List[List[str]],
+        pathway_contexts: Optional[List[Optional[str]]] = None,
     ) -> PTMDirectionMapperOutput:
         """
         Map batch of PTM sites to DAVF input tensors.
@@ -243,12 +396,24 @@ class PTMDirectionMapper:
         Args:
             batch_ptm_sites: Batch of PTM site lists
             batch_gene_names: Batch of gene name lists (parallel to batch_ptm_sites)
+            pathway_contexts: Optional per-sample pathway contexts (V22-03).
+                If provided, must be parallel to ``batch_ptm_sites``; each entry
+                may be None to use static defaults for that sample.
 
         Returns:
             PTMDirectionMapperOutput with shape [B, K] where B=batch size, K=max_targets
+
+        Raises:
+            ValueError: If ``pathway_contexts`` length differs from batch size.
         """
         B = len(batch_ptm_sites)
         K = self.max_targets
+
+        if pathway_contexts is not None and len(pathway_contexts) != B:
+            raise ValueError(
+                f"pathway_contexts ({len(pathway_contexts)}) must match batch "
+                f"size ({B})"
+            )
 
         # Initialize output tensors
         all_gene_ids = torch.zeros(B, K, dtype=torch.long)
@@ -257,7 +422,8 @@ class PTMDirectionMapper:
 
         # Process each sample
         for i, (ptm_sites, gene_names) in enumerate(zip(batch_ptm_sites, batch_gene_names)):
-            output = self.map_ptms(ptm_sites, gene_names)
+            ctx = pathway_contexts[i] if pathway_contexts else None
+            output = self.map_ptms(ptm_sites, gene_names, pathway_context=ctx)
             all_gene_ids[i] = output.gene_ids[0]
             all_directions[i] = output.directions[0]
             all_masks[i] = output.attention_mask[0]
@@ -267,3 +433,16 @@ class PTMDirectionMapper:
             directions=all_directions,
             attention_mask=all_masks,
         )
+
+    # Convenience class-level accessors for the runtime registry (V22-05)
+    @staticmethod
+    def register_ptm_type(ptm_type: str, direction: int, overwrite: bool = False) -> None:
+        """Register a new PTM type → direction mapping (V22-05)."""
+        register_ptm_direction(ptm_type, direction, overwrite=overwrite)
+
+    @staticmethod
+    def register_context_override(
+        ptm_type: str, pathway_keyword: str, direction: int
+    ) -> None:
+        """Register a pathway-context-aware direction override (V22-03)."""
+        register_pathway_context_override(ptm_type, pathway_keyword, direction)

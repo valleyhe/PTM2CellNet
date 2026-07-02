@@ -9,6 +9,11 @@ from unittest.mock import MagicMock
 
 from src.training.callbacks import Callback, ModelCheckpoint, EarlyStopping
 
+try:
+    from lightning.pytorch.callbacks import Callback as LightningCallback
+except ImportError:  # pragma: no cover - depends on optional dependency
+    LightningCallback = None
+
 
 class MockTrainer:
     """模拟训练器"""
@@ -30,6 +35,13 @@ class MockModel:
 
 class TestCallbackBase:
     """回调基类测试"""
+
+    def test_optional_lightning_inheritance(self):
+        """有lightning时应继承其Callback"""
+        if LightningCallback is None:
+            assert Callback.__mro__[1] is object
+        else:
+            assert issubclass(Callback, LightningCallback)
 
     def test_on_train_start(self):
         """训练开始钩子"""

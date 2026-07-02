@@ -1,0 +1,19 @@
+integration:
+  genki_ref_root: "tests/fixtures/genki"
+  adata_file: null
+  grn_file_dir: null
+  pcnet_name: "pcNet"
+  cutoff: 85
+  default_magnitude: 0.6
+  compare_against_hard_ko: true
+  scoring_method: "shift"
+  trainer_epochs: 10
+  trainer_lr: 0.0007
+  trainer_beta: 0.0001
+  trainer_seed: null
+  trainer_out_channels: 2
+  null_permutations: 32
+  null_seed: null
+  significance_alpha: 0.05
+  bagging_threshold: 0.05
+  bagging_cutoff: 0.95

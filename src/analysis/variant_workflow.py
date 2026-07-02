@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """Complete variant effect prediction workflow (FEAT-01)."""
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
 import requests
@@ -9,9 +9,15 @@ import requests
 from .variant_parser import HGVSVariantParser, VariantComponents
 from .gene_mapper import GeneMapper
 from ..models.variant_effect import VariantPTMEffectPredictor
-from ..models.signaling_network import PTMNetworkAnalyzer
 
 logger = logging.getLogger(__name__)
+
+
+def _create_network_analyzer() -> Any:
+    """Import the network analyzer lazily to avoid package import cycles."""
+    from ..models.signaling_network import PTMNetworkAnalyzer
+
+    return PTMNetworkAnalyzer()
 
 
 @dataclass
@@ -42,7 +48,7 @@ class VariantEffectWorkflow:
         """
         self.parser = HGVSVariantParser()
         self.gene_mapper = GeneMapper()
-        self.network_analyzer = PTMNetworkAnalyzer()
+        self.network_analyzer = _create_network_analyzer()
 
         # Initialize predictors for each PTM type
         self.ptm_types = ptm_types or [

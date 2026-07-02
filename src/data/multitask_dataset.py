@@ -160,6 +160,7 @@ class MultiTaskPTMDataModule:
         train_ratio: float = 0.8,
         val_ratio: float = 0.1,
         num_workers: int = 4,
+        collate_fn: Optional[callable] = None,
     ):
         """
         初始化数据模块
@@ -173,6 +174,9 @@ class MultiTaskPTMDataModule:
             train_ratio: 训练集比例
             val_ratio: 验证集比例
             num_workers: 数据加载线程数
+            collate_fn: 自定义批处理函数。默认使用
+                :func:`collate_multitask_batch`，以支持按 PTM 类型分组并
+                输出 ``labels`` 字典（多任务训练脚本依赖该结构）。
         """
         self.data_dir = Path(data_dir)
         self.ptm_types = ptm_types
@@ -182,6 +186,8 @@ class MultiTaskPTMDataModule:
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.num_workers = num_workers
+        # 默认使用多任务批处理函数；允许传入 None 回退到 PyTorch 默认 collate
+        self.collate_fn = collate_fn if collate_fn is not None else collate_multitask_batch
 
         self.train_dataset = None
         self.val_dataset = None
@@ -252,6 +258,7 @@ class MultiTaskPTMDataModule:
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=True,
+            collate_fn=self.collate_fn,
         )
 
     def val_dataloader(self):
@@ -261,6 +268,7 @@ class MultiTaskPTMDataModule:
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
+            collate_fn=self.collate_fn,
         )
 
     def test_dataloader(self):
@@ -270,6 +278,7 @@ class MultiTaskPTMDataModule:
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
+            collate_fn=self.collate_fn,
         )
 
 

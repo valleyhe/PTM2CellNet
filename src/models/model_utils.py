@@ -30,8 +30,8 @@ def validate_model_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
 
     # 编码器类型检查
     valid_encoders = [
-        "cnn", "transformer", "lstm", "mamba",
-        "esm2_8m", "esm2_150m", "esm2_650m", "esm2_3b",
+        "cnn", "transformer", "lstm", "gru", "mamba",
+        "esm2", "esm2_8m", "esm2_35m", "esm2_70m", "esm2_150m", "esm2_650m", "esm2_3b",
         "protbert", "prott5"
     ]
     encoder_type = model_cfg.get("encoder_type", "").lower()

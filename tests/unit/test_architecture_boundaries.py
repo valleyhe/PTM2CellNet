@@ -138,13 +138,14 @@ class TestRegressionPredictor:
         with torch.no_grad():
             output = predictor(features)
 
-        # 回归任务应该只有predictions
+        # 回归任务提供predictions，并保留logits别名兼容旧调用方
         assert "predictions" in output
+        assert "logits" in output
         assert output["predictions"].shape == (batch_size, 1)
+        assert torch.equal(output["predictions"], output["logits"])
         assert output["predictions"].dtype == torch.float32
 
-        # 回归任务不应该有logits和probabilities
-        assert "logits" not in output
+        # 回归任务不应该有probabilities
         assert "probabilities" not in output
 
     def test_regression_multi_output(self):

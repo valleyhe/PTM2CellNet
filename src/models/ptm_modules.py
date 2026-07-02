@@ -75,6 +75,7 @@ class PTMModule(nn.Module):
         allowed = {"attention", "gated"}
         if fusion_type not in allowed:
             raise ValueError(f"Unsupported fusion_type: {fusion_type}. Expected one of {sorted(allowed)}")
+        self.fusion_type = fusion_type
         self.embedding = PTMEmbedding(num_ptm_types, embed_dim, max_position=max_position, dropout=dropout)
         if fusion_type == "attention":
             self.layers = nn.ModuleList(

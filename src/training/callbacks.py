@@ -5,7 +5,7 @@
 """
 
 import os
-from typing import Dict
+from typing import Dict, List
 
 import torch
 
@@ -13,8 +13,13 @@ from src.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
+try:
+    from lightning.pytorch.callbacks import Callback as LightningCallback
+except ImportError:
+    LightningCallback = object
 
-class Callback:
+
+class Callback(LightningCallback):
     """
     回调基类
     所有回调都应继承此类
@@ -205,3 +210,171 @@ class EarlyStopping(Callback):
                 self.should_stop = True
                 if self.verbose > 0:
                     logger.info("早停触发于 epoch %d", epoch)
+
+
+class LearningRateMonitor(Callback):
+    """
+    学习率监控回调
+    记录并日志输出训练过程中的学习率变化
+    """
+
+    def __init__(self, logging_interval: str = "epoch"):
+        """
+        初始化学习率监控
+
+        参数:
+            logging_interval: 记录间隔，"epoch" 或 "batch"
+        """
+        super().__init__()
+        if logging_interval not in ("epoch", "batch"):
+            raise ValueError("logging_interval 必须是 'epoch' 或 'batch'")
+        self.logging_interval = logging_interval
+        self._lrs: Dict[str, List[float]] = {"epoch": [], "batch": []}
+
+    @property
+    def lrs(self) -> Dict[str, List[float]]:
+        """返回记录的学习率"""
+        return self._lrs
+
+    def on_train_start(self, _trainer) -> None:
+        """训练开始时重置学习率记录"""
+        self._lrs = {"epoch": [], "batch": []}
+
+    def on_epoch_end(self, trainer, epoch: int, logs: Dict) -> None:
+        """
+        epoch结束时记录学习率
+
+        参数:
+            trainer: 训练器实例
+            epoch: 当前epoch
+            logs: 日志字典
+        """
+        current_lr = trainer.optimizer.param_groups[0]["lr"]
+        self._lrs["epoch"].append(current_lr)
+        logger.info("Epoch %d: lr=%.6f", epoch, current_lr)
+
+    def on_batch_end(self, trainer, batch_idx: int, logs: Dict) -> None:
+        """
+        batch结束时记录学习率（仅当logging_interval为batch时）
+
+        参数:
+            trainer: 训练器实例
+            batch_idx: 当前batch索引
+            logs: 日志字典
+        """
+        if self.logging_interval != "batch":
+            return
+        current_lr = trainer.optimizer.param_groups[0]["lr"]
+        self._lrs["batch"].append(current_lr)
+        logger.info("Batch %d: lr=%.6f", batch_idx, current_lr)
+
+
+try:
+    from tqdm import tqdm as _tqdm
+
+    _HAS_TQDM = True
+except ImportError:
+    _HAS_TQDM = False
+
+
+class ProgressBarCallback(Callback):
+    """
+    进度条回调
+    使用tqdm显示训练进度，tqdm不可用时回退到logger输出
+    """
+
+    def __init__(self, verbose: int = 1):
+        """
+        初始化进度条回调
+
+        参数:
+            verbose: 日志级别，0为静默
+        """
+        super().__init__()
+        self.verbose = verbose
+        self.epoch_pbar = None
+        self.batch_pbar = None
+
+    def on_train_start(self, _trainer) -> None:
+        """训练开始时初始化epoch进度条"""
+        if self.verbose <= 0:
+            return
+        if _HAS_TQDM:
+            self.epoch_pbar = _tqdm(desc="Training", unit="epoch")
+        else:
+            logger.info("Training started")
+
+    def on_epoch_start(self, _trainer, epoch: int) -> None:
+        """
+        每个epoch开始时初始化batch进度条
+
+        参数:
+            trainer: 训练器实例
+            epoch: 当前epoch
+        """
+        if self.verbose <= 0:
+            return
+        if _HAS_TQDM:
+            self.batch_pbar = _tqdm(desc=f"Epoch {epoch}", unit="batch")
+        else:
+            logger.info("Epoch %d started", epoch)
+
+    def on_batch_end(self, _trainer, _batch_idx: int, logs: Dict) -> None:
+        """
+        每个batch结束时更新进度条
+
+        参数:
+            trainer: 训练器实例
+            batch_idx: 当前batch索引
+            logs: 日志字典
+        """
+        if self.verbose <= 0:
+            return
+        if _HAS_TQDM and self.batch_pbar is not None:
+            self.batch_pbar.update(1)
+            self.batch_pbar.set_postfix(loss=logs.get("loss", 0))
+
+    def on_epoch_end(self, _trainer, epoch: int, logs: Dict) -> None:
+        """
+        epoch结束时关闭batch进度条并更新epoch进度条
+
+        参数:
+            trainer: 训练器实例
+            epoch: 当前epoch
+            logs: 日志字典
+        """
+        if self.verbose <= 0:
+            return
+        if _HAS_TQDM:
+            if self.batch_pbar is not None:
+                self.batch_pbar.close()
+                self.batch_pbar = None
+            if self.epoch_pbar is not None:
+                self.epoch_pbar.update(1)
+                postfix = {}
+                if "train_loss" in logs:
+                    postfix["train_loss"] = logs["train_loss"]
+                if "val_loss" in logs:
+                    postfix["val_loss"] = logs["val_loss"]
+                if postfix:
+                    self.epoch_pbar.set_postfix(**postfix)
+        else:
+            msg = f"Epoch {epoch} ended"
+            parts = []
+            if "train_loss" in logs:
+                parts.append(f"train_loss={logs['train_loss']:.4f}")
+            if "val_loss" in logs:
+                parts.append(f"val_loss={logs['val_loss']:.4f}")
+            if parts:
+                msg += " (" + ", ".join(parts) + ")"
+            logger.info(msg)
+
+    def on_train_end(self, _trainer) -> None:
+        """训练结束时关闭epoch进度条"""
+        if self.verbose <= 0:
+            return
+        if _HAS_TQDM and self.epoch_pbar is not None:
+            self.epoch_pbar.close()
+            self.epoch_pbar = None
+        elif not _HAS_TQDM:
+            logger.info("Training ended")

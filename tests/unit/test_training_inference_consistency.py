@@ -12,6 +12,7 @@ import torch
 import numpy as np
 
 from src.models.architectures import PTM2CellNet
+from src.utils.io import safe_torch_load
 from src.models.model_utils import count_parameters
 
 
@@ -79,7 +80,7 @@ class TestTrainingInferenceConsistency:
 
         # 加载模型
         loaded_model = PTM2CellNet(**model_config)
-        loaded_model.load_state_dict(torch.load(save_path))
+        loaded_model.load_state_dict(safe_torch_load(save_path))
         loaded_model.eval()
 
         # 加载后推理
@@ -112,7 +113,7 @@ class TestTrainingInferenceConsistency:
 
         try:
             torch.save(model, save_path)
-            loaded_model = torch.load(save_path)
+            loaded_model = safe_torch_load(save_path)
             loaded_model.eval()
 
             with torch.no_grad():
@@ -141,7 +142,7 @@ class TestTrainingInferenceConsistency:
         torch.save(model.state_dict(), save_path)
 
         loaded_model = PTM2CellNet(**model_config)
-        loaded_model.load_state_dict(torch.load(save_path))
+        loaded_model.load_state_dict(safe_torch_load(save_path))
 
         # 对比参数
         for name, param_after in loaded_model.named_parameters():
@@ -532,9 +533,10 @@ class TestAPIConsistency:
         with torch.no_grad():
             output = model(batch)
 
-        # 回归任务应该只有predictions
+        # 回归任务返回predictions，并提供logits别名兼容旧调用方
         assert "predictions" in output
-        assert "logits" not in output
+        assert "logits" in output
+        assert torch.equal(output["predictions"], output["logits"])
         assert "probabilities" not in output
 
         # 预测值应该是实数
@@ -581,7 +583,7 @@ class TestCheckpointConsistency:
         )
         loaded_optimizer = torch.optim.Adam(loaded_model.parameters(), lr=0.001)
 
-        checkpoint = torch.load(checkpoint_path)
+        checkpoint = safe_torch_load(checkpoint_path)
         loaded_model.load_state_dict(checkpoint["model_state_dict"])
         loaded_optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 

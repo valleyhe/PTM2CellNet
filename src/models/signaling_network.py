@@ -7,6 +7,7 @@
 import pandas as pd
 from typing import Any, Dict, Optional, Set
 from collections import defaultdict
+from pathlib import Path
 import logging
 
 try:
@@ -113,36 +114,116 @@ class SignalingNetworkMapper:
         },
     }
 
-    def __init__(self, pathway_db_path: Optional[str] = None):
+    def __init__(
+        self,
+        pathway_db_path: Optional[str] = None,
+        organism: str = "hsa",
+        organism_name: str = "Homo sapiens",
+        use_cache: bool = True,
+    ):
         """
         初始化信号网络映射器
 
         参数:
-            pathway_db_path: 通路数据库路径（可选）
+            pathway_db_path: 通路数据库标识或缓存目录路径（可选）。
+                - "kegg": 通过 sspa 加载 KEGG 通路
+                - "reactome": 通过 sspa 加载 Reactome 通路
+                - "both": 同时加载 KEGG 与 Reactome
+                - 其它字符串: 视为缓存目录路径，尝试从缓存加载
+            organism: KEGG 物种代码（默认 "hsa" 人类）
+            organism_name: Reactome 物种名（默认 "Homo sapiens"）
+            use_cache: 是否优先使用缓存数据
         """
         self.pathway_db_path = pathway_db_path
-        self.pathways = self.SIGNALING_PATHWAYS.copy()
+        self.organism = organism
+        self.organism_name = organism_name
+        self.use_cache = use_cache
+        self.pathways = dict(self.SIGNALING_PATHWAYS)
+
+        # External pathway database integration (FEAT-02)
+        if PATHWAY_INTEGRATION_AVAILABLE:
+            self.pathway_integration = PathwayDatabaseIntegration()
+        else:
+            self.pathway_integration = None
 
         if pathway_db_path:
             self._load_pathway_db(pathway_db_path)
 
         # 构建蛋白到通路的映射
         self.protein_to_pathway = self._build_protein_mapping()
-
-        # External pathway database integration
-        if PATHWAY_INTEGRATION_AVAILABLE:
-            self.pathway_integration = PathwayDatabaseIntegration()
-        else:
-            self.pathway_integration = None
         self._validation_report: Optional[Dict] = None
 
         logger.info(f"加载 {len(self.pathways)} 个信号通路")
 
-    def _load_pathway_db(self, db_path: str):
-        """加载外部通路数据库（暂不支持）"""
-        raise NotImplementedError(
-            "KEGG/Reactome loading not yet implemented. "
-            "Use internal pathway data or contribute an implementation."
+    def _load_pathway_db(self, db_path: str) -> None:
+        """加载外部通路数据库（KEGG/Reactome，FEAT-02 完整集成）。
+
+        ``db_path`` 可以是以下之一:
+            - "kegg"     : 通过 sspa 加载 KEGG 通路
+            - "reactome" : 通过 sspa 加载 Reactome 通路
+            - "both"     : 同时加载 KEGG 与 Reactome
+            - 其它字符串  : 视为缓存目录路径
+
+        当 sspa 不可用或网络/缓存失败时，回退到内置通路并发出明确警告，
+        不会抛出 NotImplementedError（CONF-03）。
+        """
+        if self.pathway_integration is None:
+            logger.warning(
+                "PathwayDatabaseIntegration 不可用（pathway_integration 模块"
+                "导入失败）。回退到内置信号通路数据。如需 KEGG/Reactome 集成，"
+                "请安装 sspa 及其依赖（rpy2）。"
+            )
+            return
+
+        directive = str(db_path).lower()
+        added = 0
+
+        loaders = []
+        if directive in ("kegg", "both"):
+            loaders.append(("KEGG", self.pathway_integration.load_kegg_pathways))
+        if directive in ("reactome", "both"):
+            loaders.append(("Reactome", self.pathway_integration.load_reactome_pathways))
+        if not loaders:
+            # Treat as cache directory path
+            try:
+                self.pathway_integration.cache_dir = Path(db_path)
+                loaders.append(("KEGG", self.pathway_integration.load_kegg_pathways))
+                loaders.append(("Reactome", self.pathway_integration.load_reactome_pathways))
+            except Exception as e:
+                logger.warning(
+                    "无法识别的通路数据库路径 '%s' (%s)。回退到内置通路。",
+                    db_path, e,
+                )
+                return
+
+        for name, loader_fn in loaders:
+            try:
+                pw = loader_fn()
+            except Exception as e:
+                logger.warning(
+                    "加载 %s 通路失败: %s。%s 通路将仅使用内置数据。",
+                    name, e, name,
+                )
+                continue
+            # Merge external pathways into the in-memory pathway map.
+            # External entries map pathway_id -> gene list; we adapt them to
+            # the internal schema so downstream mapping still works.
+            for pathway_id, genes in (pw or {}).items():
+                gene_list = list(genes) if not isinstance(genes, dict) else list(genes.keys())
+                if pathway_id in self.pathways:
+                    continue  # don't shadow built-in pathways
+                self.pathways[f"{name}:{pathway_id}"] = {
+                    'description': f"{name} pathway {pathway_id}",
+                    'key_kinases': [],
+                    'key_substrates': gene_list,
+                    'ptm_types': [],
+                    'output_genes': gene_list,
+                }
+                added += 1
+
+        logger.info(
+            "从外部数据库加载完成：新增 %d 条通路（当前总数 %d）。",
+            added, len(self.pathways),
         )
 
     def _build_protein_mapping(self) -> Dict[str, Set[str]]:

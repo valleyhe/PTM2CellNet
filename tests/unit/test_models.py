@@ -130,6 +130,8 @@ class TestPredictors:
         )
         output = predictor(sample_features)
         assert "predictions" in output
+        assert "logits" in output
+        assert torch.equal(output["predictions"], output["logits"])
         assert output["predictions"].shape == (4, 1)
 
 

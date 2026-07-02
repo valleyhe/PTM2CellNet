@@ -34,8 +34,18 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
 
         # 设置标签映射
         if "cell_state" in self.df.columns:
-            self.labels = sorted(self.df["cell_state"].unique())
-            self.label_to_idx = {label: i for i, label in enumerate(self.labels)}
+            data_config = self.config.get("data", {})
+            configured_labels = data_config.get("cell_states") or []
+            configured_mapping = data_config.get("label_to_idx") or {}
+            if configured_labels:
+                self.labels = [str(label) for label in configured_labels]
+                self.label_to_idx = {
+                    str(label): int(configured_mapping.get(label, i))
+                    for i, label in enumerate(self.labels)
+                }
+            else:
+                self.labels = sorted(self.df["cell_state"].unique())
+                self.label_to_idx = {label: i for i, label in enumerate(self.labels)}
         else:
             self.labels = []
             self.label_to_idx = {}

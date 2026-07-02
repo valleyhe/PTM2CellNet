@@ -185,10 +185,11 @@ class TestPTM2CellNetRegression:
         )
         output = model(sample_batch)
 
-        # 回归任务只返回predictions
+        # 回归任务返回predictions，并提供logits别名兼容旧调用方
         assert "predictions" in output
         assert output["predictions"].shape == (4, 1)
-        assert "logits" not in output
+        assert "logits" in output
+        assert torch.equal(output["predictions"], output["logits"])
         assert "probabilities" not in output
 
     def test_ptm2cellnet_attention_pooling(self, sample_batch):

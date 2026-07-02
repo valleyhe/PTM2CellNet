@@ -122,7 +122,7 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
         seen["config"] = config
         return types.SimpleNamespace()
 
-    monkeypatch.setattr(train_pretrained, "PTMDataModule", fake_datamodule)
+    monkeypatch.setattr(train_pretrained, "PTMLightningDataModule", fake_datamodule)
 
     class DummyTrainer:
         def __init__(self, *_, **__):

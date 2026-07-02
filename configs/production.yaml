@@ -1,0 +1,40 @@
+# 生产环境配置
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  timeout: 30
+  access_log: true
+
+model:
+  path: "outputs/models/best_model.pt"
+  device: "cuda"  # 或 "cpu"
+  batch_size: 32
+  max_sequence_length: 1000
+
+data:
+  max_sequence_length: 1000
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+  cell_states:
+    - "proliferation"
+    - "differentiation"
+    - "apoptosis"
+    - "quiescence"
+
+logging:
+  level: "INFO"
+  log_file: "outputs/logs/api.log"
+  log_format: "json"  # 或 "text"
+  log_to_console: true
+  log_to_file: true
+
+monitoring:
+  metrics_enabled: true
+  metrics_port: 9090
+  health_check_interval: 30

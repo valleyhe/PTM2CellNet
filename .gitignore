@@ -12,8 +12,26 @@
 !scripts/
 !src/
 !tests/
+!configs/
+!docs/
+!Dockerfile
+!docker-compose.yml
+!setup.py
+!setup.cfg
+!pytest.ini
+!.coveragerc
+!.pylintrc
+!API_DOCUMENTATION.md
+!CHANGELOG.md
+!LICENSE
 
 # ==================== Python bytecode (within whitelisted dirs) ====================
 __pycache__/
 *.py[cod]
 *$py.class
+
+# ==================== Coverage data ====================
+.coverage
+.coverage.*
+htmlcov/
+.tox/

@@ -225,3 +225,68 @@ def test_encoder_unfreeze_layers(_mock_hf_components):
 
     # 非layers参数仍保持冻结（例如embedding）
     assert all(not param.requires_grad for param in encoder.model.embed.parameters())
+
+
+def test_encoder_on_cpu_device(_mock_hf_components):
+    """Test that ESM2Encoder works explicitly on CPU."""
+    encoder = ESM2Encoder(model_size="8M", freeze=True)
+    seq = torch.randint(1, 10, (1, 10))
+    with torch.no_grad():
+        output = encoder(seq)
+    assert output is not None
+    assert isinstance(output, torch.Tensor)
+
+
+def test_encoder_device_consistency(_mock_hf_components, monkeypatch):
+    """Test device parameter propagation for all encoder types."""
+    from src.models.pretrained_encoders import ProtBERTEncoder, ProtT5Encoder
+
+    from transformers import BertConfig, BertModel
+
+    def fake_bert_config(model_name=None, cache_dir=None, **kwargs):
+        return type("Obj", (object,), {"hidden_size": 16})()
+
+    def fake_bert_model(model_name=None, cache_dir=None, **kwargs):
+        return _DummyHFModel(hidden_size=16, num_layers=4)
+
+    def fake_tokenizer(model_name=None, cache_dir=None):
+        return _DummyTokenizer()
+
+    monkeypatch.setattr(BertConfig, "from_pretrained", staticmethod(fake_bert_config))
+    monkeypatch.setattr(
+        "src.models.pretrained_encoders.AutoModel.from_pretrained",
+        fake_bert_model,
+    )
+    monkeypatch.setattr(
+        "transformers.AutoTokenizer.from_pretrained",
+        fake_tokenizer,
+    )
+    monkeypatch.setattr(BertModel, "from_pretrained", staticmethod(fake_bert_model))
+    monkeypatch.setattr(
+        "src.models.pretrained_encoders.AutoModel.from_pretrained",
+        fake_bert_model,
+    )
+
+    encoders = [
+        ESM2Encoder(model_size="8M", freeze=True),
+        ProtBERTEncoder(freeze=True),
+        ProtT5Encoder(freeze=True),
+    ]
+    for encoder in encoders:
+        seq = torch.randint(1, 10, (1, 10))
+        with torch.no_grad():
+            output = encoder(seq)
+        assert output is not None, f"{type(encoder).__name__} failed on CPU"
+        assert isinstance(output, torch.Tensor)
+
+
+def test_encoder_fallback_no_gpu(_mock_hf_components, monkeypatch):
+    """Test encoder runs forward pass correctly when CUDA is unavailable."""
+    monkeypatch.setattr("torch.cuda.is_available", lambda: False)
+    encoder = ESM2Encoder(model_size="8M", freeze=True)
+    device = next(encoder.parameters()).device
+    assert str(device) == "cpu"
+    seq = torch.randint(1, 10, (1, 10))
+    with torch.no_grad():
+        output = encoder(seq)
+    assert output is not None

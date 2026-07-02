@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    image: ptm2cellnet:latest
+    container_name: ptm2cellnet-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载模型权重目录 (需要预先训练好模型)
+      - ./outputs/models:/app/outputs/models
+      # 挂载处理后的数据目录
+      - ./data/processed:/app/data/processed:ro
+      # 挂载缓存目录避免重复下载
+      - .cache:/app/.cache
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+      # P0-2: 与 Dockerfile/代码统一的正式变量名。
+      # MODEL_PATH 已弃用（app.py 仍兼容并打印迁移告警）。
+      - PTM2CELLNET_CHECKPOINT=/app/outputs/models/best_model.pt
+      - PTM2CELLNET_CONFIG=/app/outputs/models/best_model.config.yaml
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      # 使用 readiness 端点：模型未加载时返回 503，从而不会把流量打到
+      # 尚未完成自动初始化的实例（P0-2）。/api/v1/health 仅作兼容端点。
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # 可选：训练服务 (需要GPU)
+  train:
+    build: .
+    image: ptm2cellnet:latest
+    container_name: ptm2cellnet-train
+    volumes:
+      - ./data/processed:/app/data/processed
+      - ./outputs/models:/app/outputs/models
+      - ./configs:/app/configs
+      - .cache:/app/.cache
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface
+    command: ["python", "scripts/train.py", "--config", "configs/default.yaml"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - train  # 使用 docker compose --profile train up 启动

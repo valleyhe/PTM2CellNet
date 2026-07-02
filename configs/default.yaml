@@ -1,0 +1,74 @@
+# PTM2CellNet 默认配置文件
+
+project:
+  name: "PTM2CellNet"
+  version: "1.0.0"
+  seed: 42
+
+paths:
+  data_raw: "data/raw"
+  data_processed: "data/processed"
+  data_external: "data/external"
+  outputs_models: "outputs/models"
+  outputs_logs: "outputs/logs"
+  outputs_results: "outputs/results"
+
+data:
+  max_sequence_length: 1000
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+  
+  split:
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+    stratified: true
+
+  preprocessing:
+    remove_duplicates: true
+    handle_missing: "drop"
+    normalize_sequences: true
+
+features:
+  use_feature_extractor: false
+  sequence_encoding: "onehot"
+  kmer_size: 3
+  include_physicochemical: true
+  include_ptm_features: true
+  include_structural_features: false
+
+model:
+  encoder_type: "transformer"
+  hidden_dim: 256
+  num_layers: 6
+  num_heads: 8
+  dropout: 0.1
+
+augmentation:
+  sequence_augment_prob: 0.0
+  max_truncate_ratio: 0.1
+  mask_token_id: 0
+  mask_prob: 0.0
+  random_swap_prob: 0.0
+  ptm_drop_prob: 0.0
+  ptm_noise_prob: 0.0
+  noise_radius: 1
+
+training:
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  max_epochs: 100
+  early_stopping_patience: 10
+  optimizer: "adamw"
+  scheduler: "cosine"
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_to_console: true

@@ -181,32 +181,72 @@ def plot_training_curves(
     绘制训练曲线
 
     参数:
-        logs: 训练日志字典，键为指标名，值为各epoch的值列表
+        logs: 训练日志字典，键为指标名，值为各epoch的值列表。识别的键：
+            - 损失：``train_loss`` / ``val_loss``（兼容 ``loss`` / ``val_loss``）
+            - 准确率：``train_accuracy`` / ``val_accuracy``
+              （兼容 ``accuracy`` / ``val_accuracy``）
+            缺失的键将被跳过，对应子图会显示"无数据"占位，避免空图
+            与 legend 警告（修复 S8）。
         save_path: 保存路径
         title: 图表标题
     """
     _ensure_parent_dir(save_path)
 
+    # 归一化键名，兼容不同来源的日志（Trainer、Lightning、手写脚本等）
+    def _lookup(primary: str, *fallbacks: str) -> Optional[List[float]]:
+        for key in (primary, *fallbacks):
+            value = logs.get(key)
+            if value:
+                return list(value)
+        return None
+
+    train_loss = _lookup("train_loss", "loss")
+    val_loss = _lookup("val_loss")
+    train_acc = _lookup("train_accuracy", "accuracy")
+    val_acc = _lookup("val_accuracy")
+
     _, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    if "train_loss" in logs:
-        axes[0].plot(logs["train_loss"], label="Train Loss", lw=2)
-    if "val_loss" in logs:
-        axes[0].plot(logs["val_loss"], label="Val Loss", lw=2)
+    # 损失子图
+    has_loss = False
+    if train_loss is not None:
+        axes[0].plot(train_loss, label="Train Loss", lw=2)
+        has_loss = True
+    if val_loss is not None:
+        axes[0].plot(val_loss, label="Val Loss", lw=2)
+        has_loss = True
     axes[0].set_xlabel("Epoch")
     axes[0].set_ylabel("Loss")
     axes[0].set_title("Loss Curves")
-    axes[0].legend()
+    if has_loss:
+        axes[0].legend()
+    else:
+        axes[0].text(
+            0.5, 0.5, "No loss data",
+            ha="center", va="center", transform=axes[0].transAxes,
+            color="gray",
+        )
     axes[0].grid(True, alpha=0.3)
 
-    if "train_accuracy" in logs:
-        axes[1].plot(logs["train_accuracy"], label="Train Accuracy", lw=2)
-    if "val_accuracy" in logs:
-        axes[1].plot(logs["val_accuracy"], label="Val Accuracy", lw=2)
+    # 准确率子图
+    has_acc = False
+    if train_acc is not None:
+        axes[1].plot(train_acc, label="Train Accuracy", lw=2)
+        has_acc = True
+    if val_acc is not None:
+        axes[1].plot(val_acc, label="Val Accuracy", lw=2)
+        has_acc = True
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("Accuracy")
     axes[1].set_title("Accuracy Curves")
-    axes[1].legend()
+    if has_acc:
+        axes[1].legend()
+    else:
+        axes[1].text(
+            0.5, 0.5, "No accuracy data",
+            ha="center", va="center", transform=axes[1].transAxes,
+            color="gray",
+        )
     axes[1].grid(True, alpha=0.3)
 
     plt.suptitle(title, y=1.02, fontsize=14)

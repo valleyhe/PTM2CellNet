@@ -5,6 +5,7 @@ from .encoders import (
     CNNEncoder,
     TransformerEncoder,
     LSTMEncoder,
+    GRUEncoder,
     PositionalEncoding,
 )
 from .ptm_modules import PTMEmbedding, PTMAttention, PTMModule, GatedPTMFusion
@@ -23,7 +24,14 @@ from .multitask import (
     MultiTaskPredictor,
     HierarchicalMultiTaskPredictor,
 )
-from .architectures import PTM2CellNet
+from .architectures import PTM2CellNet, PTM2CellNetLarge
+from .ensemble import PTM2CellNetEnsemble
+from .geneformer_embedding import GeneformerEmbeddingLoader
+from .davf_checkpoint_utils import (
+    save_checkpoint,
+    load_checkpoint,
+    resume_training_state,
+)
 from .model_utils import (
     validate_model_config,
     count_parameters,
@@ -40,12 +48,33 @@ from .ptm_direction_mapper import (
     PTM_DIRECTION_MAP,
     DEFAULT_DIRECTION,
     MAX_TARGETS,
+    register_ptm_direction,
+    register_pathway_context_override,
 )
 from .davf_inference import (
     DAVFInferenceModule,
     DAVFInferenceConfig,
     DAVFInferenceOutput,
     DeltaProjection,
+)
+from .delta_predictor import DeltaPredictor
+
+from .external_tools import (
+    AlphaFoldClient,
+    BLASTClient,
+    ClustalWClient,
+    PSIPREDClient,
+)
+
+# scVI adapter (V22-02) - gene<->latent mapping; scvi-tools is an optional dep.
+# The module imports cleanly even when scvi-tools is absent (SCVI_AVAILABLE flag).
+from .scvi_adapter import ScVIAdapter, ScVIAdapterConfig, SCVI_AVAILABLE
+
+# Deferred v1.0 roadmap features (V2-01..V2-05): documented stubs.
+from .roadmap import (
+    get_deferred_features,
+    DeferredFeature,
+    DEFERRED_FEATURES,
 )
 
 __all__ = [
@@ -54,6 +83,7 @@ __all__ = [
     "CNNEncoder",
     "TransformerEncoder",
     "LSTMEncoder",
+    "GRUEncoder",
     "PositionalEncoding",
     # PTM Modules
     "PTMEmbedding",
@@ -74,6 +104,9 @@ __all__ = [
     "HierarchicalMultiTaskPredictor",
     # Architecture
     "PTM2CellNet",
+    "PTM2CellNetLarge",
+    # Ensemble
+    "PTM2CellNetEnsemble",
     # Utils
     "validate_model_config",
     "count_parameters",
@@ -87,8 +120,24 @@ __all__ = [
     "PTM_DIRECTION_MAP",
     "DEFAULT_DIRECTION",
     "MAX_TARGETS",
+    "register_ptm_direction",
+    "register_pathway_context_override",
     "DAVFInferenceModule",
     "DAVFInferenceConfig",
     "DAVFInferenceOutput",
     "DeltaProjection",
+    "DeltaPredictor",
+    # External tool stubs
+    "AlphaFoldClient",
+    "BLASTClient",
+    "ClustalWClient",
+    "PSIPREDClient",
+    "GeneformerEmbeddingLoader",
+    "save_checkpoint",
+    "load_checkpoint",
+    "resume_training_state",
+    # scVI adapter (V22-02)
+    "ScVIAdapter",
+    "ScVIAdapterConfig",
+    "SCVI_AVAILABLE",
 ]

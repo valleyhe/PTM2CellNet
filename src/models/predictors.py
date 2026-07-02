@@ -55,7 +55,12 @@ class ClassificationPredictor(CellStatePredictor):
 
 
 class RegressionPredictor(CellStatePredictor):
-    """回归预测器"""
+    """回归预测器.
+
+    Returns:
+        A dictionary containing ``predictions`` and a compatibility alias
+        ``logits`` that points to the same regression tensor.
+    """
 
     def __init__(
         self,
@@ -74,4 +79,5 @@ class RegressionPredictor(CellStatePredictor):
         predictions = self.regressor(x)
         return {
             "predictions": predictions,
+            "logits": predictions,
         }

@@ -3,6 +3,7 @@ Lightning模块单元测试
 使用Mock和轻量Trainer进行测试
 """
 
+import tempfile
 import pytest
 import torch
 import torch.nn as nn
@@ -476,12 +477,16 @@ class TestLightningTrainerIntegration:
     def test_fast_dev_run(self, mock_model, base_config):
         """使用 fast_dev_run 快速验证"""
         module = PTM2CellNetLightning(mock_model, base_config)
+        # 使用 CSVLogger 避免 ``self.log(..., logger=True) but have no logger
+        # configured`` 警告（M3）。
+        from lightning.pytorch.loggers import CSVLogger
+
         trainer = Trainer(
             accelerator="cpu",
             fast_dev_run=True,
             enable_progress_bar=False,
             enable_model_summary=False,
-            logger=False,
+            logger=CSVLogger(save_dir=tempfile.gettempdir(), name="lightning_test"),
         )
         # 创建简单的DataLoader
         from torch.utils.data import TensorDataset, DataLoader

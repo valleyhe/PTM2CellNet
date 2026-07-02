@@ -1,3 +1,5 @@
+import pytest
+
 from src.integration.contracts import GenePerturbationRequest
 from src.integration.genki_adapter import GenKIAdapter
 
@@ -74,6 +76,7 @@ def test_soft_perturbation_cli_accepts_explicit_reference_files(tmp_path) -> Non
 
 
 def test_soft_perturbation_cli_accepts_genki_source_backend(tmp_path) -> None:
+    pytest.importorskip("torch_geometric")
     import anndata as ad
     import scipy.sparse as sp
 
@@ -120,6 +123,7 @@ def test_soft_perturbation_cli_accepts_genki_source_backend(tmp_path) -> None:
 
 
 def test_soft_perturbation_cli_accepts_latent_vgae_scoring(tmp_path) -> None:
+    pytest.importorskip("torch_geometric")
     import anndata as ad
     import scipy.sparse as sp
 

@@ -3,7 +3,7 @@
 import logging
 import pickle
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Set
 
 import networkx as nx
 
@@ -100,7 +100,7 @@ class PathwayDatabaseIntegration:
         if use_cache and cache_file.exists():
             logger.info("Loading KEGG pathways from cache: %s", cache_file)
             with open(cache_file, 'rb') as f:
-                self.kegg_pathways = pickle.load(f)
+                self.kegg_pathways = pickle.load(f)  # nosec - cached experiment results from trusted source
             self._kegg_loaded = True
             return self.kegg_pathways
 
@@ -148,7 +148,7 @@ class PathwayDatabaseIntegration:
         if use_cache and cache_file.exists():
             logger.info("Loading Reactome pathways from cache: %s", cache_file)
             with open(cache_file, 'rb') as f:
-                self.reactome_pathways = pickle.load(f)
+                self.reactome_pathways = pickle.load(f)  # nosec - cached experiment results from trusted source
             self._reactome_loaded = True
             return self.reactome_pathways
 

@@ -146,24 +146,68 @@ def train(config_path: str, output_dir: str):
     logger.info("=" * 60)
     logger.info("最终评估")
     logger.info("=" * 60)
-    
+
     # 在验证集上评估
-    val_logs = trainer.validate(val_loader)
+    val_logs = trainer.validate(model, val_loader)
     logger.info("验证集结果: %s", val_logs)
-    
-    # 在测试集上评估
-    test_predictions = trainer.predict(test_loader)
-    
-    # 收集所有预测
-    all_probs = []
-    all_preds = []
-    all_labels = []
-    for batch_out in test_predictions:
-        all_probs.append(batch_out["probabilities"].cpu())
-        all_preds.append(batch_out["predictions"].cpu())
-        # 需要从 test_loader 获取标签
-        break  # 简化处理
-    
+
+    # 在测试集上评估：遍历全部 batch，正确收集预测概率、预测类别与真实标签
+    import numpy as np
+    all_probs: list = []
+    all_preds: list = []
+    all_labels: list = []
+    model.eval()
+    label_key = "label"
+    with torch.no_grad():
+        for batch in test_loader:
+            for key in batch:
+                if isinstance(batch[key], torch.Tensor):
+                    batch[key] = batch[key].to(device)
+            outputs = model(batch)
+            if isinstance(outputs, dict):
+                logits = outputs.get("logits")
+                probs = outputs.get("probabilities")
+            else:
+                logits = outputs
+                probs = None
+            if probs is None:
+                probs = torch.softmax(logits, dim=-1)
+            preds = torch.argmax(probs, dim=-1)
+            all_probs.append(probs.cpu())
+            all_preds.append(preds.cpu())
+            labels = batch.get(label_key)
+            if labels is None:
+                labels = batch.get("labels")
+            if labels is None:
+                raise KeyError(
+                    f"测试 batch 缺少标签键 '{label_key}'/'labels'，无法计算测试指标"
+                )
+            all_labels.append(labels.cpu() if isinstance(labels, torch.Tensor) else torch.as_tensor(labels))
+
+    probs_tensor = torch.cat(all_probs, dim=0)
+    preds_tensor = torch.cat(all_preds, dim=0)
+    labels_tensor = torch.cat(all_labels, dim=0)
+
+    # 计算测试指标
+    labels_np = labels_tensor.numpy()
+    preds_np = preds_tensor.numpy()
+    probs_np = probs_tensor.numpy()
+    test_metrics = {
+        "accuracy": calculate_accuracy(labels_np, preds_np),
+        "precision_macro": calculate_precision(labels_np, preds_np, average="macro"),
+        "recall_macro": calculate_recall(labels_np, preds_np, average="macro"),
+        "f1_macro": calculate_f1_score(labels_np, preds_np, average="macro"),
+    }
+    try:
+        test_metrics["auc_roc"] = calculate_auc_roc(labels_np, probs_np)
+    except Exception as exc:  # 单类别等边界情况下 AUC 可能无法计算
+        logger.warning("无法计算 AUC-ROC: %s", exc)
+
+    logger.info("测试集指标: %s", test_metrics)
+    test_metrics_path = os.path.join(output_dir, "test_metrics.json")
+    save_json(test_metrics, test_metrics_path)
+    logger.info("测试指标已保存: %s", test_metrics_path)
+
     # 保存训练曲线
     training_logs = {
         "train_losses": trainer.train_losses,
@@ -171,6 +215,7 @@ def train(config_path: str, output_dir: str):
         "best_val_loss": min(trainer.val_losses) if trainer.val_losses else None,
         "train_time_minutes": train_time / 60,
         "val_metrics": val_logs,
+        "test_metrics": test_metrics,
     }
     
     logs_path = os.path.join(output_dir, "training_logs.json")

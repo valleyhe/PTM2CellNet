@@ -7,9 +7,11 @@
 import torch
 import torch.nn as nn
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import logging
+
+from src.utils.io import safe_torch_load
 
 logger = logging.getLogger(__name__)
 
@@ -72,10 +74,9 @@ class VariantPTMEffectPredictor:
         sys.path.insert(0, str(Path(__file__).parent.parent.parent))
         from src.models.ptm_site_predictor import PTMSitePredictor
 
-        checkpoint = torch.load(
+        checkpoint = safe_torch_load(
             model_path,
             map_location=self.device,
-            weights_only=True,
         )
 
         model = PTMSitePredictor(

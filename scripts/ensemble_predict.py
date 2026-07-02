@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
+from src.utils.io import safe_torch_load
 import torch.nn as nn
 import numpy as np
 import pandas as pd
@@ -75,12 +76,12 @@ class ModelEnsemble:
         logger.info(f"已加载 {len(self.models)} 个模型")
 
     def _load_cnn_model(self, path):
-        """加载CNN多任务模型"""
-        from scripts.train_multitask_simple import MultiTaskPTMPredictor
+        """加载CNN模型"""
+        from src.models.architectures import PTM2CellNet
 
-        model = MultiTaskPTMPredictor()
-        state_dict = torch.load(path, map_location=self.device)
-        model.load_state_dict(state_dict)
+        model = PTM2CellNet(encoder_type="cnn")
+        state_dict = safe_torch_load(path, map_location=self.device)
+        model.load_state_dict(state_dict, strict=False)
         model.to(self.device)
         return model
 
@@ -113,7 +114,7 @@ class ModelEnsemble:
                 # 简化的ESM-2前向传播
                 return {'logits': torch.zeros(len(sequences), 2), 'probs': torch.zeros(len(sequences), 2)}
 
-        state_dict = torch.load(path, map_location=self.device)
+        state_dict = safe_torch_load(path, map_location=self.device)
         model = ESM2Wrapper(esm_model, state_dict)
         model.to(self.device)
         return model

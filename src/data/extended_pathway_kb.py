@@ -3,6 +3,8 @@
 功能: 添加更多通路、药物-靶点关系、疾病关联
 """
 
+from typing import Any, Dict, List, Set, Tuple
+
 # ============================================================
 # 药物-靶点关系数据库
 # ============================================================
@@ -555,3 +557,219 @@ CELL_CYCLE_CHECKPOINTS = {
         'MAD2 S170ph': {'kinase': 'PLK1', 'effect': 'Checkpoint silencing'},
     },
 }
+
+
+class ExtendedPathwayKnowledgeBase:
+    """扩展通路知识库查询接口。
+
+    对 ``src/data/extended_pathway_kb.py`` 中定义的静态字典提供程序化
+    查询与检测能力，包括代谢通路 PTM 调控、细胞周期检查点、药物-靶点、
+    PTM-疾病关联、激酶组分类和 PTM 保守性数据。
+    """
+
+    def __init__(self) -> None:
+        self._pathways: Dict[str, Dict[str, Any]] = {
+            **{
+                name: {"category": "metabolic_ptm_regulation", "sites": sites}
+                for name, sites in METABOLIC_PTM_REGULATION.items()
+            },
+            **{
+                name: {"category": "cell_cycle_checkpoint", "sites": sites}
+                for name, sites in CELL_CYCLE_CHECKPOINTS.items()
+            },
+        }
+
+    def get_pathway(self, name: str) -> Dict[str, Any]:
+        """按名称查询通路。
+
+        查询范围包括代谢通路 PTM 调控与细胞周期检查点。若未找到，返回空字典。
+
+        Args:
+            name: 通路名称，例如 ``"glycolysis"`` 或 ``"G2_M_checkpoint"``。
+
+        Returns:
+            包含 ``category`` 与 ``sites`` 的通路字典；未找到时为空字典。
+        """
+        return self._pathways.get(name, {})
+
+    def search_pathways(self, query: str) -> List[Dict[str, Any]]:
+        """按子串搜索通路。
+
+        匹配对大小写不敏感，返回所有通路名称包含 ``query`` 的通路，
+        每个结果包含 ``name`` 字段。
+
+        Args:
+            query: 搜索关键词。
+
+        Returns:
+            匹配到的通路字典列表。
+        """
+        query_lower = query.lower()
+        results: List[Dict[str, Any]] = []
+        for name, data in self._pathways.items():
+            if query_lower in name.lower():
+                results.append({"name": name, **data})
+        return results
+
+    def get_kinase_substrates(self, kinase: str) -> List[Dict[str, Any]]:
+        """查询某个激酶调控的 PTM 底物位点。
+
+        在代谢通路 PTM 调控与细胞周期检查点字典中搜索 ``kinase`` 字段
+        匹配的条目（大小写不敏感）。
+
+        Args:
+            kinase: 激酶名称，例如 ``"AMPK"`` 或 ``"CDK1"``。
+
+        Returns:
+            底物位点注释列表，每个条目包含 ``pathway``、``category``、
+            ``site`` 以及原始注释字段。
+        """
+        kinase_lower = kinase.lower()
+        substrates: List[Dict[str, Any]] = []
+        for category, source in (
+            ("metabolic_ptm_regulation", METABOLIC_PTM_REGULATION),
+            ("cell_cycle_checkpoint", CELL_CYCLE_CHECKPOINTS),
+        ):
+            for pathway_name, sites in source.items():
+                for site_id, annotation in sites.items():
+                    site_kinase = annotation.get("kinase", "")
+                    if isinstance(site_kinase, str) and kinase_lower in site_kinase.lower():
+                        substrates.append(
+                            {
+                                "pathway": pathway_name,
+                                "category": category,
+                                "site": site_id,
+                                **annotation,
+                            }
+                        )
+        return substrates
+
+    def get_ptm_annotations(self, accession: str) -> List[Dict[str, Any]]:
+        """查询与给定蛋白名称/登录号相关的 PTM 注释。
+
+        根据 PTM 位点键的前缀匹配蛋白标识符（例如 ``"PFKFB3"`` 可匹配
+        ``"PFKFB3_S461ph"``）。搜索范围包括代谢调控、细胞周期检查点、
+        PTM 保守性和 PTM-疾病关联字典。
+
+        Args:
+            accession: 蛋白名称或登录号。
+
+        Returns:
+            PTM 注释列表。
+        """
+        accession_lower = accession.lower()
+        annotations: List[Dict[str, Any]] = []
+
+        for category, source in (
+            ("metabolic_ptm_regulation", METABOLIC_PTM_REGULATION),
+            ("cell_cycle_checkpoint", CELL_CYCLE_CHECKPOINTS),
+        ):
+            for pathway_name, sites in source.items():
+                for site_id, annotation in sites.items():
+                    if site_id.lower().startswith(accession_lower):
+                        annotations.append(
+                            {
+                                "pathway": pathway_name,
+                                "category": category,
+                                "site": site_id,
+                                **annotation,
+                            }
+                        )
+
+        for conservation_level, sites in PTM_CONSERVATION.items():
+            for site_id, annotation in sites.items():
+                if site_id.lower().startswith(accession_lower):
+                    annotations.append(
+                        {
+                            "category": "ptm_conservation",
+                            "conservation_level": conservation_level,
+                            "site": site_id,
+                            **annotation,
+                        }
+                    )
+
+        for ptm_type, effect_groups in PTM_DISEASE_ASSOCIATIONS.items():
+            for effect_type, variants in effect_groups.items():
+                for variant_id, annotation in variants.items():
+                    if variant_id.lower().startswith(accession_lower):
+                        annotations.append(
+                            {
+                                "category": "ptm_disease_association",
+                                "ptm_type": ptm_type,
+                                "effect_type": effect_type,
+                                "variant": variant_id,
+                                **annotation,
+                            }
+                        )
+
+        return annotations
+
+    def detect_crosstalk(
+        self, pathway_a: str, pathway_b: str
+    ) -> Dict[str, Any]:
+        """检测两条通路之间潜在的串扰。
+
+        比较两条通路（来自代谢调控或细胞周期检查点）的激酶集合与 PTM
+        位点集合，返回共享激酶、共享位点及简单的重叠评分。
+
+        Args:
+            pathway_a: 第一条通路名称。
+            pathway_b: 第二条通路名称。
+
+        Returns:
+            包含 ``shared_kinases``、``shared_sites``、``crosstalk_score``
+            与 ``detected`` 的结果字典。若任一通路不存在，评分为 0。
+        """
+        info_a = self.get_pathway(pathway_a)
+        info_b = self.get_pathway(pathway_b)
+
+        if not info_a or not info_b:
+            return {
+                "pathway_a": pathway_a,
+                "pathway_b": pathway_b,
+                "shared_kinases": [],
+                "shared_sites": [],
+                "crosstalk_score": 0.0,
+                "detected": False,
+            }
+
+        def _extract_sets(info: Dict[str, Any]) -> Tuple[Set[str], Set[str]]:
+            sites = info.get("sites", {})
+            kinases: Set[str] = set()
+            site_ids: Set[str] = set()
+            for site_id, annotation in sites.items():
+                site_ids.add(site_id)
+                site_kinase = annotation.get("kinase")
+                if isinstance(site_kinase, str):
+                    kinases.add(site_kinase.strip())
+            return kinases, site_ids
+
+        kinases_a, sites_a = _extract_sets(info_a)
+        kinases_b, sites_b = _extract_sets(info_b)
+
+        shared_kinases = sorted(kinases_a & kinases_b)
+        shared_sites = sorted(sites_a & sites_b)
+
+        total_unique = len(kinases_a | kinases_b) + len(sites_a | sites_b)
+        shared_count = len(shared_kinases) + len(shared_sites)
+        score = shared_count / total_unique if total_unique else 0.0
+
+        return {
+            "pathway_a": pathway_a,
+            "pathway_b": pathway_b,
+            "shared_kinases": shared_kinases,
+            "shared_sites": shared_sites,
+            "crosstalk_score": round(score, 4),
+            "detected": bool(shared_kinases or shared_sites),
+        }
+
+
+__all__ = [
+    "ExtendedPathwayKnowledgeBase",
+    "DRUG_TARGET_DATABASE",
+    "PTM_DISEASE_ASSOCIATIONS",
+    "KINOME_CLASSIFICATION",
+    "PTM_CONSERVATION",
+    "METABOLIC_PTM_REGULATION",
+    "CELL_CYCLE_CHECKPOINTS",
+]

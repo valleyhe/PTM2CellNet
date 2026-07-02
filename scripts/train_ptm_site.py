@@ -18,7 +18,7 @@ _ensure_project_root()
 
 import argparse
 import lightning as L
-from lightning.callbacks import (
+from lightning.pytorch.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
     LearningRateMonitor,

@@ -14,12 +14,14 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 
+from src.utils.io import safe_torch_load
+
 logger = logging.getLogger(__name__)
 
 
 def _load_checkpoint_payload(ckpt_path: Path, device: str) -> Dict[str, Any]:
     """Load a checkpoint, falling back for trusted legacy DAVF files when needed."""
-    return torch.load(ckpt_path, map_location=device, weights_only=True)
+    return safe_torch_load(ckpt_path, map_location=device)
 
 
 def save_checkpoint(
@@ -93,7 +95,7 @@ def load_checkpoint(
             "weights_only checkpoint load failed for %s; retrying legacy load with weights_only=False",
             ckpt_path,
         )
-        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        ckpt = safe_torch_load(ckpt_path, map_location=device, weights_only=False)
     if not isinstance(ckpt, dict):
         raise ValueError("Checkpoint must be a dictionary")
 
@@ -143,7 +145,7 @@ def resume_training_state(
                 json.dumps(config, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()[:8]
         except Exception:
-            pass
+            logger.warning("Failed to compute config hash while resuming training state")
 
     logger.info(
         f"Resumed training state from epoch {epoch}. "
