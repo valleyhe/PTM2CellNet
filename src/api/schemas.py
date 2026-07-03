@@ -5,7 +5,7 @@
 """
 
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class PTMSite(BaseModel):
@@ -48,6 +48,13 @@ class BatchPredictionRequest(BaseModel):
     """
     samples: List[PredictionRequest] = Field(..., description="样本列表")
 
+    @field_validator("samples")
+    @classmethod
+    def limit_samples(cls, v):
+        if len(v) > 1000:
+            raise ValueError("Batch size cannot exceed 1000 samples")
+        return v
+
 
 # Variant prediction schemas (FEAT-01, FEAT-02)
 
@@ -71,13 +78,23 @@ class PathwayImpact(BaseModel):
 class PredictionResponse(BaseModel):
     """
     单样本预测响应模型
+
+    ``cell_state`` 是规范字段；``predicted_cell_state`` 为旧字段名，
+    通过计算字段保留以向后兼容仍读取旧键的客户端与测试。
     """
-    predicted_cell_state: str = Field(..., description="预测的细胞状态")
+    model_config = ConfigDict(populate_by_name=True)
+
     cell_state: str = Field(..., description="预测的细胞状态")
     confidence: float = Field(..., description="预测置信度", ge=0.0, le=1.0)
     probabilities: Dict[str, float] = Field(..., description="各类别的概率分布")
     pathway_impacts: Optional[List["PathwayImpact"]] = Field(None, description="信号通路影响分析")
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
+
+    @computed_field(description="预测的细胞状态（旧字段名，等价于 cell_state）")
+    @property
+    def predicted_cell_state(self) -> str:
+        """Legacy alias for ``cell_state`` (kept for backward compatibility)."""
+        return self.cell_state
 
 
 class BatchPredictionResponse(BaseModel):

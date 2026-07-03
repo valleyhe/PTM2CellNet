@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="arg-type,assignment,dict-item,return-value"
 """Shared API router state and initialization helpers."""
 
 from dataclasses import dataclass, field

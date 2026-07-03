@@ -11,6 +11,20 @@ from torch import nn
 
 logger = logging.getLogger(__name__)
 
+# --- 估算常量（解释内存/批次估算中出现的魔数）---
+# float32 参数每个占 4 字节。
+BYTES_PER_PARAM = 4
+# 1 MB 的字节数，用于将字节换算为兆字节。
+BYTES_PER_MB = 1024 ** 2
+# 为优化器状态与中间激活预留的内存比例（可用内存的 50%）。
+MEMORY_RESERVE_RATIO = 0.5
+# 无法从模型探测 hidden_dim 时的保守默认值。
+DEFAULT_HIDDEN_DIM = 128
+# 批次大小估算的默认可用 GPU 显存（GB）。
+DEFAULT_AVAILABLE_MEMORY_GB = 8.0
+# 估算最大批次大小后施加的上限，避免推荐过大批次。
+MAX_BATCH_SIZE_CAP = 512
+
 
 def validate_model_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
@@ -115,11 +129,11 @@ def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int =
         内存使用量估算（MB）
     """
     param_count = sum(p.numel() for p in model.parameters())
-    param_memory_mb = param_count * 4 / (1024 ** 2)  # 假设float32
+    param_memory_mb = param_count * BYTES_PER_PARAM / BYTES_PER_MB  # 假设float32
 
     # 估算激活内存（简化计算）
-    # 每层大约需要 batch_size * seq_len * hidden_dim * 4 bytes
-    hidden_dim = 128
+    # 每层大约需要 batch_size * seq_len * hidden_dim * BYTES_PER_PARAM bytes
+    hidden_dim = DEFAULT_HIDDEN_DIM
     if hasattr(model, 'embed_dim'):
         embed_dim = model.embed_dim
         # 确保是整数（如果是tensor，取item()）
@@ -130,7 +144,7 @@ def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int =
 
     # 假设10层 → 改为从模型实际探测层数（避免对 base/large 变体误估）。
     hidden_dim, num_layers = _infer_activation_depth(model)
-    activation_memory_mb = batch_size * seq_len * hidden_dim * num_layers * 4 / (1024 ** 2)
+    activation_memory_mb = batch_size * seq_len * hidden_dim * num_layers * BYTES_PER_PARAM / BYTES_PER_MB
 
     return {
         "params_memory_mb": param_memory_mb,
@@ -152,7 +166,7 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
     Returns ``(hidden_dim, num_layers)``. Both default to conservative values
     when nothing can be inferred so the caller still gets a usable estimate.
     """
-    hidden_dim = getattr(model, "embed_dim", None) or getattr(model, "hidden_dim", None) or 128
+    hidden_dim = getattr(model, "embed_dim", None) or getattr(model, "hidden_dim", None) or DEFAULT_HIDDEN_DIM
 
     # 1. Explicit attributes — most reliable.
     for attr in ("num_layers", "n_layers", "num_encoder_layers"):
@@ -192,7 +206,7 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
 
 
 def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
-                            available_memory_gb: float = 8.0) -> int:
+                            available_memory_gb: float = DEFAULT_AVAILABLE_MEMORY_GB) -> int:
     """
     估算最大批次大小
 
@@ -207,21 +221,21 @@ def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
     available_memory_mb = available_memory_gb * 1024
 
     # 参数内存
-    param_memory_mb = sum(p.numel() for p in model.parameters()) * 4 / (1024 ** 2)
+    param_memory_mb = sum(p.numel() for p in model.parameters()) * BYTES_PER_PARAM / BYTES_PER_MB
 
-    # 为优化器状态和其他开销预留50%内存
-    usable_memory_mb = available_memory_mb * 0.5 - param_memory_mb
+    # 为优化器状态和其他开销预留 MEMORY_RESERVE_RATIO 比例内存
+    usable_memory_mb = available_memory_mb * MEMORY_RESERVE_RATIO - param_memory_mb
 
     # 每个样本的激活内存。层数从模型实际探测而非硬编码（旧实现固定为
     # ``num_layers = 10``，对 base/large 变体都不准）。
     hidden_dim, num_layers = _infer_activation_depth(model)
-    activation_per_sample_mb = seq_len * hidden_dim * num_layers * 4 / (1024 ** 2)
+    activation_per_sample_mb = seq_len * hidden_dim * num_layers * BYTES_PER_PARAM / BYTES_PER_MB
 
     if activation_per_sample_mb <= 0:
         return 1
 
     max_batch_size = int(usable_memory_mb / activation_per_sample_mb)
-    return max(1, min(max_batch_size, 512))
+    return max(1, min(max_batch_size, MAX_BATCH_SIZE_CAP))
 
 
 def print_model_summary(model: nn.Module, detailed: bool = False) -> None:

@@ -688,7 +688,7 @@ class DataLoader:
                 from requests.adapters import HTTPAdapter
                 try:
                     from urllib3.util.retry import Retry
-                except ImportError:  # pragma: no cover
+                except ImportError:  # urllib3 不可用时回退到 vendored 副本；可用 monkeypatch sys.modules["urllib3"] 触发 ImportError 测试该分支
                     from requests.packages.urllib3.util.retry import Retry  # type: ignore[no-redef]
 
                 retry = Retry(
@@ -700,7 +700,7 @@ class DataLoader:
                 adapter = HTTPAdapter(max_retries=retry)
                 session.mount("http://", adapter)
                 session.mount("https://", adapter)
-            except Exception as exc:  # pragma: no cover - 重试配置失败不阻塞基础功能
+            except Exception as exc:  # 重试配置失败不阻塞基础功能；可用 monkeypatch requests.adapters.HTTPAdapter 抛异常测试该分支
                 logger.warning("配置 UniProt HTTP 重试失败，使用默认 Session: %s", exc)
             self._uniprot_http_session = session
         return self._uniprot_http_session

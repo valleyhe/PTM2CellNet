@@ -1,5 +1,6 @@
 """Model info and health endpoints."""
 
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
@@ -173,8 +174,14 @@ async def get_model_info():
         pathway_mapper_loaded=STATE.pathway_mapper is not None,
         model_kind=STATE.model_kind,
         is_demo_model=STATE.is_demo_model,
-        checkpoint_path=STATE.checkpoint_path,
-        config_path=STATE.config_path,
+        # SEC-03: 只返回文件名，避免向客户端泄露服务器绝对路径。
+        # 仍返回文件名以便运维/前端识别当前加载的 checkpoint/config 来源。
+        checkpoint_path=os.path.basename(STATE.checkpoint_path)
+        if STATE.checkpoint_path
+        else None,
+        config_path=os.path.basename(STATE.config_path)
+        if STATE.config_path
+        else None,
     )
 
 

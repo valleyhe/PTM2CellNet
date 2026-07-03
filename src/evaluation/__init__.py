@@ -1,6 +1,7 @@
 """评估模块 - 评估指标、评估器和结果可视化"""
 import logging
-from typing import Any
+
+from src.utils.lazy_import import LazyImport
 
 _logger = logging.getLogger(__name__)
 
@@ -25,53 +26,32 @@ from .metrics import (
     calculate_cross_validation_ci,
 )
 
-_Evaluator: Any = None
-_LeaveOnePTMOutScorer: Any = None
-_TwoStageExplanationPipeline: Any = None
-_aggregate_by_protein: Any = None
-_plot_roc_curve: Any = None
-_plot_pr_curve: Any = None
-_plot_confusion_matrix: Any = None
-_plot_training_curves: Any = None
-_plot_feature_importance: Any = None
-_plot_attention_heatmap: Any = None
+# Optional submodules are imported lazily so that a missing optional
+# dependency does not break importing src.evaluation. Accessing a symbol
+# whose import failed re-raises the original ImportError.
+_Evaluator = LazyImport(f"{__name__}.evaluators", "Evaluator")
+_LeaveOnePTMOutScorer = LazyImport(f"{__name__}.explainers", "LeaveOnePTMOutScorer")
+_TwoStageExplanationPipeline = LazyImport(
+    f"{__name__}.explainers", "TwoStageExplanationPipeline"
+)
+_aggregate_by_protein = LazyImport(f"{__name__}.explainers", "aggregate_by_protein")
+_plot_roc_curve = LazyImport(f"{__name__}.visualization", "plot_roc_curve")
+_plot_pr_curve = LazyImport(f"{__name__}.visualization", "plot_pr_curve")
+_plot_confusion_matrix = LazyImport(f"{__name__}.visualization", "plot_confusion_matrix")
+_plot_training_curves = LazyImport(f"{__name__}.visualization", "plot_training_curves")
+_plot_feature_importance = LazyImport(f"{__name__}.visualization", "plot_feature_importance")
+_plot_attention_heatmap = LazyImport(f"{__name__}.visualization", "plot_attention_heatmap")
 
-try:
-    from .evaluators import Evaluator as _Evaluator
-except ImportError:
-    _logger.warning("evaluators module not available (import failed)")
-
-try:
-    from .explainers import (
-        LeaveOnePTMOutScorer as _LeaveOnePTMOutScorer,
-        TwoStageExplanationPipeline as _TwoStageExplanationPipeline,
-        aggregate_by_protein as _aggregate_by_protein,
-    )
-except ImportError:
-    _logger.warning("explainers module not available (import failed)")
-
-try:
-    from .visualization import (
-        plot_roc_curve as _plot_roc_curve,
-        plot_pr_curve as _plot_pr_curve,
-        plot_confusion_matrix as _plot_confusion_matrix,
-        plot_training_curves as _plot_training_curves,
-        plot_feature_importance as _plot_feature_importance,
-        plot_attention_heatmap as _plot_attention_heatmap,
-    )
-except ImportError:
-    _logger.warning("visualization module not available (import failed)")
-
-Evaluator: Any = _Evaluator
-LeaveOnePTMOutScorer: Any = _LeaveOnePTMOutScorer
-TwoStageExplanationPipeline: Any = _TwoStageExplanationPipeline
-aggregate_by_protein: Any = _aggregate_by_protein
-plot_roc_curve: Any = _plot_roc_curve
-plot_pr_curve: Any = _plot_pr_curve
-plot_confusion_matrix: Any = _plot_confusion_matrix
-plot_training_curves: Any = _plot_training_curves
-plot_feature_importance: Any = _plot_feature_importance
-plot_attention_heatmap: Any = _plot_attention_heatmap
+Evaluator = _Evaluator
+LeaveOnePTMOutScorer = _LeaveOnePTMOutScorer
+TwoStageExplanationPipeline = _TwoStageExplanationPipeline
+aggregate_by_protein = _aggregate_by_protein
+plot_roc_curve = _plot_roc_curve
+plot_pr_curve = _plot_pr_curve
+plot_confusion_matrix = _plot_confusion_matrix
+plot_training_curves = _plot_training_curves
+plot_feature_importance = _plot_feature_importance
+plot_attention_heatmap = _plot_attention_heatmap
 
 __all__ = [
     "calculate_accuracy",

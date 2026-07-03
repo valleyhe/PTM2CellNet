@@ -18,6 +18,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# 下游基因表达变化受通路活性的影响因子（假设中等影响）。
+DOWNSTREAM_GENE_IMPACT_FACTOR = 0.5
+
 
 class SignalingNetworkMapper:
     """
@@ -350,7 +353,7 @@ class SignalingNetworkMapper:
 
             # 下游基因受通路活性影响
             for gene in pathway_info['output_genes']:
-                gene_changes[gene] += activity * 0.5  # 假设中等影响
+                gene_changes[gene] += activity * DOWNSTREAM_GENE_IMPACT_FACTOR  # 假设中等影响
 
         return dict(gene_changes)
 

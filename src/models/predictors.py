@@ -23,7 +23,8 @@ def _build_mlp(input_dim: int, hidden_dims: Optional[List[int]], dropout: float)
 class CellStatePredictor(nn.Module):
     """预测器基类"""
 
-    def forward(self, features: torch.Tensor) -> Dict[str, torch.Tensor]:  # pragma: no cover - interface
+    def forward(self, features: torch.Tensor) -> Dict[str, torch.Tensor]:
+        # abstract method
         raise NotImplementedError
 
 

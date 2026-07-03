@@ -18,10 +18,36 @@ from src.utils.io import safe_torch_load
 
 logger = logging.getLogger(__name__)
 
+# DAVF config/architecture classes embedded in legacy fine-tuned checkpoints.
+# These are safe types that cannot be loaded with vanilla weights_only=True
+# because they are custom Python objects (dataclasses / nn.Module subclasses).
+# We import them lazily to avoid circular-dependency issues and only when
+# actually loading a DAVF checkpoint.
+_DAVF_ALLOWED_CLASSES: Optional[set] = None
+
+
+def _get_davf_allowed_classes() -> set:
+    global _DAVF_ALLOWED_CLASSES
+    if _DAVF_ALLOWED_CLASSES is None:
+        from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
+
+        _DAVF_ALLOWED_CLASSES = {
+            LatentDAVFConfig,
+            LatentDAVF,
+        }
+    return _DAVF_ALLOWED_CLASSES
+
 
 def _load_checkpoint_payload(ckpt_path: Path, device: str) -> Dict[str, Any]:
-    """Load a checkpoint, falling back for trusted legacy DAVF files when needed."""
-    return cast(Dict[str, Any], safe_torch_load(ckpt_path, map_location=device))
+    """Load a checkpoint with allowlisted DAVF types for weights_only=True."""
+    return cast(
+        Dict[str, Any],
+        safe_torch_load(
+            ckpt_path,
+            map_location=device,
+            allowed_classes=_get_davf_allowed_classes(),
+        ),
+    )
 
 
 def save_checkpoint(
@@ -99,7 +125,12 @@ def load_checkpoint(
             "Consider using allowed_classes= to whitelist required types instead.",
             ckpt_path,
         )
-        ckpt = safe_torch_load(ckpt_path, map_location=device, weights_only=False)
+        ckpt = safe_torch_load(
+            ckpt_path,
+            map_location=device,
+            weights_only=False,
+            enforce_safe_only=False,
+        )
     if not isinstance(ckpt, dict):
         raise ValueError("Checkpoint must be a dictionary")
 

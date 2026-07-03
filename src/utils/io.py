@@ -424,13 +424,18 @@ _TORCH_LOAD_ALLOWED_CLASSES: set = {
     "collections.OrderedDict",
 }
 
+# Classes that are allowed in torch.load(weights_only=True, allowed_classes=...)
+# for DAVF-related legacy checkpoints.  These must be actual class objects
+# (not strings), so the list is populated lazily below.
+_DAVF_SAFE_CLASSES: Optional[list] = None
+
 
 def safe_torch_load(
     path: Any,
     map_location: Any = None,
     *,
     allowed_classes: Optional[set] = None,
-    enforce_safe_only: bool = False,
+    enforce_safe_only: bool = True,
     **kwargs: Any,
 ) -> Any:
     """Load a PyTorch artifact with a safe-by-default ``weights_only`` strategy.
@@ -454,11 +459,14 @@ def safe_torch_load(
        ``weights_only=False`` explicitly.  An automatic fallback **is still
        provided** for backwards-compatibility, but it logs a warning at
        ``logger.warning`` level so that every unsafe load is auditable.
-    4. **``enforce_safe_only=True``** — When set, the automatic fallback to
-       ``weights_only=False`` is **disabled**: if ``weights_only=True`` fails,
-       the original exception is re-raised instead of silently falling back to
-       unsafe pickle deserialization.  Use this for untrusted inputs where a
-       failed safe load must never degrade into arbitrary-code-execution.
+    4. **``enforce_safe_only`` (default ``True``)** — The automatic fallback to
+       ``weights_only=False`` is **disabled by default**: if
+       ``weights_only=True`` fails, the original exception is re-raised instead
+       of silently falling back to unsafe pickle deserialization.  This makes
+       the loader safe-by-default for untrusted inputs, where a failed safe
+       load must never degrade into arbitrary-code-execution.  Callers loading
+       fully-trusted legacy checkpoints that cannot be parsed with
+       ``weights_only=True`` may opt out by passing ``enforce_safe_only=False``.
 
     **Do not** use ``weights_only=False`` for files from untrusted sources.
 
@@ -474,11 +482,15 @@ def safe_torch_load(
         ``_TORCH_LOAD_ALLOWED_CLASSES`` allowlist.  Ignored if the installed
         PyTorch version does not support the ``allowed_classes`` argument.
     enforce_safe_only :
-        If ``True``, never fall back to ``weights_only=False``.  Any failure of
-        the safe ``weights_only=True`` path propagates the exception to the
-        caller instead of silently degrading into unsafe pickle deserialization.
-        Use this for untrusted inputs.  Defaults to ``False`` to preserve
-        backwards-compatible behaviour for trusted, self-produced checkpoints.
+        If ``True`` (default), never fall back to ``weights_only=False``.  Any
+        failure of the safe ``weights_only=True`` path propagates the exception
+        to the caller instead of silently degrading into unsafe pickle
+        deserialization.  This is the safe-by-default posture: untrusted inputs
+        can never trigger arbitrary-code-execution.  Callers loading trusted,
+        self-produced legacy checkpoints that genuinely cannot be parsed with
+        ``weights_only=True`` (e.g. they embed custom config dataclasses) may
+        opt out by passing ``enforce_safe_only=False`` — but only for files
+        whose provenance is fully trusted.
     **kwargs :
         Additional keyword arguments forwarded to ``torch.load``.
 

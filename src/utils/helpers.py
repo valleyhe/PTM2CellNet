@@ -9,6 +9,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 VALID_AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
 
+# Absolute ceiling on accepted protein sequence length. Used as the default
+# ``max_length`` in :func:`validate_sequence` so callers that omit an explicit
+# limit still get a defensive cap rather than accepting unbounded input. Kept
+# in sync with ``src.data.preprocess.MAX_SEQUENCE_LENGTH``.
+MAX_SEQUENCE_LENGTH = 2048
+
 
 def validate_sequence(
     sequence: str,
@@ -20,7 +26,8 @@ def validate_sequence(
 
     参数:
         sequence: 蛋白质序列字符串
-        max_length: 最大允许长度，None表示不限制
+        max_length: 最大允许长度，None表示使用模块默认上限
+            ``MAX_SEQUENCE_LENGTH``（当前 2048）。显式传入 ``0`` 可禁用长度检查。
 
     返回:
         (是否有效, 错误信息)元组
@@ -34,8 +41,12 @@ def validate_sequence(
     if not sequence or not isinstance(sequence, str):
         return False, "序列不能为空"
 
-    if max_length is not None and len(sequence) > max_length:
-        return False, f"序列长度超过限制: {len(sequence)} > {max_length}"
+    # Fall back to the module-level ceiling when no explicit limit is supplied,
+    # so callers cannot accidentally accept arbitrarily long sequences. An
+    # explicit ``0`` opts out of length checking entirely.
+    effective_max = MAX_SEQUENCE_LENGTH if max_length is None else max_length
+    if effective_max and len(sequence) > effective_max:
+        return False, f"序列长度超过限制: {len(sequence)} > {effective_max}"
 
     allowed = valid_amino_acids if valid_amino_acids is not None else VALID_AMINO_ACIDS
     invalid_chars = set(sequence) - allowed

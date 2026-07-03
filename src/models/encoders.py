@@ -14,7 +14,7 @@ from torch import nn
 class SequenceEncoder(nn.Module):
     """序列编码器基类"""
 
-    def forward(self, sequences: torch.Tensor) -> torch.Tensor:  # pragma: no cover - interface
+    def forward(self, sequences: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
 

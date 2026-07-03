@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="arg-type,assignment,dict-item,return-value"
 """Prediction endpoints."""
 
 import time
@@ -400,7 +400,6 @@ def _build_prediction_response(
         for i in range(len(probs_np))
     }
     return PredictionResponse(
-        predicted_cell_state=pred_label,
         cell_state=pred_label,
         confidence=confidence,
         probabilities=prob_dict,
@@ -410,7 +409,7 @@ def _build_prediction_response(
 
 
 @router.post("/predict", response_model=PredictionResponse)
-async def predict(request: PredictionRequest):
+async def predict(request: PredictionRequest) -> PredictionResponse:
     """
     预测细胞状态
 
@@ -468,7 +467,7 @@ async def predict(request: PredictionRequest):
 
 @router.post("/predict/batch", response_model=BatchPredictionResponse)
 @router.post("/batch_predict", response_model=BatchPredictionResponse)
-async def batch_predict(request: BatchPredictionRequest):
+async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionResponse:
     """
     批量预测细胞状态
 
@@ -536,7 +535,7 @@ async def batch_predict(request: BatchPredictionRequest):
 
 
 @router.post("/predict/variant", response_model=VariantPredictionResponse)
-async def predict_variant(request: VariantPredictionRequest):
+async def predict_variant(request: VariantPredictionRequest) -> VariantPredictionResponse:
     """
     Predict cell state changes from protein variant.
 

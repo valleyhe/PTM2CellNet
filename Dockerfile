@@ -64,6 +64,16 @@ COPY outputs/models/artifact_manifest.json ./outputs/models/artifact_manifest.js
 RUN mkdir -p outputs/models outputs/logs outputs/results \
     .cache/huggingface
 
+# SEC-05: Docker 安全加固 —— 创建非 root 用户并确保 /app 目录权限正确。
+# chown 必须在 USER 切换之前以 root 身份执行，否则非 root 用户无法修改属主。
+# chown -R /app 同时覆盖 /app/outputs（outputs/models|logs|results 均被引用），
+# 因此容器以非 root 身份运行时，应用对输出目录具备读写权限。
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# 以非 root 用户运行容器，符合最小权限原则。
+USER appuser
+
 # 暴露API端口
 EXPOSE 8000
 

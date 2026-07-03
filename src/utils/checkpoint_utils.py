@@ -163,7 +163,7 @@ def load_checkpoint_with_config(
         try:
             config_obj = Config.from_yaml(str(resolved_config_path))
             logger.info("已加载 checkpoint 配置: %s", resolved_config_path)
-        except Exception as exc:  # pragma: no cover - 配置解析错误属于异常路径
+        except Exception as exc:  # pragma: no cover - 配置解析错误属于异常路径；难以在单测中稳定复现 YAML 语法/类型错误经 Config.from_yaml 抛出的多种底层异常，故保留 no cover
             logger.warning("加载配置 %s 失败: %s", resolved_config_path, exc)
             config_obj = None
     else:

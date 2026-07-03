@@ -226,7 +226,8 @@ class TestModelInfoRoute:
         assert data["variant_workflow_loaded"] is True
         assert data["model_kind"] == "demo"
         assert data["is_demo_model"] is True
-        assert data["checkpoint_path"] == "/x/best_model.pt"
+        # SEC-03: route returns basename only to avoid leaking server paths.
+        assert data["checkpoint_path"] == "best_model.pt"
 
 
 # ---------------------------------------------------------------------------

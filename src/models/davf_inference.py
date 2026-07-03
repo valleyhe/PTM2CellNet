@@ -308,12 +308,22 @@ class DAVFInferenceModule(nn.Module):
             self._checkpoint_loaded = False
             return
 
+        # DAVF config/architecture classes embedded in legacy checkpoints.
+        _DAVF_ALLOWED: set = set()
+        try:
+            from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
+
+            _DAVF_ALLOWED = {LatentDAVFConfig, LatentDAVF}
+        except ImportError:
+            pass
+
         try:
             # Load checkpoint with device mapping
             try:
                 checkpoint = safe_torch_load(
                     ckpt_path,
                     map_location=self.device,
+                    allowed_classes=_DAVF_ALLOWED,
                 )
             except (pickle.UnpicklingError, RuntimeError):
                 # Legacy checkpoints containing custom config objects cannot
@@ -328,6 +338,7 @@ class DAVFInferenceModule(nn.Module):
                     ckpt_path,
                     map_location=self.device,
                     weights_only=False,
+                    enforce_safe_only=False,
                 )
 
             # Extract state dict (handle both formats per D-06)

@@ -308,20 +308,25 @@ class PerturbationExecutor:
         except (OSError, RuntimeError) as exc:
             raise ValueError(f"Could not resolve ref_root {raw_ref_root}: {exc}") from exc
 
-        # Prefer importing GenKI from an already-installed location (e.g.
-        # ``pip install -e``) to avoid mutating sys.path. Only fall back to a
-        # controlled sys.path insertion when the package is not importable,
-        # and record the injected path so it is added at most once per
-        # process to avoid polluting sys.path on repeated calls.
-        if importlib.util.find_spec("GenKI") is None:
-            if resolved_root not in sys.path:
-                sys.path.insert(0, resolved_root)
-                # Track injected paths on the loader instance to keep the
-                # insertion observable and idempotent across calls.
-                injected: set = getattr(self, "_injected_sys_paths", set())
-                injected.add(resolved_root)
-                self._injected_sys_paths = injected
-                logger.info("Injected ref_root into sys.path for GenKI import: %s", resolved_root)
+        # Load GenKI directly from its source location via a file-based
+        # module spec, avoiding any mutation of sys.path. The ``GenKI`` package
+        # root is expected to live at ``resolved_root`` (i.e. the directory
+        # that contains the ``GenKI/`` package).
+        genki_pkg_dir = Path(resolved_root) / "GenKI"
+        if not genki_pkg_dir.is_dir():
+            raise ValueError(
+                f"GenKI package directory not found under ref_root: {genki_pkg_dir}"
+            )
+        genki_init = genki_pkg_dir / "__init__.py"
+        spec = importlib.util.spec_from_file_location(
+            "GenKI", str(genki_init), submodule_search_locations=[str(genki_pkg_dir)]
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not build module spec for GenKI at {genki_init}")
+        genki_module = importlib.util.module_from_spec(spec)
+        sys.modules["GenKI"] = genki_module
+        spec.loader.exec_module(genki_module)
+        # Import the dataLoader submodule relative to the now-registered package.
         module = importlib.import_module("GenKI.dataLoader")
         data_loader_cls = getattr(module, "DataLoader")
         adata = ad.read_h5ad(self.adata_file)

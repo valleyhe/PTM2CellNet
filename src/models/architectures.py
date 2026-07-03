@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value"
 """
 完整模型架构
 功能概述: 组合编码器、PTM模块与预测器
@@ -243,7 +243,7 @@ class PTM2CellNetBase(nn.Module):
         freeze_encoder: bool,
         pretrained_cache_dir: Optional[str],
         recurrent_hidden_multiplier: int,
-    ) -> tuple:
+    ) -> tuple[nn.Module, Optional[int]]:
         """Instantiate the sequence encoder based on ``encoder_type``.
 
         Centralised so adding a new encoder touches exactly one place rather

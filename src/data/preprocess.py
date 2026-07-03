@@ -16,6 +16,13 @@ from src.data.aa_constants import NON_STANDARD_AA_MAP as _NON_STANDARD_AA_MAP
 
 logger = setup_logger(__name__)
 
+# Module-level hard cap on accepted sequence length. The DataPreprocessor still
+# reads a configurable ``max_sequence_length`` (default 1000) from config for
+# dataset-level filtering; this constant is the absolute ceiling used as a
+# defensive default when no explicit limit is supplied, preventing unbounded
+# sequences from reaching the model/encoder.
+MAX_SEQUENCE_LENGTH = 2048
+
 
 class DataPreprocessor:
     """

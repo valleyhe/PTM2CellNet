@@ -160,7 +160,7 @@ class MissingDependencyError(ImportError):
         self.message = message
         self.statuses = list(statuses)
 
-    def __str__(self) -> str:  # pragma: no cover - trivial
+    def __str__(self) -> str:
         return self.message
 
 
@@ -262,5 +262,5 @@ __all__ = [
 
 # When this module is imported, ensure importlib metadata uses the current env.
 # (No-op on normal startup; guards against frozen-app embedding quirks.)
-if hasattr(sys, "prefix"):  # pragma: no cover
+if hasattr(sys, "prefix"):
     pass

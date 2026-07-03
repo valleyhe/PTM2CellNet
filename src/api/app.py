@@ -4,6 +4,7 @@ FastAPI应用模块
 设计思路: 提供应用工厂函数，支持CORS配置
 """
 
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
@@ -533,6 +534,64 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class _OptionalAuthMiddleware(BaseHTTPMiddleware):
+    """Optional API-key authentication for sensitive endpoints.
+
+    Reads the expected key from the ``PTM2CELLNET_API_KEY`` environment
+    variable. When unset, authentication is skipped entirely — this keeps
+    the API backward-compatible with existing local/Docker deployments that
+    don't configure a key (SEC-01).
+
+    When set, requests to the prediction and model-info endpoints must
+    carry a matching ``X-API-Key`` header. Health/liveness/readiness probes
+    and the root index are always exempt so orchestrators can reach them.
+
+    Comparison uses :func:`hmac.compare_digest` (constant-time) to avoid
+    timing side-channels. A missing key yields 401; a wrong key yields 403.
+    """
+
+    # Paths (suffix-matched, agnostic of the API prefix) that require auth
+    # when a key is configured. Mirrors the prediction surface plus the
+    # model-info introspection endpoint.
+    _PROTECTED_SUFFIXES: Tuple[str, ...] = (
+        "/predict",
+        "/batch_predict",
+        "/predict/variant",
+        "/model/info",
+    )
+    # Health/orchestration probes — never gated, so k8s/Docker probes stay
+    # responsive even when auth is enabled.
+    _EXEMPT_SUFFIXES: Tuple[str, ...] = ("/health", "/live", "/ready", "/")
+
+    def __init__(self, app: FastAPI, api_key: str) -> None:
+        super().__init__(app)
+        # Normalise to str; compare_digest requires equal-typed operands.
+        self._api_key: str = api_key
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # Health/liveness/readiness probes bypass auth (requirement 4).
+        if path.endswith(self._EXEMPT_SUFFIXES):
+            return await call_next(request)
+        # Only the protected surface is gated; everything else passes through.
+        if not path.endswith(self._PROTECTED_SUFFIXES):
+            return await call_next(request)
+
+        provided = request.headers.get("x-api-key")
+        if provided is None:
+            return StarletteResponse(
+                status_code=401,
+                content="X-API-Key required",
+            )
+        # Constant-time comparison to mitigate timing attacks (requirement 6).
+        if not hmac.compare_digest(provided, self._api_key):
+            return StarletteResponse(
+                status_code=403,
+                content="Invalid API key",
+            )
+        return await call_next(request)
+
+
 def create_app(
     title: str = "PTM2CellNet API",
     description: str = "蛋白质PTM与细胞状态预测API",
@@ -583,6 +642,23 @@ def create_app(
         logger.info("Rate limiting disabled (PTM2CELLNET_RATE_LIMIT_RPM=0)")
     # Runtime metrics collection (request count, latency, error rate).
     app.add_middleware(_MetricsMiddleware)
+
+    # Optional API-key authentication (SEC-01). Backward-compatible: when
+    # PTM2CELLNET_API_KEY is unset, auth is skipped entirely. When set, the
+    # prediction and model-info endpoints require a matching X-API-Key
+    # header; health/liveness/readiness probes stay exempt.
+    configured_api_key = os.environ.get("PTM2CELLNET_API_KEY")
+    if configured_api_key:
+        app.add_middleware(_OptionalAuthMiddleware, api_key=configured_api_key)  # type: ignore[arg-type]  # Starlette add_middleware overload cannot match BaseHTTPMiddleware subclasses with kwargs
+        logger.info(
+            "API-key authentication enabled: protected endpoints require X-API-Key "
+            "(unset PTM2CELLNET_API_KEY to disable)."
+        )
+    else:
+        logger.info(
+            "API-key authentication disabled (PTM2CELLNET_API_KEY unset). "
+            "Set it to protect prediction endpoints."
+        )
 
     if cors_origins is None:
         env_origins = os.environ.get("PTM2CELLNET_CORS_ORIGINS", "")

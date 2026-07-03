@@ -199,8 +199,15 @@ except ImportError:
             # Now the real import will try to import from our broken stub
             import src.evaluation as eval_module
             importlib.reload(eval_module)
-            # Because our stub is missing LeaveOnePTMOutScorer, the try/except should set it to None
-            assert eval_module.LeaveOnePTMOutScorer is None
+            # Because our stub is missing LeaveOnePTMOutScorer, the fallback
+            # should be triggered — either None (direct try/except) or a
+            # LazyImport that raises AttributeError on access.
+            scorer = eval_module.LeaveOnePTMOutScorer
+            if hasattr(scorer, "get"):
+                with pytest.raises(AttributeError):
+                    scorer.get()
+            else:
+                assert scorer is None
         finally:
             if original_explainers is not None:
                 sys.modules[explainers_key] = original_explainers

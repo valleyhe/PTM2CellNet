@@ -7,6 +7,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 from src.utils import io as io_module
@@ -81,10 +82,30 @@ class TestSafeTorchLoad:
 
         import logging
         with caplog.at_level(logging.WARNING, logger="src.utils.io"):
-            loaded = io_module.safe_torch_load(str(checkpoint_path), map_location="cpu")
+            loaded = io_module.safe_torch_load(
+                str(checkpoint_path),
+                map_location="cpu",
+                enforce_safe_only=False,  # opt in to the fallback for this test
+            )
 
         assert loaded == expected
         assert len(calls) == 2
         assert calls[0][2]["weights_only"] is True
         assert calls[1][2]["weights_only"] is False
         assert any("rejected types" in record.message for record in caplog.records)
+
+    def test_safe_torch_load_enforce_safe_only_blocks_fallback(self, monkeypatch, tmp_path):
+        """With enforce_safe_only=True (default), a weights_only=True failure
+        is re-raised rather than falling back to unsafe deserialization."""
+        checkpoint_path = tmp_path / "legacy.pt"
+        checkpoint_path.write_bytes(b"placeholder")
+
+        def failing_torch_load(path, map_location=None, **kwargs):
+            if kwargs.get("weights_only") is True:
+                raise ValueError("weights_only unsupported")
+            return {}
+
+        monkeypatch.setattr(torch, "load", failing_torch_load)
+
+        with pytest.raises(ValueError, match="weights_only unsupported"):
+            io_module.safe_torch_load(str(checkpoint_path), map_location="cpu")

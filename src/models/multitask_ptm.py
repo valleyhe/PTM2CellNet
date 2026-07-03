@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 import logging
 
 from .encoders import PooledCNNEncoder, PooledTransformerEncoder, PooledLSTMEncoder
@@ -310,7 +310,13 @@ class MultiTaskLoss(nn.Module):
             总损失和各任务损失
         """
         losses = {}
-        total_loss: Any = 0.0
+        # 从第一个有效 target 推断设备，保证 total_loss 始终在正确设备上。
+        device = torch.device('cpu')
+        for ptm_type in self.ptm_types:
+            if ptm_type in targets:
+                device = targets[ptm_type].device
+                break
+        total_loss: torch.Tensor = torch.tensor(0.0, device=device)
 
         for i, ptm_type in enumerate(self.ptm_types):
             if ptm_type not in outputs or ptm_type not in targets:
