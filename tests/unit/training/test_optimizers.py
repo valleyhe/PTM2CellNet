@@ -155,6 +155,7 @@ class TestSchedulerBehavior:
 
         initial_lr = optimizer.param_groups[0]["lr"]
         for _ in range(5):
+            optimizer.step()  # correct order: optimizer.step() before scheduler.step()
             scheduler.step()
 
         current_lr = optimizer.param_groups[0]["lr"]
@@ -168,11 +169,14 @@ class TestSchedulerBehavior:
         initial_lr = optimizer.param_groups[0]["lr"]
 
         # 前2步学习率不变
+        optimizer.step()  # correct order: optimizer.step() before scheduler.step()
         scheduler.step()
+        optimizer.step()
         scheduler.step()
         assert optimizer.param_groups[0]["lr"] == initial_lr
 
         # 第3步后下降
+        optimizer.step()
         scheduler.step()
         assert optimizer.param_groups[0]["lr"] == initial_lr * 0.1
 

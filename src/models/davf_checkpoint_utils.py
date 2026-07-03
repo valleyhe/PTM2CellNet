@@ -9,7 +9,7 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def _load_checkpoint_payload(ckpt_path: Path, device: str) -> Dict[str, Any]:
     """Load a checkpoint, falling back for trusted legacy DAVF files when needed."""
-    return safe_torch_load(ckpt_path, map_location=device)
+    return cast(Dict[str, Any], safe_torch_load(ckpt_path, map_location=device))
 
 
 def save_checkpoint(
@@ -155,4 +155,4 @@ def resume_training_state(
         f"Resumed training state from epoch {epoch}. "
         f"Config hash: {config_hash or 'N/A'}"
     )
-    return epoch
+    return cast(int, epoch)

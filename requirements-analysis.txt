@@ -18,3 +18,14 @@ zarr>=2,<3
 hgvs==1.5.7
 uniprot-id-mapper==1.1.5
 UniProtMapper>=0.1
+
+# GenKI 图扰动后端（src/integration/genki/perturbation.py 通过 importlib 延迟导入
+# torch_geometric.data.Data；缺失时该 source backend 跳过，但应在此声明）。
+torch-geometric>=2.3.0
+
+# 文档构建（docs/conf.py 使用 sphinx.ext.autodoc/napoleon/viewcode/intersphinx）。
+sphinx>=5.0.0
+
+# V2-05 GUI (optional) —— src/models/roadmap.py 在 V2 阶段按需启动 Streamlit UI，
+# 缺失时优雅降级并 warn。仅当需要 GUI 时安装，默认不拉入。
+streamlit>=1.20.0

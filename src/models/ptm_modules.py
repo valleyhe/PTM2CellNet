@@ -137,4 +137,4 @@ class GatedPTMFusion(nn.Module):
         if self.use_residual:
             fused = fused + sequence_emb
         output = self.layer_norm(fused)
-        return output
+        return cast(torch.Tensor, output)

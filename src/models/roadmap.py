@@ -20,7 +20,7 @@ try:  # pragma: no cover - optional dependency
     import lightning as _LIGHTNING_MODULE
     _LIGHTNING_IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # pragma: no cover - optional dependency
-    _LIGHTNING_MODULE = None
+    _LIGHTNING_MODULE = None  # type: ignore[assignment]  # optional dep absent
     _LIGHTNING_IMPORT_ERROR = exc
 
 try:  # pragma: no cover - optional dependency

@@ -26,6 +26,9 @@ torchmetrics>=0.7.0
 
 # Bioinformatics (lightweight)
 biopython>=1.79
+# MinHash+LSH 近似近邻用于大规模同源拆分（src/data/homology_splitter.py）。
+# 缺失时回退稠密路径并 warn，但应作为核心依赖声明以支持完整功能。
+datasketch>=1.5.0
 
 # Visualization
 matplotlib>=3.4.0

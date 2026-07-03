@@ -282,7 +282,12 @@ def _try_auto_initialize() -> None:
 
         logger.info("Auto-initialized model from %s on %s", checkpoint_path, device)
     except Exception as e:
-        logger.error("Auto-initialization failed: %s. API starts without model.", e)
+        STATE.initialization_failed = True
+        logger.error(
+            "Auto-initialization failed: %s. API starts without model. "
+            "/health and /ready will return 503 until a model is loaded via /initialize.",
+            e,
+        )
 
 
 _MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -363,7 +368,7 @@ class _RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._max_bytes = max_bytes
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
         if content_length is not None:
             try:
@@ -389,7 +394,7 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
     latency distribution. Errors are counted as any response with status >= 400.
     """
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(self, request: Request, call_next):
         if request.url.path.endswith("/metrics"):
             return await call_next(request)
         import time as _time
@@ -509,7 +514,7 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._state = _RateLimitState(requests_per_minute, burst)
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(self, request: Request, call_next):
         path = request.url.path
         # Never throttle health/live/ready probes — they must stay responsive
         # for orchestrators (k8s, Docker healthcheck).
@@ -562,13 +567,13 @@ def create_app(
 
     # Request body size limit — prevents DoS via oversized payloads.
     max_body = int(os.environ.get("PTM2CELLNET_MAX_REQUEST_SIZE", _MAX_REQUEST_BODY_BYTES))
-    app.add_middleware(_RequestBodySizeLimitMiddleware, max_bytes=max_body)
+    app.add_middleware(_RequestBodySizeLimitMiddleware, max_bytes=max_body)  # type: ignore[arg-type]  # Starlette add_middleware overload cannot match BaseHTTPMiddleware subclasses
     # Per-client rate limiting — protects inference endpoints from accidental
     # DoS. Disabled when PTM2CELLNET_RATE_LIMIT_RPM=0.
     rpm = int(os.environ.get("PTM2CELLNET_RATE_LIMIT_RPM", _DEFAULT_RATE_LIMIT_RPM))
     burst = int(os.environ.get("PTM2CELLNET_RATE_LIMIT_BURST", _DEFAULT_RATE_LIMIT_BURST))
     if rpm > 0:
-        app.add_middleware(_RateLimitMiddleware, requests_per_minute=rpm, burst=burst)
+        app.add_middleware(_RateLimitMiddleware, requests_per_minute=rpm, burst=burst)  # type: ignore[arg-type]  # Starlette add_middleware overload cannot match BaseHTTPMiddleware subclasses with multiple kwargs
         logger.info(
             "Rate limiting enabled: %s req/min, burst=%s (set PTM2CELLNET_RATE_LIMIT_RPM=0 to disable)",
             rpm,

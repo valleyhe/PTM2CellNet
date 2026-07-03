@@ -258,8 +258,8 @@ class DAVFSiteAugmenter:
             new_sites.append(pos)
             new_types.append(davf_type_names[i])
             new_mask.append(1)
-            if new_genes is not None:
-                new_genes.append(davf_gene_names[i])  # type: ignore[arg-type]
+            if new_genes is not None and davf_gene_names is not None:
+                new_genes.append(davf_gene_names[i])
 
         return new_sites, new_types, new_mask, new_genes
 

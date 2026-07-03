@@ -225,7 +225,7 @@ class PTM2CellNetLightning(L.LightningModule):
         # 归一化使平均权重为1
         weights = weights / weights.mean()
 
-        return weights
+        return cast(torch.Tensor, weights)
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -285,7 +285,7 @@ class PTM2CellNetLightning(L.LightningModule):
             logger=True,
         )
 
-        return loss
+        return cast(torch.Tensor, loss)
 
     def validation_step(
         self, batch: Dict[str, torch.Tensor], batch_idx: int
@@ -350,7 +350,7 @@ class PTM2CellNetLightning(L.LightningModule):
                 if "val_f1" in self.metrics:
                     self.metrics["val_f1"].update(predictions, batch["label"])
 
-        return loss
+        return cast(torch.Tensor, loss)
 
     def on_validation_epoch_end(self) -> None:
         """验证epoch结束时计算并记录指标"""
@@ -393,7 +393,7 @@ class PTM2CellNetLightning(L.LightningModule):
         self.log("test_loss", loss, on_epoch=True, logger=True)
         self.log("test_acc", accuracy, on_epoch=True, logger=True)
 
-        return loss
+        return cast(torch.Tensor, loss)
 
     def configure_optimizers(self):
         """
@@ -499,7 +499,7 @@ class PTM2CellNetLightning(L.LightningModule):
             return None
 
         if self.scheduler_name == "cosine":
-            scheduler: Any = CosineAnnealingLR(
+            scheduler: LRSchedulerClass = CosineAnnealingLR(
                 optimizer,
                 T_max=self.max_epochs,
                 eta_min=self.learning_rate * 0.01,

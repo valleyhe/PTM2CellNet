@@ -273,7 +273,6 @@ class ScVIAdapter:
         # gene count, then call the decoder module.
         try:
             import torch
-            from torch.distributions import NegativeBinomial
         except Exception as e:  # pragma: no cover
             raise ImportError(
                 f"torch is required for scVI decode but unavailable: {e}"
@@ -307,17 +306,16 @@ class ScVIAdapter:
                     raise RuntimeError(
                         "scVI generative output did not contain 'px' distribution."
                     )
-                if isinstance(px, NegativeBinomial):
-                    rate = px.mu
-                else:
-                    rate = getattr(px, "mu", getattr(px, "mean", None))
-                    if rate is None:
-                        raise RuntimeError(
-                            "Could not extract rate/mu from decoded distribution."
-                        )
+                rate = getattr(px, "mu", None)
+                if rate is None:
+                    rate = getattr(px, "mean", None)
+                if rate is None:
+                    raise RuntimeError(
+                        "Could not extract rate/mu from decoded distribution."
+                    )
                 outputs.append(rate.cpu().numpy())
 
-        decoded = np.mean(np.stack(outputs, axis=0), axis=0)
+        decoded = np.asarray(np.mean(np.stack(outputs, axis=0), axis=0))
         return decoded
 
     # ------------------------------------------------------------------

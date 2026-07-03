@@ -219,13 +219,14 @@ def pretrain_masked_ptm(
     use_amp = use_amp and torch.cuda.is_available()
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
-    scheduler = None
+    cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
+    plateau_scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None = None
     if lr_scheduler == "cosine":
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=epochs
         )
     elif lr_scheduler == "plateau":
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.5, patience=3
         )
 
@@ -283,6 +284,7 @@ def pretrain_masked_ptm(
             optimizer.zero_grad()
 
             if use_amp:
+                assert scaler is not None
                 scaler.scale(loss).backward()
                 if grad_clip_norm is not None:
                     scaler.unscale_(optimizer)
@@ -317,16 +319,16 @@ def pretrain_masked_ptm(
         history.append(epoch_loss)
         logger.info("Epoch %d/%d training loss: %.4f", epoch + 1, epochs, epoch_loss)
 
-        if scheduler is not None and lr_scheduler == "cosine":
-            scheduler.step()
+        if cosine_scheduler is not None:
+            cosine_scheduler.step()
 
         val_loss = None
         if val_loader is not None and (epoch + 1) % validate_every == 0:
             val_loss = _validate(model, val_loader, device, use_amp)
             logger.info("Epoch %d/%d validation loss: %.4f", epoch + 1, epochs, val_loss)
 
-            if scheduler is not None and lr_scheduler == "plateau":
-                scheduler.step(val_loss)
+            if plateau_scheduler is not None:
+                plateau_scheduler.step(val_loss)
 
             # Checkpoint and early stopping share the same improvement test
             # (b < a - min_delta), consistent with callbacks.EarlyStopping.is_improved.

@@ -157,6 +157,7 @@ class TestLightningPipeline:
             logger=CSVLogger(save_dir=tempfile.gettempdir(), name="lightning_test"),
             enable_checkpointing=False,
             enable_progress_bar=False,
+            log_every_n_steps=1,  # 测试数据量小，避免 "training batches smaller than logging interval" 警告
         )
 
         # 训练
@@ -198,6 +199,7 @@ class TestLightningPipeline:
                 callbacks=[checkpoint_callback],
                 logger=CSVLogger(save_dir=tmpdir, name="lightning_test"),
                 enable_progress_bar=False,
+                log_every_n_steps=1,  # 测试数据量小，避免 "training batches smaller than logging interval" 警告
             )
 
             # 训练

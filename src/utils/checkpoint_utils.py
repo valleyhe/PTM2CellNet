@@ -28,7 +28,7 @@ from .io import safe_torch_load
 logger = setup_logger(__name__)
 
 
-def extract_model_state_dict(checkpoint: Any) -> "torch.nn.modules.module._IncompatibleKeys":  # type: ignore[name-defined]
+def extract_model_state_dict(checkpoint: Any) -> Dict[str, Any]:
     """从任意 checkpoint 结构中提取裸模型 ``state_dict``。
 
     支持以下格式（统一 checkpoint 合约，对应审计报告 P0-3）：

@@ -7,7 +7,7 @@ import hashlib
 import json
 import pickle
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 import torch
@@ -289,7 +289,7 @@ class DatasetCache:
             return None
 
         logger.info("从缓存加载数据: %s", cache_path.name)
-        return cached["data"]
+        return cast(List[Any], cached["data"])
 
     def save(self, df: pd.DataFrame, config: Dict[str, Any], data: List[Any]) -> None:
         """

@@ -10,7 +10,7 @@ Core innovation:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, cast
 from dataclasses import dataclass
 
 from src.models.davf_attention import DirectionAwareAttention
@@ -90,7 +90,7 @@ class DirectionEncoder(nn.Module):
             direction_embeddings: [batch_size, num_targets, embed_dim]
         """
         emb = self.embedding(directions)
-        return self.projection(emb)
+        return cast(torch.Tensor, self.projection(emb))
 
 
 class MagnitudeEncoder(nn.Module):
@@ -128,7 +128,7 @@ class MagnitudeEncoder(nn.Module):
         # Ensure magnitudes have correct shape for linear layer
         if magnitudes.dim() == 2:
             magnitudes = magnitudes.unsqueeze(-1)  # [batch, num_targets, 1]
-        return self.encoder(magnitudes)
+        return cast(torch.Tensor, self.encoder(magnitudes))
 
 
 class BiPerturbEncoder(nn.Module):
@@ -154,10 +154,11 @@ class BiPerturbEncoder(nn.Module):
         )
 
         # Magnitude encoder (optional, for backward compatibility with old checkpoints)
-        self.use_magnitude = config.magnitude_embed_dim is not None and config.magnitude_embed_dim > 0
-        if self.use_magnitude:
+        mag_dim = config.magnitude_embed_dim
+        self.use_magnitude = mag_dim is not None and mag_dim > 0
+        if self.use_magnitude and mag_dim is not None:
             self.magnitude_encoder = MagnitudeEncoder(
-                output_dim=config.magnitude_embed_dim,
+                output_dim=mag_dim,
                 hidden_dim=config.magnitude_hidden_dim or 32,
                 dropout=config.dropout
             )
@@ -174,9 +175,9 @@ class BiPerturbEncoder(nn.Module):
         self.dir_to_gene_proj = nn.Linear(config.direction_embed_dim, config.gene_embed_dim)
 
         # Project combined embeddings to hidden dimension
-        total_input_dim = config.gene_embed_dim + config.direction_embed_dim
-        if self.use_magnitude:
-            total_input_dim += config.magnitude_embed_dim
+        total_input_dim: int = config.gene_embed_dim + config.direction_embed_dim
+        if self.use_magnitude and mag_dim is not None:
+            total_input_dim += mag_dim
         self.input_projection = nn.Linear(total_input_dim, config.hidden_dim)
 
         # Direction-aware multi-target attention using DirectionAwareAttention
@@ -389,7 +390,7 @@ class PerturbationGNN(nn.Module):
         # Predict delta
         delta = self.output_mlp(combined).squeeze(-1)  # [B, G]
 
-        return delta
+        return cast(torch.Tensor, delta)
 
 
 class BiPerturb(nn.Module):

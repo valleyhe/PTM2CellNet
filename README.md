@@ -72,6 +72,20 @@ pip install -e ".[api,lightning]"
 
 > 未安装某个可选依赖时，对应能力（Lion 优化器、原生 Mamba、GenKI 图扰动、scVI 基因空间工作流）会**优雅降级**而非崩溃，并在 CLI 入口打印带 `pip install -e ".[<extra>]"` 提示的警告。
 
+### 外部工具（非 pip 包）
+
+`scripts/homology_split.py` 使用 **MMseqs2** 进行蛋白质同源聚类，它是一个外部二进制工具而非 pip 包，不包含在上述 requirements 中。安装方式：
+
+```bash
+# conda（推荐，跨平台）
+conda install -c conda-forge -c bioconda mmseqs2
+
+# 或手动下载安装（Linux/macOS）
+# 见 https://github.com/soedinglab/MMseqs2/releases
+```
+
+安装后确保 `mmseqs` 可执行文件在 `PATH` 中。仅在运行同源拆分脚本时需要；常规训练/推理/API 不依赖它。
+
 ESM-2 等预训练模型需要 Hugging Face 访问，建议设置镜像：
 
 ```bash

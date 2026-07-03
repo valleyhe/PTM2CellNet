@@ -12,7 +12,7 @@ try:
 
     _HAS_UNIPROT_MAPPER = True
 except ImportError:  # pragma: no cover - exercised only when the package is absent
-    ProtMapper = None  # type: ignore[assignment]
+    ProtMapper = None
     _HAS_UNIPROT_MAPPER = False
     logger.info(
         "UniProtMapper package not available; falling back to requests-based "
@@ -181,7 +181,7 @@ class GeneMapper:
             self._gene_cache[gene_symbol] = uniprot_id
 
             logger.debug(f"Mapped {gene_symbol} -> {uniprot_id}")
-            return uniprot_id
+            return str(uniprot_id) if uniprot_id is not None else None
 
         except Exception as e:
             logger.error(f"Error mapping gene {gene_symbol}: {e}")

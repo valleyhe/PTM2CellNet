@@ -72,6 +72,22 @@ docker compose up -d
 curl http://localhost:8000/api/v1/ready
 ```
 
+## 外部工具（非 pip 包）
+
+### MMseqs2（蛋白质同源聚类）
+
+`scripts/homology_split.py` 使用 **MMseqs2** 进行蛋白质同源聚类（CD-HIT 的替代方案）。MMseqs2 是外部二进制工具而非 pip 包，不包含在任何 `requirements-*.txt` 中，仅在运行同源拆分脚本时需要。安装方式：
+
+```bash
+# conda（推荐，跨平台）
+conda install -c conda-forge -c bioconda mmseqs2
+
+# 或手动下载安装（Linux/macOS）
+# 见 https://github.com/soedinglab/MMseqs2/releases
+```
+
+安装后确保 `mmseqs` 可执行文件在 `PATH` 中。常规训练/推理/API 不依赖它。
+
 ## 数据准备
 
 ### 下载公开数据集

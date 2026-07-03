@@ -73,7 +73,7 @@ class PTM2CellNetEnsemble(nn.Module):
     # 前向传播
     # ------------------------------------------------------------------
 
-    def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, Any]:
         """运行所有子模型并聚合预测。
 
         Args:

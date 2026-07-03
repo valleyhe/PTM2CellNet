@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, cast
 from dataclasses import dataclass
 
 from src.models.davf import TimeEncoder
@@ -170,13 +170,13 @@ class LatentConditionalVelocityField(nn.Module):
         cond_emb = self.condition_projection(condition)
 
         combined = torch.cat([t_emb, z_emb, cond_emb], dim=-1)
-        velocity = self.velocity_net(combined)
+        velocity = cast(torch.Tensor, self.velocity_net(combined))
 
         if self.use_residual:
             gate = torch.sigmoid(self.residual_logit).clamp(min=0.01, max=0.99)
             velocity = velocity + gate * z_t
 
-        return velocity
+        return cast(torch.Tensor, velocity)
 
 
 class LatentDAVF(nn.Module):
@@ -195,7 +195,8 @@ class LatentDAVF(nn.Module):
         self.gene_names = gene_names if gene_names is not None else []
 
         # Projection for pretrained embeddings
-        self.gene_embed_proj = None
+        self.gene_embed_proj: Optional[nn.Linear] = None
+        self.gene_embed_table: Optional[nn.Embedding] = None
         pretrained_dim = None
         if pretrained_gene_embeddings is not None:
             # Use pretrained gene embeddings (e.g., from Geneformer)
@@ -260,7 +261,7 @@ class LatentDAVF(nn.Module):
             return_attention=False,
             attention_mask=attention_mask,
         )
-        return condition
+        return cast(torch.Tensor, condition)
 
     def _align_condition(
         self,
@@ -454,7 +455,7 @@ class LatentDAVF(nn.Module):
             for i in range(B):
                 batch_gene_names = []
                 for j in range(K):
-                    idx = gene_ids[i, j].item()
+                    idx = int(gene_ids[i, j].item())
                     batch_gene_names.append(self.gene_names[idx])
                 gene_names_list.append(batch_gene_names)
 
@@ -465,12 +466,14 @@ class LatentDAVF(nn.Module):
 
             embeddings = torch.stack(embeddings_list, dim=0)
         else:
+            if self.gene_embed_table is None:
+                raise RuntimeError("gene_embed_table is not initialized")
             if gene_ids.max().item() >= self.gene_embed_table.num_embeddings:
                 raise ValueError(
                     f"gene_ids must be in [0, {self.gene_embed_table.num_embeddings}), "
                     f"got max {gene_ids.max().item()}"
                 )
-            embeddings = self.gene_embed_table(gene_ids)
+            embeddings = cast(torch.Tensor, self.gene_embed_table(gene_ids))
 
         # Apply projection if needed (e.g., Geneformer 1152 -> gene_embed_dim 192)
         if self.gene_embed_proj is not None:

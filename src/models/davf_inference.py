@@ -34,7 +34,7 @@ import logging
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import torch
 import torch.nn as nn
@@ -149,7 +149,7 @@ class DeltaProjection(nn.Module):
         Returns:
             [B, feature_dim] projected features
         """
-        return self.net(x)
+        return cast(torch.Tensor, self.net(x))
 
 
 class GeneMLEPEncoder(nn.Module):
@@ -213,7 +213,7 @@ class GeneMLEPEncoder(nn.Module):
         counts = mask_expanded.sum(dim=1).clamp(min=1.0)      # [B, 1]
         pooled = summed / counts                              # [B, concat_dim]
 
-        return self.mlp(pooled)  # [B, hidden_dim]
+        return cast(torch.Tensor, self.mlp(pooled))  # [B, hidden_dim]
 
 
 class DAVFInferenceModule(nn.Module):

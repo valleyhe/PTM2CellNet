@@ -196,4 +196,4 @@ def _normalize_gsea_scores(scores: np.ndarray) -> np.ndarray:
     std = float(transformed.std())
     if std == 0.0:
         return np.zeros_like(transformed, dtype=float)
-    return (transformed - transformed.mean()) / std
+    return np.asarray((transformed - transformed.mean()) / std)

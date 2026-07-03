@@ -52,11 +52,13 @@ class GraphUtilities:
         perturbed_counts: np.ndarray,
         perturbed_network: np.ndarray,
     ) -> np.ndarray:
-        count_shift = np.abs(perturbed_counts.mean(axis=0) - baseline_counts.mean(axis=0))
-        edge_shift = np.abs(perturbed_network - baseline_network).sum(axis=0) + np.abs(
-            perturbed_network - baseline_network
-        ).sum(axis=1)
-        return count_shift + edge_shift
+        count_shift = np.asarray(np.abs(perturbed_counts.mean(axis=0) - baseline_counts.mean(axis=0)))
+        edge_shift = np.asarray(
+            np.abs(perturbed_network - baseline_network).sum(axis=0) + np.abs(
+                perturbed_network - baseline_network
+            ).sum(axis=1)
+        )
+        return np.asarray(count_shift + edge_shift)
 
     @staticmethod
     def _score_from_sparse_matrices(
@@ -94,7 +96,7 @@ class GraphUtilities:
         in_degree = np.asarray(abs_diff.sum(axis=0)).ravel()
         out_degree = np.asarray(abs_diff.sum(axis=1)).ravel()
         edge_shift = in_degree + out_degree
-        return np.asarray(count_shift, dtype=float) + np.asarray(edge_shift, dtype=float)
+        return np.asarray(np.asarray(count_shift, dtype=float) + np.asarray(edge_shift, dtype=float))
 
     @staticmethod
     def _score_from_matrices(

@@ -286,7 +286,6 @@ class TwoStageExplanationPipeline:
         # results, zipping them back with their originating candidates. Entries
         # that failed during the batch run are None and skipped (their failure
         # was already recorded in failed_rows by _run_batch_with_fallback).
-        results: List[PerturbationResult] = []
         for candidate, maybe_result in zip(staged_candidates, batch_outcomes):
             if maybe_result is None:
                 continue

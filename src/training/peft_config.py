@@ -10,7 +10,7 @@ PEFT/LoRA配置模块
 """
 
 # mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, cast
 
 import torch.nn as nn
 
@@ -93,7 +93,7 @@ def get_lora_config(
 
 
 def apply_lora_to_encoder(
-    encoder,
+    encoder: nn.Module,
     lora_config: Optional[Any] = None,
 ) -> nn.Module:
     """
@@ -280,10 +280,10 @@ def merge_lora_adapters(model: nn.Module) -> nn.Module:
     if hasattr(model, "merge_and_unload"):
         merged_model = model.merge_and_unload()
         logger.info("LoRA适配器已合并到基础模型")
-        return merged_model
+        return cast(nn.Module, merged_model)
     elif hasattr(model, "model") and hasattr(model.model, "merge_and_unload"):
         merged_model = model.model.merge_and_unload()
         logger.info("LoRA适配器已合并到基础模型")
-        return merged_model
+        return cast(nn.Module, merged_model)
     else:
         raise ValueError("模型不支持合并LoRA适配器")

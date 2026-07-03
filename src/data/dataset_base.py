@@ -3,7 +3,7 @@
 功能概述: 提供共享功能和工具，减少ESMTokenizedDataset和PTMDataset之间的重复代码
 """
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 import torch
@@ -70,7 +70,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             "ubiquitination",
             "sumoylation",
         ]
-        return self.config.get("data", {}).get("ptm_types", default_ptm_types)
+        return cast(List[str], self.config.get("data", {}).get("ptm_types", default_ptm_types))
 
     def _encode_label(self, label: str) -> torch.Tensor:
         """编码标签字符串为整数tensor
@@ -144,7 +144,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
         """获取标签分布统计"""
         if "cell_state" not in self.df.columns:
             return {}
-        return self.df["cell_state"].value_counts().to_dict()
+        return cast(Dict[str, int], self.df["cell_state"].value_counts().to_dict())
 
     def get_ptm_type_distribution(self) -> Dict[str, int]:
         """获取PTM类型分布统计"""
@@ -279,4 +279,4 @@ def compute_class_weights(label_distribution: Dict[str, int], mode: str = "inver
     # 归一化权重
     weights = weights / weights.sum() * len(labels)
 
-    return weights
+    return cast(torch.Tensor, weights)

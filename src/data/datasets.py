@@ -5,7 +5,7 @@ PyTorch数据集模块
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 import torch
@@ -229,7 +229,7 @@ class PTMDataset(PTMDatasetBase):
 
         # If all sites have gene names, return them directly
         if all(g is not None for g in gene_names):
-            return gene_names
+            return [g for g in gene_names if g is not None]
 
         # Fall back to row-level column
         row_gene = None
@@ -250,7 +250,7 @@ class PTMDataset(PTMDatasetBase):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """获取单个样本"""
         row = self.df.iloc[idx]
-        sample = {}
+        sample: Dict[str, Any] = {}
 
         if self.return_sequence and "sequence" in row:
             sequence = str(row["sequence"])
@@ -259,12 +259,15 @@ class PTMDataset(PTMDatasetBase):
 
         if self.return_ptm and "ptm_sites" in row:
             seq_len = len(str(row.get("sequence", "")))
-            ptm_mask, ptm_types = self._encode_ptm(self._parsed_ptm_sites[idx], seq_len)
+            parsed_ptm = self._parsed_ptm_sites[idx]
+            if parsed_ptm is None:
+                parsed_ptm = []
+            ptm_mask, ptm_types = self._encode_ptm(parsed_ptm, seq_len)
             sample["ptm_mask"] = ptm_mask
             sample["ptm_types"] = ptm_types
 
             if self.use_davf:
-                ptm_sites = self._parsed_ptm_sites[idx]
+                ptm_sites = parsed_ptm
                 max_len = min(self.max_sequence_length, seq_len) if seq_len else self.max_sequence_length
                 valid_sites = []
                 for site in ptm_sites:
@@ -289,9 +292,11 @@ class PTMDataset(PTMDatasetBase):
                 sample["sequence_features"] = torch.tensor(sequence_features[0], dtype=torch.float32)
 
             if self.feature_extractor.include_ptm_features and "ptm_sites" in row:
-                ptm_sites = self._parsed_ptm_sites[idx]
+                feat_ptm_sites = self._parsed_ptm_sites[idx]
+                if feat_ptm_sites is None:
+                    feat_ptm_sites = []
                 sample["ptm_features"] = torch.tensor(
-                    self.feature_extractor.extract_ptm_features_array(ptm_sites, len(sequence)),
+                    self.feature_extractor.extract_ptm_features_array(feat_ptm_sites, len(sequence)),
                     dtype=torch.float32,
                 )
 
@@ -323,7 +328,7 @@ class PTMDataset(PTMDatasetBase):
         if self.return_label and "cell_state" in row:
             sample["label"] = self._encode_label(str(row["cell_state"]))
 
-        return sample
+        return cast(Dict[str, torch.Tensor], sample)
 
 
 class PTMPlainDataModule:

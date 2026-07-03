@@ -39,8 +39,14 @@ async def health_check():
     健康检查（遗留/综合端点）
 
     返回:
-        服务健康状态（始终 HTTP 200，通过 status 字段区分 healthy/unhealthy）
+        服务健康状态（初始化失败时 HTTP 503，否则 HTTP 200，通过 status 字段区分 healthy/unhealthy）
     """
+    if STATE.initialization_failed:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="启动自动初始化失败，服务不可用。请通过 /api/v1/initialize 手动加载模型。",
+        )
+
     return HealthResponse(
         status="healthy" if STATE.model is not None else "unhealthy",
         version="1.0.0",
@@ -88,8 +94,14 @@ async def ready_check():
     就绪检查
 
     返回:
-        服务就绪状态（模型未加载时 HTTP 503）
+        服务就绪状态（初始化失败或模型未加载时 HTTP 503）
     """
+    if STATE.initialization_failed:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="启动自动初始化失败，服务不可用",
+        )
+
     if STATE.model is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

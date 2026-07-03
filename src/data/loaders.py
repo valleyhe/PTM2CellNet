@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -208,7 +208,7 @@ class DataLoader:
         for candidate in candidates:
             matched = normalized_map.get(self._normalize_column_name(candidate))
             if matched is not None:
-                return matched
+                return str(matched)
         return None
 
     def _download_if_url(self, path_or_url: str) -> str:
@@ -678,7 +678,7 @@ class DataLoader:
             )
             response.raise_for_status()
         data = response.json()
-        return data.get("results", [])
+        return cast(List[Dict[str, Any]], data.get("results", []))
 
     def _uniprot_session(self) -> requests.Session:
         """构建带指数退避重试的 UniProt 请求 Session（惰性创建）。"""
@@ -717,7 +717,7 @@ class DataLoader:
         if cache_file.exists():
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    return cast(Dict[str, Any], json.load(f))
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("读取UniProt缓存 %s 失败: %s", cache_file, exc)
 
@@ -733,7 +733,7 @@ class DataLoader:
         except OSError as exc:
             logger.warning("写入UniProt缓存 %s 失败: %s", cache_file, exc)
 
-        return data
+        return cast(Dict[str, Any], data)
 
     def load_from_uniprot(self, accession_ids: List[str]) -> pd.DataFrame:
         """

@@ -160,7 +160,7 @@ class AlphaFoldClient:
             return False
         try:
             resp = requests.get("https://alphafold.ebi.ac.uk/api", timeout=5)
-            return resp.ok
+            return bool(resp.ok)
         except Exception:
             return False
 
@@ -436,7 +436,7 @@ class ClustalWClient:
         """Parse a Clustal-format alignment file into name -> string."""
         result: Dict[str, str] = {}
         current_name = None
-        current_seq = []
+        current_seq: List[str] = []
         seq_re = re.compile(r'^\s*(\S+)\s+(\S+)')
 
         with open(aln_path) as f:
@@ -611,7 +611,7 @@ class ClustalWClient:
             if not counts:
                 consensus_chars.append('-')
             else:
-                best = max(counts, key=counts.get)
+                best = max(counts, key=lambda k: counts[k])
                 consensus_chars.append(best)
 
         return ''.join(consensus_chars)

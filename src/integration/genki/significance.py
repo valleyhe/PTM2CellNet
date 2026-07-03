@@ -1,6 +1,6 @@
 """Significance and stability calculations for perturbation outputs."""
 
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING, cast
 
 import numpy as np
 import scipy.sparse as sp
@@ -257,7 +257,7 @@ class SignificanceAnalyzer:
         use_sparse = sp.issparse(baseline_network)
         baseline_counts_dense = np.asarray(baseline_counts, dtype=float)
         baseline_network_dense = (
-            baseline_network.toarray() if use_sparse else np.asarray(baseline_network, dtype=float)
+            cast(Any, baseline_network).toarray() if use_sparse else np.asarray(baseline_network, dtype=float)
         )
         n_genes = baseline_counts_dense.shape[1]
 

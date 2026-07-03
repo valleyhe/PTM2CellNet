@@ -318,9 +318,9 @@ class PerturbationExecutor:
                 sys.path.insert(0, resolved_root)
                 # Track injected paths on the loader instance to keep the
                 # insertion observable and idempotent across calls.
-                injected = getattr(self, "_injected_sys_paths", set())
+                injected: set = getattr(self, "_injected_sys_paths", set())
                 injected.add(resolved_root)
-                self._injected_sys_paths = injected  # type: ignore[assignment]
+                self._injected_sys_paths = injected
                 logger.info("Injected ref_root into sys.path for GenKI import: %s", resolved_root)
         module = importlib.import_module("GenKI.dataLoader")
         data_loader_cls = getattr(module, "DataLoader")
@@ -371,7 +371,7 @@ class PerturbationExecutor:
             np.asarray(perturbed_network_dense, dtype=float)
         )
         edge_index, _ = dense_to_sparse(adj_tensor)
-        return edge_index.detach().cpu().numpy()
+        return np.asarray(edge_index.detach().cpu().numpy())
 
     def _build_wt_data_from_arrays(
         self,
@@ -387,9 +387,7 @@ class PerturbationExecutor:
         data_cls = importlib.import_module("torch_geometric.data").Data
         edge_index = self._graph._adjacency_to_edge_index(baseline_network)
         x = torch.tensor(np.asarray(baseline_counts, dtype=float).T, dtype=torch.float)
-        y = torch.tensor(
-            [str(name) for name in gene_names], dtype=torch.object
-        )
+        y = [str(name) for name in gene_names]
         data = data_cls(x=x, edge_index=torch.tensor(edge_index, dtype=torch.long), y=y)
         return data
 

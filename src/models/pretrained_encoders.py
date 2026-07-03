@@ -4,7 +4,7 @@
 设计思路: 使用HuggingFace Transformers库，支持冻结/微调策略
 """
 
-from typing import List, Optional
+from typing import List, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -47,6 +47,11 @@ class PretrainedEncoder(nn.Module):
         self.config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
         self.model = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
 
+        # 启用注意力输出需要 eager 注意力实现（其他实现不支持 output_attentions=True）。
+        # 否则 transformers 会对每次前向调用发出 UserWarning。
+        if self.use_attention_output and hasattr(self.model, "set_attn_implementation"):
+            self.model.set_attn_implementation("eager")
+
         # 获取隐藏层维度
         self.hidden_dim = self.config.hidden_size
 
@@ -82,7 +87,7 @@ class PretrainedEncoder(nn.Module):
         )
 
         # 返回最后一层隐藏状态
-        return outputs.last_hidden_state
+        return cast(torch.Tensor, outputs.last_hidden_state)
 
     def get_attention_weights(
         self,
@@ -326,13 +331,13 @@ class ESM2Encoder(PretrainedEncoder):
 
     def tokenize(self, sequences, max_length: int = 1024) -> dict:
         """对蛋白质序列进行tokenize，返回input_ids和attention_mask"""
-        return self.tokenizer(
+        return cast(dict, self.tokenizer(
             sequences,
             return_tensors="pt",
             padding=True,
             truncation=True,
             max_length=max_length,
-        )
+        ))
 
     def encode_sequences(self, sequences: List[str]) -> torch.Tensor:
         """
@@ -352,7 +357,7 @@ class ESM2Encoder(PretrainedEncoder):
         except StopIteration:
             device = torch.device("cpu")
             dtype = torch.float32
-        batch_embeddings = []
+        batch_embeddings: List[torch.Tensor] = []
         max_seq_len = 0
 
         for seq in sequences:

@@ -197,7 +197,7 @@ class VariantPTMEffectPredictor:
             output = self.model(indices)
             prob = output['probs'][0, 1].item()  # 正样本概率
 
-        return prob
+        return float(prob)
 
     def predict_variant_effect(
         self,

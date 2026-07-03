@@ -3,7 +3,7 @@ PTM位点预测Lightning模块
 功能: PyTorch Lightning训练封装
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 import random
 
 import lightning as L
@@ -83,7 +83,7 @@ class PTMSiteLightning(L.LightningModule):
         self.test_recall = Recall(task='binary')
 
     def forward(self, sequence_indices: torch.Tensor) -> Dict[str, torch.Tensor]:
-        return self.model(sequence_indices)
+        return cast(Dict[str, torch.Tensor], self.model(sequence_indices))
 
     def _step(self, batch: Dict[str, torch.Tensor], stage: str) -> torch.Tensor:
         """单步训练/验证/测试"""
@@ -133,7 +133,7 @@ class PTMSiteLightning(L.LightningModule):
             self.log('test_precision', self.test_precision)
             self.log('test_recall', self.test_recall)
 
-        return loss
+        return cast(torch.Tensor, loss)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         return self._step(batch, 'train')

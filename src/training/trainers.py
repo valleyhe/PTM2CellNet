@@ -4,7 +4,7 @@
 设计思路: 封装训练循环，支持回调机制，灵活配置
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import random
 
@@ -181,7 +181,7 @@ class Trainer:
         total_loss = 0.0
         num_samples = 0
         # S8: 同时累积训练准确率，供 plot_training_curves 使用
-        correct_samples = 0
+        correct_samples: int | float = 0
 
         for batch_idx, batch in enumerate(train_loader):
             if not isinstance(batch, dict):
@@ -374,7 +374,7 @@ class Trainer:
         # 检测是否为LightningDataModule
         if self._is_datamodule(train_loader_or_datamodule):
             datamodule = train_loader_or_datamodule
-            train_loader = datamodule.train_dataloader()
+            train_loader = cast(Any, datamodule).train_dataloader()
             if val_loader is None and hasattr(datamodule, "val_dataloader") and callable(datamodule.val_dataloader):
                 val_loader = datamodule.val_dataloader()
         else:

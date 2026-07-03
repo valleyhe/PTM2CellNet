@@ -405,7 +405,7 @@ class SignalingNetworkMapper:
         """Check if a pathway passed external validation."""
         if self._validation_report is None:
             return False
-        return self._validation_report.get(pathway_name, {}).get('validated', False)
+        return bool(self._validation_report.get(pathway_name, {}).get('validated', False))
 
     def get_validation_summary(self) -> Dict:
         """Get summary of pathway validation results."""

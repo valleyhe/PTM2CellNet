@@ -430,6 +430,7 @@ def safe_torch_load(
     map_location: Any = None,
     *,
     allowed_classes: Optional[set] = None,
+    enforce_safe_only: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Load a PyTorch artifact with a safe-by-default ``weights_only`` strategy.
@@ -453,6 +454,11 @@ def safe_torch_load(
        ``weights_only=False`` explicitly.  An automatic fallback **is still
        provided** for backwards-compatibility, but it logs a warning at
        ``logger.warning`` level so that every unsafe load is auditable.
+    4. **``enforce_safe_only=True``** — When set, the automatic fallback to
+       ``weights_only=False`` is **disabled**: if ``weights_only=True`` fails,
+       the original exception is re-raised instead of silently falling back to
+       unsafe pickle deserialization.  Use this for untrusted inputs where a
+       failed safe load must never degrade into arbitrary-code-execution.
 
     **Do not** use ``weights_only=False`` for files from untrusted sources.
 
@@ -467,6 +473,12 @@ def safe_torch_load(
         to allow when ``weights_only=True``.  Merged with the built-in
         ``_TORCH_LOAD_ALLOWED_CLASSES`` allowlist.  Ignored if the installed
         PyTorch version does not support the ``allowed_classes`` argument.
+    enforce_safe_only :
+        If ``True``, never fall back to ``weights_only=False``.  Any failure of
+        the safe ``weights_only=True`` path propagates the exception to the
+        caller instead of silently degrading into unsafe pickle deserialization.
+        Use this for untrusted inputs.  Defaults to ``False`` to preserve
+        backwards-compatible behaviour for trusted, self-produced checkpoints.
     **kwargs :
         Additional keyword arguments forwarded to ``torch.load``.
 
@@ -475,6 +487,18 @@ def safe_torch_load(
     The loaded PyTorch object.
     """
     explicit_weights_only = kwargs.pop("weights_only", None)
+
+    # enforce_safe_only forbids any weights_only=False path — including an
+    # explicit opt-in.  This guarantees the loader can never degrade into
+    # arbitrary-code-execution pickle deserialization, which is the whole point
+    # of using it for untrusted inputs.
+    if enforce_safe_only and explicit_weights_only is False:
+        raise ValueError(
+            "safe_torch_load: weights_only=False is forbidden when "
+            "enforce_safe_only=True (path: %s). Load the file with "
+            "weights_only=True + allowed_classes= instead, or load a "
+            "trusted file without enforce_safe_only." % (path,)
+        )
 
     # If caller explicitly opts into unsafe loading, honour it but log loudly.
     if explicit_weights_only is False:
@@ -517,6 +541,14 @@ def safe_torch_load(
             except (TypeError, ValueError) as inner_exc:
                 # weights_only=True itself may be unsupported or the checkpoint
                 # contains types outside the default allowlist.
+                if enforce_safe_only:
+                    logger.error(
+                        "safe_torch_load: weights_only=True failed for '%s' "
+                        "(%s: %s) and enforce_safe_only=True forbids the "
+                        "weights_only=False fallback; re-raising.",
+                        path, type(inner_exc).__name__, inner_exc,
+                    )
+                    raise
                 logger.warning(
                     "safe_torch_load: ⚠️ SECURITY RISK — weights_only=True failed for '%s' "
                     "(%s: %s). Falling back to weights_only=False. "
@@ -536,6 +568,14 @@ def safe_torch_load(
                 path, map_location=map_location, weights_only=True, **kwargs,
             )
         except (TypeError, ValueError) as inner_exc:
+            if enforce_safe_only:
+                logger.error(
+                    "safe_torch_load: weights_only=True failed for '%s' "
+                    "(%s: %s) and enforce_safe_only=True forbids the "
+                    "weights_only=False fallback; re-raising.",
+                    path, type(inner_exc).__name__, inner_exc,
+                )
+                raise
             logger.warning(
                 "safe_torch_load: ⚠️ SECURITY RISK — weights_only=True failed for '%s' "
                 "(%s: %s). Falling back to weights_only=False. "
@@ -551,6 +591,14 @@ def safe_torch_load(
         # allowlist (e.g. NumPy scalars in optimizer state).  This is a signal
         # that the caller should either extend allowed_classes or explicitly
         # opt into unsafe loading.
+        if enforce_safe_only:
+            logger.error(
+                "safe_torch_load: weights_only=True rejected types in '%s' "
+                "(ValueError: %s) and enforce_safe_only=True forbids the "
+                "weights_only=False fallback; re-raising.",
+                path, exc,
+            )
+            raise
         logger.warning(
             "safe_torch_load: ⚠️ SECURITY RISK — weights_only=True rejected types in '%s' "
             "(ValueError: %s). Falling back to weights_only=False. "

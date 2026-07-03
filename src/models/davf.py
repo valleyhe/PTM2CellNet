@@ -13,7 +13,7 @@ Core innovation:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, cast
 from dataclasses import dataclass, field
 
 from src.models.biperturb import (
@@ -180,7 +180,7 @@ class TimeEncoder(nn.Module):
         if self.embed_dim % 2 == 1:
             embedding = torch.cat([embedding, torch.zeros(B, 1, device=device)], dim=-1)
 
-        return self.linear(embedding)
+        return cast(torch.Tensor, self.linear(embedding))
 
 
 class GeneSpecificModulation(nn.Module):
@@ -276,7 +276,7 @@ class GeneSpecificModulation(nn.Module):
         beta = film_params[:, :, 1]   # [B, num_genes]
 
         # 5. Modulate velocity
-        return gamma * velocity + beta
+        return cast(torch.Tensor, gamma * velocity + beta)
 
 
 class ConditionalVelocityField(nn.Module):
@@ -432,7 +432,7 @@ class ConditionalVelocityField(nn.Module):
         if self.use_residual:
             velocity = velocity + self.residual_gate * x_t
 
-        return velocity
+        return cast(torch.Tensor, velocity)
 
 
 class DAVF(nn.Module):
@@ -530,7 +530,7 @@ class DAVF(nn.Module):
             return_attention=False,
             attention_mask=attention_mask,
         )
-        return condition
+        return cast(torch.Tensor, condition)
 
     def _align_condition(
         self,
@@ -711,7 +711,7 @@ class DAVF(nn.Module):
                     x_t = x_t + dt * v_t
 
                     # Optional EMA trajectory smoothing
-                    if use_ema:
+                    if use_ema and x_ema is not None:
                         x_ema = ema_alpha * x_ema + (1 - ema_alpha) * x_t
                         x_t = x_ema
 
@@ -781,7 +781,9 @@ class DAVF(nn.Module):
             return embeddings.to(gene_ids.device)
         else:
             # Learnable embedding table lookup
-            return self.gene_embed_table(gene_ids)
+            if self.gene_embed_table is None:
+                raise RuntimeError("gene_embed_table is not initialized")
+            return cast(torch.Tensor, self.gene_embed_table(gene_ids))
 
     def _sanitize_gene_ids(
         self,

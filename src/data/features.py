@@ -386,8 +386,8 @@ class FeatureExtractor:
             if self.structural_source == "alphafold":
                 from src.models.external_tools import AlphaFoldClient
 
-                client = AlphaFoldClient(self.config)
-                result = client.predict_structure(sequence)
+                af_client = AlphaFoldClient(self.config)
+                result = af_client.predict_structure(sequence)
                 plddt = float(result.get("confidence", 0.0))
                 # AlphaFold 返回 PDB 字符串，无逐残基二级结构标签；
                 # 以 pLDDT 作为整体置信度，coil 倾向 = pLDDT，helix/sheet 各占
@@ -713,7 +713,7 @@ class FeatureExtractor:
         if n_components <= 0:
             return features
         pca = PCA(n_components=n_components)
-        return pca.fit_transform(features)
+        return np.asarray(pca.fit_transform(features))
 
     def reduce_tsne(self, features: np.ndarray, n_components: int = 2, perplexity: int = 30) -> np.ndarray:
         if not SKLEARN_AVAILABLE:
@@ -724,7 +724,7 @@ class FeatureExtractor:
             return features
         perplexity = min(perplexity, features.shape[0] - 1)
         tsne = TSNE(n_components=n_components, perplexity=perplexity)
-        return tsne.fit_transform(features)
+        return np.asarray(tsne.fit_transform(features))
 
     def reduce_umap(self, features: np.ndarray, n_components: int = 50, n_neighbors: int = 15) -> np.ndarray:
         try:
@@ -737,7 +737,7 @@ class FeatureExtractor:
             return features
         n_neighbors = min(n_neighbors, features.shape[0] - 1)
         reducer = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors)
-        return reducer.fit_transform(features)
+        return np.asarray(reducer.fit_transform(features))
 
     def select_features_variance(self, features: np.ndarray, threshold: float = 0.01) -> np.ndarray:
         variances = np.var(features, axis=0)

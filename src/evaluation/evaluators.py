@@ -4,7 +4,7 @@
 设计思路: 封装评估指标，支持批量评估和交叉验证
 """
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Sized, Type, cast
 
 from typing_extensions import TypeAlias
 
@@ -409,7 +409,7 @@ class Evaluator:
         if n_splits < 2:
             raise ValueError(f"n_splits must be at least 2, got {n_splits}")
 
-        n_samples = len(dataset)
+        n_samples = len(cast(Sized, dataset))
         if n_samples == 0:
             raise ValueError("Cannot cross-validate on an empty dataset")
         if n_samples < n_splits:

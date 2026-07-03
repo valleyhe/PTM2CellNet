@@ -49,6 +49,10 @@ class _ModelState:
     config_path: Optional[str] = None
     model_kind: Optional[str] = None  # "demo" | "real" | None when unknown
     is_demo_model: bool = False
+    # Set when startup auto-initialization was *attempted* (a checkpoint path
+    # was configured) but failed. Lets /health and /ready return 503 so a
+    # broken instance is never mistaken for a deliberately model-less one.
+    initialization_failed: bool = False
 
 
 STATE = _ModelState()
@@ -71,6 +75,7 @@ _LIFECYCLE_FIELDS = (
     "config_path",
     "model_kind",
     "is_demo_model",
+    "initialization_failed",
 )
 
 

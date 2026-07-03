@@ -5,7 +5,7 @@
 """
 
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
@@ -16,7 +16,7 @@ logger = setup_logger(__name__)
 try:
     from lightning.pytorch.callbacks import Callback as LightningCallback
 except ImportError:
-    LightningCallback = object
+    LightningCallback: Any = object  # type: ignore[no-redef]  # fallback when lightning is unavailable
 
 
 class Callback(LightningCallback):
@@ -25,11 +25,11 @@ class Callback(LightningCallback):
     所有回调都应继承此类
     """
 
-    def on_train_start(self, _trainer) -> None:
+    def on_train_start(self, _trainer) -> None:  # type: ignore[override]
         """训练开始时调用"""
         return None
 
-    def on_train_end(self, _trainer) -> None:
+    def on_train_end(self, _trainer) -> None:  # type: ignore[override]
         """训练结束时调用"""
         return None
 
@@ -255,7 +255,7 @@ class EarlyStopping(Callback):
         self.stopped_epoch = 0
         self.should_stop = False
 
-    def on_train_start(self, _trainer) -> None:
+    def on_train_start(self, _trainer) -> None:  # type: ignore[override]
         """训练开始时重置状态"""
         self.wait = 0
         self.stopped_epoch = 0
@@ -314,7 +314,7 @@ class LearningRateMonitor(Callback):
         """返回记录的学习率"""
         return self._lrs
 
-    def on_train_start(self, _trainer) -> None:
+    def on_train_start(self, _trainer) -> None:  # type: ignore[override]
         """训练开始时重置学习率记录"""
         self._lrs = {"epoch": [], "batch": []}
 
@@ -372,7 +372,7 @@ class TensorBoardCallback(Callback):
         super().__init__()
         self.log_dir = log_dir
         self.flush_secs = flush_secs
-        self._writer = None
+        self._writer: Optional[Any] = None
 
         if not _HAS_TENSORBOARD:
             logger.warning(
@@ -380,7 +380,7 @@ class TensorBoardCallback(Callback):
                 "请安装 tensorboard: pip install tensorboard"
             )
 
-    def on_train_start(self, trainer) -> None:
+    def on_train_start(self, trainer) -> None:  # type: ignore[override]
         """训练开始时初始化SummaryWriter"""
         if not _HAS_TENSORBOARD:
             return
@@ -402,7 +402,7 @@ class TensorBoardCallback(Callback):
             if key in logs:
                 self._writer.add_scalar(key, logs[key], epoch)
 
-    def on_train_end(self, trainer) -> None:
+    def on_train_end(self, trainer) -> None:  # type: ignore[override]
         """训练结束时关闭SummaryWriter"""
         if self._writer is not None:
             self._writer.close()
@@ -435,7 +435,7 @@ class ProgressBarCallback(Callback):
         self.epoch_pbar = None
         self.batch_pbar = None
 
-    def on_train_start(self, _trainer) -> None:
+    def on_train_start(self, _trainer) -> None:  # type: ignore[override]
         """训练开始时初始化epoch进度条"""
         if self.verbose <= 0:
             return
@@ -509,7 +509,7 @@ class ProgressBarCallback(Callback):
                 msg += " (" + ", ".join(parts) + ")"
             logger.info(msg)
 
-    def on_train_end(self, _trainer) -> None:
+    def on_train_end(self, _trainer) -> None:  # type: ignore[override]
         """训练结束时关闭epoch进度条"""
         if self.verbose <= 0:
             return

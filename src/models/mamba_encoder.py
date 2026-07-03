@@ -3,7 +3,7 @@ Mamba编码器实现
 基于Selective State Space Models (Mamba)的蛋白质序列编码器
 """
 
-from typing import Optional
+from typing import Optional, cast
 
 import torch
 import torch.nn as nn
@@ -118,7 +118,7 @@ class SelectiveSSM(nn.Module):
         y = y * F.silu(x_gate)  # 门控
         y = self.out_proj(y)  # [B, L, D]
 
-        return y
+        return cast(torch.Tensor, y)
 
     def _ssm_step(
         self,

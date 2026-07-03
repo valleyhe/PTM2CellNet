@@ -60,8 +60,8 @@ class GeneformerEmbeddingLoader:
         # Load model and extract embeddings
         self._model = None
         self._embeddings = None
-        self._gene_to_idx = {}
-        self._idx_to_gene = {}
+        self._gene_to_idx: dict[str, int] = {}
+        self._idx_to_gene: dict[int, str] = {}
         self._vocab_size = 0
 
         self._load_model()

@@ -39,7 +39,7 @@ DeltaPredictor checkpoints vs. LatentDAVF checkpoints.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -140,7 +140,7 @@ class DeltaPredictor(LatentDAVF):
             condition_source="internal_targets" if external_condition is None else "external",
             reference=reference,
         )
-        return self.delta_mlp(condition)
+        return cast(torch.Tensor, self.delta_mlp(condition))
 
     def predict(
         self,

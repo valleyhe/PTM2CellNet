@@ -185,9 +185,9 @@ class VariantPredictionResponse(BaseModel):
 
 
 # 解析 PredictionResponse 中对 PathwayImpact 的前向引用。
-# 在 Pydantic v1 下未调用 update_forward_refs() 会抛出 ConfigError，
-# 在 Pydantic v2 下则通过 model_rebuild() 完成解析。两者均安全调用。
-if hasattr(PredictionResponse, "update_forward_refs"):
-    PredictionResponse.update_forward_refs()
+# Pydantic v2 用 model_rebuild() 解析前向引用；v1 用 update_forward_refs()。
+# 仅在没有 v2 方法时才回退到 v1，避免在 v2 下触发 update_forward_refs 弃用警告。
 if hasattr(PredictionResponse, "model_rebuild"):
     PredictionResponse.model_rebuild()
+elif hasattr(PredictionResponse, "update_forward_refs"):
+    PredictionResponse.update_forward_refs()

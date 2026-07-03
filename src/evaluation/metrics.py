@@ -86,6 +86,12 @@ def calculate_auc_roc(
                 f"请确保评估数据与模型输出类别数匹配。"
             )
 
+    # ROC AUC is undefined when y_true contains a single class; return NaN
+    # rather than triggering sklearn's UndefinedMetricWarning on degenerate
+    # (e.g. single-class cross-validation folds) inputs.
+    if np.unique(y_true).size < 2:
+        return float("nan")
+
     if len(y_score.shape) == 1:
         # 一维数组，直接使用
         return float(roc_auc_score(y_true, y_score))
