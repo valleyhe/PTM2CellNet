@@ -92,7 +92,11 @@ def load_checkpoint(
         if not allow_unsafe_legacy:
             raise
         logger.warning(
-            "weights_only checkpoint load failed for %s; retrying legacy load with weights_only=False",
+            "⚠️ SECURITY RISK: weights_only=True failed for %s; "
+            "retrying with weights_only=False. This allows arbitrary code "
+            "execution via pickle deserialization — only use with trusted "
+            "checkpoints (e.g. self-produced files). "
+            "Consider using allowed_classes= to whitelist required types instead.",
             ckpt_path,
         )
         ckpt = safe_torch_load(ckpt_path, map_location=device, weights_only=False)

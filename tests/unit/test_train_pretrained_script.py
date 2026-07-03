@@ -17,10 +17,16 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
                 "encoder_type": "esm2_150M",
                 "freeze_encoder": False,
             },
+            "data": {
+                "num_workers": 0,
+                "pin_memory": False,
+            },
             "training": {
                 "max_epochs": 1,
                 "devices": 0,
                 "precision": "32",
+                "batch_size": 1,
+                "drop_last": False,
                 "checkpoint": {"enabled": False},
                 "early_stopping": {"enabled": False},
                 "logger": {
@@ -30,10 +36,6 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
             },
             "paths": {
                 "outputs_models": str(tmp_path / "models"),
-            },
-            "data": {
-                "num_workers": 0,
-                "pin_memory": False,
             },
         }
     )
@@ -49,6 +51,7 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
         learning_rate=None,
         gpus=0,
         precision="32",
+        seed=42,
     )
 
     monkeypatch.setattr(train_pretrained, "parse_args", lambda: args)
@@ -56,11 +59,12 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
 
     class DummyLoader:
         def load_from_csv(self, _):
+            # P0-2: label derivation requires >=2 classes, so provide two.
             return pd.DataFrame(
                 {
-                    "sequence": ["AAAA"],
-                    "ptm_sites": [[]],
-                    "cell_state": ["state"],
+                    "sequence": ["AAAA", "CCCC"],
+                    "ptm_sites": [[], []],
+                    "cell_state": ["state_a", "state_b"],
                 }
             )
 
@@ -145,6 +149,21 @@ def test_main_creates_model_before_datamodule_with_tokenizer(monkeypatch, tmp_pa
     _stub_loggers = _types.ModuleType("lightning.loggers")
     _stub_loggers.TensorBoardLogger = DummyTBLogger
     monkeypatch.setattr(train_pretrained.L, "loggers", _stub_loggers, raising=False)
+
+    # P0-2: the unified artifact export now runs at the end of training. This
+    # unit test is scoped to the model-vs-datamodule ordering and tokenizer
+    # injection only, so stub the export/manifest helpers (the full export path
+    # is covered by tests/e2e/test_pretrained_train_predict_cli.py).
+    monkeypatch.setattr(
+        train_pretrained,
+        "export_inference_artifact",
+        lambda *a, **k: {"checkpoint_path": "x", "config_path": "y"},
+    )
+    monkeypatch.setattr(
+        train_pretrained,
+        "write_artifact_manifest",
+        lambda *a, **k: {},
+    )
 
     train_pretrained.main()
 

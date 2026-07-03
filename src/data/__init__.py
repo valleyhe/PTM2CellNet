@@ -3,8 +3,12 @@
 from .loaders import DataLoader
 from .preprocess import DataPreprocessor
 from .features import FeatureExtractor
-from .datasets import PTMDataset, PTMPlainDataModule, PTMDataModule, ESMTokenizedDataset
+from .datasets import PTMDataset, PTMPlainDataModule, ESMTokenizedDataset
 from .lightning_datamodule import PTMLightningDataModule
+
+# PTMDataModule is the primary DataModule — points to the Lightning-compatible version.
+# Use PTMPlainDataModule if you need the non-Lightning plain DataModule.
+PTMDataModule = PTMLightningDataModule
 from .dataset_base import PTMDatasetBase, compute_class_weights
 from .augmentation import (
     SequenceAugmenter,

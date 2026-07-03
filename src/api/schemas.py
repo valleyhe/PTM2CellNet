@@ -12,10 +12,20 @@ class PTMSite(BaseModel):
     """
     PTM位点模型
     表示单个蛋白质翻译后修饰位点
+
+    ``gene_symbol`` is optional but required when the request enables DAVF
+    inference (DAVF plan Task 5): without a gene identifier the DAVF branch
+    cannot map the PTM site to a gene latent. It is accepted (and ignored)
+    by the non-DAVF path for backwards compatibility.
     """
     position: int = Field(..., description="PTM位点在序列中的位置（从1开始）", ge=1)
     type: str = Field(..., description="PTM类型，如phosphorylation、acetylation等")
     amino_acid: Optional[str] = Field(None, description="该位点的氨基酸")
+    gene_symbol: Optional[str] = Field(
+        None,
+        description="基因符号（如BRAF、TP53）。启用 DAVF 推理（use_davf=true）时必填，"
+        "用于将 PTM 位点映射到 DAVF 基因潜在空间。",
+    )
 
 
 class PredictionRequest(BaseModel):
@@ -24,6 +34,12 @@ class PredictionRequest(BaseModel):
     """
     sequence: str = Field(..., description="蛋白质氨基酸序列")
     ptm_sites: Optional[List[PTMSite]] = Field(default_factory=list, description="PTM位点列表")
+    use_davf: bool = Field(
+        False,
+        description="是否启用 DAVF（PTM→细胞状态方向感知向量）特征。"
+        "启用后，模型会联合序列嵌入与 DAVF 特征进行预测；"
+        "ptm_sites 中的 gene_symbol 字段将被传递给 DAVF 模块。",
+    )
 
 
 class BatchPredictionRequest(BaseModel):

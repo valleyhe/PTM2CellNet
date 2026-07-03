@@ -37,14 +37,22 @@ class FakeGenKI:
     def __init__(self) -> None:
         self.requests = []
 
-    def build_request(self, gene_symbol: str, mode: str, magnitude: float):
+    def build_request(
+        self,
+        gene_symbol: str,
+        mode: str,
+        magnitude: float,
+        source_protein_id: str = "",
+        source_ptm_type: str = "",
+        source_ptm_position: int = -1,
+    ):
         from src.integration.contracts import GenePerturbationRequest
 
         return GenePerturbationRequest(
             gene_symbol=gene_symbol,
-            source_protein_id="",
-            source_ptm_type="",
-            source_ptm_position=-1,
+            source_protein_id=source_protein_id,
+            source_ptm_type=source_ptm_type,
+            source_ptm_position=source_ptm_position,
             magnitude=magnitude,
             mode=mode,
         )

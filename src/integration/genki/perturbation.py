@@ -1,6 +1,8 @@
 """Perturbation execution pipeline for GenKI and array-file backends."""
 
 import importlib
+import importlib.util
+import logging
 from pathlib import Path
 import sys
 from typing import Any, List, Optional, TYPE_CHECKING
@@ -17,6 +19,8 @@ from .reference_data import ReferenceDataLoader
 
 if TYPE_CHECKING:
     from .significance import SignificanceAnalyzer
+
+logger = logging.getLogger(__name__)
 
 
 class PerturbationExecutor:
@@ -71,6 +75,12 @@ class PerturbationExecutor:
         self.bagging_cutoff = float(bagging_cutoff)
         self._graph = graph or GraphUtilities()
         self._significance_analyzer = significance_analyzer
+        # Cache for trained VGAE models keyed by a fingerprint of the reference
+        # graph used to train them. Avoids re-training the same VGAE across
+        # repeated perturbation scoring calls.
+        self._vgae_cache: dict[str, tuple[Any, Any]] = {}
+        # Patience for early stopping when training the latent VGAE.
+        self._vgae_patience = 5
 
     def set_significance_analyzer(self, analyzer: "SignificanceAnalyzer") -> None:
         self._significance_analyzer = analyzer
@@ -80,12 +90,20 @@ class PerturbationExecutor:
             raise RuntimeError("SignificanceAnalyzer is not configured for PerturbationExecutor")
         return self._significance_analyzer
 
-    def build_request(self, gene_symbol: str, mode: str, magnitude: float) -> GenePerturbationRequest:
+    def build_request(
+        self,
+        gene_symbol: str,
+        mode: str,
+        magnitude: float,
+        source_protein_id: str = "",
+        source_ptm_type: str = "",
+        source_ptm_position: int = -1,
+    ) -> GenePerturbationRequest:
         return GenePerturbationRequest(
             gene_symbol=gene_symbol,
-            source_protein_id="",
-            source_ptm_type="",
-            source_ptm_position=-1,
+            source_protein_id=source_protein_id,
+            source_ptm_type=source_ptm_type,
+            source_ptm_position=source_ptm_position,
             magnitude=magnitude,
             mode=mode,
         )
@@ -123,12 +141,25 @@ class PerturbationExecutor:
         else:
             raise ValueError(f"Unsupported perturbation mode: {request.mode}")
 
-        combined_shift = self._graph._score_from_dense_matrices(
-            baseline_counts=baseline_counts,
-            baseline_network=baseline_network,
-            perturbed_counts=perturbed_counts,
-            perturbed_network=perturbed_network,
-        )
+        if self.scoring_method == "latent_vgae":
+            # Build a torch_geometric Data equivalent to the wild-type graph so
+            # the latent VGAE scoring path used by the genki_source backend can
+            # also be exercised from array_files data.
+            wt_data = self._build_wt_data_from_arrays(
+                baseline_counts, baseline_network, gene_names
+            )
+            combined_shift = self._score_with_latent_vgae(
+                wt_data=wt_data,
+                perturbed_counts=perturbed_counts,
+                perturbed_network=perturbed_network,
+            )
+        else:
+            combined_shift = self._graph._score_from_matrices(
+                baseline_counts=baseline_counts,
+                baseline_network=baseline_network,
+                perturbed_counts=perturbed_counts,
+                perturbed_network=perturbed_network,
+            )
         ranked_indices = np.argsort(-combined_shift)
         ranked_genes = [gene_names[idx] for idx in ranked_indices if gene_names[idx] != request.gene_symbol]
         distance_score = float(np.linalg.norm(combined_shift, ord=2))
@@ -150,8 +181,29 @@ class PerturbationExecutor:
             metadata=metadata,
         )
 
-    def run_virtual_ko(self, gene_symbol: str, top_k: int = 20) -> PerturbationResult:
-        result = self.run(self.build_request(gene_symbol=gene_symbol, mode="hard_ko", magnitude=1.0))
+    def run_batch(self, requests: List[GenePerturbationRequest]) -> List[PerturbationResult]:
+        """Run a batch of perturbation requests sequentially.
+
+        Sequential execution keeps the reference data and any trained VGAE
+        state consistent across requests. Future work can parallelize here
+        once reference data loading is shared.
+        """
+        return [self.run(request) for request in requests]
+
+    def run_virtual_ko(
+        self,
+        gene_symbol: str,
+        top_k: int = 20,
+        mode: str = "hard_ko",
+        magnitude: float = 1.0,
+    ) -> PerturbationResult:
+        result = self.run(
+            self.build_request(
+                gene_symbol=gene_symbol,
+                mode=mode,
+                magnitude=magnitude,
+            )
+        )
         return PerturbationResult(
             gene_symbol=result.gene_symbol,
             mode=result.mode,
@@ -193,8 +245,9 @@ class PerturbationExecutor:
                 edge_scale=max(0.0, 1.0 - request.magnitude),
             )
             perturbed_counts, perturbed_network_dense = apply_soft_perturbation(raw_counts, raw_network, profile)
+            edge_index_array = self._build_perturbed_edge_index(loader, perturbed_network_dense)
             perturbed_network = self._graph._edge_index_to_adjacency(
-                np.asarray(loader._build_edges(perturbed_network_dense), dtype=int),
+                np.asarray(edge_index_array, dtype=int),
                 len(gene_names),
             )
         else:
@@ -241,9 +294,34 @@ class PerturbationExecutor:
         if self.adata_file is None or self.grn_file_dir is None:
             raise ValueError("genki_source backend requires adata_file and grn_file_dir")
 
-        ref_root = str(Path(self._ref_loader.ref_root))
-        if ref_root not in sys.path:
-            sys.path.insert(0, ref_root)
+        # Resolve and validate ref_root to guard against path traversal. The
+        # raw ref_root is user-controlled; reject any path that escapes via
+        # '..' components or that resolves outside the project tree once
+        # normalized.
+        raw_ref_root = str(self._ref_loader.ref_root)
+        if ".." in Path(raw_ref_root).parts:
+            raise ValueError(
+                f"ref_root must not contain '..' path components: {raw_ref_root}"
+            )
+        try:
+            resolved_root = str(Path(raw_ref_root).resolve(strict=False))
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(f"Could not resolve ref_root {raw_ref_root}: {exc}") from exc
+
+        # Prefer importing GenKI from an already-installed location (e.g.
+        # ``pip install -e``) to avoid mutating sys.path. Only fall back to a
+        # controlled sys.path insertion when the package is not importable,
+        # and record the injected path so it is added at most once per
+        # process to avoid polluting sys.path on repeated calls.
+        if importlib.util.find_spec("GenKI") is None:
+            if resolved_root not in sys.path:
+                sys.path.insert(0, resolved_root)
+                # Track injected paths on the loader instance to keep the
+                # insertion observable and idempotent across calls.
+                injected = getattr(self, "_injected_sys_paths", set())
+                injected.add(resolved_root)
+                self._injected_sys_paths = injected  # type: ignore[assignment]
+                logger.info("Injected ref_root into sys.path for GenKI import: %s", resolved_root)
         module = importlib.import_module("GenKI.dataLoader")
         data_loader_cls = getattr(module, "DataLoader")
         adata = ad.read_h5ad(self.adata_file)
@@ -259,34 +337,128 @@ class PerturbationExecutor:
             verbose=False,
         )
 
+    def _build_perturbed_edge_index(self, loader: Any, perturbed_network_dense: np.ndarray) -> np.ndarray:
+        """Construct an edge_index array for the perturbed dense network.
+
+        Prefers the GenKI DataLoader's private ``_build_edges`` method when
+        available (version compatibility), but falls back to
+        ``torch_geometric.dense_to_sparse`` when that method is absent so a
+        GenKI version bump or refactor that removes the private API does not
+        break the soft_ptm + genki_source path.
+
+        Args:
+            loader: The GenKI DataLoader instance.
+            perturbed_network_dense: Dense (N, N) perturbed adjacency matrix.
+
+        Returns:
+            A (2, E) integer edge_index array.
+        """
+        build_edges = getattr(loader, "_build_edges", None)
+        if callable(build_edges):
+            return np.asarray(build_edges(perturbed_network_dense), dtype=int)
+        logger.warning(
+            "GenKI DataLoader lacks _build_edges; falling back to "
+            "torch_geometric.dense_to_sparse. Consider pinning a GenKI "
+            "version that exposes _build_edges for exact parity."
+        )
+        try:
+            from torch_geometric.utils import dense_to_sparse
+        except ImportError as exc:
+            # Last-resort: build edge_index manually from nonzero entries.
+            rows, cols = np.nonzero(np.asarray(perturbed_network_dense, dtype=float) > 0)
+            return np.stack([rows, cols], axis=0)
+        adj_tensor = torch.as_tensor(
+            np.asarray(perturbed_network_dense, dtype=float)
+        )
+        edge_index, _ = dense_to_sparse(adj_tensor)
+        return edge_index.detach().cpu().numpy()
+
+    def _build_wt_data_from_arrays(
+        self,
+        baseline_counts: np.ndarray,
+        baseline_network: np.ndarray,
+        gene_names: List[str],
+    ) -> Any:
+        """Construct a torch_geometric Data object from dense array-file data.
+
+        Mirrors the shape produced by the GenKI DataLoader so the latent VGAE
+        scoring path can run on array_files backends.
+        """
+        data_cls = importlib.import_module("torch_geometric.data").Data
+        edge_index = self._graph._adjacency_to_edge_index(baseline_network)
+        x = torch.tensor(np.asarray(baseline_counts, dtype=float).T, dtype=torch.float)
+        y = torch.tensor(
+            [str(name) for name in gene_names], dtype=torch.object
+        )
+        data = data_cls(x=x, edge_index=torch.tensor(edge_index, dtype=torch.long), y=y)
+        return data
+
     def _score_with_latent_vgae(
         self,
         wt_data: Any,
         perturbed_counts: np.ndarray,
         perturbed_network: np.ndarray,
     ) -> np.ndarray:
-        train_module = importlib.import_module("GenKI.train")
-        utils_module = importlib.import_module("GenKI.utils")
-        data_cls = importlib.import_module("torch_geometric.data").Data
-        vgae_cls = getattr(train_module, "VGAE")
-        encoder_cls = getattr(train_module, "VariationalGCNEncoder")
-        get_distance = getattr(utils_module, "get_distance")
-        device = torch.device("cpu")
-        if self.trainer_seed is not None:
-            torch.manual_seed(self.trainer_seed)
+        # Fingerprint the reference graph so the same baseline VGAE can be
+        # reused across calls sharing the same wild-type data. Uses string
+        # representations rather than tensor methods so the fingerprint is safe
+        # to compute on mock objects in tests.
+        num_nodes = int(getattr(wt_data, "num_features", 0))
+        edge_index_obj = getattr(wt_data, "edge_index", None)
+        edge_signature = repr(edge_index_obj)
+        import hashlib
 
-        model = vgae_cls(encoder_cls(wt_data.num_features, self.trainer_out_channels)).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=self.trainer_lr)
-        wt_train = wt_data.to(device)
-        for _ in range(self.trainer_epochs):
-            model.train()
-            optimizer.zero_grad()
-            z = model.encode(wt_train.x, wt_train.edge_index)
-            recon_loss = model.recon_loss(z, wt_train.edge_index)
-            kl_loss = self.trainer_beta * model.kl_loss()
-            loss = recon_loss + kl_loss
-            loss.backward()
-            optimizer.step()
+        cache_key = hashlib.md5(
+            f"{num_nodes}:{edge_signature}".encode()
+        ).hexdigest()
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        model, optimizer = self._vgae_cache.get(cache_key, (None, None))
+        if model is None:
+            train_module = importlib.import_module("GenKI.train")
+            utils_module = importlib.import_module("GenKI.utils")
+            data_cls = importlib.import_module("torch_geometric.data").Data
+            vgae_cls = getattr(train_module, "VGAE")
+            encoder_cls = getattr(train_module, "VariationalGCNEncoder")
+            get_distance = getattr(utils_module, "get_distance")
+            if self.trainer_seed is not None:
+                torch.manual_seed(self.trainer_seed)
+
+            model = vgae_cls(
+                encoder_cls(wt_data.num_features, self.trainer_out_channels)
+            ).to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=self.trainer_lr)
+            wt_train = wt_data.to(device)
+            best_loss = float("inf")
+            epochs_without_improvement = 0
+            for _ in range(self.trainer_epochs):
+                model.train()
+                optimizer.zero_grad()
+                z = model.encode(wt_train.x, wt_train.edge_index)
+                recon_loss = model.recon_loss(z, wt_train.edge_index)
+                kl_loss = self.trainer_beta * model.kl_loss()
+                loss = recon_loss + kl_loss
+                loss.backward()
+                optimizer.step()
+                # Early stopping: break if the loss has not improved for
+                # ``self._vgae_patience`` consecutive epochs.
+                current_loss = float(loss.item())
+                if current_loss < best_loss - 1e-6:
+                    best_loss = current_loss
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+                    if epochs_without_improvement >= self._vgae_patience:
+                        break
+            self._vgae_cache[cache_key] = (model, optimizer)
+            data_cls = importlib.import_module("torch_geometric.data").Data
+            get_distance = getattr(utils_module, "get_distance")
+        else:
+            train_module = importlib.import_module("GenKI.train")
+            utils_module = importlib.import_module("GenKI.utils")
+            data_cls = importlib.import_module("torch_geometric.data").Data
+            get_distance = getattr(utils_module, "get_distance")
 
         perturbed_edge_index = self._graph._adjacency_to_edge_index(perturbed_network)
         data_v = data_cls(

@@ -4,6 +4,7 @@ PyTorch数据集模块
 设计思路: 基于PyTorch Lightning DataModule，支持批量加载和多进程
 """
 
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -11,7 +12,13 @@ import torch
 from torch.utils.data import DataLoader
 
 from ..utils.logging import setup_logger
-from .augmentation import PTMAugmenter, SequenceAugmenter, get_augmentation_config
+from .aa_constants import (
+    AMINO_ACIDS_STR,
+    AA_TO_IDX,
+    NON_STANDARD_AA_MAP,
+    PAD_IDX,
+)
+from .augmentation import DAVFSiteAugmenter, PTMAugmenter, SequenceAugmenter, get_augmentation_config
 from .features import FeatureExtractor, DEFAULT_AMINO_ACIDS
 from .dataset_base import PTMDatasetBase
 
@@ -49,6 +56,45 @@ class PTMDataset(PTMDatasetBase):
             return_label: 是否返回标签
         """
         super().__init__(df, config)
+
+        # Pre-parse PTM sites JSON to avoid repeated json.loads in __getitem__
+        # 接入 DatasetCache：当 data.cache_dir 配置时，缓存预解析的 PTM 位点列表。
+        self._parsed_ptm_sites: List[Optional[List[Dict[str, Any]]]] = []
+        cache_key_config = {
+            "ptm_types": self.ptm_types,
+            "max_sequence_length": self.config.get("data", {}).get("max_sequence_length", 1000),
+        }
+        cached_parsed = None
+        if self.dataset_cache is not None and "ptm_sites" in self.df.columns:
+            cached_parsed = self.dataset_cache.load(self.df, {"parse_ptm_sites": cache_key_config})
+
+        if cached_parsed is not None and isinstance(cached_parsed, list):
+            self._parsed_ptm_sites = cached_parsed
+        else:
+            if "ptm_sites" in self.df.columns:
+                for idx in range(len(self.df)):
+                    ptm_data = self.df.iloc[idx].get("ptm_sites")
+                    try:
+                        if isinstance(ptm_data, str) and ptm_data:
+                            parsed = json.loads(ptm_data)
+                        elif isinstance(ptm_data, list):
+                            parsed = ptm_data
+                        else:
+                            parsed = None
+                        if isinstance(parsed, list):
+                            self._parsed_ptm_sites.append(parsed)
+                        else:
+                            self._parsed_ptm_sites.append([])
+                    except (json.JSONDecodeError, TypeError):
+                        self._parsed_ptm_sites.append([])
+            else:
+                self._parsed_ptm_sites = [None] * len(self.df)
+
+            if self.dataset_cache is not None and "ptm_sites" in self.df.columns:
+                self.dataset_cache.save(
+                    self.df, {"parse_ptm_sites": cache_key_config}, self._parsed_ptm_sites
+                )
+
         self.feature_extractor = feature_extractor or FeatureExtractor(config)
         self.return_sequence = return_sequence
         self.return_ptm = return_ptm
@@ -57,21 +103,29 @@ class PTMDataset(PTMDatasetBase):
             use_feature_extractor or self.config.get("features", {}).get("use_feature_extractor", False)
         )
         self.training = training
+        self.use_davf = bool(self.config.get("data", {}).get("use_davf", False))
 
         self.max_sequence_length = self.config.get("data", {}).get("max_sequence_length", 1000)
         self.amino_acids = self.config.get("data", {}).get("valid_amino_acids", DEFAULT_AMINO_ACIDS)
         # 序列索引从1开始，0保留给padding
-        self.aa_to_idx = {aa: i + 1 for i, aa in enumerate(self.amino_acids)}
+        # 基于共享常量构建映射；若配置自定义字母表则覆盖
+        if self.amino_acids == AMINO_ACIDS_STR:
+            self.aa_to_idx = dict(AA_TO_IDX)
+        else:
+            self.aa_to_idx = {aa: i + 1 for i, aa in enumerate(self.amino_acids)}
 
-        # 非标准氨基酸字符映射表 (与preprocess.py保持一致)
-        self.non_standard_aa_map = {
-            'U': 'C', 'X': 'A', 'J': 'L', 'B': 'D', 'Z': 'E', 'O': 'K',
-        }
+        # 非标准氨基酸字符映射表 (统一从aa_constants导入)
+        self.non_standard_aa_map = dict(NON_STANDARD_AA_MAP)
         self.sequence_augmenter = sequence_augmenter
         self.ptm_augmenter = ptm_augmenter
 
         if self.sequence_augmenter is None or self.ptm_augmenter is None:
             self._initialize_augmenters_from_config()
+
+        # DAVF 位点协同增强器（仅 use_davf 时生效）
+        self.davf_augmenter: Optional[DAVFSiteAugmenter] = None
+        if self.use_davf:
+            self.davf_augmenter = self._build_davf_augmenter()
 
     def _initialize_augmenters_from_config(self) -> None:
         """按需从配置构建数据增强器。支持字符串预设（light/medium/heavy）或参数字典。"""
@@ -98,6 +152,19 @@ class PTMDataset(PTMDatasetBase):
                 noise_radius=augmentation_config.get("noise_radius", 1),
             )
 
+    def _build_davf_augmenter(self) -> Optional[DAVFSiteAugmenter]:
+        """按配置构建 DAVF 位点协同增强器。"""
+        augmentation_config = self.config.get("augmentation")
+        if not augmentation_config:
+            return None
+        if isinstance(augmentation_config, str):
+            augmentation_config = get_augmentation_config(augmentation_config)
+        return DAVFSiteAugmenter(
+            drop_prob=augmentation_config.get("davf_drop_prob", augmentation_config.get("ptm_drop_prob", 0.0)),
+            noise_prob=augmentation_config.get("davf_noise_prob", augmentation_config.get("ptm_noise_prob", 0.0)),
+            noise_radius=augmentation_config.get("noise_radius", 1),
+        )
+
     def _standardize_sequence(self, sequence: str) -> str:
         """将非标准氨基酸字符映射为标准字符"""
         for old_char, new_char in self.non_standard_aa_map.items():
@@ -118,9 +185,8 @@ class PTMDataset(PTMDatasetBase):
 
         return seq_tensor
 
-    def _encode_ptm(self, ptm_sites_json: Any, sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """编码PTM位点"""
-        ptm_sites = self._parse_ptm_sites(ptm_sites_json)
+    def _encode_ptm(self, ptm_sites: List[Dict[str, Any]], sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """编码PTM位点（ptm_sites已是解析后的列表）"""
         ptm_mask = torch.zeros(self.max_sequence_length, dtype=torch.float32)
         ptm_types = torch.zeros(self.max_sequence_length, dtype=torch.long)
         max_len = min(self.max_sequence_length, sequence_length) if sequence_length else self.max_sequence_length
@@ -139,6 +205,48 @@ class PTMDataset(PTMDatasetBase):
 
         return ptm_mask, ptm_types
 
+    # DAVF gene name column candidates, checked in priority order
+    _DAVF_GENE_COLUMNS = ("gene_name", "gene_symbol", "gene", "gene_names", "gene_symbols")
+
+    def _extract_davf_gene_names(self, row: pd.Series, valid_sites: List[Dict[str, Any]]) -> List[str]:
+        """Extract gene names for DAVF from PTM site dicts or row-level column.
+
+        Checks each PTM site dict for gene_name/gene_symbol/gene keys first.
+        Falls back to a row-level column matching the same naming patterns.
+        Returns a list of gene name strings, one per valid site.
+        """
+        # Try per-site gene fields first (site dicts may carry their own gene info)
+        site_gene_keys = ("gene_name", "gene_symbol", "gene")
+        gene_names = []
+        for site in valid_sites:
+            name = None
+            for key in site_gene_keys:
+                val = site.get(key)
+                if val and isinstance(val, str):
+                    name = val
+                    break
+            gene_names.append(name)
+
+        # If all sites have gene names, return them directly
+        if all(g is not None for g in gene_names):
+            return gene_names
+
+        # Fall back to row-level column
+        row_gene = None
+        for col in self._DAVF_GENE_COLUMNS:
+            if col in self.df.columns:
+                val = row.get(col)
+                if pd.notna(val):
+                    row_gene = str(val)
+                    break
+
+        if row_gene is not None:
+            # Row-level gene applies to all sites
+            return [row_gene if g is None else g for g in gene_names]
+
+        # Fill remaining None with empty string
+        return [g if g is not None else "" for g in gene_names]
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """获取单个样本"""
         row = self.df.iloc[idx]
@@ -151,9 +259,29 @@ class PTMDataset(PTMDatasetBase):
 
         if self.return_ptm and "ptm_sites" in row:
             seq_len = len(str(row.get("sequence", "")))
-            ptm_mask, ptm_types = self._encode_ptm(row["ptm_sites"], seq_len)
+            ptm_mask, ptm_types = self._encode_ptm(self._parsed_ptm_sites[idx], seq_len)
             sample["ptm_mask"] = ptm_mask
             sample["ptm_types"] = ptm_types
+
+            if self.use_davf:
+                ptm_sites = self._parsed_ptm_sites[idx]
+                max_len = min(self.max_sequence_length, seq_len) if seq_len else self.max_sequence_length
+                valid_sites = []
+                for site in ptm_sites:
+                    is_valid, _ = self._validate_ptm_site(site, max_len)
+                    if is_valid:
+                        valid_sites.append(site)
+
+                davf_sites = [site["position"] for site in valid_sites]
+                davf_type_names = [site.get("type", "") for site in valid_sites]
+
+                # Extract gene names from PTM site dicts or row-level column
+                davf_gene_names = self._extract_davf_gene_names(row, valid_sites)
+
+                sample["davf_sites"] = davf_sites
+                sample["davf_gene_names"] = davf_gene_names
+                sample["davf_type_names"] = davf_type_names
+                sample["davf_attention_mask"] = [1] * len(valid_sites)
 
         if self.use_feature_extractor and self.return_sequence and "sequence" in row:
             sequence_features = self.feature_extractor.extract_sequence_features([sequence])
@@ -161,7 +289,7 @@ class PTMDataset(PTMDatasetBase):
                 sample["sequence_features"] = torch.tensor(sequence_features[0], dtype=torch.float32)
 
             if self.feature_extractor.include_ptm_features and "ptm_sites" in row:
-                ptm_sites = self._parse_ptm_sites(row["ptm_sites"])
+                ptm_sites = self._parsed_ptm_sites[idx]
                 sample["ptm_features"] = torch.tensor(
                     self.feature_extractor.extract_ptm_features_array(ptm_sites, len(sequence)),
                     dtype=torch.float32,
@@ -174,6 +302,22 @@ class PTMDataset(PTMDatasetBase):
                 sample["ptm_mask"], sample["ptm_types"] = self.ptm_augmenter(
                     sample["ptm_mask"],
                     sample["ptm_types"],
+                )
+            # DAVF 位点字段协同增强（仅 use_davf 且存在相关字段时）
+            if (
+                self.davf_augmenter is not None
+                and "davf_sites" in sample
+                and "davf_type_names" in sample
+                and "davf_attention_mask" in sample
+            ):
+                sample["davf_sites"], sample["davf_type_names"], sample[
+                    "davf_attention_mask"
+                ], sample["davf_gene_names"] = self.davf_augmenter(
+                    sample["davf_sites"],
+                    sample["davf_type_names"],
+                    sample["davf_attention_mask"],
+                    sample.get("davf_gene_names"),
+                    max_position=self.max_sequence_length,
                 )
 
         if self.return_label and "cell_state" in row:
@@ -347,6 +491,9 @@ class ESMTokenizedDataset(PTMDatasetBase):
         tokenizer,
         max_length: int = 1024,
         config: Optional[Dict[str, Any]] = None,
+        training: bool = True,
+        sequence_augmenter: Optional[SequenceAugmenter] = None,
+        ptm_augmenter: Optional[PTMAugmenter] = None,
     ):
         """
         初始化ESMTokenizedDataset
@@ -356,15 +503,58 @@ class ESMTokenizedDataset(PTMDatasetBase):
             tokenizer: ESM tokenizer实例（来自ESM2Encoder.tokenizer）
             max_length: tokenizer最大长度（含特殊token），默认1024
             config: 配置字典
+            training: 是否为训练模式（启用数据增强）
+            sequence_augmenter: 序列增强器（可选，未提供时按配置构建）
+            ptm_augmenter: PTM增强器（可选，未提供时按配置构建）
         """
         super().__init__(df, config)
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.training = training
 
-        # 非标准氨基酸字符映射表 (与PTMDataset保持一致)
-        self.non_standard_aa_map = {
-            'U': 'C', 'X': 'A', 'J': 'L', 'B': 'D', 'Z': 'E', 'O': 'K',
-        }
+        # 非标准氨基酸字符映射表 (统一从aa_constants导入)
+        self.non_standard_aa_map = dict(NON_STANDARD_AA_MAP)
+
+        # 数据增强器
+        self.sequence_augmenter = sequence_augmenter
+        self.ptm_augmenter = ptm_augmenter
+        if self.sequence_augmenter is None or self.ptm_augmenter is None:
+            self._initialize_augmenters_from_config()
+
+        # 预 tokenization 缓存：避免每次 __getitem__ 重复调用 tokenizer。
+        # 内存权衡——对大 df 可改用磁盘缓存(DatasetCache)按 sequence 哈希存 token 结果。
+        self._token_cache: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        for row_idx in range(len(self.df)):
+            sequence = str(self.df.iloc[row_idx].get("sequence", ""))
+            self._token_cache.append(self._tokenize_sequence(sequence))
+
+    def _initialize_augmenters_from_config(self) -> None:
+        """按需从配置构建数据增强器（与 PTMDataset 一致）。"""
+        augmentation_config = self.config.get("augmentation")
+        if not augmentation_config:
+            return
+
+        if isinstance(augmentation_config, str):
+            augmentation_config = get_augmentation_config(augmentation_config)
+
+        if self.sequence_augmenter is None:
+            self.sequence_augmenter = SequenceAugmenter(
+                augment_prob=augmentation_config.get("sequence_augment_prob", 0.0),
+                max_truncate_ratio=augmentation_config.get("max_truncate_ratio", 0.1),
+                mask_token_id=augmentation_config.get(
+                    "mask_token_id",
+                    getattr(self.tokenizer, "mask_token_id", 0) or 0,
+                ),
+                mask_prob=augmentation_config.get("mask_prob", 0.0),
+                random_swap_prob=augmentation_config.get("random_swap_prob", 0.0),
+            )
+
+        if self.ptm_augmenter is None:
+            self.ptm_augmenter = PTMAugmenter(
+                drop_prob=augmentation_config.get("ptm_drop_prob", 0.0),
+                add_noise_prob=augmentation_config.get("ptm_noise_prob", 0.0),
+                noise_radius=augmentation_config.get("noise_radius", 1),
+            )
 
     def _standardize_sequence(self, sequence: str) -> str:
         """将非标准氨基酸字符映射为标准字符"""
@@ -428,7 +618,8 @@ class ESMTokenizedDataset(PTMDatasetBase):
         row = self.df.iloc[idx]
         sequence = str(row.get("sequence", ""))
 
-        input_ids, attention_mask = self._tokenize_sequence(sequence)
+        # 查表获取预 tokenization 结果（避免每次 __getitem__ 重复调用 tokenizer）
+        input_ids, attention_mask = self._token_cache[idx]
         tokenized_length = input_ids.shape[0]
 
         ptm_sites_json = str(row["ptm_sites"]) if "ptm_sites" in row else "[]"
@@ -441,10 +632,19 @@ class ESMTokenizedDataset(PTMDatasetBase):
             "ptm_types": ptm_types,
         }
 
+        # 训练模式下应用数据增强（与 PTMDataset.__getitem__ 一致）
+        if self.training:
+            if "ptm_mask" in sample and "ptm_types" in sample and self.ptm_augmenter is not None:
+                sample["ptm_mask"], sample["ptm_types"] = self.ptm_augmenter(
+                    sample["ptm_mask"],
+                    sample["ptm_types"],
+                )
+            # sequence 增强作用于 input_ids（ESM tokenizer 的 mask_token_id 已传入）
+            if "input_ids" in sample and self.sequence_augmenter is not None:
+                sample["input_ids"] = self.sequence_augmenter(sample["input_ids"])
+
         if "cell_state" in row:
             sample["label"] = self._encode_label(str(row["cell_state"]))
 
         return sample
 
-
-PTMDataModule = PTMPlainDataModule

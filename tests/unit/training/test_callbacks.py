@@ -7,7 +7,12 @@ import pytest
 import torch
 from unittest.mock import MagicMock
 
-from src.training.callbacks import Callback, ModelCheckpoint, EarlyStopping
+from src.training.callbacks import (
+    Callback,
+    ModelCheckpoint,
+    EarlyStopping,
+    TensorBoardCallback,
+)
 
 try:
     from lightning.pytorch.callbacks import Callback as LightningCallback
@@ -324,6 +329,55 @@ class TestEarlyStopping:
         with caplog.at_level(logging.INFO, logger="src.training.callbacks"):
             early_stop.on_epoch_end(trainer, epoch=1, logs={"val_loss": 0.6})
         assert "早停触发于" in caplog.text
+
+
+class TestTensorBoardCallback:
+    """TensorBoard回调测试"""
+
+    def test_writes_accuracy_metrics(self, tmp_path):
+        """train_acc 和 val_acc 被写入 SummaryWriter"""
+        callback = TensorBoardCallback(log_dir=str(tmp_path / "runs"))
+        # 绕过真实 SummaryWriter 初始化，直接注入 mock writer
+        callback._writer = MagicMock()
+
+        logs = {
+            "train_loss": 0.5,
+            "val_loss": 0.6,
+            "train_acc": 0.8,
+            "val_acc": 0.75,
+            "learning_rate": 1e-3,
+        }
+        callback.on_epoch_end(MockTrainer(), epoch=0, logs=logs)
+
+        written_keys = {
+            call.args[0] for call in callback._writer.add_scalar.call_args_list
+        }
+        assert "train_acc" in written_keys
+        assert "val_acc" in written_keys
+        assert "train_loss" in written_keys
+        assert "val_loss" in written_keys
+        assert "learning_rate" in written_keys
+
+    def test_missing_val_acc_is_safe(self, tmp_path):
+        """无 val_loader 时 val_acc 缺失，不写入且不报错"""
+        callback = TensorBoardCallback(log_dir=str(tmp_path / "runs"))
+        callback._writer = MagicMock()
+
+        logs = {"train_loss": 0.5, "train_acc": 0.8}
+        callback.on_epoch_end(MockTrainer(), epoch=0, logs=logs)
+
+        written_keys = {
+            call.args[0] for call in callback._writer.add_scalar.call_args_list
+        }
+        assert "train_acc" in written_keys
+        assert "val_acc" not in written_keys  # 守卫: 缺失键被跳过
+
+    def test_no_writer_is_noop(self, tmp_path):
+        """writer 为 None 时安全返回"""
+        callback = TensorBoardCallback(log_dir=str(tmp_path / "runs"))
+        callback._writer = None
+        # 不应抛出异常
+        callback.on_epoch_end(MockTrainer(), epoch=0, logs={"train_acc": 0.9})
 
 
 class TestCallbackIntegration:

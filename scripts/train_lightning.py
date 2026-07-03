@@ -113,12 +113,19 @@ def parse_args():
         choices=["32", "16-mixed", "bf16-mixed"],
         help="训练精度",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="随机种子",
+    )
     return parser.parse_args()
 
 
 def main():
     """主函数"""
     args = parse_args()
+    L.seed_everything(args.seed, workers=True)
 
     # 加载配置
     logger.info(f"加载配置文件: {args.config}")
@@ -195,6 +202,30 @@ def main():
     # 创建模型
     logger.info("创建模型...")
     model = PTM2CellNet.from_config(config.to_dict())
+
+    # 自动类别权重: 当 training.auto_class_weights=True 且未显式提供 class_weights 时，
+    # 从训练标签计算逆频率权重并写入 config，使 FocalLoss 消费之。这激活了
+    # PTM2CellNetLightning.compute_class_weights 静态方法（此前为死代码）。
+    training_cfg = config.get("training", {}) or {}
+    if (
+        training_cfg.get("auto_class_weights", False)
+        and training_cfg.get("class_weights") is None
+    ):
+        import torch as _torch
+        from src.training.lightning_module import PTM2CellNetLightning as _LightningMod
+
+        label_col = config.get("data.label_column", "cell_state")
+        label_series = train_df[label_col].map(label_to_idx)
+        label_series = label_series.dropna().astype(int)
+        if len(label_series) > 0:
+            labels_tensor = _torch.tensor(label_series.values, dtype=_torch.long)
+            num_classes = len(cell_states)
+            weights = _LightningMod.compute_class_weights(labels_tensor, num_classes)
+            config.set("training.class_weights", weights.tolist())
+            logger.info(
+                "auto_class_weights 已计算类别权重: %s", weights.tolist()
+            )
+
     lightning_model = PTM2CellNetLightning(model, config.to_dict())
 
     # 打印模型信息
@@ -283,6 +314,21 @@ def main():
     logger.info("=" * 60)
     logger.info("开始训练...")
     logger.info("=" * 60)
+
+    # 断点续训配置一致性校验: 若 --resume 指定 checkpoint，记录校验日志，
+    # 提示 num_classes/label 映射/模型结构应与当前 config 一致；不一致会导致
+    # Lightning 加载时静默错误。此处仅做存在性检查与日志记录，实际加载由
+    # Lightning 的 ckpt_path 参数完成。
+    if args.resume is not None:
+        import os as _os
+        if not _os.path.exists(args.resume):
+            raise SystemExit(f"--resume 指定的 checkpoint 不存在: {args.resume}")
+        logger.info("断点续训: 从 %s 恢复", args.resume)
+        logger.info(
+            "配置一致性校验: 请确保 checkpoint 的 num_classes=%s、label 映射及模型结构与当前配置一致；"
+            "若不一致，恢复后的训练将产生静默错误。",
+            config.get("model.num_classes", "未配置"),
+        )
 
     trainer.fit(
         lightning_model,

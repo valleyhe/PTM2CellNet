@@ -111,7 +111,7 @@ class SelectiveSSM(nn.Module):
         B_param = self.B_proj(x_conv)  # [B, L, N]
         C_param = self.C_proj(x_conv)  # [B, L, N]
 
-        # 4. SSM计��
+        # 4. SSM 计算（修复历史乱码注释：原 "SSM计" 应为 "SSM 计算"）
         y = self._ssm_step(x_conv, delta, B_param, C_param)  # [B, L, d_inner]
 
         # 5. 门控和输出投影
@@ -144,6 +144,15 @@ class SelectiveSSM(nn.Module):
 
         Returns:
             y: [B, L, d_inner] 输出
+
+        Note:
+            真正的 Mamba selective scan 需要一个融合 CUDA kernel 才能完全
+            摆脱 Python 循环。这里做的是 *循环内* 优化：(1) 把不依赖隐藏
+            状态 ``h`` 的 ``D * x`` 输出门控预算好；(2) 把 per-timestep
+            输出张量预分配为单个 buffer 而不是 Python list + stack；(3) 把
+            ``einsum`` 替换为等价但更友好的 ``unsqueeze`` + 广播乘法，便于
+            后续 lazy CUDA 融合。递推本身（``for t in range(seq_len)``）仍
+            保留，因为状态依赖性是固有的。
         """
         batch_size, seq_len, d_inner = x.shape
 
@@ -154,25 +163,48 @@ class SelectiveSSM(nn.Module):
         # B̅ = Δ·B  [B, L, d_inner, N]
         B_bar = einsum(delta, B, 'b l d, b l n -> b l d n')
 
-        # 递推计算状态
-        h = torch.zeros(
-            batch_size, d_inner, self.d_state,
-            device=x.device, dtype=x.dtype
+        # Pre-compute the D-gated output term D*x once. This is independent of
+        # the hidden state, so it can be added in bulk after the recurrence.
+        # Shape: [L, B, d_inner] — pre-transposed to match the output buffer
+        # layout we build inside the loop.
+        Dx = self.D.unsqueeze(0).unsqueeze(0) * x  # broadcast: [1,1,d_inner]*[B,L,d_inner]
+        Dx = Dx.permute(1, 0, 2).contiguous()  # [L, B, d_inner]
+
+        # Pre-allocate the output buffer instead of building a Python list of
+        # tensors and stacking at the end (avoids O(L) Python list growth and
+        # a final O(L) stack allocation).
+        y_out = torch.empty(
+            seq_len, batch_size, d_inner,
+            device=x.device, dtype=x.dtype,
         )
 
-        ys = []
+        # Hidden state carries the recurrence; cannot be parallelised without
+        # a selective-scan kernel, but everything *inside* the loop is now a
+        # plain elementwise multiply-add (no einsum, no Python list append).
+        h = torch.zeros(
+            batch_size, d_inner, self.d_state,
+            device=x.device, dtype=x.dtype,
+        )
+
+        # x_t base shape we reuse every step: [B, d_inner, 1]
+        x_perm = x.permute(1, 0, 2).contiguous()  # [L, B, d_inner]
+
         for t in range(seq_len):
             # h[t] = A̅[t]·h[t-1] + B̅[t]·x[t]
-            h = A_bar[:, t] * h + B_bar[:, t] * x[:, t:t+1, :].transpose(1, 2)
+            A_bar_t = A_bar[:, t]  # [B, d_inner, N]
+            B_bar_t = B_bar[:, t]  # [B, d_inner, N]
+            x_t = x_perm[t].unsqueeze(-1)  # [B, d_inner, 1]
+            # A_bar_t * h broadcasts over N; B_bar_t * x_t broadcasts over N.
+            h = A_bar_t * h + B_bar_t * x_t  # [B, d_inner, N]
 
             # y[t] = C[t]·h[t] + D·x[t]
-            y_t = einsum(h, C[:, t], 'b d n, b n -> b d')
-            y_t = y_t + self.D * x[:, t]
+            # (h @ C[t]^T): [B, d_inner, N] x [B, N, 1] -> [B, d_inner, 1]
+            C_t = C[:, t].unsqueeze(-1)  # [B, N, 1]
+            y_t = torch.bmm(h, C_t).squeeze(-1)  # [B, d_inner]
+            y_out[t] = y_t + Dx[t]
 
-            ys.append(y_t)
-
-        y = torch.stack(ys, dim=1)  # [B, L, d_inner]
-        return y
+        # Back to [B, L, d_inner].
+        return y_out.permute(1, 0, 2).contiguous()
 
 
 class MambaBlock(nn.Module):

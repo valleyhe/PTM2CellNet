@@ -83,16 +83,21 @@ class TestReferenceDataErrors:
         # Create a minimal sparse matrix saved as npz
         sparse_net = sp.csr_matrix(np.array([[0, 1], [1, 0]], dtype=float))
         sp.save_npz(grn_dir / "pcNet.npz", sparse_net)
+        # Create a placeholder adata file so runtime-ready file-existence
+        # checks pass; the actual read is mocked below.
+        adata_path = tmp_path / "data.h5ad"
+        adata_path.write_bytes(b"")
 
         # Mock anndata.read_h5ad to return a minimal object
         mock_adata = MagicMock()
         mock_adata.var_names.tolist.return_value = ["G1", "G2"]
+        mock_adata.n_vars = 2
         mock_adata.X = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=float)
 
         with patch("src.integration.genki.reference_data.ad.read_h5ad", return_value=mock_adata):
             loader = ReferenceDataLoader(
                 ref_root=str(tmp_path),
-                adata_file=str(tmp_path / "data.h5ad"),
+                adata_file=str(adata_path),
                 grn_file_dir=str(grn_dir),
             )
             ref = loader.load_reference_data()

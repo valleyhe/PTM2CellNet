@@ -193,16 +193,78 @@ def _predict_in_batches(
             num_classes = probabilities.shape[-1]
             cell_states = [f"class_{i}" for i in range(num_classes)]
 
+        # 3.6: guard against checkpoint/config mismatch — if the model's output
+        # dimension disagrees with the number of ``cell_states`` labels, clamp
+        # the per-class probability columns to the overlap rather than raising
+        # an opaque IndexError. Mismatches are surfaced via ``_safe_cell_state``
+        # decoding the predicted index as "unknown".
+        num_classes = probabilities.shape[-1]
+        n_named = min(len(cell_states), num_classes)
+
         predictions.extend(pred_indices.tolist())
         confidences.extend(max_probs.tolist())
         for i in range(len(chunk)):
             probs_i = probabilities[i].tolist()
-            probabilities_per_row.append({
-                f"prob_{state}": probs_i[j]
-                for j, state in enumerate(cell_states)
-            })
+            prob_row = {
+                f"prob_{cell_states[j]}": probs_i[j] for j in range(n_named)
+            }
+            # Emit placeholder columns for any extra classes beyond the known
+            # labels so downstream consumers still see a stable schema.
+            for j in range(n_named, num_classes):
+                prob_row[f"prob_unknown_{j}"] = probs_i[j]
+            probabilities_per_row.append(prob_row)
 
     return predictions, confidences, probabilities_per_row
+
+
+def _safe_cell_state(cell_states: List[str], pred_idx: int) -> str:
+    """Safely decode a predicted class index into a cell-state label.
+
+    Guards against checkpoint/config mismatch where the model's output
+    dimension disagrees with the number of ``cell_states`` labels: instead of
+    an opaque ``IndexError``, return ``"unknown"`` so the caller gets an
+    actionable, clearly-labelled result rather than a crash.
+    """
+    if not cell_states or pred_idx < 0 or pred_idx >= len(cell_states):
+        return "unknown"
+    return cell_states[pred_idx]
+
+
+def _build_prob_dict(
+    probs: List[float], cell_states: List[str]
+) -> Dict[str, float]:
+    """Build a ``{label: probability}`` dict that is robust to label/count mismatch.
+
+    3.6: when the model's output dimension (``len(probs)``) disagrees with the
+    number of ``cell_states`` labels (e.g. a checkpoint trained with a
+    different ``num_classes`` than the config declares), clamp to the overlap
+    rather than raising ``IndexError``. Extra classes are emitted under
+    ``unknown_<i>`` keys so the schema stays stable and the mismatch is
+    visible rather than silent.
+    """
+    n_named = min(len(cell_states), len(probs))
+    prob_dict: Dict[str, float] = {}
+    for i in range(n_named):
+        prob_dict[cell_states[i]] = float(probs[i])
+    for i in range(n_named, len(probs)):
+        prob_dict[f"unknown_{i}"] = float(probs[i])
+    return prob_dict
+
+
+def _batch_preprocess_requests(
+    requests: List,
+    preprocess_fn,
+) -> List[Dict]:
+    """Vectorized batch preprocessing wrapper.
+
+    Builds the list of preprocessed tensor-dicts for a batch of
+    ``PredictionRequest`` objects. The actual per-sample preprocessing still
+    delegates to ``preprocess_fn`` (the API's ``preprocess_request``), but this
+    helper centralises the loop and is the single point to swap in a truly
+    vectorised implementation later. Kept as a thin wrapper to avoid duplicating
+    the validation/skip semantics of ``preprocess_request``.
+    """
+    return [preprocess_fn(request) for request in requests]
 
 
 def _parse_ptm_sites_arg(ptm_sites_arg):
@@ -306,18 +368,20 @@ def _parse_batch_ptm_sites(ptm_sites_value, sequence: str, row_index, parse_erro
     return cleaned
 
 
-def main():
-    """主函数"""
+def _load_predict_resources(args):
+    """Load model, config, cell_states and device for prediction.
+
+    Encapsulates the shared resource-loading sequence used by ``main`` so the
+    single-sample and batch branches can focus on inference. Returns a tuple
+    ``(model, cell_states, device, config, logger, preprocess_request)``.
+    """
     _ensure_project_root()
-    import pandas as pd
     import torch
 
-    from src.utils.config import Config
     from src.utils.logging import setup_logger, get_timestamped_log_filename
-    from src.utils.io import load_model, save_dataframe
+    from src.utils.io import load_model
     from src.utils.checkpoint_utils import resolve_inference_config
     from src.models.architectures import PTM2CellNet
-    from src.api.schemas import PredictionRequest
     from src.api.routes import initialize_model, preprocess_request
 
     logger = setup_logger(__name__, get_timestamped_log_filename("predict"))
@@ -325,14 +389,12 @@ def main():
     logger.info("PTM2CellNet 预测开始")
     logger.info("=" * 60)
 
-    args = parse_args()
     # 优先使用与 checkpoint 同目录的 .config.yaml，避免与默认 config 不匹配
     config, config_source = resolve_inference_config(args.model, args.config)
     logger.info("使用配置文件: %s", config_source)
 
     # P1-3: detect demo/smoke models and warn loudly so they are not mistaken
-    # for biologically valid predictions. Resolution order: explicit config flag
-    # -> sibling artifact_manifest.json -> data_provenance in config.
+    # for biologically valid predictions.
     _warn_if_demo_model(args.model, config)
 
     cell_states = config.get("data.cell_states")
@@ -367,155 +429,296 @@ def main():
     initialize_model(model, cell_states, device, config=config.to_dict())
     logger.info("模型已加载到 %s", device)
 
-    if args.sequence:
-        logger.info("步骤 2: 单样本预测")
-        # P1-2: 解析 --ptm-sites，使单样本推理真实消费 PTM 位点
-        ptm_sites, ptm_parse_errors = _parse_ptm_sites_arg(args.ptm_sites)
-        if ptm_parse_errors:
-            for err in ptm_parse_errors:
-                logger.warning("PTM 解析: %s", err)
+    return model, cell_states, device, config, logger, preprocess_request
 
+
+def _run_single_predict(args, model, cell_states, device, logger, preprocess_request):
+    """单样本推理路径：解析 --sequence/--ptm-sites，跑一次前向并写出结果。
+
+    从 ``main`` 抽出以控制单样本逻辑的行数，便于独立测试与维护。
+    """
+    import pandas as pd
+    import torch
+
+    from src.api.schemas import PredictionRequest
+    from src.utils.io import save_dataframe
+
+    logger.info("步骤 2: 单样本预测")
+    # P1-2: 解析 --ptm-sites，使单样本推理真实消费 PTM 位点
+    ptm_sites, ptm_parse_errors = _parse_ptm_sites_arg(args.ptm_sites)
+    if ptm_parse_errors:
+        for err in ptm_parse_errors:
+            logger.warning("PTM 解析: %s", err)
+
+    request = PredictionRequest(
+        sequence=args.sequence,
+        ptm_sites=ptm_sites,
+    )
+
+    batch = preprocess_request(request)
+    batch = {key: val.unsqueeze(0) for key, val in batch.items()}
+
+    with torch.no_grad():
+        for key in batch:
+            batch[key] = batch[key].to(device)
+
+        outputs = model(batch)
+
+        if isinstance(outputs, dict):
+            probabilities = outputs.get("probabilities")
+        else:
+            logits = outputs
+            probabilities = torch.softmax(logits, dim=-1)
+
+        probs_np = probabilities[0].cpu().numpy()
+        pred_idx = int(torch.argmax(probabilities[0]).item())
+        pred_label = _safe_cell_state(cell_states, pred_idx)
+        confidence = float(probs_np[pred_idx])
+
+        # 3.6: robust to checkpoint/config num_classes mismatch via clamping.
+        prob_dict = _build_prob_dict(probs_np.tolist(), cell_states)
+
+    logger.info("预测结果:")
+    logger.info("  细胞状态: %s", pred_label)
+    logger.info("  置信度: %.4f", confidence)
+    logger.info("  概率分布: %s", prob_dict)
+    logger.info("  PTM 位点: 已解析 %d 个", len(ptm_sites))
+
+    # P1-2: 单样本模式也写出 --output，格式与批量结果兼容。
+    # 3.6: only emit prob_<state> columns for labels actually present in
+    # prob_dict to avoid KeyError when cell_states outnumbers model outputs.
+    prob_columns = {
+        f"prob_{state}": prob_dict[state]
+        for state in cell_states
+        if state in prob_dict
+    }
+    single_result = pd.DataFrame([{
+        "id": 0,
+        "sequence": args.sequence,
+        "ptm_sites": json.dumps(ptm_sites) if ptm_sites else "",
+        "ptm_count": len(ptm_sites),
+        "predicted_cell_state": pred_label,
+        "confidence": confidence,
+        **prob_columns,
+    }])
+    save_dataframe(single_result, args.output)
+    logger.info("单样本预测结果已保存: %s", args.output)
+
+    if args.pathway_analysis:
+        _run_single_pathway_analysis(args, ptm_sites, logger)
+
+
+def _run_single_pathway_analysis(args, ptm_sites, logger):
+    """单样本模式的信号通路分析（从单样本路径抽出以控制行数）。"""
+    logger.info("步骤 3: 信号通路分析（单样本模式）")
+    try:
+        from src.models.signaling_network import SignalingNetworkMapper
+
+        # PTM type → effect mapping (same logic as API predictions.py)
+        PTM_TYPE_TO_EFFECT = {
+            "phosphorylation": "gain",
+            "ubiquitination": "loss",
+            "acetylation": "gain",
+            "methylation": "gain",
+            "sumoylation": "gain",
+            "succinylation": "gain",
+        }
+        _DEFAULT_EFFECT = "loss"
+        _DEFAULT_DELTA_PROB = 0.5
+
+        mapper = SignalingNetworkMapper()
+        if ptm_sites:
+            import pandas as pd
+
+            rows = []
+            for site in ptm_sites:
+                ptm_type_raw = site.get("type", "")
+                ptm_type_lower = ptm_type_raw.lower() if ptm_type_raw else ""
+                effect = PTM_TYPE_TO_EFFECT.get(ptm_type_lower, _DEFAULT_EFFECT)
+                rows.append({
+                    "gene_symbol": site.get("gene_symbol", ""),
+                    "ptm_type": ptm_type_raw.capitalize() if ptm_type_raw else "",
+                    "effect": effect,
+                    "delta_prob": _DEFAULT_DELTA_PROB,
+                })
+            ptm_df = pd.DataFrame(rows)
+            report = mapper.generate_network_report(ptm_df)
+            pathway_activities = report.get("pathway_activities", {})
+            if pathway_activities:
+                for name, activity in sorted(
+                    pathway_activities.items(), key=lambda x: abs(x[1]), reverse=True
+                ):
+                    direction = "激活" if activity > 0 else "抑制"
+                    logger.info("  %s: %s (分数: %.3f)", name, direction, activity)
+            else:
+                logger.info("  未检测到显著的通路活性变化")
+        else:
+            logger.info("  无PTM位点数据，跳过通路分析")
+    except ImportError:
+        logger.warning("signaling_network模块未安装，跳过通路分析")
+    except Exception as e:
+        logger.warning("单样本通路分析失败: %s", e)
+
+
+def _run_batch_predict(args, model, cell_states, device, logger, preprocess_request):
+    """批量推理路径：读 CSV、解析 PTM、批推理并写出结果。
+
+    从 ``main`` 抽出以控制批量逻辑的行数，便于独立测试与维护。
+    """
+    import pandas as pd
+
+    from src.api.schemas import PredictionRequest
+    from src.utils.io import save_dataframe
+
+    logger.info("步骤 2: 批量预测")
+    # P2-1: gracefully handle an empty/header-only CSV instead of crashing
+    # on ``pd.read_csv`` of a no-data file. An empty input is a legitimate
+    # (if unusual) request and should produce an empty output table.
+    try:
+        df = pd.read_csv(args.input)
+    except pd.errors.EmptyDataError:
+        logger.warning("输入 CSV 为空或仅含表头，写出空输出: %s", args.input)
+        if args.output:
+            import pandas as _pd
+            _pd.DataFrame().to_csv(args.output, index=False)
+        return
+    if len(df) == 0:
+        logger.info("输入 CSV 无数据行，写出空输出。")
+        if args.output:
+            df.to_csv(args.output, index=False)
+        return
+
+    sequences = []
+    ids = []
+    ptm_counts = []
+    batch_parse_errors = []
+    requests = []
+    for idx, row in df.iterrows():
+        sequence = str(row.get("sequence", ""))
+        # P1-1: 解析 CSV 中的 ptm_sites 列，使批量推理真实消费 PTM 位点
+        ptm_sites = _parse_batch_ptm_sites(
+            row.get("ptm_sites"), sequence, idx, batch_parse_errors
+        )
         request = PredictionRequest(
-            sequence=args.sequence,
+            sequence=sequence,
             ptm_sites=ptm_sites,
         )
+        requests.append(request)
+        sequences.append(sequence)
+        ids.append(row.get("id", idx))
+        ptm_counts.append(len(ptm_sites))
 
-        batch = preprocess_request(request)
-        batch = {key: val.unsqueeze(0) for key, val in batch.items()}
-
-        with torch.no_grad():
-            for key in batch:
-                batch[key] = batch[key].to(device)
-
-            outputs = model(batch)
-
-            if isinstance(outputs, dict):
-                probabilities = outputs.get("probabilities")
-            else:
-                logits = outputs
-                probabilities = torch.softmax(logits, dim=-1)
-
-            probs_np = probabilities[0].cpu().numpy()
-            pred_idx = int(torch.argmax(probabilities[0]).item())
-            pred_label = cell_states[pred_idx]
-            confidence = float(probs_np[pred_idx])
-
-            prob_dict = {
-                cell_states[i]: float(probs_np[i])
-                for i in range(len(probs_np))
-            }
-
-        logger.info("预测结果:")
-        logger.info("  细胞状态: %s", pred_label)
-        logger.info("  置信度: %.4f", confidence)
-        logger.info("  概率分布: %s", prob_dict)
-        logger.info("  PTM 位点: 已解析 %d 个", len(ptm_sites))
-
-        # P1-2: 单样本模式也写出 --output，格式与批量结果兼容
-        single_result = pd.DataFrame([{
-            "id": 0,
-            "sequence": args.sequence,
-            "ptm_sites": json.dumps(ptm_sites) if ptm_sites else "",
-            "ptm_count": len(ptm_sites),
-            "predicted_cell_state": pred_label,
-            "confidence": confidence,
-            **{f"prob_{state}": prob_dict[state] for state in cell_states},
-        }])
-        save_dataframe(single_result, args.output)
-        logger.info("单样本预测结果已保存: %s", args.output)
-
-        if args.pathway_analysis:
-            logger.info("步骤 3: 信号通路分析（单样本模式需要PTM位点数据）")
-            logger.info("  --pathway-analysis 在单样本模式中需要额外的PTM位点信息，跳过")
-
-    elif args.input:
-        logger.info("步骤 2: 批量预测")
-        df = pd.read_csv(args.input)
-
-        preprocessed_rows = []
-        sequences = []
-        ids = []
-        ptm_counts = []
-        batch_parse_errors = []
-        for idx, row in df.iterrows():
-            sequence = str(row.get("sequence", ""))
-            # P1-1: 解析 CSV 中的 ptm_sites 列，使批量推理真实消费 PTM 位点
-            ptm_sites = _parse_batch_ptm_sites(
-                row.get("ptm_sites"), sequence, idx, batch_parse_errors
-            )
-            request = PredictionRequest(
-                sequence=sequence,
-                ptm_sites=ptm_sites,
-            )
-            preprocessed_rows.append(preprocess_request(request))
-            sequences.append(sequence)
-            ids.append(row.get("id", idx))
-            ptm_counts.append(len(ptm_sites))
-
-        if batch_parse_errors:
-            for err in batch_parse_errors:
-                logger.warning("PTM 解析: %s", err)
-            logger.warning(
-                "批量 PTM 解析共出现 %d 处错误（非法位点已跳过）",
-                len(batch_parse_errors),
-            )
-
-        predictions, confidences, prob_rows = _predict_in_batches(
-            model, preprocessed_rows, device, args.batch_size, cell_states
+    if batch_parse_errors:
+        for err in batch_parse_errors:
+            logger.warning("PTM 解析: %s", err)
+        logger.warning(
+            "批量 PTM 解析共出现 %d 处错误（非法位点已跳过）",
+            len(batch_parse_errors),
         )
 
-        results = []
-        for sample_id, sequence, pred_idx, confidence, n_ptm, probs_row in zip(
-            ids, sequences, predictions, confidences, ptm_counts, prob_rows
-        ):
-            results.append({
-                "id": sample_id,
-                "sequence": sequence,
-                "ptm_count": n_ptm,
-                "predicted_cell_state": cell_states[pred_idx],
-                "confidence": confidence,
-                **probs_row,
-            })
+    # Vectorised preprocessing: build all tensor-dicts in one pass via the
+    # shared wrapper rather than interleaving preprocess_request inside the
+    # row loop (decouples CSV parsing from tensor preprocessing).
+    preprocessed_rows = _batch_preprocess_requests(requests, preprocess_request)
 
-        result_df = pd.DataFrame(results)
-        save_dataframe(result_df, args.output)
-        logger.info("预测结果已保存: %s", args.output)
-        logger.info("共处理 %d 个样本（含 PTM 位点 %d 个）", len(results), sum(ptm_counts))
+    predictions, confidences, prob_rows = _predict_in_batches(
+        model, preprocessed_rows, device, args.batch_size, cell_states
+    )
 
-        if args.pathway_analysis:
-            logger.info("步骤 3: 信号通路分析")
-            try:
-                from src.models.signaling_network import SignalingNetworkMapper
+    results = []
+    for sample_id, sequence, pred_idx, confidence, n_ptm, probs_row in zip(
+        ids, sequences, predictions, confidences, ptm_counts, prob_rows
+    ):
+        results.append({
+            "id": sample_id,
+            "sequence": sequence,
+            "ptm_count": n_ptm,
+            "predicted_cell_state": _safe_cell_state(cell_states, pred_idx),
+            "confidence": confidence,
+            **probs_row,
+        })
 
-                mapper = SignalingNetworkMapper()
-                ptm_columns = {"gene_symbol", "ptm_type", "effect", "delta_prob"}
-                if ptm_columns.issubset(df.columns):
-                    ptm_df = df[list(ptm_columns)].copy()
-                    ptm_df["effect"] = ptm_df["effect"].fillna("gain")
-                    ptm_df["delta_prob"] = ptm_df["delta_prob"].fillna(1.0).astype(float)
-                    report = mapper.generate_network_report(ptm_df)
-                    pathway_output = os.path.join(
-                        os.path.dirname(args.output), "pathway_analysis.csv"
-                    )
-                    pathway_rows = []
-                    for name, activity in report.get("pathway_activities", {}).items():
-                        pathway_rows.append({
-                            "pathway": name,
-                            "activity": activity,
-                            "key_genes": ",".join(mapper.pathways.get(name, {}).get("output_genes", [])),
-                        })
-                    if pathway_rows:
-                        pd.DataFrame(pathway_rows).to_csv(pathway_output, index=False)
-                        logger.info("通路分析已保存: %s", pathway_output)
-                    else:
-                        logger.info("未检测到显著的通路活性变化")
-                else:
-                    logger.info("输入数据缺少PTM列（%s），跳过通路分析", ptm_columns - set(df.columns))
-            except ImportError:
-                logger.warning("signaling_network模块未安装，跳过通路分析")
-            except Exception as e:
-                logger.warning("通路分析失败: %s", e)
+    result_df = pd.DataFrame(results)
+    save_dataframe(result_df, args.output)
+    logger.info("预测结果已保存: %s", args.output)
+    logger.info("共处理 %d 个样本（含 PTM 位点 %d 个）", len(results), sum(ptm_counts))
 
+    if args.pathway_analysis:
+        _run_batch_pathway_analysis(args, df, logger)
+
+
+def _run_batch_pathway_analysis(args, df, logger):
+    """批量模式的信号通路分析（从批量路径抽出以控制行数）。"""
+    import pandas as pd
+
+    logger.info("步骤 3: 信号通路分析")
+    try:
+        from src.models.signaling_network import SignalingNetworkMapper
+
+        # PTM type → effect mapping (same logic as API predictions.py)
+        PTM_TYPE_TO_EFFECT = {
+            "phosphorylation": "gain",
+            "ubiquitination": "loss",
+            "acetylation": "gain",
+            "methylation": "gain",
+            "sumoylation": "gain",
+            "succinylation": "gain",
+        }
+        _DEFAULT_EFFECT = "loss"
+        _DEFAULT_DELTA_PROB = 0.5
+
+        mapper = SignalingNetworkMapper()
+        ptm_columns = {"gene_symbol", "ptm_type", "effect", "delta_prob"}
+        if ptm_columns.issubset(df.columns):
+            ptm_df = df[list(ptm_columns)].copy()
+            # Derive effect from ptm_type for rows missing explicit effect
+            mask_no_effect = ptm_df["effect"].isna() | (ptm_df["effect"] == "")
+            for idx in ptm_df.index[mask_no_effect]:
+                ptm_type_raw = str(ptm_df.at[idx, "ptm_type"])
+                ptm_type_lower = ptm_type_raw.lower()
+                ptm_df.at[idx, "effect"] = PTM_TYPE_TO_EFFECT.get(
+                    ptm_type_lower, _DEFAULT_EFFECT
+                )
+            # Fill remaining effect/delta_prob with sensible defaults
+            ptm_df["effect"] = ptm_df["effect"].fillna(_DEFAULT_EFFECT)
+            ptm_df["delta_prob"] = ptm_df["delta_prob"].fillna(_DEFAULT_DELTA_PROB).astype(float)
+            # Capitalize ptm_type to match SignalingNetworkMapper pathway definitions
+            ptm_df["ptm_type"] = ptm_df["ptm_type"].apply(
+                lambda x: str(x).capitalize() if x else ""
+            )
+            report = mapper.generate_network_report(ptm_df)
+            pathway_output = os.path.join(
+                os.path.dirname(args.output), "pathway_analysis.csv"
+            )
+            pathway_rows = []
+            for name, activity in report.get("pathway_activities", {}).items():
+                pathway_rows.append({
+                    "pathway": name,
+                    "activity": activity,
+                    "key_genes": ",".join(mapper.pathways.get(name, {}).get("output_genes", [])),
+                })
+            if pathway_rows:
+                pd.DataFrame(pathway_rows).to_csv(pathway_output, index=False)
+                logger.info("通路分析已保存: %s", pathway_output)
+            else:
+                logger.info("未检测到显著的通路活性变化")
+        else:
+            logger.info("输入数据缺少PTM列（%s），跳过通路分析", ptm_columns - set(df.columns))
+    except ImportError:
+        logger.warning("signaling_network模块未安装，跳过通路分析")
+    except Exception as e:
+        logger.warning("通路分析失败: %s", e)
+
+
+def main():
+    """主函数：解析参数、加载资源并分发到单样本或批量推理路径。"""
+    args = parse_args()
+    model, cell_states, device, config, logger, preprocess_request = _load_predict_resources(args)
+
+    if args.sequence:
+        _run_single_predict(args, model, cell_states, device, logger, preprocess_request)
+    elif args.input:
+        _run_batch_predict(args, model, cell_states, device, logger, preprocess_request)
     else:
         logger.warning("未提供输入数据，请使用 --sequence 或 --input 参数")
 

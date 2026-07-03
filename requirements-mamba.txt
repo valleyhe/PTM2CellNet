@@ -1,0 +1,12 @@
+# Mamba encoder support — P1-2.
+#
+# mamba-ssm requires a CUDA-capable build toolchain and is the most fragile
+# dependency for CPU-only / clean environments, so it lives in its own file.
+# Install only when the Mamba encoder is actually needed:
+#     pip install -r requirements-core.txt -r requirements-mamba.txt
+
+-r requirements-core.txt
+
+mamba-ssm>=2.0.0
+lion-pytorch>=0.0.7
+einops>=0.6.0

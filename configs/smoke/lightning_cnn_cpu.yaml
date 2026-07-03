@@ -1,0 +1,71 @@
+# Smoke / quickstart 配置——Lightning 路径（P1-3）。
+#
+# 与 configs/smoke/cnn_cpu.yaml 对应，但走 train_lightning.py 入口，用于快速
+# 验证 Lightning 训练→导出推理 artifact→predict.py 推理的工程链路。CPU、1 epoch。
+#
+# 用法：
+#   python scripts/train_lightning.py --config configs/smoke/lightning_cnn_cpu.yaml \
+#       --data data/raw/sample_data.csv
+#   python scripts/predict.py --model outputs/models/best_model.pt \
+#       --sequence ACDEFGHIKLMNPQRSTVWY --device cpu
+
+project:
+  name: "PTM2CellNet-smoke-lightning"
+  version: "1.0.0"
+  seed: 42
+
+paths:
+  outputs_models: "outputs/models"
+  outputs_logs: "outputs/logs"
+  outputs_results: "outputs/results"
+
+model:
+  encoder_type: "cnn"
+  vocab_size: 21
+  embed_dim: 32
+  num_filters: 32
+  kernel_sizes: [3, 5]
+  max_seq_len: 512
+  num_ptm_types: 6
+  num_classes: 4           # 训练时会按真实标签数自动覆盖
+  pool_type: "mean"
+  dropout: 0.1
+
+data:
+  max_sequence_length: 512
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+  num_workers: 0
+  pin_memory: false
+  preprocessing:
+    remove_duplicates: true
+    handle_missing: "drop"
+    normalize_sequences: true
+
+training:
+  max_epochs: 1
+  batch_size: 16
+  learning_rate: 0.001
+  accelerator: "cpu"
+  devices: 1
+  precision: "32"          # CPU 不支持混合精度
+  drop_last: false         # smoke 数据量小，避免 drop_last 丢批次
+  accumulate_grad_batches: 1
+  gradient_clip_val: 0.0
+  early_stopping:
+    enabled: false
+  checkpoint:
+    enabled: true
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 1
+    filename: "ptm2cellnet-smoke-{epoch:02d}-{val_loss:.4f}"
+  logger:
+    type: "tensorboard"
+    save_dir: "outputs/logs"
+    name: "smoke"

@@ -24,6 +24,12 @@ def parse_args():
     parser.add_argument("--data", type=str, default=None, help="评估数据路径")
     parser.add_argument("--output", type=str, default="outputs/results", help="输出目录")
     parser.add_argument("--device", type=str, default=None, help="设备（cuda/cpu）")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="评估批大小（覆盖 config training.batch_size，默认 32）",
+    )
     return parser.parse_args()
 
 
@@ -54,7 +60,13 @@ def main():
 
     args = parse_args()
     # 优先使用与 checkpoint 同目录的 .config.yaml，避免与默认 config 不匹配
-    config, config_source = resolve_inference_config(args.model, args.config)
+    try:
+        config, config_source = resolve_inference_config(args.model, args.config)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"配置/checkpoint 解析失败：{exc}。"
+            "请确认 --model 与 --config 路径存在且可读。"
+        ) from exc
     logger.info("使用配置文件: %s", config_source)
 
     os.makedirs(args.output, exist_ok=True)
@@ -63,6 +75,10 @@ def main():
     loader = DataLoader(config.to_dict())
 
     if args.data:
+        if not os.path.exists(args.data):
+            raise SystemExit(
+                f"评估数据文件不存在: {args.data}。请确认 --data 路径正确。"
+            )
         df = loader.load_from_csv(args.data)
     else:
         df = loader.load_sample_data(num_samples=200)
@@ -70,9 +86,14 @@ def main():
     logger.info("步骤 2: 数据预处理")
     preprocessor = DataPreprocessor(config.to_dict())
     _, _, test_df = preprocessor.preprocess_pipeline(df)
+    if test_df is None or len(test_df) == 0:
+        raise SystemExit(
+            "评估数据为空：预处理后测试集无样本，无法评估。"
+            "请检查 --data 数据内容或数据划分比例。"
+        )
 
     logger.info("步骤 3: 创建数据模块")
-    batch_size = config.get("training.batch_size", 32)
+    batch_size = args.batch_size if args.batch_size is not None else config.get("training.batch_size", 32)
     datamodule = PTMPlainDataModule(
         test_df, None, test_df,
         config=config.to_dict(),
@@ -94,6 +115,10 @@ def main():
     model = PTM2CellNet.from_config(config.to_dict())
     try:
         load_model(model, args.model)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"checkpoint 文件不存在: {args.model}。请确认 --model 路径正确。"
+        ) from exc
     except RuntimeError as exc:
         raise RuntimeError(
             f"加载 checkpoint 失败：checkpoint 与 config 不匹配。"
@@ -118,6 +143,11 @@ def main():
             "评估指标计算失败，可能是 config 中的 model.num_classes 与评估数据标签空间不匹配。"
             f"配置类别数: {config.get('model.num_classes')}, 数据标签数: {len(cell_states)}。"
             "请提供与配置类别数匹配的数据或使用匹配的配置/checkpoint。"
+        ) from exc
+    except (KeyError, AttributeError) as exc:
+        raise SystemExit(
+            f"评估过程中出现意外的键/属性错误: {exc}。"
+            "可能由于 config 与 checkpoint 或数据标签不一致，请核对配置。"
         ) from exc
 
     metrics = result["metrics"]

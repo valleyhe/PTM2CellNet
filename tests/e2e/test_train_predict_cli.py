@@ -95,14 +95,21 @@ def native_artifact(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def _reset_api_state():
+def _reset_api_state(monkeypatch):
     """Reset shared API STATE around every test (P0-1).
 
     Tests in this module call ``POST /api/v1/initialize`` against the real
     ``create_app()``, which mutates the module-level ``STATE`` singleton
     (including ``variant_workflow``). Without a reset, that state leaks into
     later unit tests that assert the variant workflow is *not* initialized.
+
+    These tests call /initialize, which requires PTM2CELLNET_API_KEY in
+    production; run them in development mode to bypass that gate, and widen
+    the checkpoint path allowlist to /tmp (pytest tmp_path lives under it).
     """
+    monkeypatch.setenv("PTM2CELLNET_ENV", "development")
+    monkeypatch.delenv("PTM2CELLNET_API_KEY", raising=False)
+    monkeypatch.setenv("PTM2CELLNET_ALLOWED_ROOTS", "/tmp")
     from src.api.routes.state import reset_state
 
     reset_state()

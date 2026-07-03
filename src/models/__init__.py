@@ -24,7 +24,7 @@ from .multitask import (
     MultiTaskPredictor,
     HierarchicalMultiTaskPredictor,
 )
-from .architectures import PTM2CellNet, PTM2CellNetLarge
+from .architectures import PTM2CellNet, PTM2CellNetLarge, PTM2CellNetBase
 from .ensemble import PTM2CellNetEnsemble
 from .geneformer_embedding import GeneformerEmbeddingLoader
 from .davf_checkpoint_utils import (
@@ -70,13 +70,6 @@ from .external_tools import (
 # The module imports cleanly even when scvi-tools is absent (SCVI_AVAILABLE flag).
 from .scvi_adapter import ScVIAdapter, ScVIAdapterConfig, SCVI_AVAILABLE
 
-# Deferred v1.0 roadmap features (V2-01..V2-05): documented stubs.
-from .roadmap import (
-    get_deferred_features,
-    DeferredFeature,
-    DEFERRED_FEATURES,
-)
-
 __all__ = [
     # Encoders
     "SequenceEncoder",
@@ -105,6 +98,7 @@ __all__ = [
     # Architecture
     "PTM2CellNet",
     "PTM2CellNetLarge",
+    "PTM2CellNetBase",
     # Ensemble
     "PTM2CellNetEnsemble",
     # Utils

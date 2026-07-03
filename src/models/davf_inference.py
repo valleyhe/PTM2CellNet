@@ -5,12 +5,25 @@ Produces fixed-dimension [B, 128] feature vectors from PTM perturbation inputs.
 Handles checkpoint loading with graceful degradation (zero-vector fallback).
 Provides freeze/unfreeze API for fine-tuning strategies.
 
-Architecture flow:
+Supports two state_space modes:
+    - "scvi_latent" (default): ODE-based LatentDAVF model in scVI latent space
+    - "gene": Simple MLP encoder operating directly on gene-space inputs
+
+Architecture flow (scvi_latent mode):
     PTM Input (gene_ids, directions, attention_mask) [B, K]
         ↓
     LatentDAVF/DAVF model (ODE integration)
         ↓
     BiPerturbEncoder condition embedding [B, hidden_dim=256]
+        ↓
+    DeltaProjection (trainable head)
+        ↓
+    DAVF Features [B, feature_dim=128]
+
+Architecture flow (gene mode):
+    PTM Input (gene_ids, directions, attention_mask) [B, K]
+        ↓
+    GeneMLEPEncoder (embedding + MLP, no ODE)
         ↓
     DeltaProjection (trainable head)
         ↓
@@ -38,18 +51,18 @@ class DAVFInferenceConfig:
     """Configuration for DAVFInferenceModule.
 
     Attributes:
-        state_space: ``"scvi_latent"`` (default and only supported value).
-            Note: an earlier design documented ``"gene"`` as a valid option,
-            but gene-space inference was never implemented. It is now rejected
-            at config-validation time (raise ``ValueError``); only
-            ``"scvi_latent"`` is accepted. Gene<->latent mapping is handled
-            externally via :class:`src.models.scvi_adapter.ScVIAdapter`.
+        state_space: ``"scvi_latent"`` (default) or ``"gene"``.
+            - ``"scvi_latent"``: ODE-based LatentDAVF in scVI latent space.
+            - ``"gene"``: Simple MLP encoder operating directly on gene-space
+              inputs (no ODE, no scVI).
         checkpoint_path: Path to model checkpoint file
         feature_dim: Output feature dimension (default 128)
-        hidden_dim: BiPerturbEncoder hidden dimension (default 256)
+        hidden_dim: BiPerturbEncoder / GeneMLEPEncoder hidden dimension (default 256)
         freeze: Whether to freeze DAVF parameters on init (default True)
         latent_dim: Latent space dimension for scvi_latent mode (default 10)
         num_genes: Number of genes in vocabulary (default 5000)
+        gene_vocab_size: Vocabulary size for gene-space embedding in ``"gene"``
+            mode (default 5000). Ignored when ``state_space="scvi_latent"``.
         num_steps: ODE integration steps (default 50)
         device: Device to use (auto-detect if None)
         allow_unsafe_legacy_load: Whether to allow pickle-based fallback for trusted legacy checkpoints
@@ -61,15 +74,16 @@ class DAVFInferenceConfig:
     freeze: bool = True
     latent_dim: int = 10
     num_genes: int = 5000
+    gene_vocab_size: int = 5000
     num_steps: int = 50
     device: Optional[str] = None
     allow_unsafe_legacy_load: bool = False
 
     def __post_init__(self):
         """Validate configuration parameters."""
-        if self.state_space not in ("scvi_latent",):
+        if self.state_space not in ("scvi_latent", "gene"):
             raise ValueError(
-                f"state_space must be 'scvi_latent', got '{self.state_space}'"
+                f"state_space must be 'scvi_latent' or 'gene', got '{self.state_space}'"
             )
         if self.feature_dim <= 0:
             raise ValueError(
@@ -90,6 +104,10 @@ class DAVFInferenceConfig:
         if self.num_steps <= 0:
             raise ValueError(
                 f"num_steps must be positive, got {self.num_steps}"
+            )
+        if self.state_space == "gene" and self.gene_vocab_size <= 0:
+            raise ValueError(
+                f"gene_vocab_size must be positive in gene mode, got {self.gene_vocab_size}"
             )
 
 
@@ -134,6 +152,70 @@ class DeltaProjection(nn.Module):
         return self.net(x)
 
 
+class GeneMLEPEncoder(nn.Module):
+    """Simple MLP encoder for gene-space DAVF inference (no ODE).
+
+    Embeds gene_ids and directions, pools over the sequence dimension,
+    then projects through an MLP to produce a condition embedding.
+
+    Architecture:
+        gene_ids  [B, K] -> Embedding -> [B, K, gene_embed_dim]
+        directions [B, K] -> Embedding -> [B, K, dir_embed_dim]
+        concat -> [B, K, gene_embed_dim + dir_embed_dim]
+        masked mean pool over K -> [B, gene_embed_dim + dir_embed_dim]
+        MLP -> [B, hidden_dim]
+    """
+
+    def __init__(
+        self,
+        gene_vocab_size: int = 5000,
+        gene_embed_dim: int = 64,
+        num_directions: int = 3,
+        dir_embed_dim: int = 32,
+        hidden_dim: int = 256,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.gene_embedding = nn.Embedding(gene_vocab_size, gene_embed_dim)
+        self.direction_embedding = nn.Embedding(num_directions, dir_embed_dim)
+        concat_dim = gene_embed_dim + dir_embed_dim
+        self.mlp = nn.Sequential(
+            nn.Linear(concat_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+
+    def forward(
+        self,
+        gene_ids: torch.Tensor,
+        directions: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Encode gene-space inputs into a condition embedding.
+
+        Args:
+            gene_ids: [B, K] gene index tensor
+            directions: [B, K] direction code tensor (0=KO, 1=KD, 2=OE)
+            attention_mask: [B, K] validity mask (1=valid, 0=pad)
+
+        Returns:
+            [B, hidden_dim] condition embedding
+        """
+        gene_emb = self.gene_embedding(gene_ids)        # [B, K, gene_embed_dim]
+        dir_emb = self.direction_embedding(directions)   # [B, K, dir_embed_dim]
+        combined = torch.cat([gene_emb, dir_emb], dim=-1)  # [B, K, concat_dim]
+
+        # Masked mean pool over K
+        mask_expanded = attention_mask.unsqueeze(-1).float()  # [B, K, 1]
+        summed = (combined * mask_expanded).sum(dim=1)        # [B, concat_dim]
+        counts = mask_expanded.sum(dim=1).clamp(min=1.0)      # [B, 1]
+        pooled = summed / counts                              # [B, concat_dim]
+
+        return self.mlp(pooled)  # [B, hidden_dim]
+
+
 class DAVFInferenceModule(nn.Module):
     """Inference wrapper for LatentDAVF/DAVF models.
 
@@ -164,13 +246,20 @@ class DAVFInferenceModule(nn.Module):
         else:
             self.device = torch.device("cpu")
 
-        # Create LatentDAVF model
-        latent_config = LatentDAVFConfig(
-            latent_dim=config.latent_dim,
-            num_genes=config.num_genes,
-            hidden_dim=config.hidden_dim,
-        )
-        self.latent_davf = LatentDAVF(latent_config)
+        if config.state_space == "scvi_latent":
+            # Create LatentDAVF model for scVI latent-space inference
+            latent_config = LatentDAVFConfig(
+                latent_dim=config.latent_dim,
+                num_genes=config.num_genes,
+                hidden_dim=config.hidden_dim,
+            )
+            self.latent_davf = LatentDAVF(latent_config)
+        elif config.state_space == "gene":
+            # Create GeneMLEPEncoder for gene-space inference (no ODE)
+            self.gene_encoder = GeneMLEPEncoder(
+                gene_vocab_size=config.gene_vocab_size,
+                hidden_dim=config.hidden_dim,
+            )
 
         # Create DeltaProjection head (always trainable, per D-14)
         self.delta_projection = DeltaProjection(
@@ -191,13 +280,23 @@ class DAVFInferenceModule(nn.Module):
     def _load_checkpoint(self) -> None:
         """Load model checkpoint with graceful fallback.
 
-        Tries to load checkpoint from config.checkpoint_path. If missing,
-        logs warning and sets _checkpoint_loaded=False for graceful degradation.
+        For ``state_space="gene"``: checkpoints are not required since
+        GeneMLEPEncoder is lightweight; skip loading entirely.
+
+        For ``state_space="scvi_latent"``: tries to load checkpoint from
+        config.checkpoint_path. If missing, logs warning and sets
+        _checkpoint_loaded=False for graceful degradation.
 
         Handles both formats:
         - {"model_state_dict": state_dict, ...} (standard)
         - {state_dict directly} (legacy)
         """
+        # Gene mode: encoder is self-contained, no external checkpoint needed
+        if self.config.state_space == "gene":
+            self._checkpoint_loaded = True
+            logger.info("Gene-space mode: GeneMLEPEncoder ready (no checkpoint required)")
+            return
+
         ckpt_path = Path(self.config.checkpoint_path)
 
         if not ckpt_path.exists():
@@ -274,14 +373,19 @@ class DAVFInferenceModule(nn.Module):
             self._checkpoint_loaded = False
 
     def freeze_davf(self) -> None:
-        """Freeze all DAVF/LatentDAVF parameters.
+        """Freeze all DAVF/encoder parameters.
 
         Per D-15: Sets requires_grad=False for all DAVF model parameters.
         Per D-17: DeltaProjection parameters remain trainable.
         """
-        for param in self.latent_davf.parameters():
-            param.requires_grad = False
-        logger.debug("Froze DAVF parameters (DeltaProjection remains trainable)")
+        if self.config.state_space == "scvi_latent":
+            for param in self.latent_davf.parameters():
+                param.requires_grad = False
+            logger.debug("Froze LatentDAVF parameters (DeltaProjection remains trainable)")
+        elif self.config.state_space == "gene":
+            for param in self.gene_encoder.parameters():
+                param.requires_grad = False
+            logger.debug("Froze GeneMLEPEncoder parameters (DeltaProjection remains trainable)")
 
     def unfreeze_davf(self) -> None:
         """Re-enable gradients for all parameters.
@@ -305,8 +409,7 @@ class DAVFInferenceModule(nn.Module):
                 - directions: [B, K] direction codes (0=KO, 1=KD, 2=OE)
                 - attention_mask: [B, K] validity mask
             z_0: Reserved for API compatibility with latent-state DAVF workflows.
-                 The current wrapper extracts features from the perturbation
-                 condition embedding and does not consume z_0.
+                 Only used in ``"scvi_latent"`` mode. Ignored in ``"gene"`` mode.
 
         Returns:
             DAVFInferenceOutput with davf_features [B, feature_dim]
@@ -334,15 +437,19 @@ class DAVFInferenceModule(nn.Module):
                 )
             )
 
-        # Get condition embedding from BiPerturbEncoder
-        gene_embeddings = self.latent_davf._get_gene_embeddings(gene_ids)
-        condition, _ = self.latent_davf.biperturb_encoder(
-            gene_embeddings,
-            directions,
-            magnitudes=None,
-            return_attention=False,
-            attention_mask=attention_mask,
-        )  # [B, hidden_dim]
+        if self.config.state_space == "gene":
+            # Gene-space mode: embed + MLP, no ODE
+            condition = self.gene_encoder(gene_ids, directions, attention_mask)
+        else:
+            # scvi_latent mode: BiPerturbEncoder condition embedding from LatentDAVF
+            gene_embeddings = self.latent_davf._get_gene_embeddings(gene_ids)
+            condition, _ = self.latent_davf.biperturb_encoder(
+                gene_embeddings,
+                directions,
+                magnitudes=None,
+                return_attention=False,
+                attention_mask=attention_mask,
+            )  # [B, hidden_dim]
 
         # Project to feature dimension
         davf_features = self.delta_projection(condition)

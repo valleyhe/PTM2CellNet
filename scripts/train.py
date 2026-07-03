@@ -7,8 +7,11 @@
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
+
+import numpy as np
 
 
 def _ensure_project_root() -> None:
@@ -20,19 +23,43 @@ def _ensure_project_root() -> None:
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="PTM2CellNet训练脚本")
-    parser.add_argument("--config", type=str, default="configs/default.yaml", help="配置文件路径")
+    # P1-3: 默认指向 smoke 配置，使 ``python scripts/train.py`` 首次运行即
+    # 轻量可跑（小型 CNN、CPU、1 epoch）。研究/生产训练请显式传 configs/research/*。
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/smoke/cnn_cpu.yaml",
+        help="配置文件路径（默认 smoke 快速验证；研究训练请用 configs/research/*.yaml）",
+    )
     parser.add_argument("--data", type=str, default=None, help="训练数据路径")
     parser.add_argument("--output", type=str, default="outputs", help="输出目录")
     parser.add_argument("--epochs", type=int, default=None, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
     parser.add_argument("--lr", type=float, default=None, help="学习率")
     parser.add_argument("--pathway-analysis", action="store_true", default=False, help="启用信号通路分析（基于验证集）")
+    parser.add_argument("--seed", type=int, default=42, help="随机种子（确保可复现性）")
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="checkpoint 路径用于断点续训（恢复模型权重与 epoch 计数）",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=None,
+        help="DataLoader 工作进程数（默认从 config data.num_workers 读取，缺省 0）",
+    )
     return parser.parse_args()
 
 
 def main():
     """主函数"""
     _ensure_project_root()
+    # torch 在种子设置(下方 line ~81 torch.manual_seed)即被使用，须在此提前导入；
+    # 原代码仅在 line ~166 的 DataLoader 段才局部 import torch，导致 main() 启动
+    # 即 NameError: name 'torch' is not defined，--resume 等后续流程无从执行。
+    import torch
     from src.utils.config import Config
     from src.utils.logging import setup_logger, get_timestamped_log_filename
     from src.data.loaders import DataLoader
@@ -53,6 +80,22 @@ def main():
 
     args = parse_args()
 
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # P1-3: 若用户使用了较重的研究/默认配置，提示首次运行可改用 smoke 配置。
+    _heavy_configs = ("configs/default.yaml", "configs/research/", "configs/lightning.yaml")
+    if args.config.endswith(tuple(_heavy_configs)):
+        logger.info(
+            "提示：当前配置 %s 偏研究级（transformer/多层/多 epoch）。"
+            "首次 E2E 验证推荐 configs/smoke/cnn_cpu.yaml（小型 CNN、CPU、1 epoch）。",
+            args.config,
+        )
+
     config = Config.from_yaml(args.config)
 
     if args.epochs is not None:
@@ -67,8 +110,10 @@ def main():
 
     if args.data:
         df = loader.load_from_csv(args.data)
-        # P1-3: real data source provided → this is NOT a demo model.
-        is_demo_data = False
+        # P1-3: 与 train_lightning.py 一致——把 sample/synthetic 文件名视为 demo，
+        # 避免 sample_data.csv 这种合成 fixture 被当作真实数据误标记 model_kind=real。
+        _data_basename = os.path.basename(args.data).lower()
+        is_demo_data = "sample" in _data_basename or "synthetic" in _data_basename
         data_source = args.data
     else:
         df = loader.load_sample_data(num_samples=500)
@@ -106,10 +151,12 @@ def main():
 
     logger.info("步骤 3: 创建数据模块")
     batch_size = config.get("training.batch_size", 32)
+    num_workers = args.num_workers if args.num_workers is not None else config.get("data.num_workers", 0)
     datamodule = PTMPlainDataModule(
         train_df, val_df, test_df,
         config=config.to_dict(),
         batch_size=batch_size,
+        num_workers=num_workers,
     )
     from src.data.labels import derive_label_mapping
     cell_states, label_to_idx = derive_label_mapping(train_df)
@@ -119,8 +166,8 @@ def main():
     logger.info("持久化训练标签映射: cell_states=%s", cell_states)
 
     # Create WeightedRandomSampler for balanced batches
-    import numpy as np
-    import torch
+    # numpy/torch 已在模块顶部导入；函数内重复 import 会使整个函数体的 np/torch 成为
+    # 局部变量，导致种子块(83-88行)在局部 import 执行前访问 np/torch 时 UnboundLocalError。
     from torch.utils.data import WeightedRandomSampler
 
     label_col = config.get("data.label_column", "cell_state")
@@ -136,20 +183,37 @@ def main():
     )
     logger.info("使用WeightedRandomSampler平衡批次: 类别分布 %s", class_counts.tolist())
 
-    # Create train dataloader with sampler
+    # Build the train dataloader via the datamodule's dataset while injecting the
+    # WeightedRandomSampler (datamodule.train_dataloader() uses shuffle=True,
+    # which is incompatible with a sampler). num_workers is read from config/CLI
+    # so multi-core hosts can parallelise data loading.
     from torch.utils.data import DataLoader
-    train_dataset = datamodule.train_dataset
+    pin_memory = config.get("data.pin_memory", False)
+    persistent_workers = config.get("data.persistent_workers", False) and num_workers > 0
     train_loader = DataLoader(
-        train_dataset,
+        datamodule.train_dataset,
         batch_size=batch_size,
         sampler=sampler,
-        num_workers=0,
-        pin_memory=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
     )
 
     logger.info("步骤 4: 创建模型")
     model = PTM2CellNet.from_config(config.to_dict())
     logger.info("模型创建完成: %s", model.encoder_type)
+
+    # 断点续训预检：仅校验 checkpoint 存在性与可访问性。
+    # 实际权重加载与 num_classes 一致性校验统一由下方步骤 5 之后的
+    # torch.load(args.resume) + load_state_dict(strict=False) 完成，
+    # 避免在此处先 load_model 加载一次权重、随后又被权威加载覆盖的冗余调用。
+    if args.resume:
+        if not os.path.exists(args.resume):
+            raise SystemExit(
+                f"--resume 指定的 checkpoint 不存在: {args.resume}。"
+                f"请确认路径正确且与当前 config 匹配。"
+            )
+        logger.info("检测到 --resume，将在训练器初始化后从 checkpoint 恢复: %s", args.resume)
 
     logger.info("步骤 5: 配置训练器")
     trainer = Trainer(model, config=config.to_dict())
@@ -178,6 +242,50 @@ def main():
 
     trainer.add_callback(checkpoint_callback)
     trainer.add_callback(early_stop_callback)
+
+    # 断点续训: 恢复模型权重与 epoch 计数，并校验 checkpoint 与当前 config 一致。
+    if args.resume is not None:
+        if not os.path.exists(args.resume):
+            raise SystemExit(f"--resume 指定的 checkpoint 不存在: {args.resume}")
+        logger.info("从 checkpoint 恢复: %s", args.resume)
+        # 显式 weights_only=False：checkpoint 非纯 state_dict（含 epoch/global_step
+        # 等 Python 对象），需要反序列化完整对象。仅加载受信任的自产 checkpoint。
+        ckpt = torch.load(args.resume, map_location=trainer.device, weights_only=False)
+
+        # 配置一致性校验: checkpoint 的 num_classes 必须与当前 config 一致，
+        # 否则权重形状不匹配会静默失败或导致维度错误。
+        ckpt_state = ckpt.get("model_state_dict", ckpt)
+        # 探测分类头输出维度（兼容多种命名）
+        ckpt_num_classes = None
+        for key, tensor in ckpt_state.items():
+            if key.endswith(("classifier.weight", "classifier.bias", "head.weight", "head.bias")):
+                if tensor.dim() >= 2:
+                    ckpt_num_classes = tensor.shape[0]
+                else:
+                    ckpt_num_classes = int(tensor.shape[0])
+                break
+        if ckpt_num_classes is not None and ckpt_num_classes != len(cell_states):
+            raise SystemExit(
+                f"checkpoint 与当前配置不一致: checkpoint num_classes={ckpt_num_classes}, "
+                f"config num_classes={len(cell_states)}。请使用匹配的 checkpoint 或配置。"
+            )
+
+        missing, unexpected = model.load_state_dict(ckpt_state, strict=False)
+        if missing:
+            logger.warning("恢复时缺失的键: %s", missing)
+        if unexpected:
+            logger.warning("恢复时多余的键: %s", unexpected)
+
+        ckpt_epoch = ckpt.get("epoch", None)
+        if ckpt_epoch is not None:
+            trainer.epoch = int(ckpt_epoch)
+            trainer.global_step = int(ckpt.get("global_step", 0))
+            logger.info("恢复 epoch=%d, global_step=%d", trainer.epoch, trainer.global_step)
+        # train.py 的 ModelCheckpoint 未持久化 optimizer/scheduler 状态，
+        # 因此 optimizer/scheduler 从当前配置重新初始化（lr 重新预热）。
+        logger.warning(
+            "注意: optimizer/scheduler 状态未在 checkpoint 中保存，将使用当前配置重新初始化。"
+        )
 
     logger.info("步骤 6: 开始训练")
     trainer.fit(
@@ -211,58 +319,6 @@ def main():
     trained_config.save(os.path.join(args.output, "models", "best_model.config.yaml"))
     trained_config.save(os.path.join(args.output, "models", "best_model_last.config.yaml"))
 
-    # P1-3: 导出 artifact manifest
-    import subprocess
-    try:
-        git_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-    except Exception:
-        git_commit = "unknown"
-    manifest = {
-        "checkpoint_path": os.path.join(args.output, "models", "best_model.pt"),
-        "config_path": os.path.join(args.output, "models", "best_model.config.yaml"),
-        "training_entrypoint": "scripts/train.py",
-        "model_class": type(model).__name__,
-        "num_classes": len(cell_states),
-        "cell_states": cell_states,
-        "max_sequence_length": config.get("data.max_sequence_length", 1000),
-        "ptm_types": config.get("data.ptm_types", None),
-        "git_commit": git_commit,
-        "created_at": __import__("datetime").datetime.now().isoformat(),
-    }
-    # P1-3: record data provenance + model_kind so downstream tooling (predict.py,
-    # /model/info, container auto-init) can flag demo models and prevent misuse.
-    model_kind = "demo" if is_demo_data else "real"
-    manifest["model_kind"] = model_kind
-    manifest["model_card"] = {
-        "model_kind": model_kind,
-        "training_data": "synthetic_random" if is_demo_data else data_source,
-        "not_for_biological_use": is_demo_data,
-        "description": (
-            "Demo/smoke model trained on randomly generated sequences and labels. "
-            "Validates the engineering pipeline only; predictions have no "
-            "biological meaning."
-        ) if is_demo_data else (
-            "Model trained on real data. Verify dataset provenance before use."
-        ),
-    }
-    manifest["data_provenance"] = {
-        "model_kind": model_kind,
-        "training_data": "synthetic_random" if is_demo_data else data_source,
-        "source": data_source,
-        "not_for_biological_use": is_demo_data,
-    }
-    from src.utils.io import save_json
-    save_json(manifest, os.path.join(args.output, "models", "artifact_manifest.json"))
-    if is_demo_data:
-        logger.warning(
-            "⚠️ 该模型在合成/示例数据上训练，将标记为 model_kind=demo。"
-            "产物仅用于工程链路验证，不可用于真实生物学预测。"
-        )
-    logger.info("artifact manifest 已导出")
-
     logger.info("步骤 8: 评估模型")
     evaluator = Evaluator(model, config=config.to_dict(), task_type="classification")
     test_metrics = evaluator.evaluate(datamodule.test_dataloader())
@@ -280,6 +336,54 @@ def main():
     with open(metrics_path, "w") as f:
         json.dump(_sanitize_nans(test_metrics), f, indent=2)
     logger.info("测试指标已保存: %s", metrics_path)
+
+    # P1-1 / P1-3: 导出 artifact manifest（provenance + 数据画像 + 发布门禁）。
+    # 评估在 manifest 之前完成，使 deployable 由真实指标驱动而非手设。
+    from src.data.data_contract import profile_dataset, validate_data_contract
+    from src.training.artifacts import write_artifact_manifest
+
+    contract_report = validate_data_contract(df)
+    for w in contract_report.get("warnings", []):
+        logger.warning("数据契约: %s", w)
+    if not contract_report["ok"] and not is_demo_data:
+        logger.warning(
+            "数据契约硬失败（将标记 deployable=False）：%s",
+            contract_report["hard_failures"],
+        )
+    dataset_profile = profile_dataset(df)
+
+    release_thresholds = config.get("release_gate.thresholds", None)
+    if is_demo_data:
+        # demo 模型不参与发布门禁；metrics 仍记录用于回归。
+        release_thresholds = None
+
+    write_artifact_manifest(
+        os.path.join(args.output, "models"),
+        model_class=type(model).__name__,
+        cell_states=cell_states,
+        config=trained_config,
+        training_entrypoint="scripts/train.py",
+        is_demo_data=is_demo_data,
+        data_source=data_source,
+        train_df=df,
+        split_strategy=config.get("data.split_strategy")
+        or f"random({config.get('data.split.train_ratio', 0.7)}/"
+        f"{config.get('data.split.val_ratio', 0.15)}/"
+        f"{config.get('data.split.test_ratio', 0.15)})",
+        metrics=_sanitize_nans(test_metrics) or None,
+        dataset_profile=dataset_profile,
+        release_thresholds=release_thresholds,
+        intended_use=(
+            "Engineering pipeline validation only." if is_demo_data
+            else "Cell-state prediction. Validate on held-out biological data."
+        ),
+    )
+    if is_demo_data:
+        logger.warning(
+            "⚠️ 该模型在合成/示例数据上训练，将标记为 model_kind=demo。"
+            "产物仅用于工程链路验证，不可用于真实生物学预测。"
+        )
+    logger.info("artifact manifest 已导出")
 
     if args.pathway_analysis:
         logger.info("步骤 9: 信号通路分析")

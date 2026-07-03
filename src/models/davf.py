@@ -741,22 +741,32 @@ class DAVF(nn.Module):
                 raise ValueError(
                     f"gene_ids must be in [0, {len(self.gene_names)}), got max {gene_ids.max().item()}"
                 )
-            # Convert indices to gene names
-            gene_names_list = []
-            for i in range(B):
-                batch_gene_names = []
-                for j in range(K):
-                    idx = gene_ids[i, j].item()
-                    batch_gene_names.append(self.gene_names[idx])
-                gene_names_list.append(batch_gene_names)
+            # Vectorized batch lookup (replaces the previous double Python
+            # ``for i in range(B): for j in range(K):`` loop that called
+            # ``.item()`` B*K times and hit the embedding loader once per row).
+            #
+            # Strategy:
+            #   1. Move gene_ids to CPU once and convert to a flat numpy array
+            #      so we can index self.gene_names (a Python list) in one shot
+            #      via list comprehension over the flat index array.
+            #   2. Build a single flat list of gene names (length B*K) and
+            #      issue ONE call to ``get_gene_embedding`` instead of B calls.
+            #   3. Reshape the [B*K, D] result back to [B, K, D].
+            #
+            # This removes one full axis of Python overhead and collapses
+            # B embedding-loader calls into one, which is the actual hotspot
+            # the audit flagged (davf.py:739-771).
+            import numpy as _np
 
-            # Get embeddings for each sample in batch
-            embeddings_list = []
-            for batch_gene_names in gene_names_list:
-                embs = self.embedding_loader.get_gene_embedding(batch_gene_names)
-                embeddings_list.append(embs)
+            flat_cpu = gene_ids.detach().cpu().numpy().reshape(-1)
+            gene_names_arr = list(self.gene_names)
+            flat_gene_names = [gene_names_arr[int(idx)] for idx in flat_cpu]
 
-            embeddings = torch.stack(embeddings_list, dim=0)
+            # Single batched call into the embedding loader.
+            flat_embeddings = self.embedding_loader.get_gene_embedding(flat_gene_names)
+            # Reshape back to [B, K, D] and move to the projection device.
+            embed_dim = flat_embeddings.shape[-1]
+            embeddings = flat_embeddings.reshape(B, K, embed_dim)
             projection_device = (
                 self.gene_embed_proj.weight.device
                 if self.gene_embed_proj is not None

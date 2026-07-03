@@ -1,61 +1,18 @@
-# Core data
-numpy>=1.21.0
-pandas>=1.3.0
-scipy>=1.7.0
+# PTM2CellNet dependency index (P1-2).
+#
+# The default install now pulls in ONLY the minimal core (CNN/Transformer
+# train + predict + API). Heavy / CUDA-sensitive capabilities are split into
+# their own files so a clean CPU environment can run the E2E loop without
+# fighting optional build chains:
+#
+#     pip install -r requirements-core.txt        # minimal E2E (recommended)
+#     pip install -r requirements-pretrained.txt   # + ESM-2 / ProtBERT
+#     pip install -r requirements-mamba.txt        # + Mamba encoder (CUDA)
+#     pip install -r requirements-analysis.txt     # + scVI / sspa analysis
+#
+# For backwards compatibility this top-level file aggregates core + pretrained
+# + lightning, matching what existing CI/developer environments had. Docker and
+# clean-environment jobs should prefer ``requirements-core.txt``.
 
-# Deep learning
-torch>=1.10.0
-torchvision>=0.11.0
-lightning>=2.5.0
-transformers>=4.20.0
-peft>=0.8.0
-lion-pytorch>=0.0.7
-einops>=0.6.0
-torchmetrics>=0.11.0
-
-# Machine learning
-scikit-learn>=1.0.0
-networkx>=2.6.0
-
-# Bioinformatics
-biopython>=1.79
-hgvs==1.5.7
-uniprot-id-mapper==1.1.5
-# Pin anndata<0.12 together with scvi-tools>=1.2.0 (audit P1-1):
-# scvi-tools <1.2.0 imports `anndata._core.sparse_dataset.SparseDataset`,
-# which was removed/renamed in anndata 0.11, so the old "scvi-tools>=1.0.0"
-# constraint broke `import scvi`. scvi-tools 1.2.0+ falls back to the new
-# CSRDataset/CSCDataset and is verified against anndata>=0.11. See setup.py
-# extras for the same constraint applied to `[analysis]` / `[all]`.
-anndata>=0.10,<0.12
-scvi-tools>=1.2.0
-sspa>=0.2.0  # optional - pathway enrichment analysis
-zarr>=2,<3  # anndata 0.11.x 在 zarr>=3 上会 ImportError；scvi 链路需要
-
-# Visualization
-matplotlib>=3.4.0
-seaborn>=0.11.0
-
-# Config
-pyyaml>=5.4.0
-
-# Web API
-fastapi>=0.68.0
-uvicorn>=0.15.0
-pydantic>=1.8.0
-requests>=2.26.0
-
-# Other
-tqdm>=4.62.0
-python-dotenv>=0.19.0
-h5py>=3.6.0
-typing_extensions>=4.0.0
-# Missing dependencies (audit 2026-06-28)
-# NOTE: setuptools>=81 removed the ``pkg_resources`` module, which scvi-tools
-# and several other scientific packages still import at runtime. Pinning below
-# 81 keeps ``pkg_resources`` importable so the scVI/DAVF pipeline works.
-# See setup.py extras for capability-grouped optional installs (api, genki,
-# analysis, mamba, pretrained, lightning).
-setuptools>=68.0,<81
-tensorboard>=2.13.0  # Lightning default logger
-mamba-ssm>=2.0.0  # optional - Mamba encoder support
+-r requirements-core.txt
+-r requirements-pretrained.txt

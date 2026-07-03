@@ -4,8 +4,11 @@
 设计思路: 封装训练循环，支持回调机制，灵活配置
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
+import random
+
+import numpy as np
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -35,6 +38,10 @@ class Trainer:
         model: nn.Module,
         config: Optional[Dict[str, Any]] = None,
         device: Optional[str] = None,
+        grad_clip_norm: Optional[float] = None,
+        use_amp: bool = False,
+        gradient_accumulation_steps: int = 1,
+        warmup_steps: int = 0,
     ) -> None:
         """
         初始化训练器
@@ -43,10 +50,25 @@ class Trainer:
             model: PyTorch模型
             config: 配置字典
             device: 设备，如 "cuda" 或 "cpu"
+            grad_clip_norm: 梯度裁剪的最大范数，None表示不裁剪
+            use_amp: 是否使用自动混合精度训练
+            gradient_accumulation_steps: 梯度累积步数，每N步更新一次优化器
+            warmup_steps: 学习率预热步数，线性从0增长到目标学习率
         """
         self.model = model
         self.config = config or {}
         self.training_config = self.config.get("training", {})
+
+        # 可复现性: 从配置中读取 seed 并设置所有 RNG，使训练器在被任意入口
+        # 调用时也能保证可复现（脚本层如 scripts/train.py 仍可单独设置 seed）。
+        seed = self.training_config.get("seed")
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+            logger.info("已从配置设置随机种子: %s", seed)
 
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -67,6 +89,17 @@ class Trainer:
         self.train_accuracies: List[float] = []
         self.val_accuracies: List[float] = []
         self.best_val_loss = float("inf")
+
+        # 生产训练特性
+        self.grad_clip_norm = grad_clip_norm if grad_clip_norm is not None else self.training_config.get("grad_clip_norm", None)
+        self.use_amp = use_amp or self.training_config.get("use_amp", False)
+        self.gradient_accumulation_steps = gradient_accumulation_steps if gradient_accumulation_steps > 1 else self.training_config.get("gradient_accumulation_steps", 1)
+        self.warmup_steps = warmup_steps if warmup_steps > 0 else self.training_config.get("warmup_steps", 0)
+
+        # AMP scaler
+        self.scaler: Optional[torch.cuda.amp.GradScaler] = None
+        if self.use_amp and self.device == "cuda":
+            self.scaler = torch.cuda.amp.GradScaler()
 
     def compile(
         self,
@@ -98,6 +131,11 @@ class Trainer:
         if callbacks is not None:
             self.callbacks = callbacks
 
+        # 为warmup保存初始学习率
+        if self.warmup_steps > 0 and self.optimizer is not None:
+            for param_group in self.optimizer.param_groups:
+                param_group["initial_lr"] = param_group.get("initial_lr", param_group["lr"])
+
     def add_callback(self, callback: Callback):
         """
         添加回调
@@ -106,6 +144,25 @@ class Trainer:
             callback: 回调实例
         """
         self.callbacks.append(callback)
+
+    def _get_warmup_lr_scale(self) -> float:
+        """
+        计算warmup阶段的学习率缩放因子
+
+        返回:
+            0.0~1.0之间的缩放因子，warmup完成后为1.0
+        """
+        if self.warmup_steps <= 0 or self.global_step >= self.warmup_steps:
+            return 1.0
+        return float(self.global_step) / float(self.warmup_steps)
+
+    def _apply_warmup(self) -> None:
+        """应用warmup学习率缩放到优化器参数组"""
+        if self.warmup_steps <= 0 or self.optimizer is None:
+            return
+        scale = self._get_warmup_lr_scale()
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = param_group.get("initial_lr", param_group["lr"]) * scale
 
     def _train_epoch(self, train_loader: DataLoader[Dict[str, torch.Tensor]]) -> Dict[str, float]:
         """
@@ -133,30 +190,79 @@ class Trainer:
                 if isinstance(batch[key], torch.Tensor):
                     batch[key] = batch[key].to(self.device)
 
-            self.optimizer.zero_grad()
+            # Forward pass with optional AMP autocast
+            use_autocast = self.use_amp and self.device == "cuda"
 
-            outputs = self.model(batch)
+            if use_autocast:
+                with torch.cuda.amp.autocast():
+                    outputs = self.model(batch)
 
-            if isinstance(outputs, dict):
-                logits = outputs.get("logits")
-                predictions = outputs.get("predictions")
+                    if isinstance(outputs, dict):
+                        logits = outputs.get("logits")
+                        predictions = outputs.get("predictions")
+                    else:
+                        logits = outputs
+                        predictions = None
+
+                    if logits is None or not isinstance(logits, torch.Tensor):
+                        raise TypeError("Model output must contain tensor logits")
+
+                    targets = batch.get("label")
+                    if not isinstance(targets, torch.Tensor):
+                        raise TypeError("Batch must contain tensor label")
+                    loss = self.loss_fn(logits, targets)
+                    loss = loss / self.gradient_accumulation_steps
             else:
-                logits = outputs
-                predictions = None
+                outputs = self.model(batch)
 
-            if logits is None or not isinstance(logits, torch.Tensor):
-                raise TypeError("Model output must contain tensor logits")
+                if isinstance(outputs, dict):
+                    logits = outputs.get("logits")
+                    predictions = outputs.get("predictions")
+                else:
+                    logits = outputs
+                    predictions = None
 
-            targets = batch.get("label")
-            if not isinstance(targets, torch.Tensor):
-                raise TypeError("Batch must contain tensor label")
-            loss = self.loss_fn(logits, targets)
+                if logits is None or not isinstance(logits, torch.Tensor):
+                    raise TypeError("Model output must contain tensor logits")
 
-            loss.backward()
-            self.optimizer.step()
+                targets = batch.get("label")
+                if not isinstance(targets, torch.Tensor):
+                    raise TypeError("Batch must contain tensor label")
+                loss = self.loss_fn(logits, targets)
+                loss = loss / self.gradient_accumulation_steps
 
+            # Backward pass with AMP support
+            if self.use_amp and self.scaler is not None:
+                self.scaler.scale(loss).backward()
+            else:
+                loss.backward()
+
+            # Only step optimizer every gradient_accumulation_steps
+            is_accumulation_boundary = (batch_idx + 1) % self.gradient_accumulation_steps == 0
+
+            if is_accumulation_boundary:
+                # Gradient clipping
+                if self.grad_clip_norm is not None:
+                    if self.use_amp and self.scaler is not None:
+                        self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+
+                # Apply warmup learning rate
+                self._apply_warmup()
+
+                # Optimizer step
+                if self.use_amp and self.scaler is not None:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+
+                self.optimizer.zero_grad()
+
+            # Report unscaled loss for logging
+            unscaled_loss = loss.item() * self.gradient_accumulation_steps
             batch_size = targets.size(0)
-            total_loss += loss.item() * batch_size
+            total_loss += unscaled_loss * batch_size
             num_samples += batch_size
 
             # 计算训练批准确率（若模型未直接给出 predictions，则从 logits 取 argmax）
@@ -166,7 +272,7 @@ class Trainer:
                 correct_samples += (predictions == targets).sum().item()
 
             for callback in self.callbacks:
-                callback.on_batch_end(self, batch_idx, {"loss": loss.item()})
+                callback.on_batch_end(self, batch_idx, {"loss": unscaled_loss})
 
             self.global_step += 1
 
@@ -235,20 +341,45 @@ class Trainer:
 
         return {"loss": avg_loss, "accuracy": accuracy}
 
+    def _is_datamodule(self, obj: Any) -> bool:
+        """
+        检测对象是否为LightningDataModule（duck typing）
+
+        参数:
+            obj: 待检测对象
+
+        返回:
+            True如果对象具有train_dataloader方法
+        """
+        return hasattr(obj, "train_dataloader") and callable(getattr(obj, "train_dataloader"))
+
     def fit(
         self,
-        train_loader: DataLoader[Dict[str, torch.Tensor]],
+        train_loader_or_datamodule: Union[DataLoader[Dict[str, torch.Tensor]], Any],
         val_loader: Optional[DataLoader[Dict[str, torch.Tensor]]] = None,
         max_epochs: Optional[int] = None,
     ) -> None:
         """
         训练模型
 
+        支持两种调用方式:
+            1. trainer.fit(train_loader, val_loader) — 传统DataLoader方式
+            2. trainer.fit(datamodule) — LightningDataModule方式
+
         参数:
-            train_loader: 训练数据加载器
-            val_loader: 验证数据加载器
+            train_loader_or_datamodule: 训练数据加载器或LightningDataModule实例
+            val_loader: 验证数据加载器（仅在DataLoader方式下使用）
             max_epochs: 最大训练轮数
         """
+        # 检测是否为LightningDataModule
+        if self._is_datamodule(train_loader_or_datamodule):
+            datamodule = train_loader_or_datamodule
+            train_loader = datamodule.train_dataloader()
+            if val_loader is None and hasattr(datamodule, "val_dataloader") and callable(datamodule.val_dataloader):
+                val_loader = datamodule.val_dataloader()
+        else:
+            train_loader = train_loader_or_datamodule
+
         if max_epochs is None:
             max_epochs = self.training_config.get("max_epochs", 100)
         if not isinstance(max_epochs, int):
@@ -283,8 +414,15 @@ class Trainer:
             logs = {
                 "epoch": epoch,
                 "train_loss": train_logs["loss"],
+                "train_acc": train_logs.get("accuracy", 0.0),
                 **{f"val_{k}": v for k, v in val_logs.items()},
             }
+            # TensorBoardCallback 期望的键名为 'val_acc' 而非 'val_accuracy'，
+            # 因此显式补充该别名；'learning_rate' 仅在 optimizer 已编译时可得。
+            if "accuracy" in val_logs:
+                logs["val_acc"] = val_logs["accuracy"]
+            if self.optimizer is not None:
+                logs["learning_rate"] = self.optimizer.param_groups[0]["lr"]
 
             val_message = ""
             if val_logs:

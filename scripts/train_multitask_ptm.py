@@ -296,6 +296,13 @@ def main():
     # 加载最佳模型
     # 训练保存的 checkpoint 包含 optimizer state（含 numpy 标量），
     # 需显式使用 weights_only=False 加载（文件由本项目自身写入，可信）。
+    logger.warning(
+        "⚠️ SECURITY RISK: Loading checkpoint with weights_only=False at %s. "
+        "This allows arbitrary code execution via pickle deserialization. "
+        "Safe because this file was written by the current training run. "
+        "For external checkpoints, prefer weights_only=True with allowed_classes=.",
+        checkpoint_dir / 'best_model.ckpt',
+    )
     checkpoint = safe_torch_load(checkpoint_dir / 'best_model.ckpt', weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
 

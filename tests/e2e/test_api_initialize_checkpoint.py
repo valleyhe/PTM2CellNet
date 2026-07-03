@@ -19,6 +19,29 @@ from src.models.architectures import PTM2CellNet
 
 
 @pytest.fixture(autouse=True)
+def _dev_env_and_allowed_roots(tmp_path, monkeypatch):
+    """Enable dev mode + allow tmp_path under the path whitelist.
+
+    The /initialize endpoint is default-deny: in non-production envs without
+    PTM2CELLNET_API_KEY it stays open only when PTM2CELLNET_ENV=development,
+    and checkpoint paths must fall under PTM2CELLNET_ALLOWED_ROOTS. Tests are
+    not production, so they opt into dev mode and whitelist the tmp_path used
+    by each case.
+    """
+    monkeypatch.setenv("PTM2CELLNET_ENV", "development")
+    monkeypatch.delenv("PTM2CELLNET_API_KEY", raising=False)
+    # Whitelist the per-test tmp_path via the env var; initialize.py resolves
+    # PTM2CELLNET_ALLOWED_ROOTS on each call, so this takes effect live.
+    import src.api.routes.initialize as init_mod
+
+    monkeypatch.setenv(
+        "PTM2CELLNET_ALLOWED_ROOTS",
+        f"{tmp_path.resolve()},{','.join(str(p) for p in init_mod._ALLOWED_ROOTS)}",
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _restore_state():
     """每个测试后恢复全局 STATE，避免状态泄漏到其他测试。"""
     import copy

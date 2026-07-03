@@ -3,7 +3,12 @@ import pytest
 from unittest.mock import Mock, patch
 import pandas as pd
 
-from src.analysis.gene_mapper import GeneMapper, map_gene_to_uniprot
+from src.analysis.gene_mapper import (
+    GeneMapper,
+    _RequestsUniProtMapper,
+    _build_mapper,
+    map_gene_to_uniprot,
+)
 
 
 class TestGeneMapper:
@@ -210,3 +215,67 @@ class TestGeneMapper:
 
         # Should return first (canonical) isoform
         assert result == 'P15056'
+
+
+class TestRequestsFallbackMapper:
+    """Cover the requests-based fallback when UniProtMapper is absent."""
+
+    def test_build_mapper_uses_protmapper_when_available(self, monkeypatch):
+        """When the package is available _build_mapper returns a ProtMapper instance."""
+        sentinel = object()
+        monkeypatch.setattr(
+            'src.analysis.gene_mapper._HAS_UNIPROT_MAPPER', True
+        )
+        monkeypatch.setattr(
+            'src.analysis.gene_mapper.ProtMapper',
+            lambda: sentinel,
+            raising=False,
+        )
+        assert _build_mapper() is sentinel
+
+    def test_build_mapper_falls_back_when_package_missing(self, monkeypatch):
+        """When the package is unavailable _build_mapper returns the requests mapper."""
+        monkeypatch.setattr(
+            'src.analysis.gene_mapper._HAS_UNIPROT_MAPPER', False
+        )
+        mapper = _build_mapper()
+        assert isinstance(mapper, _RequestsUniProtMapper)
+
+    def test_requests_mapper_empty_ids(self):
+        mapper = _RequestsUniProtMapper()
+        result, failed = mapper.get(ids=[])
+        assert result.empty
+        assert failed == []
+
+    def test_requests_mapper_success(self):
+        mapper = _RequestsUniProtMapper()
+        submit_resp = Mock()
+        submit_resp.text = "job123"
+        submit_resp.raise_for_status = Mock()
+        details_resp = Mock()
+        details_resp.status_code = 200
+        details_resp.json.return_value = {"jobStatus": "FINISHED"}
+        results_resp = Mock()
+        results_resp.raise_for_status = Mock()
+        results_resp.json.return_value = {
+            "results": [
+                {"from": "BRAF", "to": {"primaryAccession": "P15056"}},
+            ]
+        }
+        with patch('src.analysis.gene_mapper.requests.post', return_value=submit_resp), \
+             patch('src.analysis.gene_mapper.requests.get', side_effect=[details_resp, results_resp]):
+            result, failed = mapper.get(ids=["BRAF"])
+        assert failed == []
+        assert result.iloc[0]["From"] == "BRAF"
+        assert result.iloc[0]["To"] == "P15056"
+
+    def test_requests_mapper_submission_failure(self):
+        import requests
+        mapper = _RequestsUniProtMapper()
+        with patch(
+            'src.analysis.gene_mapper.requests.post',
+            side_effect=requests.RequestException("boom"),
+        ):
+            result, failed = mapper.get(ids=["BRAF"])
+        assert result.empty
+        assert failed == ["BRAF"]

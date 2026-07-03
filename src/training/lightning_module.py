@@ -11,7 +11,10 @@ Lightning训练模块
 
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
+import random
+
 import lightning as L
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -72,6 +75,18 @@ class PTM2CellNetLightning(L.LightningModule):
         self.model = model
         self.config = config
         self.save_hyperparameters(ignore=["model"])
+
+        # 可复现性: 从配置中读取 seed 并设置所有 RNG，使该 Lightning 模块在被
+        # 任意入口调用时也能保证可复现。注意：若已通过 L.seed_everything 全局
+        # 设置种子，此处再次设置不会改变确定性。
+        seed = config.get("training", {}).get("seed")
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+            logger.info("PTM2CellNetLightning 已从配置设置随机种子: %s", seed)
 
         # 从配置中提取训练参数
         training_config = config.get("training", {})
@@ -149,7 +164,11 @@ class PTM2CellNetLightning(L.LightningModule):
                 )
                 logger.info("LoRA已应用到模型编码器")
             else:
-                logger.warning("模型没有encoder属性，无法应用LoRA")
+                # use_lora=True 配置错误: 显式失败，避免静默不应用 LoRA 却误导用户。
+                raise AttributeError(
+                    "模型缺少 encoder 属性，无法应用 LoRA；"
+                    "请确保模型继承自含 encoder 的基类，或在 config 中关闭 use_lora。"
+                )
 
         except ImportError as e:
             logger.error("应用LoRA失败: %s", e)
@@ -442,11 +461,14 @@ class PTM2CellNetLightning(L.LightningModule):
                 weight_decay=self.weight_decay,
             )
         elif self.optimizer_name == "sgd":
+            momentum = self.config.get("training", {}).get("momentum", 0.9)
+            nesterov = self.config.get("training", {}).get("nesterov", False)
             optimizer = torch.optim.SGD(
                 self.parameters(),
                 lr=self.learning_rate,
-                momentum=0.9,
                 weight_decay=self.weight_decay,
+                momentum=momentum,
+                nesterov=nesterov,
             )
         else:
             logger.warning(

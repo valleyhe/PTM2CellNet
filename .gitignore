@@ -9,6 +9,10 @@
 !.gitignore
 !README.md
 !requirements.txt
+!requirements-core.txt
+!requirements-pretrained.txt
+!requirements-mamba.txt
+!requirements-analysis.txt
 !scripts/
 !src/
 !tests/

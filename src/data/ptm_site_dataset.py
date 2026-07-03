@@ -5,15 +5,21 @@ PTM位点预测数据集
 """
 
 # mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
+import logging
 from typing import Dict, Optional
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 import lightning as L
 
-# 氨基酸字母表
-AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY-"
-AA_TO_IDX = {aa: i for i, aa in enumerate(AMINO_ACIDS)}
+logger = logging.getLogger(__name__)
+
+from src.data.aa_constants import (
+    AMINO_ACIDS,
+    AA_TO_IDX,
+    PAD_IDX,
+    AA_PAD_CHAR,
+)
 
 
 class PTMSiteDataset(Dataset):
@@ -78,9 +84,9 @@ class PTMSiteDataset(Dataset):
         self.pos_count = (self.df['label'] == 1).sum()
         self.neg_count = (self.df['label'] == 0).sum()
 
-        print(f"加载数据集: {csv_path}")
-        print(f"总样本数: {len(self.df)}")
-        print(f"正样本: {self.pos_count}, 负样本: {self.neg_count}")
+        logger.info("加载数据集: %s", csv_path)
+        logger.info("总样本数: %d", len(self.df))
+        logger.info("正样本: %d, 负样本: %d", self.pos_count, self.neg_count)
 
     def __len__(self) -> int:
         return len(self.df)
@@ -93,26 +99,25 @@ class PTMSiteDataset(Dataset):
             sequence: 氨基酸序列窗口
 
         返回:
-            (window_size, 21) 的one-hot tensor
+            (window_size, num_amino_acids + 1) 的one-hot tensor
+            第0列保留给padding，实际氨基酸从第1列开始
         """
         # 确保序列长度正确
         if len(sequence) < self.window_size:
-            sequence = sequence + '-' * (self.window_size - len(sequence))
+            sequence = sequence + AA_PAD_CHAR * (self.window_size - len(sequence))
         elif len(sequence) > self.window_size:
             # 居中截取
             start = (len(sequence) - self.window_size) // 2
             sequence = sequence[start:start + self.window_size]
 
-        # One-hot编码
-        tensor = torch.zeros(self.window_size, len(AMINO_ACIDS), dtype=torch.float32)
+        # One-hot编码: +1 for padding column (index 0)
+        onehot = torch.zeros(self.window_size, len(AMINO_ACIDS) + 1, dtype=torch.float32)
         for i, aa in enumerate(sequence):
             if aa in AA_TO_IDX:
-                tensor[i, AA_TO_IDX[aa]] = 1.0
-            else:
-                # 未知氨基酸编码为全零
-                pass
+                onehot[i, AA_TO_IDX[aa]] = 1.0
+            # 未知氨基酸编码为全零（padding列也为0）
 
-        return tensor
+        return onehot
 
     def _encode_sequence_indices(self, sequence: str) -> torch.Tensor:
         """
@@ -251,7 +256,7 @@ class PTMSiteDataModule(L.LightningDataModule):
                 generator=torch.Generator().manual_seed(self.seed)
             )
 
-            print(f"数据划分: train={train_size}, val={val_size}, test={test_size}")
+            logger.info("数据划分: train=%d, val=%d, test=%d", train_size, val_size, test_size)
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(

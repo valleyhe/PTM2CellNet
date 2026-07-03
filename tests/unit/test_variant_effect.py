@@ -47,7 +47,11 @@ class TestVariantPTMEffectPredictorInit:
             predictor = VariantPTMEffectPredictor("fake.pt", ptm_type="Phosphorylation")
             assert isinstance(predictor.model, FakeModel)
             assert predictor.ptm_type == "Phosphorylation"
-            load_mock.assert_called_once_with("fake.pt", map_location=predictor.device, weights_only=True)
+            load_mock.assert_called_once()
+            args, kwargs = load_mock.call_args
+            assert args[0] == "fake.pt"
+            assert kwargs.get("map_location") == predictor.device
+            assert kwargs.get("weights_only") is True
 
     def test_init_checkpoint_without_state_dict(self, monkeypatch):
         plain_dict = {"fc.weight": torch.ones(2, 2)}
@@ -57,7 +61,11 @@ class TestVariantPTMEffectPredictorInit:
         with mock.patch("src.models.ptm_site_predictor.PTMSitePredictor", return_value=FakeModel()):
             predictor = VariantPTMEffectPredictor("fake.pt")
             assert predictor.model.state_dict is plain_dict
-            load_mock.assert_called_once_with("fake.pt", map_location=predictor.device, weights_only=True)
+            load_mock.assert_called_once()
+            args, kwargs = load_mock.call_args
+            assert args[0] == "fake.pt"
+            assert kwargs.get("map_location") == predictor.device
+            assert kwargs.get("weights_only") is True
 
 
 class TestVariantPTMEffectPredictorMethods:

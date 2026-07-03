@@ -3,8 +3,8 @@ import json
 import pandas as pd
 import torch
 
-from src.data import PTMLightningDataModule, PTMPlainDataModule
-from src.data.datasets import PTMDataset, PTMDataModule
+from src.data import PTMLightningDataModule, PTMPlainDataModule, PTMDataModule
+from src.data.datasets import PTMDataset
 from src.data.schemas import PTMRecord, PTMSite, validate_protein_data
 
 
@@ -32,8 +32,8 @@ def _sample_df() -> pd.DataFrame:
     )
 
 
-def test_plain_datamodule_alias_points_to_plain_class():
-    assert PTMDataModule is PTMPlainDataModule
+def test_datamodule_alias_points_to_lightning_class():
+    assert PTMDataModule is PTMLightningDataModule
     assert PTMLightningDataModule.__name__ == "PTMLightningDataModule"
 
 

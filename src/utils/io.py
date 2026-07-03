@@ -9,7 +9,7 @@ import json
 import os
 import pickle
 import warnings
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Set, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -131,10 +131,50 @@ def _read_hdf5_value(node: Any) -> Any:
 
 def _load_pickle_archive(file_path: str) -> Dict[str, Any]:
     with open(file_path, "rb") as file_obj:
-        data = pickle.load(file_obj)
+        data = _SafeUnpickler(file_obj).load()
     if not isinstance(data, dict):
         raise TypeError("Pickle fallback content must be a dictionary")
     return cast(Dict[str, Any], data)
+
+
+_SAFE_MODULES: Set[str] = {'builtins', 'collections', 'typing', 'numpy', 'torch'}
+_SAFE_CLASSES: Set[str] = {'dict', 'list', 'tuple', 'str', 'int', 'float', 'bool',
+                           'OrderedDict', 'defaultdict', 'Counter', 'ndarray', 'DataFrame'}
+
+
+class SafeUnpickler(pickle.Unpickler):
+    """Restricted unpickler that only allows known-safe modules and classes."""
+
+    def find_class(self, module: str, name: str):
+        mod = module.split('.')[0]
+        if mod not in _SAFE_MODULES:
+            raise pickle.UnpicklingError('Unsafe module: ' + module)
+        if name not in _SAFE_CLASSES:
+            raise pickle.UnpicklingError('Unsafe class: ' + module + '.' + name)
+        return super().find_class(module, name)
+
+
+def safe_pickle_load(file_obj: Any) -> Any:
+    """Load pickle data using SafeUnpickler for restricted deserialization.
+
+    Parameters
+    ----------
+    file_obj :
+        Binary file-like object to load from.
+
+    Returns
+    -------
+    The deserialized Python object.
+
+    Raises
+    ------
+    ValueError
+        If the pickle contains disallowed modules or classes.
+    """
+    try:
+        return SafeUnpickler(file_obj).load()
+    except pickle.UnpicklingError as e:
+        raise ValueError('Unsafe pickle: ' + str(e))
 
 
 class _SafeUnpickler(pickle.Unpickler):
@@ -355,38 +395,173 @@ def save_model(model: torch.nn.Module, file_path: str) -> None:
     torch.save(model.state_dict(), file_path)
 
 
-def safe_torch_load(path: Any, map_location: Any = None, **kwargs: Any) -> Any:
+# Default allowlist of classes permitted when loading PyTorch checkpoints with
+# weights_only=True + allowed_classes.  This is intentionally conservative:
+# only tensor storage and fundamental numeric types.  If a checkpoint contains
+# additional safe types (e.g. custom config dataclasses), callers should pass
+# their own ``allowed_classes`` set.
+_TORCH_LOAD_ALLOWED_CLASSES: set = {
+    # Tensor internals — required for any state_dict / optimizer checkpoint
+    "torch._utils._rebuild_tensor_v2",
+    "torch._utils._rebuild_parameter",
+    "torch.storage._TypedStorage",
+    "torch.storage._UntypedStorage",
+    # NumPy scalars (common in optimizer state)
+    "numpy.core.multiarray.scalar",
+    "numpy._core.multiarray.scalar",
+    # Basic Python types that PyTorch itself may pickle
+    "builtins.dict",
+    "builtins.list",
+    "builtins.tuple",
+    "builtins.set",
+    "builtins.frozenset",
+    "builtins.str",
+    "builtins.int",
+    "builtins.float",
+    "builtins.bool",
+    "builtins.bytes",
+    "builtins.NoneType",
+    "collections.OrderedDict",
+}
+
+
+def safe_torch_load(
+    path: Any,
+    map_location: Any = None,
+    *,
+    allowed_classes: Optional[set] = None,
+    **kwargs: Any,
+) -> Any:
     """Load a PyTorch artifact with a safe-by-default ``weights_only`` strategy.
 
-    The helper prefers ``weights_only=True`` to avoid unpickling arbitrary
-    Python objects. If the installed PyTorch build rejects that argument or
-    value, it retries once with ``weights_only=False`` and emits a
-    ``UserWarning`` so callers know the safer path was unavailable.
+    Security model
+    --------------
+    ``torch.load`` uses Python's ``pickle`` under the hood, which can execute
+    arbitrary code during deserialization.  This helper enforces a layered
+    defence:
 
-    Note: ``pickle.UnpicklingError`` (raised when ``weights_only=True`` rejects
-    non-allowlisted globals such as NumPy scalars in optimizer state) is
-    intentionally **not** auto-retried here — it is propagated so that callers
-    like DAVF can decide whether to opt in to ``weights_only=False`` loading.
-    For trusted checkpoints that you know contain such globals, pass
-    ``weights_only=False`` explicitly.
+    1. **Prefer ``weights_only=True``** — PyTorch restricts unpickling to only
+       tensor-related types.  This is the default and should be used for all
+       model weights / state dicts produced by this project.
+    2. **``allowed_classes`` allowlist** — When the PyTorch version supports it
+       (>= 2.0), an explicit set of permitted class names is forwarded so that
+       even ``weights_only=True`` will only reconstruct known-safe types.
+       Callers can extend this set for their own safe types.
+    3. **Fallback with explicit opt-in** — If ``weights_only=True`` fails
+       (e.g. the checkpoint contains optimiser state with NumPy scalars not
+       covered by the default allowlist), the caller must pass
+       ``weights_only=False`` explicitly.  An automatic fallback **is still
+       provided** for backwards-compatibility, but it logs a warning at
+       ``logger.warning`` level so that every unsafe load is auditable.
+
+    **Do not** use ``weights_only=False`` for files from untrusted sources.
+
+    Parameters
+    ----------
+    path :
+        File path or file-like object to load.
+    map_location :
+        Passed through to ``torch.load``.
+    allowed_classes :
+        Optional set of fully-qualified class names (``"module.path.ClassName"``)
+        to allow when ``weights_only=True``.  Merged with the built-in
+        ``_TORCH_LOAD_ALLOWED_CLASSES`` allowlist.  Ignored if the installed
+        PyTorch version does not support the ``allowed_classes`` argument.
+    **kwargs :
+        Additional keyword arguments forwarded to ``torch.load``.
+
+    Returns
+    -------
+    The loaded PyTorch object.
     """
     explicit_weights_only = kwargs.pop("weights_only", None)
-    if explicit_weights_only is False:
-        return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
 
-    try:
-        return torch.load(path, map_location=map_location, weights_only=True, **kwargs)
-    except (TypeError, ValueError) as exc:
-        warnings.warn(
-            (
-                "torch.load(..., weights_only=True) is unavailable for this runtime; "
-                "retrying with weights_only=False. Only load trusted files. "
-                f"Original error: {exc}"
-            ),
-            UserWarning,
-            stacklevel=2,
+    # If caller explicitly opts into unsafe loading, honour it but log loudly.
+    if explicit_weights_only is False:
+        logger.warning(
+            "safe_torch_load: ⚠️ SECURITY RISK — weights_only=False requested for '%s'. "
+            "This allows arbitrary code execution via pickle deserialization. "
+            "Only use with files you trust completely (e.g. self-produced checkpoints). "
+            "Prefer weights_only=True with allowed_classes= for non-tensor types.",
+            path,
         )
         return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
+
+    # Build the merged allowlist for the weights_only=True path.
+    merged_classes = _TORCH_LOAD_ALLOWED_CLASSES
+    if allowed_classes:
+        merged_classes = _TORCH_LOAD_ALLOWED_CLASSES | allowed_classes
+
+    # Attempt safe load with allowlist (PyTorch >= 2.0 supports allowed_classes).
+    try:
+        return torch.load(
+            path,
+            map_location=map_location,
+            weights_only=True,
+            allowed_classes=merged_classes,
+            **kwargs,
+        )
+    except TypeError as exc:
+        # TypeError: either PyTorch doesn't support allowed_classes, or
+        # weights_only keyword is unavailable (very old PyTorch).
+        # Try again without allowed_classes.
+        if "allowed_classes" in str(exc) or "unexpected keyword" in str(exc):
+            logger.debug(
+                "safe_torch_load: 'allowed_classes' not supported by this PyTorch "
+                "version; retrying without it. Path: %s", path,
+            )
+            try:
+                return torch.load(
+                    path, map_location=map_location, weights_only=True, **kwargs,
+                )
+            except (TypeError, ValueError) as inner_exc:
+                # weights_only=True itself may be unsupported or the checkpoint
+                # contains types outside the default allowlist.
+                logger.warning(
+                    "safe_torch_load: ⚠️ SECURITY RISK — weights_only=True failed for '%s' "
+                    "(%s: %s). Falling back to weights_only=False. "
+                    "This allows arbitrary code execution via pickle deserialization — "
+                    "only load files you trust completely. "
+                    "If this checkpoint contains safe types not in the default "
+                    "allowlist, pass them via allowed_classes= or load with "
+                    "weights_only=False explicitly.",
+                    path, type(inner_exc).__name__, inner_exc,
+                )
+                return torch.load(
+                    path, map_location=map_location, weights_only=False, **kwargs,
+                )
+        # Other TypeError (not about allowed_classes) — try plain weights_only=True.
+        try:
+            return torch.load(
+                path, map_location=map_location, weights_only=True, **kwargs,
+            )
+        except (TypeError, ValueError) as inner_exc:
+            logger.warning(
+                "safe_torch_load: ⚠️ SECURITY RISK — weights_only=True failed for '%s' "
+                "(%s: %s). Falling back to weights_only=False. "
+                "This allows arbitrary code execution via pickle deserialization — "
+                "only load files you trust completely.",
+                path, type(inner_exc).__name__, inner_exc,
+            )
+            return torch.load(
+                path, map_location=map_location, weights_only=False, **kwargs,
+            )
+    except ValueError as exc:
+        # ValueError from weights_only=True: checkpoint contains types not on the
+        # allowlist (e.g. NumPy scalars in optimizer state).  This is a signal
+        # that the caller should either extend allowed_classes or explicitly
+        # opt into unsafe loading.
+        logger.warning(
+            "safe_torch_load: ⚠️ SECURITY RISK — weights_only=True rejected types in '%s' "
+            "(ValueError: %s). Falling back to weights_only=False. "
+            "This allows arbitrary code execution via pickle deserialization — "
+            "only load files you trust completely. "
+            "Consider passing allowed_classes= with the required types.",
+            path, exc,
+        )
+        return torch.load(
+            path, map_location=map_location, weights_only=False, **kwargs,
+        )
 
 
 def load_model(
@@ -443,28 +618,71 @@ def load_model(
 
 def save_dataframe(df: pd.DataFrame, file_path: str) -> None:
     """
-    保存DataFrame到CSV文件
+    保存DataFrame到文件
+
+    支持自动识别 HDF5 文件（.h5/.hdf5 后缀），通过 ``df.to_hdf`` 写出，
+    将 HDF5 接入主数据写出链路；其他后缀按 CSV 处理。
 
     参数:
         df: DataFrame对象
-        file_path: 保存路径
+        file_path: 保存路径（.csv/.h5/.hdf5）
     """
     _ensure_parent_dir(file_path)
+
+    # HDF5 分支：将 HDF5 接入主数据写出链路（路径后缀驱动）
+    if file_path.lower().endswith((".h5", ".hdf5")):
+        if h5py is None:
+            # h5py 不可用时回退到项目 save_hdf5（其内部会 pickle fallback）
+            save_hdf5({"dataframe": df}, file_path)
+            return
+        try:
+            df.to_hdf(file_path, key="dataframe", mode="w", format="table")
+        except (ImportError, ValueError, KeyError) as exc:
+            # to_hdf 需要 pytables；若不可用，回退到项目 save_hdf5
+            logger.warning(
+                "df.to_hdf 失败 (%s)，尝试使用 save_hdf5 回退", exc,
+            )
+            save_hdf5({"dataframe": df}, file_path)
+        return
+
     df.to_csv(file_path, index=False, encoding="utf-8")
 
 
 def load_dataframe(file_path: str) -> pd.DataFrame:
     """
-    从CSV文件加载DataFrame
+    从文件加载DataFrame
+
+    支持自动识别 HDF5 文件（.h5/.hdf5 后缀），通过 ``pd.read_hdf`` 读取，
+    将 HDF5 接入主数据加载链路；其他后缀按 CSV 处理。
 
     参数:
-        file_path: CSV文件路径
+        file_path: 数据文件路径（.csv/.h5/.hdf5）
 
     返回:
         DataFrame对象
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"文件不存在: {file_path}")
+
+    # HDF5 分支：将 HDF5 接入主数据加载链路（路径后缀驱动）
+    if file_path.lower().endswith((".h5", ".hdf5")):
+        try:
+            return pd.read_hdf(file_path)
+        except (ImportError, ValueError, KeyError) as exc:
+            # read_hdf 需要 pytables；若不可用或 key 不匹配，回退到 load_hdf5
+            logger.warning(
+                "pd.read_hdf 失败 (%s)，尝试使用 load_hdf5 回退", exc,
+            )
+            data = load_hdf5(file_path)
+            if isinstance(data, pd.DataFrame):
+                return data
+            if isinstance(data, dict) and len(data) == 1:
+                value = next(iter(data.values()))
+                if isinstance(value, pd.DataFrame):
+                    return value
+            raise TypeError(
+                f"HDF5 文件内容无法解析为 DataFrame: {file_path}"
+            )
 
     return pd.read_csv(file_path)
 

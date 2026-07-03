@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 
 from src.utils.logging import setup_logger
 from src.utils.helpers import validate_sequence, validate_ptm_site, clean_sequence
+from src.data.aa_constants import NON_STANDARD_AA_MAP as _NON_STANDARD_AA_MAP
 
 logger = setup_logger(__name__)
 
@@ -36,16 +37,8 @@ class DataPreprocessor:
         self.remove_duplicates = data_config.get("preprocessing", {}).get("remove_duplicates", True)
         self.handle_missing = data_config.get("preprocessing", {}).get("handle_missing", "drop")
 
-    # 非标准氨基酸字符映射表
-    # U (selenocysteine) → C (cysteine, 生化性质最接近)
-    # X (unknown) → A (alanine, 最常见氨基酸)
-    # J (leucine/isoleucine ambiguous) → L (leucine)
-    # B (asx: aspartic acid/asparagine) → D (aspartic acid)
-    # Z (glx: glutamic acid/glutamine) → E (glutamic acid)
-    # O (pyrrolysine) → K (lysine)
-    NON_STANDARD_AA_MAP = {
-        'U': 'C', 'X': 'A', 'J': 'L', 'B': 'D', 'Z': 'E', 'O': 'K',
-    }
+    # 非标准氨基酸字符映射表 (统一从aa_constants导入)
+    NON_STANDARD_AA_MAP = dict(_NON_STANDARD_AA_MAP)
 
     def standardize_amino_acids(
         self, df: pd.DataFrame, sequence_col: str = "sequence"

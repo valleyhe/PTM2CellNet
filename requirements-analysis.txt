@@ -1,0 +1,20 @@
+# Advanced single-cell / pathway analysis (scVI, sspa) — P1-2.
+#
+# These heavyweight analysis packages are sensitive to anndata/zarr/scvi-tools
+# version alignment and are only needed for the optional analysis pipeline.
+# Install on demand:
+#     pip install -r requirements-core.txt -r requirements-analysis.txt
+#
+# anndata<0.12 与 scvi-tools>=1.2.0 联合约束（审计 P1-1）：旧版 scvi-tools 依赖
+# 被 anndata 0.11 移除的 SparseDataset，导致 import 失败；scvi-tools 1.2.0+ 已
+# 改用 CSRDataset/CSCDataset。zarr<3 是 anndata 0.11.x 的要求。
+
+-r requirements-core.txt
+
+anndata>=0.10,<0.12
+sspa>=0.2.0
+scvi-tools>=1.2.0
+zarr>=2,<3
+hgvs==1.5.7
+uniprot-id-mapper==1.1.5
+UniProtMapper>=0.1

@@ -178,6 +178,92 @@ class PTMAugmenter:
         return mask, types
 
 
+class DAVFSiteAugmenter:
+    """DAVF 位点协同增强器。
+
+    对 ``davf_sites`` / ``davf_type_names`` / ``davf_attention_mask`` /
+    ``davf_gene_names`` 四个变长 Python list 字段做协同增强：
+
+    - 随机丢弃部分位点（同步删除四个列表对应索引）
+    - 随机扰动位置（±noise_radius），扰动后的 attention_mask 同步保持为 1
+
+    这些字段在 collate 阶段统一 padding，增强后保持四者长度一致。
+    """
+
+    def __init__(
+        self,
+        drop_prob: float = 0.0,
+        noise_prob: float = 0.0,
+        noise_radius: int = 1,
+    ):
+        """
+        参数:
+            drop_prob: 随机丢弃 DAVF 位点的概率
+            noise_prob: 对保留位点添加位置噪声的概率
+            noise_radius: 位置噪声范围（±radius）
+        """
+        self.drop_prob = drop_prob
+        self.noise_prob = noise_prob
+        self.noise_radius = noise_radius
+
+    def __call__(
+        self,
+        davf_sites: List[int],
+        davf_type_names: List[str],
+        davf_attention_mask: List[int],
+        davf_gene_names: Optional[List[str]] = None,
+        max_position: Optional[int] = None,
+    ) -> Tuple[List[int], List[str], List[int], Optional[List[str]]]:
+        """对 DAVF 位点三元组（+ 可选 gene_names）做协同增强。
+
+        参数:
+            davf_sites: PTM 位点位置列表
+            davf_type_names: 对应位点的 PTM 类型名
+            davf_attention_mask: 对应位点的注意力掩码
+            davf_gene_names: 对应位点的基因名（可选）
+            max_position: 允许的最大位置（位置扰动后越界则丢弃扰动）
+
+        返回:
+            增强后的 (davf_sites, davf_type_names, davf_attention_mask,
+            davf_gene_names)。davf_gene_names 为 None 时返回 None。
+        """
+        n = len(davf_sites)
+        if n == 0:
+            return davf_sites, davf_type_names, davf_attention_mask, davf_gene_names
+
+        keep_indices = []
+        for i in range(n):
+            if self.drop_prob > 0 and random.random() < self.drop_prob:
+                continue
+            keep_indices.append(i)
+
+        if not keep_indices:
+            # 至少保留一个位点，避免空增强
+            keep_indices = [random.randint(0, n - 1)]
+
+        new_sites: List[int] = []
+        new_types: List[str] = []
+        new_mask: List[int] = []
+        new_genes: Optional[List[str]] = [] if davf_gene_names is not None else None
+
+        for i in keep_indices:
+            pos = int(davf_sites[i])
+            if self.noise_prob > 0 and random.random() < self.noise_prob:
+                offset = random.randint(-self.noise_radius, self.noise_radius)
+                pos = pos + offset
+                if max_position is not None:
+                    pos = max(1, min(pos, max_position))
+                elif pos < 1:
+                    pos = 1
+            new_sites.append(pos)
+            new_types.append(davf_type_names[i])
+            new_mask.append(1)
+            if new_genes is not None:
+                new_genes.append(davf_gene_names[i])  # type: ignore[arg-type]
+
+        return new_sites, new_types, new_mask, new_genes
+
+
 def compute_sample_weights(labels: List[int], mode: str = "balanced") -> torch.Tensor:
     """
     计算样本权重用于类别平衡

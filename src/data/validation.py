@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import torch
 
+from ..utils.io import safe_pickle_load
 from ..utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -184,7 +185,18 @@ class DatasetCache:
     """
     数据集缓存管理器
     缓存预处理后的数据以提高加载速度
+
+    安全措施:
+        - 缓存数据包含版本号，版本不匹配时自动失效
+        - 缓存数据包含源数据校验和，检测数据损坏或源变更
+        - 加载时使用 try/except 捕获反序列化异常并给出明确错误信息
+
+    # TODO: 生产环境应考虑迁移到 safetensors 格式，彻底消除 pickle 反序列化风险。
+    #       safetensors 不支持任意 Python 对象，天然防止代码注入。
+    #       参考: https://github.com/huggingface/safetensors
     """
+
+    CACHE_VERSION = 1
 
     def __init__(self, cache_dir: str = ".cache/ptm_dataset"):
         self.cache_dir = Path(cache_dir)
@@ -202,6 +214,12 @@ class DatasetCache:
 
         return f"{data_hash}_{config_hash}"
 
+    def _compute_data_checksum(self, df: pd.DataFrame) -> str:
+        """计算源数据的校验和，用于检测缓存与源数据不一致或数据损坏"""
+        return hashlib.sha256(
+            pd.util.hash_pandas_object(df, index=True).values.tobytes()
+        ).hexdigest()
+
     def _get_cache_path(self, cache_key: str) -> Path:
         """获取缓存文件路径"""
         return self.cache_dir / f"{cache_key}.pkl"
@@ -210,30 +228,74 @@ class DatasetCache:
         """
         尝试从缓存加载数据
 
+        验证步骤:
+            1. 缓存版本号必须与当前 CACHE_VERSION 一致，否则失效
+            2. 源数据校验和必须匹配，否则失效（源数据已变更）
+            3. 反序列化异常会被捕获并记录，不会传播
+
         参数:
             df: 数据DataFrame
             config: 配置字典
 
         返回:
-            缓存的数据列表，如果不存在则返回None
+            缓存的数据列表，如果不存在或验证失败则返回None
         """
         cache_key = self._get_cache_key(df, config)
         cache_path = self._get_cache_path(cache_key)
 
-        if cache_path.exists():
-            try:
-                with open(cache_path, "rb") as f:
-                    data = pickle.load(f)  # nosec - cached experiment results from trusted source
-                logger.info(f"从缓存加载数据: {cache_path.name}")
-                return data
-            except Exception as e:
-                logger.warning(f"缓存加载失败: {e}")
+        if not cache_path.exists():
+            return None
 
-        return None
+        try:
+            with open(cache_path, "rb") as f:
+                cached = safe_pickle_load(f)
+        except (pickle.UnpicklingError, EOFError, ValueError) as e:
+            logger.warning(
+                "缓存反序列化失败（文件可能已损坏）: %s — 将重新计算。路径: %s",
+                e, cache_path.name,
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                "缓存加载出现意外错误: %s: %s — 将重新计算。路径: %s",
+                type(e).__name__, e, cache_path.name,
+            )
+            return None
+
+        # 验证缓存结构
+        if not isinstance(cached, dict) or "cache_version" not in cached or "data" not in cached:
+            logger.warning(
+                "缓存格式无效（缺少 cache_version 或 data 字段）— 将重新计算。路径: %s",
+                cache_path.name,
+            )
+            return None
+
+        # 验证版本号
+        if cached["cache_version"] != self.CACHE_VERSION:
+            logger.info(
+                "缓存版本不匹配（当前=%d, 缓存=%d）— 将重新计算。路径: %s",
+                self.CACHE_VERSION, cached["cache_version"], cache_path.name,
+            )
+            return None
+
+        # 验证源数据校验和
+        expected_checksum = self._compute_data_checksum(df)
+        stored_checksum = cached.get("data_checksum", "")
+        if stored_checksum != expected_checksum:
+            logger.info(
+                "源数据校验和不匹配（缓存可能过期）— 将重新计算。路径: %s",
+                cache_path.name,
+            )
+            return None
+
+        logger.info("从缓存加载数据: %s", cache_path.name)
+        return cached["data"]
 
     def save(self, df: pd.DataFrame, config: Dict[str, Any], data: List[Any]) -> None:
         """
         保存数据到缓存
+
+        保存结构包含版本号和源数据校验和，供 load() 验证使用。
 
         参数:
             df: 数据DataFrame
@@ -243,12 +305,18 @@ class DatasetCache:
         cache_key = self._get_cache_key(df, config)
         cache_path = self._get_cache_path(cache_key)
 
+        cache_payload = {
+            "cache_version": self.CACHE_VERSION,
+            "data_checksum": self._compute_data_checksum(df),
+            "data": data,
+        }
+
         try:
             with open(cache_path, "wb") as f:
-                pickle.dump(data, f)
-            logger.info(f"数据已缓存: {cache_path.name}")
+                pickle.dump(cache_payload, f)
+            logger.info("数据已缓存: %s", cache_path.name)
         except Exception as e:
-            logger.warning(f"缓存保存失败: {e}")
+            logger.warning("缓存保存失败: %s", e)
 
     def clear(self) -> None:
         """清除所有缓存"""
@@ -319,25 +387,28 @@ def validate_and_report(df: pd.DataFrame, dataset_name: str = "数据集") -> bo
     返回:
         是否通过验证
     """
-    print(f"\n{'='*60}")
-    print(f"{dataset_name} 验证报告")
-    print(f"{'='*60}")
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("%s 验证报告", dataset_name)
+    logger.info("=" * 60)
 
     validator = DataValidator()
     is_valid, errors = validator.validate_dataframe(df)
 
     if is_valid:
-        print("✓ 数据验证通过")
-        print(f"  - 样本数: {len(df)}")
-        print(f"  - 列名: {list(df.columns)}")
+        logger.info("✓ 数据验证通过")
+        logger.info("  - 样本数: %d", len(df))
+        logger.info("  - 列名: %s", list(df.columns))
         if "sequence" in df.columns:
-            print(f"  - 序列长度范围: {df['sequence'].apply(len).min()} - {df['sequence'].apply(len).max()}")
+            seq_min = df['sequence'].apply(len).min()
+            seq_max = df['sequence'].apply(len).max()
+            logger.info("  - 序列长度范围: %d - %d", seq_min, seq_max)
     else:
-        print(f"✗ 发现 {len(errors)} 个错误:")
+        logger.info("✗ 发现 %d 个错误:", len(errors))
         for error in errors[:10]:  # 只显示前10个错误
-            print(f"  - {error}")
+            logger.info("  - %s", error)
         if len(errors) > 10:
-            print(f"  ... 还有 {len(errors) - 10} 个错误")
+            logger.info("  ... 还有 %d 个错误", len(errors) - 10)
 
-    print(f"{'='*60}\n")
+    logger.info("=" * 60)
     return is_valid

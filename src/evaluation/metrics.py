@@ -590,8 +590,6 @@ def calculate_cross_validation_ci(
         critical_value = float(t_dist.ppf(1 - alpha / 2, df=n - 1))
     except ImportError:
         # Normal approximation fallback
-        from math import erfc, sqrt
-
         # Inverse normal: z_{1-alpha/2} via erfc approximation
         # For common confidence levels, use a simple lookup
         _z_lookup = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}

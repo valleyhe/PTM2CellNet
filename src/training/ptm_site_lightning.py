@@ -4,9 +4,12 @@ PTM位点预测Lightning模块
 """
 
 from typing import Dict, Any, Optional
+import random
+
+import lightning as L
+import numpy as np
 import torch
 import torch.nn as nn
-import lightning as L
 from torchmetrics import Accuracy, AUROC, F1Score, Precision, Recall
 
 from ..models.ptm_site_predictor import PTMSitePredictor, create_model
@@ -33,6 +36,19 @@ class PTMSiteLightning(L.LightningModule):
         self.save_hyperparameters(ignore=['model'])
 
         self.config = config or {}
+
+        # 可复现性: 从配置中读取 seed 并设置所有 RNG。该模块接受的配置既可能是
+        # 扁平结构（config['seed']）也可能是嵌套结构（config['training']['seed']），
+        # 兼容两者使不同入口调用均可复现。
+        _seed = self.config.get('seed')
+        if _seed is None and isinstance(self.config.get('training'), dict):
+            _seed = self.config['training'].get('seed')
+        if _seed is not None:
+            random.seed(_seed)
+            np.random.seed(_seed)
+            torch.manual_seed(_seed)
+            torch.cuda.manual_seed_all(_seed)
+            torch.backends.cudnn.deterministic = True
 
         # 创建模型
         if model is None:
@@ -147,11 +163,14 @@ class PTMSiteLightning(L.LightningModule):
                 weight_decay=weight_decay,
             )
         elif optimizer_name == 'sgd':
+            momentum = self.config.get('momentum', 0.9)
+            nesterov = self.config.get('nesterov', False)
             optimizer = torch.optim.SGD(
                 self.parameters(),
                 lr=lr,
                 weight_decay=weight_decay,
-                momentum=0.9,
+                momentum=momentum,
+                nesterov=nesterov,
             )
         else:
             raise ValueError(f"未知优化器: {optimizer_name}")

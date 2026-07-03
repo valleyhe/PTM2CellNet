@@ -2,7 +2,7 @@
 
 from .losses import FocalLoss, DiceLoss, MultiTaskLoss
 from .optimizers import configure_optimizer
-from .callbacks import ModelCheckpoint, EarlyStopping
+from .callbacks import ModelCheckpoint, EarlyStopping, TensorBoardCallback
 from .trainers import Trainer
 from .self_supervised import MaskedPTMPrediction, pretrain_masked_ptm
 from .logging_config import (
@@ -18,6 +18,7 @@ __all__ = [
     "configure_optimizer",
     "ModelCheckpoint",
     "EarlyStopping",
+    "TensorBoardCallback",
     "Trainer",
     "MaskedPTMPrediction",
     "pretrain_masked_ptm",

@@ -1,0 +1,18 @@
+# Pretrained protein language models (ESM-2 / ProtBERT) — P1-2.
+#
+# Install on top of core to enable ``scripts/train_pretrained.py`` and the
+# pretrained encoders:
+#     pip install -r requirements-core.txt -r requirements-pretrained.txt
+#
+# These are kept out of the default install because they pull in the Hugging
+# Face stack and are only needed for the real-model training path.
+
+-r requirements-core.txt
+
+transformers>=4.20.0
+peft>=0.8.0
+einops>=0.6.0
+# Lightning is required for the pretrained/Lightning training entrypoints.
+lightning>=2.5.0
+torchmetrics>=0.11.0
+tensorboard>=2.13.0

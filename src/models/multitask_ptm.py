@@ -10,6 +10,14 @@ import torch.nn.functional as F
 from typing import Any, Dict, List, Optional
 import logging
 
+from .encoders import PooledCNNEncoder, PooledTransformerEncoder, PooledLSTMEncoder
+
+# Re-export pooled encoders under short names for backward compatibility.
+# These accept pre-embedded input and produce (batch, hidden_dim).
+CNNEncoder = PooledCNNEncoder
+TransformerEncoder = PooledTransformerEncoder
+LSTMEncoder = PooledLSTMEncoder
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,11 +142,11 @@ class MultiTaskPTMPredictor(nn.Module):
     def _create_encoder(self, encoder_type, embed_dim, hidden_dim, num_layers, num_heads, dropout):
         """创建编码器"""
         if encoder_type == "cnn":
-            return CNNEncoder(embed_dim, hidden_dim, num_layers, dropout)
+            return PooledCNNEncoder(embed_dim, hidden_dim, num_layers, dropout)
         elif encoder_type == "transformer":
-            return TransformerEncoder(embed_dim, hidden_dim, num_layers, num_heads, dropout)
+            return PooledTransformerEncoder(embed_dim, hidden_dim, num_layers, num_heads, dropout)
         elif encoder_type == "lstm":
-            return LSTMEncoder(embed_dim, hidden_dim, num_layers, dropout)
+            return PooledLSTMEncoder(embed_dim, hidden_dim, num_layers, dropout)
         else:
             raise ValueError(f"未知编码器类型: {encoder_type}")
 
@@ -253,82 +261,6 @@ class MultiTaskPTMPredictor(nn.Module):
         loss = F.cross_entropy(domain_logits, ptm_indices)
 
         return loss
-
-
-class CNNEncoder(nn.Module):
-    """CNN编码器"""
-
-    def __init__(self, embed_dim, hidden_dim, num_layers=2, dropout=0.1, kernel_size=3):
-        super().__init__()
-
-        layers = []
-        in_channels = embed_dim
-
-        for i in range(num_layers):
-            out_channels = hidden_dim if i == num_layers - 1 else embed_dim * 2
-            layers.extend([
-                nn.Conv1d(in_channels, out_channels, kernel_size, padding=kernel_size // 2),
-                nn.BatchNorm1d(out_channels),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-            ])
-            in_channels = out_channels
-
-        self.conv = nn.Sequential(*layers)
-        self.pool = nn.AdaptiveMaxPool1d(1)
-
-    def forward(self, x):
-        # x: (batch, seq_len, embed_dim)
-        x = x.transpose(1, 2)  # (batch, embed_dim, seq_len)
-        x = self.conv(x)
-        x = self.pool(x).squeeze(-1)
-        return x
-
-
-class TransformerEncoder(nn.Module):
-    """Transformer编码器"""
-
-    def __init__(self, embed_dim, hidden_dim, num_layers=2, num_heads=4, dropout=0.1):
-        super().__init__()
-
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim,
-            nhead=num_heads,
-            dim_feedforward=hidden_dim,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.output_proj = nn.Linear(embed_dim, hidden_dim)
-
-    def forward(self, x):
-        x = self.transformer(x)
-        x = x.mean(dim=1)
-        x = self.output_proj(x)
-        return x
-
-
-class LSTMEncoder(nn.Module):
-    """LSTM编码器"""
-
-    def __init__(self, embed_dim, hidden_dim, num_layers=2, dropout=0.1):
-        super().__init__()
-
-        self.lstm = nn.LSTM(
-            input_size=embed_dim,
-            hidden_size=hidden_dim // 2,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=dropout if num_layers > 1 else 0,
-        )
-
-    def forward(self, x):
-        _, (h_n, _) = self.lstm(x)
-        h_forward = h_n[-2]
-        h_backward = h_n[-1]
-        h = torch.cat([h_forward, h_backward], dim=-1)
-        return h
 
 
 class MultiTaskLoss(nn.Module):

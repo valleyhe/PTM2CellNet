@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import torch
-from fastapi import APIRouter, HTTPException, status
+import os
+
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...utils.io import safe_torch_load
@@ -24,6 +26,127 @@ from .state import (
 )
 
 logger = setup_logger(__name__)
+
+# Environment variable used to override the allowed base directories.
+# Comma-separated list of roots; each is resolved to an absolute path.
+_ALLOWED_ROOTS_ENV = "PTM2CELLNET_ALLOWED_ROOTS"
+
+# Default allowed base directory when the env var is not set: the project
+# root inferred from this module's location (src/api/routes/ -> repo root).
+_DEFAULT_ALLOWED_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_allowed_roots() -> List[Path]:
+    """Parse allowed base directories from env var, falling back to default.
+
+    Reads ``PTM2CELLNET_ALLOWED_ROOTS`` (comma-separated). When unset, falls
+    back to the project root so local development keeps working without extra
+    configuration. Each entry is resolved to an absolute, symlink-free path;
+    non-existent paths are kept as-is so they can be configured ahead of time.
+    """
+    raw = os.environ.get(_ALLOWED_ROOTS_ENV)
+    if not raw or not raw.strip():
+        return [_DEFAULT_ALLOWED_ROOT]
+    roots: List[Path] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        roots.append(Path(item).resolve())
+    if not roots:
+        return [_DEFAULT_ALLOWED_ROOT]
+    return roots
+
+
+# Allowed base directories for checkpoint/config resolution.
+# Resolved paths must fall under at least one of these roots. The active set is
+# re-read from PTM2CELLNET_ALLOWED_ROOTS on each validation call (see
+# _get_allowed_roots), so runtime/test changes to the env var take effect
+# without a restart. This module-level value is the import-time snapshot only.
+_ALLOWED_ROOTS: List[Path] = _resolve_allowed_roots()
+
+
+def _get_allowed_roots() -> List[Path]:
+    """Resolve allowed roots from PTM2CELLNET_ALLOWED_ROOTS on each call.
+
+    Re-reading the env var lets runtime configuration and test fixtures take
+    effect without re-importing the module.
+    """
+    return _resolve_allowed_roots()
+
+
+def _validate_path_within_allowed(path: Path) -> Path:
+    """Resolve *path* and verify it falls within an allowed directory.
+
+    Prevents path-traversal attacks (e.g. ``../../etc/passwd``) by
+    resolving symlinks and ``..`` segments, then checking the resolved
+    absolute path is a descendant of at least one allowed root.
+
+    Returns the resolved ``Path`` on success.
+    Raises ``HTTPException(403)`` when the path escapes all roots.
+    """
+    resolved = path.resolve()
+    for root in _get_allowed_roots():
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            continue
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Path escapes allowed directories: {resolved}",
+    )
+
+_API_KEY_ENV = "PTM2CELLNET_API_KEY"
+_ENV_VAR = "PTM2CELLNET_ENV"
+# Environments in which /initialize may run without an API key (dev/test only).
+_DEV_ENVIRONMENTS = {"development", "test"}
+
+
+def _is_dev_environment() -> bool:
+    """Return True when ``PTM2CELLNET_ENV`` indicates a non-production env."""
+    return os.environ.get(_ENV_VAR, "").strip().lower() in _DEV_ENVIRONMENTS
+
+
+def _require_api_key(x_api_key: Optional[str] = None) -> None:
+    """Enforce API key authentication for /initialize.
+
+    Default-deny semantics:
+
+    * If ``PTM2CELLNET_API_KEY`` is **set**, the ``X-API-Key`` header must
+      match it exactly (missing header → 401, wrong key → 403).
+    * If ``PTM2CELLNET_API_KEY`` is **not set**:
+        - In development/test (``PTM2CELLNET_ENV`` in {development, test}),
+          log a warning and allow the request through (dev mode).
+        - Otherwise (production / unset env), reject with 503 so the endpoint
+          stays locked down when an operator forgets to configure the key.
+    """
+    expected = os.environ.get(_API_KEY_ENV)
+    if not expected:
+        if _is_dev_environment():
+            logger.warning(
+                "%s not set — /initialize endpoint running in dev mode (no auth)",
+                _API_KEY_ENV,
+            )
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "/initialize requires PTM2CELLNET_API_KEY in production. "
+                "Set the env var (or PTM2CELLNET_ENV=development for dev mode)."
+            ),
+        )
+    if x_api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-API-Key header is required",
+        )
+    if x_api_key != expected:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+
 
 router = APIRouter()
 
@@ -87,15 +210,21 @@ class InitializeResponse(BaseModel):
 
 
 @router.post("/initialize", response_model=InitializeResponse)
-async def initialize_endpoint(request: InitializeRequest) -> InitializeResponse:
+async def initialize_endpoint(
+    request: InitializeRequest,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> InitializeResponse:
     """热加载模型权重与配置。
 
     步骤：
+        0. 验证 API Key（若 PTM2CELLNET_API_KEY 环境变量已设置）。
         1. 通过 ``resolve_inference_config`` 解析 checkpoint 与 config。
         2. 构建模型并加载 state_dict（strict=False，允许部分加载）。
         3. 调用 ``initialize_model`` 更新全局 STATE。
     """
-    ckpt_path = Path(request.checkpoint_path)
+    _require_api_key(x_api_key)
+
+    ckpt_path = _validate_path_within_allowed(Path(request.checkpoint_path))
     if not ckpt_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

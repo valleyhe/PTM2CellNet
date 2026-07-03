@@ -7,11 +7,14 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
-from typing import Dict, List, Optional
+import numpy as np
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 import logging
 from collections import defaultdict
 import random
+
+from src.data.aa_constants import AA_TO_IDX, PAD_IDX, AA_PAD_CHAR
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +26,8 @@ class MultiTaskPTMDataset(Dataset):
     同时处理多种PTM类型的样本
     """
 
-    AA_TO_IDX = {
-        'A': 0, 'C': 1, 'D': 2, 'E': 3, 'F': 4,
-        'G': 5, 'H': 6, 'I': 7, 'K': 8, 'L': 9,
-        'M': 10, 'N': 11, 'P': 12, 'Q': 13, 'R': 14,
-        'S': 15, 'T': 16, 'V': 17, 'W': 18, 'Y': 19,
-        '-': 20,  # padding
-    }
+    # 氨基酸→索引映射 (1-indexed, 0=padding，统一从aa_constants导入)
+    AA_TO_IDX = dict(AA_TO_IDX)
 
     PTM_TO_IDX = {
         'Phosphorylation': 0,
@@ -42,21 +40,25 @@ class MultiTaskPTMDataset(Dataset):
 
     def __init__(
         self,
-        data_files: Dict[str, str],
+        data_files: Dict[str, str] = None,
         window_size: int = 15,
         max_samples_per_type: Optional[int] = None,
         balance_types: bool = True,
         augment_minority: bool = True,
+        samples: Optional[List[Dict[str, Any]]] = None,
+        ptm_types: Optional[List[str]] = None,
     ):
         """
         初始化数据集
 
         参数:
-            data_files: PTM类型到数据文件路径的映射
+            data_files: PTM类型到数据文件路径的映射（与 samples 二选一）
             window_size: 序列窗口大小（每侧）
             max_samples_per_type: 每种PTM类型的最大样本数
             balance_types: 是否平衡各类型样本数
             augment_minority: 是否增强少数类
+            samples: 预加载的样本列表（与 data_files 二选一，用于已划分的数据）
+            ptm_types: PTM 类型列表（提供 samples 时需显式传入）
         """
         self.window_size = window_size
         self.max_samples_per_type = max_samples_per_type
@@ -64,36 +66,49 @@ class MultiTaskPTMDataset(Dataset):
         self.augment_minority = augment_minority
 
         # 加载所有数据
-        self.samples = []
-        self.ptm_types = list(data_files.keys())
+        self.samples: List[Dict[str, Any]] = []
+        if samples is not None:
+            self.samples = list(samples)
+            self.ptm_types = ptm_types if ptm_types is not None else sorted(
+                {s['ptm_type'] for s in self.samples}
+            )
+        else:
+            self.ptm_types = list(data_files.keys()) if data_files else []
+            for ptm_type, file_path in (data_files or {}).items():
+                df = pd.read_csv(file_path)
+                logger.info(f"加载 {ptm_type}: {len(df)} 样本")
 
-        for ptm_type, file_path in data_files.items():
-            df = pd.read_csv(file_path)
-            logger.info(f"加载 {ptm_type}: {len(df)} 样本")
+                # 限制样本数
+                if max_samples_per_type and len(df) > max_samples_per_type:
+                    # 平衡正负样本
+                    pos_df = df[df['label'] == 1]
+                    neg_df = df[df['label'] == 0]
+                    n_per_class = max_samples_per_type // 2
 
-            # 限制样本数
-            if max_samples_per_type and len(df) > max_samples_per_type:
-                # 平衡正负样本
-                pos_df = df[df['label'] == 1]
-                neg_df = df[df['label'] == 0]
-                n_per_class = max_samples_per_type // 2
+                    if len(pos_df) > n_per_class:
+                        pos_df = pos_df.sample(n_per_class, random_state=42)
+                    if len(neg_df) > n_per_class:
+                        neg_df = neg_df.sample(n_per_class, random_state=42)
 
-                if len(pos_df) > n_per_class:
-                    pos_df = pos_df.sample(n_per_class, random_state=42)
-                if len(neg_df) > n_per_class:
-                    neg_df = neg_df.sample(n_per_class, random_state=42)
+                    df = pd.concat([pos_df, neg_df])
 
-                df = pd.concat([pos_df, neg_df])
+                for _, row in df.iterrows():
+                    self.samples.append({
+                        'uniprot_id': row['uniprot_id'],
+                        'position': row['position'],
+                        'aa': row['aa'],
+                        'sequence_window': row['sequence_window'],
+                        'label': int(row['label']),
+                        'ptm_type': ptm_type,
+                    })
 
-            for _, row in df.iterrows():
-                self.samples.append({
-                    'uniprot_id': row['uniprot_id'],
-                    'position': row['position'],
-                    'aa': row['aa'],
-                    'sequence_window': row['sequence_window'],
-                    'label': int(row['label']),
-                    'ptm_type': ptm_type,
-                })
+            # 平衡各 PTM 类型样本数
+            if self.balance_types:
+                self.samples = self._balance_by_ptm_type(self.samples)
+
+        # 少数类过采样增强
+        if self.augment_minority:
+            self.samples = self._augment_minority_types(self.samples)
 
         # 打乱
         random.shuffle(self.samples)
@@ -106,6 +121,51 @@ class MultiTaskPTMDataset(Dataset):
         logger.info(f"总样本数: {len(self.samples)}")
         for ptm, count in self.type_counts.items():
             logger.info(f"  {ptm}: {count}")
+
+    def _balance_by_ptm_type(
+        self, samples: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """对各 PTM 类型进行下采样至最小类型样本数（保持正负比例）。"""
+        by_type: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for s in samples:
+            by_type[s['ptm_type']].append(s)
+        if not by_type:
+            return samples
+        min_count = min(len(v) for v in by_type.values())
+        rng = random.Random(42)
+        balanced: List[Dict[str, Any]] = []
+        for ptm_type, items in by_type.items():
+            if len(items) > min_count:
+                items = rng.sample(items, min_count)
+            balanced.extend(items)
+        logger.info(f"balance_types: 各类型下采样至 {min_count}，共 {len(balanced)} 样本")
+        return balanced
+
+    def _augment_minority_types(
+        self, samples: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """对少数类 PTM 类型过采样至中位数样本数（复制样本，不引入噪声）。"""
+        by_type: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for s in samples:
+            by_type[s['ptm_type']].append(s)
+        if not by_type:
+            return samples
+        counts = [len(v) for v in by_type.values()]
+        if len(counts) <= 1:
+            return samples
+        target = int(np.median(counts))
+        rng = random.Random(42)
+        augmented: List[Dict[str, Any]] = []
+        for ptm_type, items in by_type.items():
+            augmented.extend(items)
+            if len(items) < target:
+                deficit = target - len(items)
+                oversampled = [rng.choice(items) for _ in range(deficit)]
+                augmented.extend(oversampled)
+                logger.info(
+                    f"augment_minority: {ptm_type} 从 {len(items)} 过采样至 {target}"
+                )
+        return augmented
 
     def __len__(self):
         return len(self.samples)
@@ -127,8 +187,8 @@ class MultiTaskPTMDataset(Dataset):
         }
 
     def _encode_sequence(self, sequence: str) -> List[int]:
-        """编码序列为索引"""
-        return [self.AA_TO_IDX.get(aa, 20) for aa in sequence]
+        """编码序列为索引（1-indexed，0=padding）"""
+        return [self.AA_TO_IDX.get(aa, PAD_IDX) for aa in sequence]
 
     def get_type_weights(self) -> Dict[str, float]:
         """计算类型权重（用于平衡）"""
@@ -161,6 +221,8 @@ class MultiTaskPTMDataModule:
         val_ratio: float = 0.1,
         num_workers: int = 4,
         collate_fn: Optional[callable] = None,
+        balance_types: bool = True,
+        augment_minority: bool = True,
     ):
         """
         初始化数据模块
@@ -177,6 +239,8 @@ class MultiTaskPTMDataModule:
             collate_fn: 自定义批处理函数。默认使用
                 :func:`collate_multitask_batch`，以支持按 PTM 类型分组并
                 输出 ``labels`` 字典（多任务训练脚本依赖该结构）。
+            balance_types: 是否平衡各 PTM 类型样本数（训练集生效）
+            augment_minority: 是否对少数类 PTM 类型过采样增强（训练集生效）
         """
         self.data_dir = Path(data_dir)
         self.ptm_types = ptm_types
@@ -186,6 +250,8 @@ class MultiTaskPTMDataModule:
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.num_workers = num_workers
+        self.balance_types = balance_types
+        self.augment_minority = augment_minority
         # 默认使用多任务批处理函数；允许传入 None 回退到 PyTorch 默认 collate
         self.collate_fn = collate_fn if collate_fn is not None else collate_multitask_batch
 
@@ -244,8 +310,15 @@ class MultiTaskPTMDataModule:
         val_samples = all_samples[n_train:n_train + n_val]
         test_samples = all_samples[n_train + n_val:]
 
-        # 创建数据集
-        self.train_dataset = SampleDataset(train_samples, self.window_size)
+        # 创建数据集：训练集使用 MultiTaskPTMDataset 以启用 balance/augment 逻辑，
+        # 验证/测试集使用 SampleDataset 保持原始分布（不增强）。
+        self.train_dataset = MultiTaskPTMDataset(
+            samples=train_samples,
+            ptm_types=list(data_files.keys()),
+            window_size=self.window_size,
+            balance_types=self.balance_types,
+            augment_minority=self.augment_minority,
+        )
         self.val_dataset = SampleDataset(val_samples, self.window_size)
         self.test_dataset = SampleDataset(test_samples, self.window_size)
 
@@ -285,13 +358,8 @@ class MultiTaskPTMDataModule:
 class SampleDataset(Dataset):
     """简单样本数据集"""
 
-    AA_TO_IDX = {
-        'A': 0, 'C': 1, 'D': 2, 'E': 3, 'F': 4,
-        'G': 5, 'H': 6, 'I': 7, 'K': 8, 'L': 9,
-        'M': 10, 'N': 11, 'P': 12, 'Q': 13, 'R': 14,
-        'S': 15, 'T': 16, 'V': 17, 'W': 18, 'Y': 19,
-        '-': 20,
-    }
+    # 氨基酸→索引映射 (1-indexed, 0=padding，统一从aa_constants导入)
+    AA_TO_IDX = dict(AA_TO_IDX)
 
     PTM_TO_IDX = {
         'Phosphorylation': 0,
@@ -312,7 +380,7 @@ class SampleDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.samples[idx]
 
-        seq_indices = [self.AA_TO_IDX.get(aa, 20) for aa in sample['sequence_window']]
+        seq_indices = [self.AA_TO_IDX.get(aa, PAD_IDX) for aa in sample['sequence_window']]
         ptm_idx = self.PTM_TO_IDX.get(sample['ptm_type'], 0)
 
         return {

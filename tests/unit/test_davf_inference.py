@@ -87,12 +87,13 @@ class TestDAVFInferenceConfig:
         assert config.feature_dim == 128
         assert config.hidden_dim == 256
 
-    def test_gene_state_space_is_rejected_at_config_validation(self):
-        """state_space='gene' is rejected because only scvi_latent is supported."""
+    def test_gene_state_space_is_accepted(self):
+        """state_space='gene' is supported after DAVF fix."""
         from src.models.davf_inference import DAVFInferenceConfig
 
-        with pytest.raises(ValueError, match="state_space must be 'scvi_latent'"):
-            DAVFInferenceConfig(state_space="gene")
+        config = DAVFInferenceConfig(state_space="gene")
+        assert config.state_space == "gene"
+        assert hasattr(config, "gene_vocab_size")
 
     def test_invalid_state_space_raises(self):
         """Invalid state_space raises ValueError."""

@@ -4,9 +4,12 @@
 功能概述: 提供模型配置验证、参数量统计、计算量分析等工具
 """
 
+import logging
 from typing import Any, Dict, List, Tuple, Union
 import torch
 from torch import nn
+
+logger = logging.getLogger(__name__)
 
 
 def validate_model_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
@@ -125,8 +128,8 @@ def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int =
         else:
             hidden_dim = int(embed_dim)
 
-    # 假设10层
-    num_layers = 10
+    # 假设10层 → 改为从模型实际探测层数（避免对 base/large 变体误估）。
+    hidden_dim, num_layers = _infer_activation_depth(model)
     activation_memory_mb = batch_size * seq_len * hidden_dim * num_layers * 4 / (1024 ** 2)
 
     return {
@@ -135,6 +138,57 @@ def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int =
         "total_memory_mb": param_memory_mb + activation_memory_mb,
         "recommended_batch_size": estimate_max_batch_size(model, seq_len)
     }
+
+
+def _infer_activation_depth(model: nn.Module) -> tuple:
+    """Best-effort inference of (hidden_dim, num_layers) for activation memory.
+
+    Previously this logic hardcoded ``num_layers = 10``, which wildly
+    over-estimated memory for the small base model (2 layers) and
+    under-estimated for the large variant (4+ layers). We now probe the model
+    for the most common layer-count attributes, falling back to counting
+    transformer/LSTM blocks when no explicit attribute is exposed.
+
+    Returns ``(hidden_dim, num_layers)``. Both default to conservative values
+    when nothing can be inferred so the caller still gets a usable estimate.
+    """
+    hidden_dim = getattr(model, "embed_dim", None) or getattr(model, "hidden_dim", None) or 128
+
+    # 1. Explicit attributes — most reliable.
+    for attr in ("num_layers", "n_layers", "num_encoder_layers"):
+        val = getattr(model, attr, None)
+        if isinstance(val, int) and val > 0:
+            return int(hidden_dim), int(val)
+
+    # 2. Common submodule names that hold stacked blocks.
+    for attr in ("layers", "encoder", "transformer", "blocks"):
+        sub = getattr(model, attr, None)
+        if hasattr(sub, "layers") and isinstance(sub.layers, (list, nn.ModuleList)):
+            return int(hidden_dim), max(1, len(sub.layers))
+
+    # 3. Heuristic: count TransformerEncoderLayer / LSTM / GRU / MambaBlock
+    # submodules anywhere in the model tree.
+    layer_like = (
+        nn.TransformerEncoderLayer,
+        nn.LSTM,
+        nn.GRU,
+        nn.ModuleList,
+    )
+    try:
+        # Walk named_modules once; the deepest ModuleList of consistent length
+        # is a reasonable proxy for the stack depth.
+        candidate_depths = []
+        for _name, mod in model.named_modules():
+            if isinstance(mod, nn.ModuleList) and len(mod) > 0:
+                candidate_depths.append(len(mod))
+        if candidate_depths:
+            # Pick the largest stack we saw — usually the encoder stack.
+            return int(hidden_dim), max(candidate_depths)
+    except Exception:
+        pass
+
+    # 4. Conservative fallback (matches historical default).
+    return int(hidden_dim), 10
 
 
 def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
@@ -158,9 +212,9 @@ def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
     # 为优化器状态和其他开销预留50%内存
     usable_memory_mb = available_memory_mb * 0.5 - param_memory_mb
 
-    # 每个样本的激活内存
-    hidden_dim = getattr(model, 'embed_dim', 128)
-    num_layers = 10
+    # 每个样本的激活内存。层数从模型实际探测而非硬编码（旧实现固定为
+    # ``num_layers = 10``，对 base/large 变体都不准）。
+    hidden_dim, num_layers = _infer_activation_depth(model)
     activation_per_sample_mb = seq_len * hidden_dim * num_layers * 4 / (1024 ** 2)
 
     if activation_per_sample_mb <= 0:
@@ -180,25 +234,25 @@ def print_model_summary(model: nn.Module, detailed: bool = False) -> None:
     """
     stats = count_parameters(model)
 
-    print(f"\n{'='*60}")
-    print("模型摘要")
-    print(f"{'='*60}")
-    print(f"总参数量: {stats['total_params_m']:.2f}M ({stats['total_params']:,})")
-    print(f"可训练参数: {stats['trainable_params_m']:.2f}M ({stats['trainable_params']:,})")
-    print(f"冻结参数: {stats['frozen_params']:,}")
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("模型摘要")
+    logger.info("=" * 60)
+    logger.info("总参数量: %.2fM (%s)", stats['total_params_m'], f"{stats['total_params']:,}")
+    logger.info("可训练参数: %.2fM (%s)", stats['trainable_params_m'], f"{stats['trainable_params']:,}")
+    logger.info("冻结参数: %s", f"{stats['frozen_params']:,}")
 
     if detailed:
-        print("\n各模块参数量:")
+        logger.info("各模块参数量:")
         for name, module_stats in stats['modules'].items():
-            print(f"  {name}: {module_stats['total']/1e6:.2f}M "
-                  f"({module_stats['percentage']:.1f}%)")
+            logger.info("  %s: %.2fM (%.1f%%)", name, module_stats['total'] / 1e6, module_stats['percentage'])
 
     memory = get_model_memory_usage(model)
-    print("\n内存估算:")
-    print(f"  参数内存: {memory['params_memory_mb']:.2f} MB")
-    print(f"  激活内存: {memory['activation_memory_mb']:.2f} MB")
-    print(f"  推荐批次大小: {memory['recommended_batch_size']}")
-    print(f"{'='*60}\n")
+    logger.info("内存估算:")
+    logger.info("  参数内存: %.2f MB", memory['params_memory_mb'])
+    logger.info("  激活内存: %.2f MB", memory['activation_memory_mb'])
+    logger.info("  推荐批次大小: %d", memory['recommended_batch_size'])
+    logger.info("=" * 60)
 
 
 def compare_models(model1: nn.Module, model2: nn.Module,
@@ -214,12 +268,13 @@ def compare_models(model1: nn.Module, model2: nn.Module,
     stats1 = count_parameters(model1)
     stats2 = count_parameters(model2)
 
-    print(f"\n{'='*60}")
-    print("模型对比")
-    print(f"{'='*60}")
-    print(f"{'指标':<30} {names[0]:<15} {names[1]:<15}")
-    print(f"{'-'*60}")
-    print(f"{'总参数量 (M)':<30} {stats1['total_params_m']:<15.2f} {stats2['total_params_m']:<15.2f}")
-    print(f"{'可训练参数 (M)':<30} {stats1['trainable_params_m']:<15.2f} {stats2['trainable_params_m']:<15.2f}")
-    print(f"{'冻结参数':<30} {stats1['frozen_params']:<15,} {stats2['frozen_params']:<15,}")
-    print(f"{'='*60}\n")
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("模型对比")
+    logger.info("=" * 60)
+    logger.info("%-30s %-15s %-15s", "指标", names[0], names[1])
+    logger.info("-" * 60)
+    logger.info("%-30s %-15.2f %-15.2f", "总参数量 (M)", stats1['total_params_m'], stats2['total_params_m'])
+    logger.info("%-30s %-15.2f %-15.2f", "可训练参数 (M)", stats1['trainable_params_m'], stats2['trainable_params_m'])
+    logger.info("%-30s %-15s %-15s", "冻结参数", f"{stats1['frozen_params']:,}", f"{stats2['frozen_params']:,}")
+    logger.info("=" * 60)

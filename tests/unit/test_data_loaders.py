@@ -71,7 +71,9 @@ def test_load_from_phosphositeplus_local_gzip(tmp_path) -> None:
             "position": 473,
             "ptm_type": "phosphorylation",
             "amino_acid": "S",
-            "confidence": 1001,
+            # 测试数据仅含 SITE_GRP_ID（site group id），并非真实置信度。
+            # 修复后 loaders 不再把 SITE_GRP_ID 误作 confidence，故 confidence 为缺失值。
+            "confidence": None,
             "source": "PhosphoSitePlus",
         },
         {
@@ -80,7 +82,7 @@ def test_load_from_phosphositeplus_local_gzip(tmp_path) -> None:
             "position": 705,
             "ptm_type": "phosphorylation",
             "amino_acid": "Y",
-            "confidence": 1003,
+            "confidence": None,
             "source": "PhosphoSitePlus",
         },
     ]
@@ -110,7 +112,8 @@ def test_load_from_phosphositeplus_download_url(tmp_path, monkeypatch) -> None:
     assert df.loc[0, "protein_accession"] == "P28482"
     assert df.loc[0, "position"] == 185
     assert df.loc[0, "amino_acid"] == "T"
-    assert df.loc[0, "confidence"] == 2001
+    # 测试数据仅含 SITE_GRP_ID（非真实置信度），修复后 confidence 为缺失值。
+    assert pd.isna(df.loc[0, "confidence"])
 
 
 def test_load_from_phosphositeplus_network_failure_returns_empty(monkeypatch) -> None:

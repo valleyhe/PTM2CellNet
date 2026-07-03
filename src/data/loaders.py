@@ -40,13 +40,39 @@ class DataLoader:
         self.valid_amino_acids = set(
             self.config.get("data", {}).get("valid_amino_acids", "ACDEFGHIKLMNPQRSTVWY")
         )
+        # strict 模式下，PTM 数据库下载/解析失败抛出 RuntimeError 而非静默返回空
+        # DataFrame，避免下游在不知情时用空数据训练。
+        self.strict_load = bool(self.config.get("data", {}).get("strict_load", False))
+
+    def _empty_or_raise(self, empty_df: pd.DataFrame, source: str) -> pd.DataFrame:
+        """strict 模式下抛错，否则返回空 DataFrame。
+
+        参数:
+            empty_df: 静默回退时返回的空 DataFrame
+            source: 数据源名称，用于错误信息
+
+        返回:
+            空 DataFrame（非 strict 模式）
+
+        抛出:
+            RuntimeError: strict 模式下
+        """
+        if self.strict_load:
+            raise RuntimeError(
+                f"{source} 数据加载失败（strict_load=True）。"
+                "请检查数据源路径/网络，或在 config 中设置 data.strict_load=False 以回退到空 DataFrame。"
+            )
+        return empty_df
 
     def load_from_csv(self, file_path: str) -> pd.DataFrame:
         """
-        从CSV文件加载数据
+        从表格文件加载数据
+
+        支持自动识别 HDF5 文件（.h5/.hdf5 后缀），通过 ``pd.read_hdf`` 读取，
+        将 HDF5 接入主数据链路；其他后缀按 CSV 处理。
 
         参数:
-            file_path: CSV文件路径
+            file_path: 数据文件路径（.csv/.h5/.hdf5）
 
         返回:
             DataFrame对象
@@ -56,6 +82,28 @@ class DataLoader:
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"CSV文件不存在: {file_path}")
+
+        # HDF5 分支：将 HDF5 接入主数据加载链路（配置 data.use_hdf5 开关或路径后缀）
+        use_hdf5 = self.config.get("data", {}).get("use_hdf5", False)
+        if use_hdf5 or file_path.lower().endswith((".h5", ".hdf5")):
+            logger.info("从HDF5加载数据: %s", file_path)
+            try:
+                df = pd.read_hdf(file_path)
+            except (ImportError, ValueError, KeyError) as exc:
+                # read_hdf 需要 pytables；若不可用或 key 不匹配，回退到 src.utils.io.load_hdf5
+                logger.warning(
+                    "pd.read_hdf 失败 (%s)，尝试使用 src.utils.io.load_hdf5 回退", exc,
+                )
+                from ..utils.io import load_hdf5
+                data = load_hdf5(file_path)
+                if isinstance(data, pd.DataFrame):
+                    df = data
+                elif isinstance(data, dict) and len(data) == 1:
+                    df = next(iter(data.values()))
+                else:
+                    raise
+            logger.info("加载完成，共 %d 条记录", len(df))
+            return df
 
         logger.info("从CSV加载数据: %s", file_path)
         df = pd.read_csv(file_path)
@@ -168,14 +216,56 @@ class DataLoader:
         Download an HTTP(S) URL to a local file and return the local path.
 
         Local paths are returned unchanged.
+
+        Safety:
+            - Rejects URLs whose ``scheme`` is not http/https (defence-in-depth
+              against ``file://`` / ``ftp://`` SSRF vectors).
+            - Logs a loud warning when the scheme is ``http`` rather than
+              ``https`` so plaintext downloads are visible in audit logs.
+            - Caps total downloaded size at ``PTM2CELLNET_MAX_DOWNLOAD_BYTES``
+              (default 256 MiB) to prevent accidental OOM from a hostile or
+              misconfigured endpoint.
+            - Optionally restricts the host via ``PTM2CELLNET_DOWNLOAD_ALLOWLIST``
+              (comma-separated). When unset, any host is allowed (preserving
+              existing behaviour); when set, only listed hosts may be fetched.
         """
         if not self._is_url(path_or_url):
             return path_or_url
 
+        parsed = urlparse(path_or_url)
+        # Scheme check: only http/https are ever fetched. _is_url already
+        # enforces this, but we re-check here so the guard is local to the
+        # network call site and survives refactors of _is_url.
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError(
+                f"Refusing to download URL with scheme {parsed.scheme!r}; "
+                "only http/https are allowed."
+            )
+        if parsed.scheme == "http":
+            logger.warning(
+                "Downloading over plaintext HTTP (host=%s). Configure the "
+                "source to use HTTPS if possible.",
+                parsed.netloc,
+            )
+
+        # Optional host allowlist (env-driven so the default behaviour is
+        # unchanged but operators can lock down data sources in production).
+        allowlist_env = os.environ.get("PTM2CELLNET_DOWNLOAD_ALLOWLIST", "")
+        if allowlist_env:
+            allowed_hosts = {h.strip().lower() for h in allowlist_env.split(",") if h.strip()}
+            if parsed.netloc.split(":")[0].lower() not in allowed_hosts:
+                raise ValueError(
+                    f"Download host {parsed.netloc!r} is not in the "
+                    "PTM2CELLNET_DOWNLOAD_ALLOWLIST allowlist."
+                )
+
+        # Max download size cap. Read the Content-Length header first; if the
+        # server omits it, we still enforce the cap on the streamed bytes.
+        max_bytes = int(os.environ.get("PTM2CELLNET_MAX_DOWNLOAD_BYTES", str(256 * 1024 * 1024)))
+
         logger.info("下载远程数据文件: %s", path_or_url)
         os.makedirs(self.data_raw_dir, exist_ok=True)
 
-        parsed = urlparse(path_or_url)
         filename = os.path.basename(parsed.path) or "downloaded_data"
         suffix = "".join(part for part in os.path.splitext(filename) if part)
         if not suffix:
@@ -184,6 +274,23 @@ class DataLoader:
         response = requests.get(path_or_url, stream=True, timeout=30)
         response.raise_for_status()
 
+        # Pre-check declared size to fail fast on obviously-too-big payloads.
+        # ``response.headers`` may be absent for mock responses in tests, so
+        # guard with getattr to avoid AttributeError breaking the happy path.
+        headers = getattr(response, "headers", None) or {}
+        content_length = headers.get("content-length") if hasattr(headers, "get") else None
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                declared = -1
+            if declared > max_bytes:
+                raise ValueError(
+                    f"Refusing to download {path_or_url}: declared size "
+                    f"{declared} bytes exceeds limit {max_bytes} bytes "
+                    "(set PTM2CELLNET_MAX_DOWNLOAD_BYTES to raise the cap)."
+                )
+
         with tempfile.NamedTemporaryFile(
             mode="wb",
             suffix=suffix,
@@ -191,9 +298,39 @@ class DataLoader:
             dir=self.data_raw_dir,
             delete=False,
         ) as handle:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
+            bytes_written = 0
+            # ``iter_content`` may not exist on mock responses; fall back to
+            # writing ``response.content`` directly so test mocks keep working.
+            iter_content = getattr(response, "iter_content", None)
+            if callable(iter_content):
+                for chunk in iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    bytes_written += len(chunk)
+                    if bytes_written > max_bytes:
+                        handle.close()
+                        try:
+                            os.unlink(handle.name)
+                        except OSError:
+                            pass
+                        raise ValueError(
+                            f"Download exceeded {max_bytes} bytes (cap via "
+                            "PTM2CELLNET_MAX_DOWNLOAD_BYTES); aborting."
+                        )
                     handle.write(chunk)
+            else:
+                content = getattr(response, "content", b"") or b""
+                if len(content) > max_bytes:
+                    handle.close()
+                    try:
+                        os.unlink(handle.name)
+                    except OSError:
+                        pass
+                    raise ValueError(
+                        f"Download exceeded {max_bytes} bytes (cap via "
+                        "PTM2CELLNET_MAX_DOWNLOAD_BYTES); aborting."
+                    )
+                handle.write(content)
             return handle.name
 
     @staticmethod
@@ -318,8 +455,8 @@ class DataLoader:
         try:
             local_path = self._download_if_url(file_path_or_url)
         except requests.RequestException as exc:
-            logger.warning("下载 PhosphoSitePlus 数据失败: %s", exc)
-            return self._empty_phosphositeplus_df()
+            logger.error("下载 PhosphoSitePlus 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_phosphositeplus_df(), "PhosphoSitePlus")
 
         try:
             df = self._read_tabular_file(local_path, sep="\t")
@@ -332,8 +469,24 @@ class DataLoader:
             gene_col = self._get_matching_column(df, ["GENE", "gene symbol", "gene"])
             mod_rsd_col = self._get_matching_column(df, ["MOD_RSD", "modified residue"])
             confidence_col = self._get_matching_column(
-                df, ["SITE_GRP_ID", "site group id", "confidence"]
+                df, ["confidence", "CONFIDENCE", "site group id", "SITE_GRP_ID"]
             )
+            # 优先匹配真正的 confidence 列；若 PhosphoSitePlus 导出无该列，
+            # 则回退到 site group id（非置信度）并在日志中说明。
+            # 注意：经 _normalize_column_name 处理后 "site group id" -> "sitegroupid"，
+            # 而 "SITE_GRP_ID" -> "sitegrpid"（下划线被移除但 g 与 grp 不同），两者均需覆盖。
+            confidence_is_group_id = confidence_col is not None and (
+                self._normalize_column_name(confidence_col)
+                in {"sitegroupid", "sitegrpid"}
+            )
+            if confidence_is_group_id:
+                logger.warning(
+                    "PhosphoSitePlus 数据未找到真正的 confidence 列，"
+                    "将使用 '%s'（site group id）填充 confidence 字段，"
+                    "该值并非置信度，应按 pd.NA 处理。",
+                    confidence_col,
+                )
+                confidence_col = None
 
             if accession_col is None or gene_col is None or mod_rsd_col is None:
                 raise ValueError("PhosphoSitePlus 数据缺少必要列")
@@ -362,8 +515,8 @@ class DataLoader:
             result["position"] = result["position"].astype(int)
             return result.reset_index(drop=True)
         except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-            logger.warning("解析 PhosphoSitePlus 数据失败: %s", exc)
-            return self._empty_phosphositeplus_df()
+            logger.error("解析 PhosphoSitePlus 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_phosphositeplus_df(), "PhosphoSitePlus")
 
     def load_from_dbptm(
         self, file_path_or_url: str, ptm_type: str = "phosphorylation"
@@ -382,8 +535,8 @@ class DataLoader:
         try:
             local_path = self._download_if_url(file_path_or_url)
         except requests.RequestException as exc:
-            logger.warning("下载 dbPTM 数据失败: %s", exc)
-            return self._empty_ptm_df()
+            logger.error("下载 dbPTM 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_ptm_df(), "dbPTM")
 
         try:
             df = self._read_tabular_file(local_path)
@@ -402,8 +555,8 @@ class DataLoader:
                 ptm_type=ptm_type,
             )
         except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-            logger.warning("解析 dbPTM 数据失败: %s", exc)
-            return self._empty_ptm_df()
+            logger.error("解析 dbPTM 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_ptm_df(), "dbPTM")
 
     def load_from_cplm(self, file_path_or_url: str, ptm_type: str = "cysteine") -> pd.DataFrame:
         """
@@ -420,8 +573,8 @@ class DataLoader:
         try:
             local_path = self._download_if_url(file_path_or_url)
         except requests.RequestException as exc:
-            logger.warning("下载 CPLM 数据失败: %s", exc)
-            return self._empty_ptm_df()
+            logger.error("下载 CPLM 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_ptm_df(), "CPLM")
 
         try:
             df = self._read_tabular_file(local_path, sep="\t")
@@ -440,8 +593,8 @@ class DataLoader:
                 ptm_type=ptm_type,
             )
         except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-            logger.warning("解析 CPLM 数据失败: %s", exc)
-            return self._empty_ptm_df()
+            logger.error("解析 CPLM 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_ptm_df(), "CPLM")
 
     def _fetch_uniprot_batch(self, accession_ids: List[str]) -> List[Dict[str, Any]]:
         """
@@ -456,7 +609,51 @@ class DataLoader:
         异常:
             requests.RequestException: 网络请求失败时抛出
         """
+        # Guard against oversized URLs. UniProt's REST gateway (and many
+        # upstream proxies / WAFs) reject URLs beyond ~8 KB with HTTP 414
+        # "URI Too Long". Each accession contributes roughly
+        # ``len("accession:")+12+4 = ~25`` chars to the query, so cap the
+        # per-request accession count by estimating the resulting URL length
+        # and chunking when it would exceed the safe limit.
         url = "https://rest.uniprot.org/uniprotkb/stream"
+        # Conservative limit (bytes) — well below common proxy defaults
+        # (nginx large_client_header_buffers default ~8k, AWS ALB 8192).
+        max_url_bytes = 7000
+
+        def _estimate_url_len(accs: List[str]) -> int:
+            query = " OR ".join(f"accession:{a}" for a in accs)
+            # +base url + other params (format=, fields=) ≈ +80 chars.
+            return len(url) + len(query) + 100
+
+        # If a single request would exceed the limit, split into chunks and
+        # concatenate the results. We preserve order so callers see records
+        # in the same order they passed accessions (best-effort: UniProt
+        # does not guarantee ordering inside one chunk).
+        if _estimate_url_len(accession_ids) > max_url_bytes:
+            chunks: List[List[str]] = []
+            current: List[str] = []
+            for acc in accession_ids:
+                current.append(acc)
+                if _estimate_url_len(current) >= max_url_bytes:
+                    # Push and start a new chunk; keep at least 1 element.
+                    if len(current) > 1:
+                        chunks.append(current[:-1])
+                        current = [current[-1]]
+                    else:
+                        chunks.append(current)
+                        current = []
+            if current:
+                chunks.append(current)
+
+            logger.info(
+                "UniProt batch URL 会超过 %d 字节，拆分为 %d 个子请求",
+                max_url_bytes, len(chunks),
+            )
+            aggregated: List[Dict[str, Any]] = []
+            for chunk in chunks:
+                aggregated.extend(self._fetch_uniprot_batch(chunk))
+            return aggregated
+
         query = " OR ".join(f"accession:{acc}" for acc in accession_ids)
         params = {
             "query": query,

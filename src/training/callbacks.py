@@ -5,7 +5,7 @@
 """
 
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -53,7 +53,7 @@ class Callback(LightningCallback):
 class ModelCheckpoint(Callback):
     """
     模型检查点回调
-    保存最佳模型检查点
+    保存最佳模型检查点，支持完整检查点和top-k保存
     """
 
     def __init__(
@@ -63,6 +63,7 @@ class ModelCheckpoint(Callback):
         mode: str = "min",
         save_best_only: bool = True,
         save_last: bool = False,
+        save_top_k: int = 1,
         verbose: int = 1,
     ):
         """
@@ -74,6 +75,7 @@ class ModelCheckpoint(Callback):
             mode: "min" 或 "max"
             save_best_only: 是否只保存最佳模型
             save_last: 是否保存最新模型
+            save_top_k: 保留top-k个最佳检查点（仅save_best_only=False时生效）
             verbose: 日志级别
         """
         super().__init__()
@@ -82,6 +84,7 @@ class ModelCheckpoint(Callback):
         self.mode = mode
         self.save_best_only = save_best_only
         self.save_last = save_last
+        self.save_top_k = save_top_k
         self.verbose = verbose
 
         if mode == "min":
@@ -92,6 +95,61 @@ class ModelCheckpoint(Callback):
             self.is_better = lambda a, b: a > b
 
         self.epochs_since_improvement = 0
+
+        # Top-k tracking: sorted list of (metric_value, filepath)
+        # For mode="min", worst is the largest value; for mode="max", worst is the smallest
+        self._top_k_checkpoints: List[Tuple[float, str]] = []
+
+        # Optimizer and scheduler references (set externally by trainer)
+        self.optimizer = None
+        self.scheduler = None
+
+    def _ensure_dir(self, filepath: str) -> None:
+        """确保文件所在目录存在"""
+        dir_path = os.path.dirname(filepath)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
+    def _build_checkpoint(self, model, epoch: int) -> Dict:
+        """构建完整检查点字典"""
+        checkpoint: Dict = {
+            "model_state_dict": model.state_dict(),
+            "epoch": epoch,
+        }
+        if self.optimizer is not None:
+            checkpoint["optimizer_state_dict"] = self.optimizer.state_dict()
+        if self.scheduler is not None:
+            checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
+        return checkpoint
+
+    def _save_checkpoint(self, filepath: str, model, epoch: int) -> None:
+        """保存检查点到指定路径"""
+        self._ensure_dir(filepath)
+        checkpoint = self._build_checkpoint(model, epoch)
+        torch.save(checkpoint, filepath)
+
+    def _get_last_filepath(self) -> str:
+        """生成save_last文件路径，使用os.path.splitext正确处理扩展名"""
+        base, ext = os.path.splitext(self.filepath)
+        return base + "_last" + ext
+
+    def _cleanup_top_k(self) -> None:
+        """当检查点数量超过save_top_k时，删除最差的检查点"""
+        if self.save_top_k <= 0:
+            return  # save_top_k=0 means keep all
+        while len(self._top_k_checkpoints) > self.save_top_k:
+            # The worst checkpoint is the last one after sorting
+            if self.mode == "min":
+                # Sorted ascending: worst (largest value) is last
+                worst = self._top_k_checkpoints.pop(-1)
+            else:
+                # Sorted descending: worst (smallest value) is last
+                worst = self._top_k_checkpoints.pop(-1)
+            _, worst_path = worst
+            if os.path.exists(worst_path):
+                os.remove(worst_path)
+                if self.verbose > 0:
+                    logger.info("移除检查点 %s (超出save_top_k=%d)", worst_path, self.save_top_k)
 
     def on_epoch_end(self, trainer, epoch: int, logs: Dict) -> None:
         """
@@ -108,13 +166,10 @@ class ModelCheckpoint(Callback):
 
         current_value = logs[self.monitor]
 
-        dir_path = os.path.dirname(self.filepath)
-        if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
-
+        # Save last checkpoint (every epoch)
         if self.save_last:
-            last_filepath = self.filepath.replace(".pt", "_last.pt")
-            torch.save(trainer.model.state_dict(), last_filepath)
+            last_filepath = self._get_last_filepath()
+            self._save_checkpoint(last_filepath, trainer.model, epoch)
             if self.verbose > 0:
                 logger.info("保存最新模型到 %s", last_filepath)
 
@@ -122,7 +177,7 @@ class ModelCheckpoint(Callback):
             if self.is_better(current_value, self.best_value):
                 self.best_value = current_value
                 self.epochs_since_improvement = 0
-                torch.save(trainer.model.state_dict(), self.filepath)
+                self._save_checkpoint(self.filepath, trainer.model, epoch)
                 if self.verbose > 0:
                     logger.info(
                         "保存最佳模型到 %s (epoch %d, %s=%.4f)",
@@ -133,6 +188,29 @@ class ModelCheckpoint(Callback):
                     )
             else:
                 self.epochs_since_improvement += 1
+        else:
+            # save_best_only=False: save every epoch with top-k management
+            # Generate epoch-specific filepath
+            base, ext = os.path.splitext(self.filepath)
+            epoch_filepath = f"{base}_epoch{epoch:04d}{ext}"
+            self._save_checkpoint(epoch_filepath, trainer.model, epoch)
+
+            # Track in top-k list
+            self._top_k_checkpoints.append((current_value, epoch_filepath))
+            # Sort: ascending for mode="min" (best first), descending for mode="max"
+            self._top_k_checkpoints.sort(
+                key=lambda x: x[0], reverse=(self.mode == "max")
+            )
+            self._cleanup_top_k()
+
+            if self.verbose > 0:
+                logger.info(
+                    "保存检查点到 %s (epoch %d, %s=%.4f)",
+                    epoch_filepath,
+                    epoch,
+                    self.monitor,
+                    current_value,
+                )
 
 
 class EarlyStopping(Callback):
@@ -267,6 +345,68 @@ class LearningRateMonitor(Callback):
         current_lr = trainer.optimizer.param_groups[0]["lr"]
         self._lrs["batch"].append(current_lr)
         logger.info("Batch %d: lr=%.6f", batch_idx, current_lr)
+
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+
+    _HAS_TENSORBOARD = True
+except ImportError:
+    _HAS_TENSORBOARD = False
+
+
+class TensorBoardCallback(Callback):
+    """
+    TensorBoard回调
+    将训练指标写入TensorBoard用于可视化，不依赖Lightning的logger
+    """
+
+    def __init__(self, log_dir: str = "runs", flush_secs: int = 30):
+        """
+        初始化TensorBoard回调
+
+        参数:
+            log_dir: TensorBoard日志目录
+            flush_secs: 刷新间隔（秒）
+        """
+        super().__init__()
+        self.log_dir = log_dir
+        self.flush_secs = flush_secs
+        self._writer = None
+
+        if not _HAS_TENSORBOARD:
+            logger.warning(
+                "torch.utils.tensorboard 不可用，TensorBoardCallback将被跳过。"
+                "请安装 tensorboard: pip install tensorboard"
+            )
+
+    def on_train_start(self, trainer) -> None:
+        """训练开始时初始化SummaryWriter"""
+        if not _HAS_TENSORBOARD:
+            return
+        self._writer = SummaryWriter(log_dir=self.log_dir, flush_secs=self.flush_secs)
+
+    def on_epoch_end(self, trainer, epoch: int, logs: Dict) -> None:
+        """
+        epoch结束时将指标写入TensorBoard
+
+        参数:
+            trainer: 训练器实例
+            epoch: 当前epoch
+            logs: 日志字典
+        """
+        if self._writer is None:
+            return
+
+        for key in ("train_loss", "val_loss", "train_acc", "val_acc", "learning_rate"):
+            if key in logs:
+                self._writer.add_scalar(key, logs[key], epoch)
+
+    def on_train_end(self, trainer) -> None:
+        """训练结束时关闭SummaryWriter"""
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
 
 
 try:

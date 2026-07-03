@@ -173,3 +173,109 @@ class GRUEncoder(SequenceEncoder):
         x, _ = self.gru(x)
         x = self.proj(x)
         return cast(torch.Tensor, self.dropout(x))
+
+
+# ---------------------------------------------------------------------------
+# Pooled encoder variants — operate on pre-embedded input, produce a single
+# hidden vector per sequence (batch, hidden_dim).  Used by PTM-site-level
+# predictors that embed separately and need a condensed representation.
+# ---------------------------------------------------------------------------
+
+
+class PooledCNNEncoder(nn.Module):
+    """CNN编码器（池化版）— 接受预嵌入输入，输出 (batch, hidden_dim)"""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        hidden_dim: int,
+        num_layers: int = 2,
+        dropout: float = 0.1,
+        kernel_size: int = 3,
+    ):
+        super().__init__()
+
+        layers = []
+        in_channels = embed_dim
+
+        for i in range(num_layers):
+            out_channels = hidden_dim if i == num_layers - 1 else embed_dim * 2
+            layers.extend([
+                nn.Conv1d(in_channels, out_channels, kernel_size, padding=kernel_size // 2),
+                nn.BatchNorm1d(out_channels),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            ])
+            in_channels = out_channels
+
+        self.conv = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveMaxPool1d(1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, embed_dim)
+        x = x.transpose(1, 2)  # (batch, embed_dim, seq_len)
+        x = self.conv(x)  # (batch, hidden_dim, seq_len)
+        x = self.pool(x).squeeze(-1)  # (batch, hidden_dim)
+        return x
+
+
+class PooledTransformerEncoder(nn.Module):
+    """Transformer编码器（池化版）— 接受预嵌入输入，输出 (batch, hidden_dim)"""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        hidden_dim: int,
+        num_layers: int = 2,
+        num_heads: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.output_proj = nn.Linear(embed_dim, hidden_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, embed_dim)
+        x = self.transformer(x)  # (batch, seq_len, embed_dim)
+        x = x.mean(dim=1)  # 全局平均池化
+        x = self.output_proj(x)  # (batch, hidden_dim)
+        return x
+
+
+class PooledLSTMEncoder(nn.Module):
+    """LSTM编码器（池化版）— 接受预嵌入输入，输出 (batch, hidden_dim)"""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        hidden_dim: int,
+        num_layers: int = 2,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+
+        self.lstm = nn.LSTM(
+            input_size=embed_dim,
+            hidden_size=hidden_dim // 2,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, embed_dim)
+        _, (h_n, _) = self.lstm(x)  # h_n: (num_layers * 2, batch, hidden_dim // 2)
+        # 取最后一层的双向hidden state
+        h_forward = h_n[-2]  # (batch, hidden_dim // 2)
+        h_backward = h_n[-1]  # (batch, hidden_dim // 2)
+        h = torch.cat([h_forward, h_backward], dim=-1)  # (batch, hidden_dim)
+        return h

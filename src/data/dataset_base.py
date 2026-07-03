@@ -50,6 +50,17 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             self.labels = []
             self.label_to_idx = {}
 
+        # 接入 DatasetCache（将特征预计算结果接入缓存主链路）。
+        # 仅当 data.cache_dir 非空时实例化，避免无配置时产生目录副作用。
+        self.dataset_cache = None
+        cache_dir = self.config.get("data", {}).get("cache_dir", "")
+        if cache_dir:
+            try:
+                from .validation import DatasetCache
+                self.dataset_cache = DatasetCache(cache_dir)
+            except Exception as exc:  # 缓存初始化失败不阻塞数据加载
+                logger.warning("DatasetCache 初始化失败 (%s)，将不使用缓存", exc)
+
     def _get_ptm_types(self) -> List[str]:
         """从配置或默认值获取PTM类型列表"""
         default_ptm_types = [
@@ -201,42 +212,43 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
         """打印数据集统计信息"""
         stats = self.get_statistics()
 
-        print(f"\n{'='*50}")
-        print("数据集统计信息")
-        print(f"{'='*50}")
-        print(f"样本总数: {stats['num_samples']}")
-        print(f"特征列数: {stats['num_features']}")
-        print(f"列名: {', '.join(stats['columns'])}")
+        logger.info("")
+        logger.info("=" * 50)
+        logger.info("数据集统计信息")
+        logger.info("=" * 50)
+        logger.info("样本总数: %d", stats['num_samples'])
+        logger.info("特征列数: %d", stats['num_features'])
+        logger.info("列名: %s", ', '.join(stats['columns']))
 
         if "sequence_length" in stats:
             seq_stats = stats["sequence_length"]
-            print("\n序列长度统计:")
-            print(f"  最小值: {seq_stats['min']}")
-            print(f"  最大值: {seq_stats['max']}")
-            print(f"  平均值: {seq_stats['mean']:.2f}")
-            print(f"  中位数: {seq_stats['median']:.2f}")
+            logger.info("序列长度统计:")
+            logger.info("  最小值: %d", seq_stats['min'])
+            logger.info("  最大值: %d", seq_stats['max'])
+            logger.info("  平均值: %.2f", seq_stats['mean'])
+            logger.info("  中位数: %.2f", seq_stats['median'])
 
         if "num_classes" in stats:
-            print("\n类别信息:")
-            print(f"  类别数: {stats['num_classes']}")
-            print("  标签分布:")
+            logger.info("类别信息:")
+            logger.info("  类别数: %d", stats['num_classes'])
+            logger.info("  标签分布:")
             for label, count in stats["label_distribution"].items():
                 percentage = (count / stats['num_samples']) * 100
-                print(f"    {label}: {count} ({percentage:.1f}%)")
+                logger.info("    %s: %d (%.1f%%)", label, count, percentage)
 
         if "ptm_per_sample" in stats:
             ptm_stats = stats["ptm_per_sample"]
-            print("\nPTM统计:")
-            print(f"  每样本PTM数: {ptm_stats['min']} - {ptm_stats['max']}")
-            print(f"  平均每样本PTM: {ptm_stats['mean']:.2f}")
-            print(f"  含PTM的样本数: {ptm_stats['samples_with_ptm']}")
+            logger.info("PTM统计:")
+            logger.info("  每样本PTM数: %d - %d", ptm_stats['min'], ptm_stats['max'])
+            logger.info("  平均每样本PTM: %.2f", ptm_stats['mean'])
+            logger.info("  含PTM的样本数: %d", ptm_stats['samples_with_ptm'])
 
             if stats.get("ptm_type_distribution"):
-                print("\n  PTM类型分布:")
+                logger.info("  PTM类型分布:")
                 for ptm_type, count in sorted(stats["ptm_type_distribution"].items(), key=lambda x: -x[1]):
-                    print(f"    {ptm_type}: {count}")
+                    logger.info("    %s: %d", ptm_type, count)
 
-        print(f"{'='*50}\n")
+        logger.info("=" * 50)
 
 
 def compute_class_weights(label_distribution: Dict[str, int], mode: str = "inverse") -> torch.Tensor:

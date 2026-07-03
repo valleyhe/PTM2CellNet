@@ -42,6 +42,8 @@ def configure_optimizer(
     optimizer_type = training_config.get("optimizer", "adamw")
     learning_rate = float(training_config.get("learning_rate", 0.001))
     weight_decay = training_config.get("weight_decay", 0.0001)
+    momentum = training_config.get("momentum", 0.9)
+    nesterov = training_config.get("nesterov", False)
 
     scheduler_type = training_config.get("scheduler", None)
     scheduler_params = training_config.get("scheduler_params", {})
@@ -52,6 +54,8 @@ def configure_optimizer(
         optimizer_type,
         learning_rate,
         weight_decay,
+        momentum,
+        nesterov,
     )
 
     scheduler = None
@@ -71,6 +75,8 @@ def _create_optimizer(
     optimizer_type: str,
     learning_rate: float,
     weight_decay: float,
+    momentum: float = 0.9,
+    nesterov: bool = False,
 ) -> Optimizer:
     """
     创建优化器
@@ -80,6 +86,8 @@ def _create_optimizer(
         optimizer_type: 优化器类型
         learning_rate: 学习率
         weight_decay: 权重衰减
+        momentum: SGD动量（仅optimizer_type='sgd'时生效）
+        nesterov: 是否启用Nesterov动量（仅optimizer_type='sgd'时生效）
 
     返回:
         优化器实例
@@ -104,7 +112,8 @@ def _create_optimizer(
             params,
             lr=learning_rate,
             weight_decay=weight_decay,
-            momentum=0.9,
+            momentum=momentum,
+            nesterov=nesterov,
         )
     else:
         raise ValueError(f"未知的优化器类型: {optimizer_type}")

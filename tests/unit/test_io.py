@@ -65,7 +65,7 @@ class TestHDF5IO:
 class TestSafeTorchLoad:
     """safe_torch_load helper behavior."""
 
-    def test_safe_torch_load_falls_back_with_warning(self, monkeypatch, tmp_path):
+    def test_safe_torch_load_falls_back_with_warning(self, monkeypatch, tmp_path, caplog):
         checkpoint_path = tmp_path / "legacy.pt"
         checkpoint_path.write_bytes(b"placeholder")
         expected = {"model_state_dict": {}}
@@ -79,12 +79,12 @@ class TestSafeTorchLoad:
 
         monkeypatch.setattr(torch, "load", fake_torch_load)
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        import logging
+        with caplog.at_level(logging.WARNING, logger="src.utils.io"):
             loaded = io_module.safe_torch_load(str(checkpoint_path), map_location="cpu")
 
         assert loaded == expected
         assert len(calls) == 2
         assert calls[0][2]["weights_only"] is True
         assert calls[1][2]["weights_only"] is False
-        assert any("weights_only=False" in str(item.message) for item in caught)
+        assert any("rejected types" in record.message for record in caplog.records)

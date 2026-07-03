@@ -3,9 +3,9 @@
 from typing import Any, Dict, List, TYPE_CHECKING
 
 import numpy as np
+import scipy.sparse as sp
 
 from ..contracts import GenePerturbationRequest
-from ..ptm_virtual_perturbation import PTMPerturbationProfile, apply_soft_perturbation
 from .graph_utils import GraphUtilities
 from .reference_data import ReferenceDataLoader
 
@@ -246,33 +246,87 @@ class SignificanceAnalyzer:
         if not candidate_indices:
             return np.empty((0, observed_scores.shape[0]), dtype=float)
 
+        # Pre-sample all pseudo-target indices in one RNG call instead of
+        # calling rng.choice per permutation (avoids per-iteration overhead).
+        pseudo_targets = rng.choice(
+            np.asarray(candidate_indices, dtype=int),
+            size=self.null_permutations,
+            replace=True,
+        )
+
+        use_sparse = sp.issparse(baseline_network)
+        baseline_counts_dense = np.asarray(baseline_counts, dtype=float)
+        baseline_network_dense = (
+            baseline_network.toarray() if use_sparse else np.asarray(baseline_network, dtype=float)
+        )
+        n_genes = baseline_counts_dense.shape[1]
+
         null_scores = np.zeros((self.null_permutations, observed_scores.shape[0]), dtype=float)
-        for perm_index in range(self.null_permutations):
-            pseudo_target = int(rng.choice(candidate_indices))
-            perturbed_counts = np.array(baseline_counts, dtype=float, copy=True)
-            perturbed_network = np.array(baseline_network, dtype=float, copy=True)
-            if request.mode == "hard_ko":
-                perturbed_counts[:, pseudo_target] = 0.0
-                perturbed_network[:, pseudo_target] = 0.0
-                perturbed_network[pseudo_target, :] = 0.0
-            else:
-                profile = PTMPerturbationProfile(
-                    target_gene_index=pseudo_target,
-                    node_decay=max(0.0, 1.0 - request.magnitude),
-                    edge_scale=max(0.0, 1.0 - request.magnitude),
-                )
-                perturbed_counts, perturbed_network = apply_soft_perturbation(
-                    baseline_counts,
-                    baseline_network,
-                    profile,
-                )
-            pseudo_scores = self._graph._score_from_dense_matrices(
-                baseline_counts=baseline_counts,
-                baseline_network=baseline_network,
-                perturbed_counts=perturbed_counts,
-                perturbed_network=perturbed_network,
-            )
-            null_scores[perm_index] = np.delete(pseudo_scores, gene_index)
+
+        if request.mode == "hard_ko":
+            # Vectorized hard-knockout: build a (P, N, N) stack of perturbed
+            # networks and (P, cells, N) counts in one shot, then score the
+            # whole batch with broadcasting. This replaces the per-permutation
+            # Python loop + full-matrix copies and is dramatically faster on
+            # large (>5k gene) networks.
+            P = self.null_permutations
+            # Counts: zero out the pseudo-target column for each permutation.
+            perturbed_counts_batch = np.broadcast_to(
+                baseline_counts_dense, (P, *baseline_counts_dense.shape)
+            ).copy()
+            row_idx = np.arange(P)
+            perturbed_counts_batch[row_idx, :, pseudo_targets] = 0.0
+
+            # Network: zero out the pseudo-target row and column per layer.
+            perturbed_network_batch = np.broadcast_to(
+                baseline_network_dense, (P, n_genes, n_genes)
+            ).copy()
+            perturbed_network_batch[row_idx, :, pseudo_targets] = 0.0
+            perturbed_network_batch[row_idx, pseudo_targets, :] = 0.0
+
+            # Broadcast scoring over the batch axis.
+            count_shift = np.abs(
+                perturbed_counts_batch.mean(axis=1) - baseline_counts_dense.mean(axis=0)[None, :]
+            )  # (P, N)
+            diff = np.abs(perturbed_network_batch - baseline_network_dense[None, :, :])
+            edge_shift = diff.sum(axis=1) + diff.sum(axis=2)  # (P, N)
+            batch_scores = count_shift + edge_shift  # (P, N)
+            for perm_index in range(P):
+                null_scores[perm_index] = np.delete(batch_scores[perm_index], gene_index)
+            return null_scores
+
+        # soft_ptm path: vectorized like the hard_ko path. apply_soft_perturbation
+        # only scales the pseudo-target count column by node_decay and the
+        # pseudo-target network row/column by edge_scale, so a (P, N, N) batch
+        # of perturbed matrices can be built and scored with broadcasting in
+        # one pass instead of a per-permutation Python loop + full-matrix
+        # copies. node_decay == edge_scale for soft PTM.
+        P = self.null_permutations
+        decay = max(0.0, 1.0 - request.magnitude)
+
+        # Counts: scale the pseudo-target column per permutation layer.
+        perturbed_counts_batch = np.broadcast_to(
+            baseline_counts_dense, (P, *baseline_counts_dense.shape)
+        ).copy()
+        row_idx = np.arange(P)
+        perturbed_counts_batch[row_idx, :, pseudo_targets] *= decay
+
+        # Network: scale the pseudo-target row and column per layer.
+        perturbed_network_batch = np.broadcast_to(
+            baseline_network_dense, (P, n_genes, n_genes)
+        ).copy()
+        perturbed_network_batch[row_idx, :, pseudo_targets] *= decay
+        perturbed_network_batch[row_idx, pseudo_targets, :] *= decay
+
+        # Broadcast scoring over the batch axis.
+        count_shift = np.abs(
+            perturbed_counts_batch.mean(axis=1) - baseline_counts_dense.mean(axis=0)[None, :]
+        )  # (P, N)
+        diff = np.abs(perturbed_network_batch - baseline_network_dense[None, :, :])
+        edge_shift = diff.sum(axis=1) + diff.sum(axis=2)  # (P, N)
+        batch_scores = count_shift + edge_shift  # (P, N)
+        for perm_index in range(P):
+            null_scores[perm_index] = np.delete(batch_scores[perm_index], gene_index)
         return null_scores
 
     def _benjamini_hochberg(self, pvalues: np.ndarray) -> np.ndarray:
@@ -294,10 +348,19 @@ class SignificanceAnalyzer:
     def _compute_bagging_statistics(self, null_scores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if null_scores.size == 0:
             return np.zeros((0,), dtype=int), np.zeros((0,), dtype=float)
-        ranked_indices = np.argsort(null_scores, axis=1)
         threshold_index = int(null_scores.shape[1] * (1.0 - self.bagging_threshold))
         threshold_index = min(max(threshold_index, 0), null_scores.shape[1] - 1)
-        top_indices = ranked_indices[:, threshold_index:]
+        # Only the top tail (indices >= threshold_index) is needed; use
+        # argpartition to find the threshold position in O(n) per row instead
+        # of fully sorting each permutation's scores.
+        k = null_scores.shape[1] - threshold_index
+        if k <= 0:
+            top_indices = np.empty((null_scores.shape[0], 0), dtype=int)
+        else:
+            # argpartition gives the k largest elements unsorted at the tail;
+            # that is sufficient for counting hits per gene.
+            partitioned = np.argpartition(-null_scores, kth=k - 1, axis=1)
+            top_indices = partitioned[:, threshold_index:]
         hits = np.zeros((null_scores.shape[1],), dtype=int)
         for row in top_indices:
             hits[row] += 1

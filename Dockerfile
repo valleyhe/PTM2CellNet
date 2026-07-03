@@ -24,9 +24,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件并安装
-COPY requirements.txt .
+# P1-2: 默认只安装 core 依赖（最小训练/推理/API 闭环），保持镜像精简且对
+# CPU-only / 干净构建机友好。如需预训练/Mamba/分析能力，通过 build arg 打开：
+#   docker build --build-arg INSTALL_PRETRAINED=1 ...
+COPY requirements-core.txt requirements-pretrained.txt \
+     requirements-mamba.txt requirements-analysis.txt \
+     requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-core.txt
+
+# 可选能力 build arg（默认关闭）。叠加在 core 之上，按需安装。
+ARG INSTALL_PRETRAINED=0
+ARG INSTALL_MAMBA=0
+ARG INSTALL_ANALYSIS=0
+RUN if [ "$INSTALL_PRETRAINED" = "1" ]; then \
+        pip install --no-cache-dir -r requirements-pretrained.txt; \
+    fi ; \
+    if [ "$INSTALL_MAMBA" = "1" ]; then \
+        pip install --no-cache-dir -r requirements-mamba.txt; \
+    fi ; \
+    if [ "$INSTALL_ANALYSIS" = "1" ]; then \
+        pip install --no-cache-dir -r requirements-analysis.txt; \
+    fi
 
 # 复制源代码
 COPY src/ ./src/

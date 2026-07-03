@@ -52,20 +52,22 @@ PTM2CellNet/
 
 ## 安装
 
-按需选择安装范围（详见 [安装指南](docs/guides/installation.md)）：
+依赖按能力分组，默认只安装最小核心，避免在干净 CPU 环境拉取重型可选依赖（详见 [安装指南](docs/guides/installation.md)）：
 
 ```bash
-# 核心 + 大部分能力（推荐，包含 API / Lightning / 预训练编码器 / scVI）
-pip install -r requirements.txt
+# 最小核心（推荐首次安装，仅训练/推理/API 主链路，CPU 友好）
+pip install -r requirements-core.txt
 
-# 或最小核心（仅训练/推理主链路）
-pip install -e .
+# 按能力叠加（在 core 之上）
+pip install -r requirements-pretrained.txt   # + ESM-2 / ProtBERT
+pip install -r requirements-mamba.txt        # + Mamba 编码器（需 CUDA）
+pip install -r requirements-analysis.txt     # + scVI / sspa 分析
+
+# 全部能力（等价于旧 requirements.txt，磁盘/网络充裕时）
+pip install -r requirements.txt
 
 # 或按能力分组安装 extra，例如只要 API + Lightning：
 pip install -e ".[api,lightning]"
-
-# 全量能力（磁盘/网络充裕时）
-pip install -e ".[all]"
 ```
 
 > 未安装某个可选依赖时，对应能力（Lion 优化器、原生 Mamba、GenKI 图扰动、scVI 基因空间工作流）会**优雅降级**而非崩溃，并在 CLI 入口打印带 `pip install -e ".[<extra>]"` 提示的警告。
@@ -91,12 +93,32 @@ python scripts/prepare_ptm_data.py
 
 ### 训练
 
-```bash
-# 主训练脚本
-python scripts/train.py
+配置按用途分类（P1-3）：
+- `configs/smoke/cnn_cpu.yaml`、`configs/smoke/lightning_cnn_cpu.yaml` —— **首次 E2E 验证入口**（小型 CNN、CPU、1 epoch，几十秒跑完，产物自动标记为 `model_kind=demo`）。
+- `configs/research/transformer.yaml` —— 真实/研究训练（transformer、GPU、完整 epoch）。
+- `configs/production.yaml` —— API/部署服务端配置。
 
-# Lightning 训练（推荐）
-python scripts/train_lightning.py
+```bash
+# 首次 E2E 验证（smoke，推荐）——原生训练脚本
+python scripts/train.py --config configs/smoke/cnn_cpu.yaml \
+    --data data/raw/sample_data.csv --output outputs/smoke
+
+# Lightning 路径 smoke
+python scripts/train_lightning.py --config configs/smoke/lightning_cnn_cpu.yaml \
+    --data data/raw/sample_data.csv
+
+# 真实数据研究训练
+python scripts/train_lightning.py --config configs/research/transformer.yaml \
+    --data data/processed/your_dataset.csv
+```
+
+### 推理
+
+```bash
+# 单条细胞状态预测（消费训练产物 best_model.pt + sibling config）
+python scripts/predict.py --model outputs/smoke/models/best_model.pt \
+    --sequence ACDEFGHIKLMNPQRSTVWY --device cpu
+```
 
 # PTM 位点预测
 python scripts/train_ptm_site.py
@@ -114,18 +136,20 @@ python scripts/predict.py
 # PTM位点批量预测（规范脚本名）
 python scripts/predict_ptm_sites.py
 
-# 兼容旧脚本名（同样执行 PTM 位点预测，不是细胞状态批量预测）
+# 兼容旧脚本名（执行 PTM 位点预测，非细胞状态批量推理）
+# 细胞状态批量推理请改用: python scripts/predict.py --input <samples.csv>
 python scripts/batch_predict.py
 
 # 变异效应预测
-python scripts/predict_variant_effect.py --variant "BRAF_V600E"
+python scripts/predict_variant_effect.py --variant "P15056:600:V:E"
+# 注: BRAF 对应 UniProt accession P15056；格式为 UniProtID:Position:RefAA:AltAA
 ```
 
 ### 脚本说明
 
 - `scripts/predict.py`: PTM2CellNet 细胞状态推理入口，可处理单条序列或 CSV 输入。
 - `scripts/predict_ptm_sites.py`: 批量 PTM 位点预测与 PTM 变异效应分析入口。
-- `scripts/batch_predict.py`: `predict_ptm_sites.py` 的兼容包装脚本，保留旧调用方式。
+- `scripts/batch_predict.py`: `predict_ptm_sites.py` 的兼容包装脚本，仅做 PTM 位点预测（非细胞状态）。注意与 API `/batch_predict` 端点（细胞状态批量推理，见 `src/api/routes/predictions.py`）语义不同，不要混用。
 
 ### 虚拟扰动与解释
 
@@ -138,6 +162,13 @@ python scripts/run_two_stage_explanation.py \
   --input data/processed/candidates.csv \
   --output outputs/
 ```
+
+> 通路数据库缓存：`PathwayDatabaseIntegration` 默认将 KEGG/Reactome
+> 缓存写入项目根下的绝对路径 `.cache/pathway_cache`（与进程工作目录无关）。
+> 可在构造时通过 `cache_dir` 参数覆盖。如需接入真实 PPI 拓扑，将
+> STRING/BioGRID 预处理边表（列 `gene_a,gene_b,score,type`）以
+> `string_edges.tsv` / `biogrid_edges.tsv` / `ppi_edges.tsv` 之一放入该目录，
+> `build_pathway_graph` 即会改用真实互作边（`weight=score`）替代完全图近似。
 
 ### API 服务
 

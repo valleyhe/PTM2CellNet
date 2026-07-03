@@ -70,8 +70,9 @@ class VariantPTMEffectPredictor:
 
     def _load_model(self, model_path: str) -> nn.Module:
         """加载预训练模型"""
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+        # Imported at call time (not module load) so that test mocks patching
+        # ``src.models.ptm_site_predictor.PTMSitePredictor`` take effect. The
+        # package is already on sys.path, so no sys.path mutation is needed.
         from src.models.ptm_site_predictor import PTMSitePredictor
 
         checkpoint = safe_torch_load(
@@ -79,12 +80,39 @@ class VariantPTMEffectPredictor:
             map_location=self.device,
         )
 
+        # Read hyperparameters from checkpoint, falling back to defaults that
+        # match the original training config so checkpoints trained with other
+        # encoder/dimension combinations load correctly.
+        ckpt_params: Dict[str, Any] = {}
+        if isinstance(checkpoint, dict):
+            ckpt_params = checkpoint.get("hyperparams", {}) or {}
+
+        vocab_size = int(ckpt_params.get("vocab_size", 21))
+        embed_dim = int(ckpt_params.get("embed_dim", 64))
+        hidden_dim = int(ckpt_params.get("hidden_dim", 128))
+        encoder_type = str(ckpt_params.get("encoder_type", "cnn"))
+        # window_size in checkpoint reflects training-time window; fall back to
+        # the instance window_size (default 15) so encoding alignment matches.
+        window_size = int(ckpt_params.get("window_size", self.window_size))
+        # Additional architecture hyperparameters that determine the shape of
+        # encoder/classifier weights. Reading them from the checkpoint is
+        # required to avoid shape mismatches for checkpoints trained with
+        # non-default num_layers / num_heads / num_classes.
+        num_layers = int(ckpt_params.get("num_layers", 2))
+        num_heads = int(ckpt_params.get("num_heads", 4))
+        dropout = float(ckpt_params.get("dropout", 0.1))
+        num_classes = int(ckpt_params.get("num_classes", 2))
+
         model = PTMSitePredictor(
-            vocab_size=21,
-            embed_dim=64,
-            hidden_dim=128,
-            encoder_type='cnn',
-            window_size=31,
+            vocab_size=vocab_size,
+            embed_dim=embed_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            dropout=dropout,
+            encoder_type=encoder_type,
+            window_size=window_size,
+            num_classes=num_classes,
         )
 
         # 加载状态字典（处理Lightning格式）

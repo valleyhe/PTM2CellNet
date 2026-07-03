@@ -1,0 +1,82 @@
+# Research 配置——Transformer 编码器（P1-3）。
+#
+# 用于真实/研究级训练：transformer 编码器，适度规模，GPU 友好但也可在 CPU 上
+# （较慢地）跑通。与 smoke 配置的区别：更大 hidden_dim、更多层、完整 epoch 数。
+# 训练真实数据时应配合 holdout 划分与评估阈值（见 docs/guides/）。
+#
+# 用法（GPU）：
+#   python scripts/train_lightning.py --config configs/research/transformer.yaml \
+#       --data data/processed/your_dataset.csv
+
+project:
+  name: "PTM2CellNet-research"
+  version: "1.0.0"
+  seed: 42
+
+paths:
+  outputs_models: "outputs/models"
+  outputs_logs: "outputs/logs"
+  outputs_results: "outputs/results"
+
+model:
+  encoder_type: "transformer"
+  hidden_dim: 256
+  num_layers: 6
+  num_heads: 8
+  dropout: 0.1
+  num_classes: 4           # 训练时会按真实标签数自动覆盖
+
+data:
+  max_sequence_length: 1000
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+  num_workers: 4
+  pin_memory: true
+  preprocessing:
+    remove_duplicates: true
+    handle_missing: "drop"
+    normalize_sequences: true
+  split:
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+    stratified: true
+
+training:
+  max_epochs: 100
+  batch_size: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "cosine"
+  accelerator: "gpu"
+  devices: 1
+  strategy: "auto"
+  precision: "16-mixed"
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  early_stopping:
+    enabled: true
+    patience: 10
+    monitor: "val_loss"
+    mode: "min"
+  checkpoint:
+    enabled: true
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "min"
+    filename: "ptm2cellnet-{epoch:02d}-{val_loss:.4f}"
+  logger:
+    type: "tensorboard"
+    save_dir: "outputs/logs"
+    name: "research_transformer"
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_to_console: true

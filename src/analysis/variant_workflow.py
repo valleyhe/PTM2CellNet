@@ -1,6 +1,7 @@
 # mypy: ignore-errors
 """Complete variant effect prediction workflow (FEAT-01)."""
 import logging
+import os
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
@@ -49,6 +50,7 @@ class VariantEffectWorkflow:
         self.parser = HGVSVariantParser()
         self.gene_mapper = GeneMapper()
         self.network_analyzer = _create_network_analyzer()
+        self.model_path = model_path
 
         # Initialize predictors for each PTM type
         self.ptm_types = ptm_types or [
@@ -59,12 +61,33 @@ class VariantEffectWorkflow:
         self.predictors: Dict[str, VariantPTMEffectPredictor] = {}
         for ptm_type in self.ptm_types:
             try:
+                resolved_path = self._resolve_model_path(ptm_type)
                 self.predictors[ptm_type] = VariantPTMEffectPredictor(
-                    model_path=model_path,
+                    model_path=resolved_path,
                     ptm_type=ptm_type,
                 )
             except Exception as e:
                 logger.warning(f"Failed to load predictor for {ptm_type}: {e}")
+
+    def _resolve_model_path(self, ptm_type: str) -> str:
+        """Resolve model path specific to PTM type, with fallback to default."""
+        type_specific_path = os.path.join(
+            "outputs", "ptm_pretrain", ptm_type, "checkpoints", "best_model.pt"
+        )
+        if os.path.exists(type_specific_path):
+            logger.info("Using PTM-type-specific model for %s: %s", ptm_type, type_specific_path)
+            return type_specific_path
+        type_specific_path_alt = os.path.join(
+            "outputs", "ptm_pretrain", ptm_type, "checkpoints", "best.pt"
+        )
+        if os.path.exists(type_specific_path_alt):
+            logger.info("Using PTM-type-specific model for %s: %s", ptm_type, type_specific_path_alt)
+            return type_specific_path_alt
+        logger.warning(
+            "No PTM-type-specific checkpoint found for %s at %s, falling back to default: %s",
+            ptm_type, type_specific_path, self.model_path,
+        )
+        return self.model_path
 
     def predict_from_hgvs(
         self,
@@ -284,30 +307,51 @@ class VariantEffectWorkflow:
     def predict_batch(
         self,
         variants: List[Dict],
+        parallel: bool = False,
+        max_workers: int = 4,
     ) -> List[VariantEffectResult]:
         """
         Batch predict variant effects.
 
         Args:
             variants: List of dicts with 'hgvs' and optional 'sequence'
+            parallel: If True, predict variants concurrently using a thread
+                pool (suitable for I/O-bound UniProt sequence fetches).
+                Defaults to False (serial) for deterministic ordering.
+            max_workers: Maximum worker threads when ``parallel`` is True.
 
         Returns:
-            List of prediction results
+            List of prediction results in the same order as ``variants``.
         """
-        results = []
-        for var in variants:
-            try:
-                result = self.predict_from_hgvs(
-                    hgvs_string=var['hgvs'],
-                    sequence=var.get('sequence'),
-                )
-                results.append(result)
-            except Exception as e:
-                logger.error(f"Batch prediction failed for {var}: {e}")
-                # Add error result
-                results.append(VariantEffectResult(
-                    variant={'hgvs': var.get('hgvs'), 'error': str(e)},
-                    sequence_info={},
-                    ptm_effects={},
-                ))
-        return results
+        if not parallel:
+            return [self._predict_one(var) for var in variants]
+
+        import concurrent.futures
+
+        results: List[Optional[VariantEffectResult]] = [None] * len(variants)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_index = {
+                executor.submit(self._predict_one, var): idx
+                for idx, var in enumerate(variants)
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                idx = future_to_index[future]
+                results[idx] = future.result()
+        return [r for r in results if r is not None]
+
+    def _predict_one(self, var: Dict) -> VariantEffectResult:
+        """Predict a single variant, returning an error result on failure."""
+        try:
+            result = self.predict_from_hgvs(
+                hgvs_string=var['hgvs'],
+                sequence=var.get('sequence'),
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Batch prediction failed for {var}: {e}")
+            # Add error result
+            return VariantEffectResult(
+                variant={'hgvs': var.get('hgvs'), 'error': str(e)},
+                sequence_info={},
+                ptm_effects={},
+            )

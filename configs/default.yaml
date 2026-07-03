@@ -1,4 +1,10 @@
-# PTM2CellNet 默认配置文件
+# PTM2CellNet 默认研究配置文件（P1-3）。
+#
+# 注意：这不是“首次运行 smoke”入口。默认配置偏研究级（transformer、6 层、
+# 100 epoch），CPU 上训练成本明显高于 smoke。首次验证 E2E 请使用：
+#     configs/smoke/cnn_cpu.yaml          （原生 train.py）
+#     configs/smoke/lightning_cnn_cpu.yaml（Lightning train_lightning.py）
+# 真实数据研究训练可参考 configs/research/transformer.yaml。
 
 project:
   name: "PTM2CellNet"
@@ -16,6 +22,11 @@ paths:
 data:
   max_sequence_length: 1000
   valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  # HDF5 接入主数据链路的开关。启用后 DataLoader.load_from_csv 会优先用
+  # pd.read_hdf 读取 .h5/.hdf5 文件，降低大表 IO 开销。
+  use_hdf5: false
+  # 特征预计算缓存目录；非空时 PTMDatasetBase 会接入 DatasetCache。
+  cache_dir: ""
   ptm_types:
     - "phosphorylation"
     - "acetylation"

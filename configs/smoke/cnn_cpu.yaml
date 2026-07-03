@@ -1,0 +1,70 @@
+# Smoke / quickstart 配置（P1-3）。
+#
+# 这是首次运行 E2E 的推荐入口：小型 CNN、CPU、1 epoch，几十秒即可完成训练→推理。
+# 产物会被自动标记为 model_kind=demo，仅用于工程链路验证。
+#
+# 用法：
+#   python scripts/train.py --config configs/smoke/cnn_cpu.yaml \
+#       --data data/raw/sample_data.csv --output outputs/smoke
+#   python scripts/predict.py --model outputs/smoke/models/best_model.pt \
+#       --sequence ACDEFGHIKLMNPQRSTVWY --device cpu
+
+project:
+  name: "PTM2CellNet-smoke"
+  version: "1.0.0"
+  seed: 42
+
+paths:
+  data_raw: "data/raw"
+  outputs_models: "outputs/models"
+  outputs_logs: "outputs/logs"
+  outputs_results: "outputs/results"
+
+data:
+  max_sequence_length: 512
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+  preprocessing:
+    remove_duplicates: true
+    handle_missing: "drop"
+    normalize_sequences: true
+  split:
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+    stratified: true
+
+features:
+  use_feature_extractor: false
+  sequence_encoding: "onehot"
+
+model:
+  encoder_type: "cnn"      # 轻量 CNN，CPU 友好
+  vocab_size: 21
+  embed_dim: 32
+  num_filters: 32
+  kernel_sizes: [3, 5]
+  max_seq_len: 512
+  num_ptm_types: 6
+  num_classes: 4           # 训练时会按真实标签数自动覆盖
+  pool_type: "mean"
+  dropout: 0.1
+
+training:
+  max_epochs: 1            # smoke：单 epoch 即可验证链路
+  batch_size: 16
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  early_stopping_patience: 10
+  optimizer: "adamw"
+  scheduler: "cosine"
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_to_console: true
