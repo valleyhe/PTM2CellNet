@@ -3,7 +3,6 @@
 功能: 将PTM变化映射到信号通路和细胞状态
 """
 
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 import pandas as pd
 from typing import Any, Dict, Optional, Set
 from collections import defaultdict

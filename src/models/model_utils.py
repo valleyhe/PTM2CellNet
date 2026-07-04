@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="annotation-unchecked,union-attr"
 """
 模型工具函数
 功能概述: 提供模型配置验证、参数量统计、计算量分析等工具
@@ -198,7 +198,8 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
         if candidate_depths:
             # Pick the largest stack we saw — usually the encoder stack.
             return int(hidden_dim), max(candidate_depths)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to infer model depth from named_modules: %s", e)
         pass
 
     # 4. Conservative fallback (matches historical default).

@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="annotation-unchecked,dict-item,no-any-return"
 """Complete variant effect prediction workflow (FEAT-01)."""
 import logging
 import os

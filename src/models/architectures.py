@@ -1,4 +1,3 @@
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value"
 """
 完整模型架构
 功能概述: 组合编码器、PTM模块与预测器
@@ -423,7 +422,7 @@ class PTM2CellNetBase(nn.Module):
             B = pooled.shape[0]
             device = pooled.device
 
-            if "davf_sites" in batch and "davf_gene_names" in batch:
+            if "davf_sites" in batch and "davf_gene_names" in batch and self.ptm_mapper is not None and self.davf_module is not None:
                 mapper_output = self.ptm_mapper.map_batch(
                     batch["davf_sites"],
                     batch["davf_gene_names"],

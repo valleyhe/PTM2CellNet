@@ -27,7 +27,13 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.exceptions import UndefinedMetricWarning
-from torchmetrics.functional.classification import binary_average_precision
+
+try:
+    from torchmetrics.functional.classification import binary_average_precision
+
+    TORCHMETRICS_AVAILABLE = True
+except ImportError:
+    TORCHMETRICS_AVAILABLE = False
 
 Array: TypeAlias = NDArray[Any]
 
@@ -224,6 +230,9 @@ def calculate_aupr_torch(
     Better than AUROC for imbalanced data (PTM: 1-5% positive).
     torchmetrics handles logits automatically.
 
+    Requires the ``torchmetrics`` package. Falls back to
+    :func:`sklearn.metrics.average_precision_score` if unavailable.
+
     Args:
         y_true: Ground truth labels (0 or 1)
         y_score: Prediction scores/probabilities
@@ -232,6 +241,14 @@ def calculate_aupr_torch(
     Returns:
         AUPR score
     """
+    if not TORCHMETRICS_AVAILABLE:
+        import numpy as np
+        from sklearn.metrics import average_precision_score
+
+        yt = y_true.detach().cpu().numpy() if isinstance(y_true, torch.Tensor) else np.asarray(y_true)
+        ys = y_score.detach().cpu().numpy() if isinstance(y_score, torch.Tensor) else np.asarray(y_score)
+        return float(average_precision_score(yt, ys))
+
     # Ensure tensors
     if not isinstance(y_true, torch.Tensor):
         y_true = torch.tensor(y_true, dtype=torch.long)

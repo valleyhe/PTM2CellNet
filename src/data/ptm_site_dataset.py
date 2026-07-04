@@ -1,10 +1,10 @@
+# mypy: disable-error-code="arg-type,annotation-unchecked,assignment,misc,valid-type,var-annotated"
 """
 PTM位点预测数据集
 功能: 用于PTM位点二分类预测的数据集类
 输入: 序列窗口 + 位点位置 + 标签
 """
 
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 import logging
 from typing import Dict, Optional
 import pandas as pd

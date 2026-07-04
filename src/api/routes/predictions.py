@@ -1,4 +1,3 @@
-# mypy: disable-error-code="arg-type,assignment,dict-item,return-value"
 """Prediction endpoints."""
 
 import time
@@ -214,8 +213,8 @@ def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, torch.Tensor
         "ptm_types": ptm_types,
     }
     if collect_davf:
-        out["davf_sites"] = davf_sites_per_sample  # type: ignore[assignment]
-        out["davf_gene_names"] = davf_gene_names_per_sample  # type: ignore[assignment]
+        out["davf_sites"] = davf_sites_per_sample
+        out["davf_gene_names"] = davf_gene_names_per_sample
     return out
 
 
@@ -367,7 +366,9 @@ def _run_prediction_on_batch(
         confidence_scores: (N,) max probability per sample
     """
     with torch.no_grad():
-        outputs = STATE.model(batch)
+        model = STATE.model
+        assert model is not None  # guarded by callers
+        outputs = model(batch)
 
         if isinstance(outputs, dict):
             probabilities = outputs.get("probabilities")
@@ -621,6 +622,7 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
                 variant_request = PredictionRequest(
                     sequence=sequence,
                     ptm_sites=variant_ptm_sites,
+                    use_davf=False,
                 )
                 variant_batch = preprocess_request(variant_request)
                 variant_batch = {

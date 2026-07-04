@@ -2,6 +2,7 @@
 
 import importlib
 import importlib.util
+import logging
 import os
 import time
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any, Dict, List, Optional, Union
 import anndata as ad
 import numpy as np
 import scipy.sparse as sp
+
+logger = logging.getLogger(__name__)
 
 
 class ReferenceDataLoader:
@@ -311,6 +314,7 @@ class ReferenceDataLoader:
                 continue
             try:
                 importlib.import_module(module_name)
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to import optional dependency %s: %s", module_name, e)
                 missing_dependencies.append(module_name)
         return missing_dependencies

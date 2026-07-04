@@ -1,9 +1,138 @@
 """Thin adapter facade around specialized GenKI integration components."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, runtime_checkable
+
+import numpy as np
+import scipy.sparse as sp
 
 from .contracts import GenePerturbationRequest, PerturbationResult
 from .genki import GraphUtilities, PerturbationExecutor, ReferenceDataLoader, SignificanceAnalyzer
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dict returns / caches
+# ---------------------------------------------------------------------------
+
+class BackendInfo(TypedDict, total=False):
+    """Shape returned by ``get_backend_info`` and consumed by ``validate_runtime_ready``."""
+
+    backend: str
+    runtime_ready: bool
+    ref_root: str
+    missing_dependencies: List[str]
+    missing_files: List[str]
+    uses_explicit_files: bool
+    has_adata_file: bool
+    has_grn_dir: bool
+    scoring_method: str
+    null_permutations: int
+    bagging_threshold: float
+    bagging_cutoff: float
+
+
+class ReferenceData(TypedDict, total=False):
+    """Shape returned by ``load_reference_data`` and stored in ``_reference_cache``."""
+
+    gene_names: List[str]
+    network: Union[np.ndarray, sp.spmatrix]
+    counts: np.ndarray
+    backend: str
+    adata_file: str
+    grn_file_dir: str
+    loaded_at: float
+
+
+class ScoreMetadata(TypedDict, total=False):
+    """Shape returned by ``_build_score_metadata``."""
+
+    target_gene_index: int
+    ref_root: str
+    magnitude: float
+    backend: str
+    scoring_method: str
+    gene_scores: Dict[str, float]
+    gene_indices: Dict[str, int]
+    empirical_pvalues: Dict[str, float]
+    adjusted_pvalues: Dict[str, float]
+    bagging_hits: Dict[str, int]
+    bagging_frequencies: Dict[str, float]
+    fdr_significant_genes: List[str]
+    stable_significant_genes: List[str]
+    significant_genes: List[str]
+    null_distribution_summary: Dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Type alias for the 7-tuple returned by _compute_significance
+# ---------------------------------------------------------------------------
+
+ComputeSignificanceResult = tuple[
+    Dict[str, float],
+    Dict[str, int],
+    Dict[str, float],
+    Dict[str, float],
+    Dict[str, int],
+    Dict[str, float],
+    Dict[str, Any],
+]
+
+
+# ---------------------------------------------------------------------------
+# Protocol definitions for dynamically-imported objects
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class _GenKIDataLoaderProtocol(Protocol):
+    """Structural type for the GenKI DataLoader returned by ``_build_genki_loader``.
+
+    The actual class is imported at runtime from the GenKI package; this
+    protocol describes the attributes accessed by the adapter.
+    """
+
+    def load_data(self) -> "_PyGDataProtocol": ...
+    def load_kodata(self) -> "_PyGDataProtocol": ...
+    @property
+    def counts(self) -> Union[np.ndarray, sp.spmatrix]: ...
+    @property
+    def net(self) -> Union[np.ndarray, sp.spmatrix]: ...
+
+
+@runtime_checkable
+class _VGAEModelProtocol(Protocol):
+    """Structural type for the VGAE model used in latent scoring.
+
+    Covers the encode / recon_loss / kl_loss API and the ``__mu__`` /
+    ``__logstd__`` attributes read by ``_extract_latent_vars``.
+    """
+
+    def encode(self, x: Any, edge_index: Any) -> Any: ...
+    def recon_loss(self, z: Any, edge_index: Any) -> float: ...
+    def kl_loss(self) -> float: ...
+    def eval(self) -> "_VGAEModelProtocol": ...
+    def parameters(self) -> Any: ...  # torch.nn.Parameter iterator
+    def to(self, device: Any) -> "_VGAEModelProtocol": ...  # torch.device is opaque
+    @property
+    def __mu__(self) -> Any: ...  # torch.Tensor — opaque to numpy-only typing
+    @property
+    def __logstd__(self) -> Any: ...  # torch.Tensor — opaque to numpy-only typing
+
+
+@runtime_checkable
+class _PyGDataProtocol(Protocol):
+    """Structural type for ``torch_geometric.data.Data`` objects.
+
+    Only the attributes accessed by the adapter are declared.
+    """
+
+    @property
+    def x(self) -> Any: ...  # torch.Tensor
+    @property
+    def edge_index(self) -> Any: ...  # torch.Tensor
+    @property
+    def y(self) -> Any: ...  # list[str] or torch.Tensor
+    @property
+    def num_features(self) -> int: ...
+    def to(self, device: Any) -> "_PyGDataProtocol": ...  # torch.device is opaque
 
 
 class GenKIAdapter:
@@ -113,7 +242,7 @@ class GenKIAdapter:
         )
         self._perturbation.set_significance_analyzer(self._significance)
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401 — dynamic delegation
         """Cached fallback delegation for private helper methods.
 
         Promoted delegates are defined as explicit methods below and resolved
@@ -146,9 +275,9 @@ class GenKIAdapter:
     # component method.
     # ------------------------------------------------------------------
 
-    def _load_reference_data_from_genki_source(self) -> Dict[str, Any]:
+    def _load_reference_data_from_genki_source(self) -> ReferenceData:
         """Forward to ReferenceDataLoader._load_reference_data_from_genki_source."""
-        return self._ref_loader._load_reference_data_from_genki_source()
+        return self._ref_loader._load_reference_data_from_genki_source()  # type: ignore[return-value]
 
     def _probe_dependencies(self, module_names: List[str]) -> List[str]:
         """Forward to ReferenceDataLoader._probe_dependencies."""
@@ -158,16 +287,16 @@ class GenKIAdapter:
         """Forward to PerturbationExecutor._run_with_genki_source."""
         return self._perturbation._run_with_genki_source(request)
 
-    def _build_genki_loader(self, gene_symbol: str) -> Any:
+    def _build_genki_loader(self, gene_symbol: str) -> _GenKIDataLoaderProtocol:
         """Forward to PerturbationExecutor._build_genki_loader."""
-        return self._perturbation._build_genki_loader(gene_symbol)
+        return self._perturbation._build_genki_loader(gene_symbol)  # type: ignore[no-any-return]
 
     def _score_with_latent_vgae(
         self,
-        wt_data: Any,
-        perturbed_counts: Any,
-        perturbed_network: Any,
-    ) -> Any:
+        wt_data: _PyGDataProtocol,
+        perturbed_counts: np.ndarray,
+        perturbed_network: np.ndarray,
+    ) -> np.ndarray:
         """Forward to PerturbationExecutor._score_with_latent_vgae."""
         return self._perturbation._score_with_latent_vgae(
             wt_data=wt_data,
@@ -175,21 +304,21 @@ class GenKIAdapter:
             perturbed_network=perturbed_network,
         )
 
-    def _edge_index_to_adjacency(self, edge_index: Any, num_nodes: int) -> Any:
+    def _edge_index_to_adjacency(self, edge_index: np.ndarray, num_nodes: int) -> Union[np.ndarray, sp.csr_matrix]:
         """Forward to GraphUtilities._edge_index_to_adjacency."""
         return self._graph._edge_index_to_adjacency(edge_index, num_nodes)
 
-    def _adjacency_to_edge_index(self, adjacency: Any) -> Any:
+    def _adjacency_to_edge_index(self, adjacency: np.ndarray) -> np.ndarray:
         """Forward to GraphUtilities._adjacency_to_edge_index."""
         return self._graph._adjacency_to_edge_index(adjacency)
 
     def _score_from_dense_matrices(
         self,
-        baseline_counts: Any,
-        baseline_network: Any,
-        perturbed_counts: Any,
-        perturbed_network: Any,
-    ) -> Any:
+        baseline_counts: np.ndarray,
+        baseline_network: np.ndarray,
+        perturbed_counts: np.ndarray,
+        perturbed_network: np.ndarray,
+    ) -> np.ndarray:
         """Forward to GraphUtilities._score_from_dense_matrices."""
         return self._graph._score_from_dense_matrices(
             baseline_counts=baseline_counts,
@@ -198,7 +327,7 @@ class GenKIAdapter:
             perturbed_network=perturbed_network,
         )
 
-    def _extract_latent_vars(self, model: Any, data: Any) -> Any:
+    def _extract_latent_vars(self, model: _VGAEModelProtocol, data: _PyGDataProtocol) -> tuple[np.ndarray, np.ndarray]:
         """Forward to GraphUtilities._extract_latent_vars."""
         return self._graph._extract_latent_vars(model, data)
 
@@ -207,13 +336,13 @@ class GenKIAdapter:
         gene_names: List[str],
         gene_index: int,
         request: GenePerturbationRequest,
-        baseline_counts: Any,
-        baseline_network: Any,
-        combined_shift: Any,
+        baseline_counts: np.ndarray,
+        baseline_network: Union[np.ndarray, sp.spmatrix],
+        combined_shift: np.ndarray,
         backend: str,
-    ) -> Dict[str, Any]:
+    ) -> ScoreMetadata:
         """Forward to SignificanceAnalyzer._build_score_metadata."""
-        return self._significance._build_score_metadata(
+        return self._significance._build_score_metadata(  # type: ignore[return-value]
             gene_names=gene_names,
             gene_index=gene_index,
             request=request,
@@ -228,10 +357,10 @@ class GenKIAdapter:
         gene_names: List[str],
         gene_index: int,
         request: GenePerturbationRequest,
-        baseline_counts: Any,
-        baseline_network: Any,
-        combined_shift: Any,
-    ) -> Any:
+        baseline_counts: np.ndarray,
+        baseline_network: Union[np.ndarray, sp.spmatrix],
+        combined_shift: np.ndarray,
+    ) -> ComputeSignificanceResult:
         """Forward to SignificanceAnalyzer._compute_significance."""
         return self._significance._compute_significance(
             gene_names=gene_names,
@@ -246,10 +375,10 @@ class GenKIAdapter:
         self,
         gene_index: int,
         request: GenePerturbationRequest,
-        baseline_counts: Any,
-        baseline_network: Any,
-        observed_scores: Any,
-    ) -> Any:
+        baseline_counts: np.ndarray,
+        baseline_network: Union[np.ndarray, sp.spmatrix],
+        observed_scores: np.ndarray,
+    ) -> np.ndarray:
         """Forward to SignificanceAnalyzer._build_null_distribution."""
         return self._significance._build_null_distribution(
             gene_index=gene_index,
@@ -259,24 +388,24 @@ class GenKIAdapter:
             observed_scores=observed_scores,
         )
 
-    def _benjamini_hochberg(self, pvalues: Any) -> Any:
+    def _benjamini_hochberg(self, pvalues: np.ndarray) -> np.ndarray:
         """Forward to SignificanceAnalyzer._benjamini_hochberg."""
         return self._significance._benjamini_hochberg(pvalues)
 
-    def _compute_bagging_statistics(self, null_scores: Any) -> Any:
+    def _compute_bagging_statistics(self, null_scores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Forward to SignificanceAnalyzer._compute_bagging_statistics."""
         return self._significance._compute_bagging_statistics(null_scores)
 
     @property
-    def _reference_cache(self) -> Dict[str, Any] | None:
-        return self._ref_loader._reference_cache
+    def _reference_cache(self) -> ReferenceData | None:
+        return self._ref_loader._reference_cache  # type: ignore[return-value]
 
     @_reference_cache.setter
-    def _reference_cache(self, value: Dict[str, Any] | None) -> None:
-        self._ref_loader._reference_cache = value
+    def _reference_cache(self, value: ReferenceData | None) -> None:
+        self._ref_loader._reference_cache = value  # type: ignore[assignment]
 
-    def get_backend_info(self) -> Dict[str, Any]:
-        return self._ref_loader.get_backend_info()
+    def get_backend_info(self) -> BackendInfo:
+        return self._ref_loader.get_backend_info()  # type: ignore[return-value]
 
     def validate_runtime_ready(self) -> None:
         backend = self.get_backend_info()
@@ -305,8 +434,8 @@ class GenKIAdapter:
             source_ptm_position=source_ptm_position,
         )
 
-    def load_reference_data(self) -> Dict[str, Any]:
-        return self._ref_loader.load_reference_data()
+    def load_reference_data(self) -> ReferenceData:
+        return self._ref_loader.load_reference_data()  # type: ignore[return-value]
 
     def run(self, request: GenePerturbationRequest) -> PerturbationResult:
         return self._perturbation.run(request)

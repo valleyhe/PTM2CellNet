@@ -20,9 +20,6 @@ torch>=1.10.0
 # Machine learning
 scikit-learn>=1.0.0
 networkx>=2.6.0
-# Metrics (P0: evaluation/metrics.py imports torchmetrics at module top-level;
-# without it, `import src.evaluation.metrics` fails on a clean core install).
-torchmetrics>=0.7.0
 
 # Bioinformatics (lightweight)
 biopython>=1.79

@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="annotation-unchecked,arg-type,no-any-return,union-attr"
 """
 多任务PTM位点预测模型
 功能: 联合训练多种PTM类型，提升K修饰类型区分能力

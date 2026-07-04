@@ -14,5 +14,8 @@ peft>=0.8.0
 einops>=0.6.0
 # Lightning is required for the pretrained/Lightning training entrypoints.
 lightning>=2.5.0
+# torchmetrics is required for Lightning training and the AUPR-torch metric.
+# evaluation/metrics.py falls back to sklearn when torchmetrics is absent,
+# so core does not declare it — only pretrained (Lightning) needs it.
 torchmetrics>=0.11.0
 tensorboard>=2.13.0

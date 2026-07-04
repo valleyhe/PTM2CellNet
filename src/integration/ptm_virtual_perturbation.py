@@ -191,7 +191,7 @@ class PTMVirtualPerturbationEngine:
                 source_ptm_position=p.get("ptm_position", -1),
             )
             requests.append(request)
-        return self._adapter.run_batch(requests)
+        return list(self._adapter.run_batch(requests))
 
     def compare_perturbation_strategies(
         self,

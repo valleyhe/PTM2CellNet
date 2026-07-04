@@ -1,4 +1,3 @@
-# mypy: ignore-errors
 """
 长序列处理模块
 功能概述: 处理超过ESM-2最大长度(1022)的蛋白质序列
@@ -160,7 +159,7 @@ class SlidingWindowESM2(nn.Module):
         # 获取ESM-2的隐藏维度
         if hidden_dim is None:
             hidden_dim = getattr(esm2_encoder, "hidden_dim", 128)
-        self.hidden_dim: int = hidden_dim  # type: ignore  # 确保类型为int
+        self.hidden_dim: int = hidden_dim
 
         # 创建注意力池化（如果需要）
         if pool_type == "attention":

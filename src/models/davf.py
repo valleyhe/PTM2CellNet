@@ -452,6 +452,12 @@ class DAVF(nn.Module):
     1. ODE integration from x_0 to x_1 using predicted velocity
     """
 
+    # Default architecture constants (matched by DAVFConfig defaults)
+    DEFAULT_HIDDEN_DIM = 256
+    DEFAULT_LATENT_DIM = 512
+    DEFAULT_MODULATION_DIM = 128
+    DEFAULT_NUM_GENES = 5000
+
     def __init__(
         self,
         config: DAVFConfig,

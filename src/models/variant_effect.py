@@ -3,7 +3,6 @@
 功能: 预测氨基酸变异对PTM位点的影响
 """
 
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 import torch
 import torch.nn as nn
 import pandas as pd

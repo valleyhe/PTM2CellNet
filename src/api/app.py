@@ -406,7 +406,8 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             is_error = response.status_code >= 400
             return response
-        except Exception:
+        except Exception as e:
+            logger.warning("Unhandled exception in metrics middleware: %s", e)
             is_error = True
             raise
         finally:

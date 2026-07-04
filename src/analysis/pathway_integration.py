@@ -1,5 +1,4 @@
 """KEGG/Reactome pathway database integration (FEAT-02)."""
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 import logging
 import pickle
 import time

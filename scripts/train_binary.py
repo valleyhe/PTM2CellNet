@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import time
+from typing import Optional
 
 import pandas as pd
 import torch
@@ -36,15 +37,17 @@ from src.evaluation.metrics import (
 
 logger = setup_logger(__name__)
 
+DEFAULT_LABEL_MAP = {"Quiescent": 0, "Activated": 1}
 
-def load_binary_data(data_path: str, config: Config):
+
+def load_binary_data(data_path: str, config: Config, label_map: Optional[dict] = None):
     """加载二分类数据"""
     logger.info("加载数据: %s", data_path)
     df = pd.read_csv(data_path)
     logger.info("原始数据: %d 条记录", len(df))
-    
+
     # 标签映射
-    label_map = {"Quiescent": 0, "Activated": 1}
+    label_map = label_map if label_map is not None else DEFAULT_LABEL_MAP
     df["label"] = df["cell_state"].map(label_map)
     df = df.dropna(subset=["label"])
     df["label"] = df["label"].astype(int)
@@ -81,19 +84,19 @@ def create_dataloaders(train_df, val_df, test_df, config: Config, batch_size: in
     return train_loader, val_loader, test_loader
 
 
-def train(config_path: str, output_dir: str):
+def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
     """主训练流程"""
     logger.info("=" * 60)
     logger.info("PTM2CellNet 二分类微调开始")
     logger.info("=" * 60)
-    
+
     # 加载配置
     config = Config.from_yaml(config_path)
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # 加载数据
     data_path = config.get("data.data_path", "data/processed/ptm_integrated_human_labeled.csv")
-    train_df, val_df, test_df = load_binary_data(data_path, config)
+    train_df, val_df, test_df = load_binary_data(data_path, config, label_map=label_map)
     
     # 创建DataLoader
     batch_size = config.get("training.batch_size", 64)
@@ -233,12 +236,28 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--label-map", type=str, default=None,
+                        help='JSON label mapping, e.g. \'{"Quiescent": 0, "Activated": 1}\' '
+                             '(default: {"Quiescent": 0, "Activated": 1})')
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    
+
+    # 解析 label_map：未提供时使用默认值，保持向后兼容
+    label_map = DEFAULT_LABEL_MAP
+    if args.label_map:
+        try:
+            label_map = json.loads(args.label_map)
+        except json.JSONDecodeError as exc:
+            logger.error("无效的 --label-map JSON: %s", exc)
+            sys.exit(1)
+        if not all(isinstance(v, int) for v in label_map.values()):
+            logger.error("无效的 --label-map: 所有值必须是整数")
+            sys.exit(1)
+    logger.info("使用标签映射: %s", label_map)
+
     # 覆盖配置
     if args.epochs or args.batch_size or args.lr or args.device:
         config = Config.from_yaml(args.config)
@@ -251,5 +270,5 @@ if __name__ == "__main__":
         if args.device:
             config.set("training.device", args.device)
         config.save(args.config)
-    
-    train(args.config, args.output)
+
+    train(args.config, args.output, label_map=label_map)

@@ -3,7 +3,6 @@ PTM位点预测模型
 功能: 基于序列窗口预测PTM位点
 """
 
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 from typing import Dict, Any
 import torch
 import torch.nn as nn

@@ -12,26 +12,26 @@ _logger = logging.getLogger(__name__)
 # Use ``<symbol>.is_available()`` to probe without raising.
 
 # pathway_integration — depends on sspa (optional) and networkx
-PathwayDatabaseIntegration = LazyImport(
+PathwayDatabaseIntegration: LazyImport = LazyImport(
     f"{__name__}.pathway_integration", "PathwayDatabaseIntegration"
 )
-load_kegg_pathways = LazyImport(f"{__name__}.pathway_integration", "load_kegg_pathways")
-load_reactome_pathways = LazyImport(
+load_kegg_pathways: LazyImport = LazyImport(f"{__name__}.pathway_integration", "load_kegg_pathways")
+load_reactome_pathways: LazyImport = LazyImport(
     f"{__name__}.pathway_integration", "load_reactome_pathways"
 )
 
 # gene_mapper — depends on UniProtMapper
-GeneMapper = LazyImport(f"{__name__}.gene_mapper", "GeneMapper")
-map_gene_to_uniprot = LazyImport(f"{__name__}.gene_mapper", "map_gene_to_uniprot")
+GeneMapper: LazyImport = LazyImport(f"{__name__}.gene_mapper", "GeneMapper")
+map_gene_to_uniprot: LazyImport = LazyImport(f"{__name__}.gene_mapper", "map_gene_to_uniprot")
 
 # variant_parser — depends on hgvs
-VariantComponents = LazyImport(f"{__name__}.variant_parser", "VariantComponents")
-HGVSVariantParser = LazyImport(f"{__name__}.variant_parser", "HGVSVariantParser")
-parse_variant = LazyImport(f"{__name__}.variant_parser", "parse_variant")
+VariantComponents: LazyImport = LazyImport(f"{__name__}.variant_parser", "VariantComponents")
+HGVSVariantParser: LazyImport = LazyImport(f"{__name__}.variant_parser", "HGVSVariantParser")
+parse_variant: LazyImport = LazyImport(f"{__name__}.variant_parser", "parse_variant")
 
 # variant_workflow — depends on models subpackage
-VariantEffectResult = LazyImport(f"{__name__}.variant_workflow", "VariantEffectResult")
-VariantEffectWorkflow = LazyImport(f"{__name__}.variant_workflow", "VariantEffectWorkflow")
+VariantEffectResult: LazyImport = LazyImport(f"{__name__}.variant_workflow", "VariantEffectResult")
+VariantEffectWorkflow: LazyImport = LazyImport(f"{__name__}.variant_workflow", "VariantEffectWorkflow")
 
 __all__ = [
     "PathwayDatabaseIntegration",

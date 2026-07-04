@@ -3,7 +3,6 @@
 功能概述: 支持同时预测多个细胞状态属性
 """
 
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 from typing import Dict, List, Optional, Any
 
 import torch

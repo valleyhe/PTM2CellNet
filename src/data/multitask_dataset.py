@@ -1,4 +1,4 @@
-# mypy: ignore-errors
+# mypy: disable-error-code="annotation-unchecked,assignment,valid-type,var-annotated"
 """
 多任务PTM数据集
 功能: 同时加载多种PTM类型的训练数据

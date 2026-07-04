@@ -29,29 +29,29 @@ from .metrics import (
 # Optional submodules are imported lazily so that a missing optional
 # dependency does not break importing src.evaluation. Accessing a symbol
 # whose import failed re-raises the original ImportError.
-_Evaluator = LazyImport(f"{__name__}.evaluators", "Evaluator")
-_LeaveOnePTMOutScorer = LazyImport(f"{__name__}.explainers", "LeaveOnePTMOutScorer")
-_TwoStageExplanationPipeline = LazyImport(
+_Evaluator: LazyImport = LazyImport(f"{__name__}.evaluators", "Evaluator")
+_LeaveOnePTMOutScorer: LazyImport = LazyImport(f"{__name__}.explainers", "LeaveOnePTMOutScorer")
+_TwoStageExplanationPipeline: LazyImport = LazyImport(
     f"{__name__}.explainers", "TwoStageExplanationPipeline"
 )
-_aggregate_by_protein = LazyImport(f"{__name__}.explainers", "aggregate_by_protein")
-_plot_roc_curve = LazyImport(f"{__name__}.visualization", "plot_roc_curve")
-_plot_pr_curve = LazyImport(f"{__name__}.visualization", "plot_pr_curve")
-_plot_confusion_matrix = LazyImport(f"{__name__}.visualization", "plot_confusion_matrix")
-_plot_training_curves = LazyImport(f"{__name__}.visualization", "plot_training_curves")
-_plot_feature_importance = LazyImport(f"{__name__}.visualization", "plot_feature_importance")
-_plot_attention_heatmap = LazyImport(f"{__name__}.visualization", "plot_attention_heatmap")
+_aggregate_by_protein: LazyImport = LazyImport(f"{__name__}.explainers", "aggregate_by_protein")
+_plot_roc_curve: LazyImport = LazyImport(f"{__name__}.visualization", "plot_roc_curve")
+_plot_pr_curve: LazyImport = LazyImport(f"{__name__}.visualization", "plot_pr_curve")
+_plot_confusion_matrix: LazyImport = LazyImport(f"{__name__}.visualization", "plot_confusion_matrix")
+_plot_training_curves: LazyImport = LazyImport(f"{__name__}.visualization", "plot_training_curves")
+_plot_feature_importance: LazyImport = LazyImport(f"{__name__}.visualization", "plot_feature_importance")
+_plot_attention_heatmap: LazyImport = LazyImport(f"{__name__}.visualization", "plot_attention_heatmap")
 
-Evaluator = _Evaluator
-LeaveOnePTMOutScorer = _LeaveOnePTMOutScorer
-TwoStageExplanationPipeline = _TwoStageExplanationPipeline
-aggregate_by_protein = _aggregate_by_protein
-plot_roc_curve = _plot_roc_curve
-plot_pr_curve = _plot_pr_curve
-plot_confusion_matrix = _plot_confusion_matrix
-plot_training_curves = _plot_training_curves
-plot_feature_importance = _plot_feature_importance
-plot_attention_heatmap = _plot_attention_heatmap
+Evaluator: LazyImport = _Evaluator
+LeaveOnePTMOutScorer: LazyImport = _LeaveOnePTMOutScorer
+TwoStageExplanationPipeline: LazyImport = _TwoStageExplanationPipeline
+aggregate_by_protein: LazyImport = _aggregate_by_protein
+plot_roc_curve: LazyImport = _plot_roc_curve
+plot_pr_curve: LazyImport = _plot_pr_curve
+plot_confusion_matrix: LazyImport = _plot_confusion_matrix
+plot_training_curves: LazyImport = _plot_training_curves
+plot_feature_importance: LazyImport = _plot_feature_importance
+plot_attention_heatmap: LazyImport = _plot_attention_heatmap
 
 __all__ = [
     "calculate_accuracy",

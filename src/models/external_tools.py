@@ -161,7 +161,8 @@ class AlphaFoldClient:
         try:
             resp = requests.get("https://alphafold.ebi.ac.uk/api", timeout=5)
             return bool(resp.ok)
-        except Exception:
+        except Exception as e:
+            logger.warning("AlphaFold API check failed: %s", e)
             return False
 
     def predict_structure(

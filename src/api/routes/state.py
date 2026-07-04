@@ -1,4 +1,3 @@
-# mypy: disable-error-code="arg-type,assignment,dict-item,return-value"
 """Shared API router state and initialization helpers."""
 
 from dataclasses import dataclass, field
@@ -15,7 +14,7 @@ try:
     VARIANT_WORKFLOW_AVAILABLE = True
     VARIANT_WORKFLOW_IMPORT_ERROR = None
 except ImportError as exc:
-    VariantEffectWorkflow = None
+    VariantEffectWorkflow: Any = None
     VARIANT_WORKFLOW_AVAILABLE = False
     VARIANT_WORKFLOW_IMPORT_ERROR = exc
 
@@ -24,7 +23,7 @@ try:
 
     SIGNALING_NETWORK_AVAILABLE = True
 except ImportError:
-    SignalingNetworkMapper = None
+    SignalingNetworkMapper: Any = None
     SIGNALING_NETWORK_AVAILABLE = False
 
 logger = setup_logger(__name__)

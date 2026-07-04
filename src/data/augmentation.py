@@ -3,7 +3,6 @@
 功能概述: 提供蛋白质序列的数据增强技术
 设计思路: 支持多种增强策略，包括序列截断、随机mask等
 """
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 import random
 from typing import Dict, List, Optional, Tuple, Any
 

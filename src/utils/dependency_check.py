@@ -20,9 +20,13 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import logging
 import sys
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -92,7 +96,8 @@ def _safe_version(import_name: str) -> Optional[str]:
                 return metadata.version(name)
             except metadata.PackageNotFoundError:
                 continue
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to resolve version for %s: %s", import_name, e)
         return None
     return None
 

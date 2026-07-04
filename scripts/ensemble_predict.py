@@ -111,8 +111,9 @@ class ModelEnsemble:
                 self.alphabet = alphabet
 
             def forward(self, sequences, ptm_type=None):
-                # 简化的ESM-2前向传播
-                return {'logits': torch.zeros(len(sequences), 2), 'probs': torch.zeros(len(sequences), 2)}
+                raise NotImplementedError(
+                    "ESM2 model not available. Install esm package."
+                )
 
         state_dict = safe_torch_load(path, map_location=self.device)
         model = ESM2Wrapper(esm_model, state_dict)

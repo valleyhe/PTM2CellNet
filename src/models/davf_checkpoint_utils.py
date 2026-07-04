@@ -179,8 +179,8 @@ def resume_training_state(
             config_hash = hashlib.sha256(
                 json.dumps(config, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()[:8]
-        except Exception:
-            logger.warning("Failed to compute config hash while resuming training state")
+        except Exception as e:
+            logger.warning("Failed to compute config hash while resuming training state: %s", e)
 
     logger.info(
         f"Resumed training state from epoch {epoch}. "

@@ -9,7 +9,6 @@ PEFT/LoRA配置模块
     - get_trainable_parameters: 获取可训练参数统计
 """
 
-# mypy: disable-error-code="arg-type,assignment,dict-item,operator,return-value,name-defined"
 from typing import Any, List, Optional, Tuple, cast
 
 import torch.nn as nn

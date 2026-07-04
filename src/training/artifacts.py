@@ -206,7 +206,8 @@ def _git_commit() -> str:
             ["git", "rev-parse", "HEAD"],
             capture_output=True, text=True, timeout=5,
         ).stdout.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to get git commit hash: %s", e)
         return "unknown"
 
 

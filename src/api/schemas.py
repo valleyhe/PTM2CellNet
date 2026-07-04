@@ -90,7 +90,7 @@ class PredictionResponse(BaseModel):
     pathway_impacts: Optional[List["PathwayImpact"]] = Field(None, description="信号通路影响分析")
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
 
-    @computed_field(description="预测的细胞状态（旧字段名，等价于 cell_state）")
+    @computed_field(description="预测的细胞状态（旧字段名，等价于 cell_state）")  # type: ignore[prop-decorator]
     @property
     def predicted_cell_state(self) -> str:
         """Legacy alias for ``cell_state`` (kept for backward compatibility)."""
