@@ -686,12 +686,14 @@ class DataLoader:
             session = requests.Session()
             try:
                 from requests.adapters import HTTPAdapter
+                import importlib
+                _retry_mod = "urllib3.util.retry"
                 try:
-                    from urllib3.util.retry import Retry
+                    _Retry = importlib.import_module(_retry_mod).Retry
                 except ImportError:  # urllib3 不可用时回退到 vendored 副本；可用 monkeypatch sys.modules["urllib3"] 触发 ImportError 测试该分支
-                    from requests.packages.urllib3.util.retry import Retry  # type: ignore[no-redef]
+                    _Retry = importlib.import_module("requests.packages." + _retry_mod).Retry
 
-                retry = Retry(
+                retry = _Retry(
                     total=3,
                     backoff_factor=0.5,
                     status_forcelist=(429, 500, 502, 503, 504),

@@ -19,6 +19,10 @@ from src.models.davf_attention import DirectionAwareAttention
 @dataclass
 class BiPerturbConfig:
     """Configuration for BiPerturb model."""
+    # Default architecture constants
+    _DEFAULT_HIDDEN_DIM: int = 256
+    _DEFAULT_NUM_GENES: int = 5000
+
     # Gene embedding
     gene_embed_dim: int = 192  # Geneformer output dimension
     gene_embed_frozen: bool = True
@@ -32,16 +36,16 @@ class BiPerturbConfig:
     magnitude_hidden_dim: Optional[int] = None
 
     # Multi-target attention
-    hidden_dim: int = 256
+    hidden_dim: int = _DEFAULT_HIDDEN_DIM
     num_heads: int = 4
     attention_dropout: float = 0.1
 
     # GNN (GEARS backbone)
-    gnn_hidden_dim: int = 256
+    gnn_hidden_dim: int = _DEFAULT_HIDDEN_DIM
     gnn_num_layers: int = 2
 
     # Output
-    num_genes: int = 5000  # Number of genes to predict
+    num_genes: int = _DEFAULT_NUM_GENES  # Number of genes to predict
 
     # Regularization
     dropout: float = 0.1

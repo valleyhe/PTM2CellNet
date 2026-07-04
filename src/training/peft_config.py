@@ -9,7 +9,7 @@ PEFT/LoRA配置模块
     - get_trainable_parameters: 获取可训练参数统计
 """
 
-from typing import Any, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
 
 import torch.nn as nn
 
@@ -18,27 +18,30 @@ from ..utils.logging import setup_logger
 logger = setup_logger(__name__)
 
 # 尝试导入peft，如果不可用则提供警告
-_LoraConfig_cls: Any = None
-_TaskType_cls: Any = None
-_get_peft_model_fn: Any = None
-try:
+if TYPE_CHECKING:
     from peft import LoraConfig as _LoraConfig_cls
     from peft import TaskType as _TaskType_cls
     from peft import get_peft_model as _get_peft_model_fn
-    PEFT_AVAILABLE = True
-except ImportError:
+    PEFT_AVAILABLE: bool
+else:
     PEFT_AVAILABLE = False
-    logger.warning("peft库未安装，LoRA功能不可用。请运行: pip install peft>=0.8.0")
+    try:
+        from peft import LoraConfig as _LoraConfig_cls
+        from peft import TaskType as _TaskType_cls
+        from peft import get_peft_model as _get_peft_model_fn
+        PEFT_AVAILABLE = True
+    except ImportError:
+        logger.warning("peft库未安装，LoRA功能不可用。请运行: pip install peft>=0.8.0")
 
-    class _LoraConfig_cls:  # type: ignore[no-redef]
-        def __init__(self, **kwargs: Any) -> None:
-            raise ImportError("peft库未安装，无法创建LoraConfig")
+        class _LoraConfig_cls:
+            def __init__(self, **kwargs: Any) -> None:
+                raise ImportError("peft库未安装，无法创建LoraConfig")
 
-    class _TaskType_cls:  # type: ignore[no-redef]
-        FEATURE_EXTRACTION: str = "FEATURE_EXTRACTION"
+        class _TaskType_cls:
+            FEATURE_EXTRACTION: str = "FEATURE_EXTRACTION"
 
-    def _get_peft_model_fn(model: Any, config: Any) -> Any:
-        raise ImportError("peft库未安装，无法应用LoRA")
+        def _get_peft_model_fn(model: Any, config: Any) -> Any:
+            raise ImportError("peft库未安装，无法应用LoRA")
 
 
 def get_lora_config(

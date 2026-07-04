@@ -6,7 +6,7 @@ from dataclasses import asdict
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import pandas as pd
 import torch
@@ -84,7 +84,7 @@ class LeaveOnePTMOutScorer:
         self.aa_to_index = {aa: idx + 1 for idx, aa in enumerate(amino_acids)}
         self.ptm_type_to_index = ptm_type_to_index or {}
 
-    def rank_row(self, model: Any, row: pd.Series) -> List[CandidateRecord]:
+    def rank_row(self, model: torch.nn.Module, row: pd.Series) -> List[CandidateRecord]:
         sequence = str(row.get("sequence", ""))
         if not sequence:
             return []
@@ -113,7 +113,7 @@ class LeaveOnePTMOutScorer:
 
     def _predict(
         self,
-        model: Any,
+        model: torch.nn.Module,
         sequence: str,
         ptm_sites: List[Dict[str, Any]],
         drop_site: Optional[Dict[str, Any]] = None,
@@ -207,7 +207,7 @@ class TwoStageExplanationPipeline:
 
     def __init__(
         self,
-        scorer: Any,
+        scorer: LeaveOnePTMOutScorer,
         mapper: Any,
         genki_adapter: Any,
         top_k_candidates: int = 1,
@@ -219,7 +219,7 @@ class TwoStageExplanationPipeline:
         self.top_k_candidates = top_k_candidates
         self.perturbation_mode = perturbation_mode
 
-    def run(self, model: Any, df: pd.DataFrame, output_dir: Any) -> List[PerturbationResult]:
+    def run(self, model: torch.nn.Module, df: pd.DataFrame, output_dir: Union[str, Path]) -> List[PerturbationResult]:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 

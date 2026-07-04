@@ -23,18 +23,25 @@ from src.models.geneformer_embedding import GeneformerEmbeddingLoader
 @dataclass
 class LatentDAVFConfig:
     """Configuration for LatentDAVF model."""
+    # Default architecture constants — aligned with DAVFConfig
+    _DEFAULT_HIDDEN_DIM: int = 256
+    _DEFAULT_X_ENCODER_HIDDEN: int = 512
+    _DEFAULT_VELOCITY_HIDDEN: int = 512
+    _DEFAULT_NUM_GENES: int = 5000
+    _DEFAULT_NUM_STEPS: int = 50
+
     latent_dim: int = 10
-    num_genes: int = 5000
+    num_genes: int = _DEFAULT_NUM_GENES
     gene_embed_dim: int = 192
     gene_embed_frozen: bool = True
     num_directions: int = 3
     direction_embed_dim: int = 64
-    hidden_dim: int = 256
+    hidden_dim: int = _DEFAULT_HIDDEN_DIM
     num_heads: int = 4
     attention_dropout: float = 0.1
     time_embed_dim: int = 64
-    x_encoder_hidden: int = 512
-    velocity_hidden: int = 512
+    x_encoder_hidden: int = _DEFAULT_X_ENCODER_HIDDEN
+    velocity_hidden: int = _DEFAULT_VELOCITY_HIDDEN
     num_velocity_layers: int = 3
     use_residual: bool = True
     residual_gate_init: float = 0.1
@@ -342,7 +349,7 @@ class LatentDAVF(nn.Module):
         gene_ids: Optional[torch.Tensor] = None,
         directions: Optional[torch.Tensor] = None,
         magnitudes: Optional[torch.Tensor] = None,
-        num_steps: int = 50,
+        num_steps: int = LatentDAVFConfig._DEFAULT_NUM_STEPS,
         use_ema: bool = False,
         ema_alpha: float = 0.5,
         *,
@@ -405,7 +412,7 @@ class LatentDAVF(nn.Module):
         gene_ids: Optional[torch.Tensor] = None,
         directions: Optional[torch.Tensor] = None,
         magnitudes: Optional[torch.Tensor] = None,
-        num_steps: int = 50,
+        num_steps: int = LatentDAVFConfig._DEFAULT_NUM_STEPS,
         use_ema: bool = False,
         ema_alpha: float = 0.5,
         *,

@@ -9,7 +9,7 @@ import json
 import os
 import pickle
 import warnings
-from typing import Any, Dict, List, Optional, Set, Union, cast
+from typing import Any, BinaryIO, Dict, List, Optional, Set, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -45,7 +45,7 @@ def _is_string_array(array: NDArray[Any]) -> bool:
     return all(isinstance(item, str) for item in flat)
 
 
-def _create_string_dataset(group: Any, key: str, value: Any) -> None:
+def _create_string_dataset(group: "h5py.Group", key: str, value: Union[str, NDArray[Any]]) -> None:
     if h5py is None:
         raise RuntimeError("h5py is required to create string datasets")
 
@@ -54,7 +54,7 @@ def _create_string_dataset(group: Any, key: str, value: Any) -> None:
     group.create_dataset(key, data=data, dtype=string_dtype)
 
 
-def _write_hdf5_value(group: Any, key: str, value: Any) -> None:
+def _write_hdf5_value(group: "h5py.Group", key: str, value: Union[torch.Tensor, pd.DataFrame, np.ndarray, str, np.generic, int, float, bool]) -> None:
     if h5py is None:
         raise RuntimeError("h5py is required for HDF5 serialization")
 
@@ -94,11 +94,11 @@ def _write_hdf5_value(group: Any, key: str, value: Any) -> None:
     raise TypeError(f"Unsupported HDF5 value type for key '{key}': {type(value)!r}")
 
 
-def _read_hdf5_dataset(dataset: Any) -> Any:
+def _read_hdf5_dataset(dataset: "h5py.Dataset") -> Union[str, np.ndarray, torch.Tensor, np.generic, int, float, bool]:
     item_type = dataset.attrs.get("item_type", "ndarray")
 
     if item_type == "string":
-        return dataset.asstr()[()]
+        return dataset.asstr()[()]  # type: ignore[no-any-return]
 
     if dataset.dtype.kind in {"O", "S"}:
         return np.asarray(dataset.asstr()[()])
@@ -107,11 +107,11 @@ def _read_hdf5_dataset(dataset: Any) -> Any:
     if item_type == "torch_tensor":
         return torch.from_numpy(np.asarray(value))
     if item_type == "scalar":
-        return value.item() if hasattr(value, "item") else value
+        return value.item() if hasattr(value, "item") else value  # type: ignore[no-any-return]
     return np.asarray(value)
 
 
-def _read_hdf5_value(node: Any) -> Any:
+def _read_hdf5_value(node: Union["h5py.Dataset", "h5py.Group"]) -> Union[str, np.ndarray, torch.Tensor, pd.DataFrame, np.generic, int, float, bool]:
     if h5py is None:
         raise RuntimeError("h5py is required for HDF5 deserialization")
 
@@ -154,7 +154,7 @@ class SafeUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def safe_pickle_load(file_obj: Any) -> Any:
+def safe_pickle_load(file_obj: BinaryIO) -> Any:
     """Load pickle data using SafeUnpickler for restricted deserialization.
 
     Parameters
@@ -431,8 +431,8 @@ _DAVF_SAFE_CLASSES: Optional[list] = None
 
 
 def safe_torch_load(
-    path: Any,
-    map_location: Any = None,
+    path: Union[str, "os.PathLike[str]", BinaryIO],
+    map_location: Optional[Union[str, torch.device]] = None,
     *,
     allowed_classes: Optional[set] = None,
     enforce_safe_only: bool = True,

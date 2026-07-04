@@ -1,6 +1,6 @@
 """Thin adapter facade around specialized GenKI integration components."""
 
-from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, cast, runtime_checkable
 
 import numpy as np
 import scipy.sparse as sp
@@ -232,13 +232,13 @@ class GenKIAdapter:
             "bagging_cutoff": self.bagging_cutoff,
         }
         self._graph = GraphUtilities()
-        self._ref_loader = ReferenceDataLoader(ref_root=ref_root, **shared_kwargs)  # type: ignore[arg-type]
-        self._perturbation = PerturbationExecutor(ref_loader=self._ref_loader, graph=self._graph, **shared_kwargs)  # type: ignore[arg-type]
+        self._ref_loader = ReferenceDataLoader(ref_root=ref_root, **cast(Dict[str, Any], shared_kwargs))
+        self._perturbation = PerturbationExecutor(ref_loader=self._ref_loader, graph=self._graph, **cast(Dict[str, Any], shared_kwargs))
         self._significance = SignificanceAnalyzer(
             ref_loader=self._ref_loader,
             perturbation_executor=self._perturbation,
             graph=self._graph,
-            **shared_kwargs,  # type: ignore[arg-type]
+            **cast(Dict[str, Any], shared_kwargs),
         )
         self._perturbation.set_significance_analyzer(self._significance)
 
@@ -277,7 +277,7 @@ class GenKIAdapter:
 
     def _load_reference_data_from_genki_source(self) -> ReferenceData:
         """Forward to ReferenceDataLoader._load_reference_data_from_genki_source."""
-        return self._ref_loader._load_reference_data_from_genki_source()  # type: ignore[return-value]
+        return cast(ReferenceData, self._ref_loader._load_reference_data_from_genki_source())
 
     def _probe_dependencies(self, module_names: List[str]) -> List[str]:
         """Forward to ReferenceDataLoader._probe_dependencies."""
@@ -289,7 +289,7 @@ class GenKIAdapter:
 
     def _build_genki_loader(self, gene_symbol: str) -> _GenKIDataLoaderProtocol:
         """Forward to PerturbationExecutor._build_genki_loader."""
-        return self._perturbation._build_genki_loader(gene_symbol)  # type: ignore[no-any-return]
+        return cast(_GenKIDataLoaderProtocol, self._perturbation._build_genki_loader(gene_symbol))
 
     def _score_with_latent_vgae(
         self,
@@ -342,7 +342,7 @@ class GenKIAdapter:
         backend: str,
     ) -> ScoreMetadata:
         """Forward to SignificanceAnalyzer._build_score_metadata."""
-        return self._significance._build_score_metadata(  # type: ignore[return-value]
+        return cast(ScoreMetadata, self._significance._build_score_metadata(
             gene_names=gene_names,
             gene_index=gene_index,
             request=request,
@@ -350,7 +350,7 @@ class GenKIAdapter:
             baseline_network=baseline_network,
             combined_shift=combined_shift,
             backend=backend,
-        )
+        ))
 
     def _compute_significance(
         self,
@@ -398,14 +398,14 @@ class GenKIAdapter:
 
     @property
     def _reference_cache(self) -> ReferenceData | None:
-        return self._ref_loader._reference_cache  # type: ignore[return-value]
+        return cast(Optional[ReferenceData], self._ref_loader._reference_cache)
 
     @_reference_cache.setter
     def _reference_cache(self, value: ReferenceData | None) -> None:
-        self._ref_loader._reference_cache = value  # type: ignore[assignment]
+        self._ref_loader._reference_cache = cast(Any, value)
 
     def get_backend_info(self) -> BackendInfo:
-        return self._ref_loader.get_backend_info()  # type: ignore[return-value]
+        return cast(BackendInfo, self._ref_loader.get_backend_info())
 
     def validate_runtime_ready(self) -> None:
         backend = self.get_backend_info()
@@ -435,7 +435,7 @@ class GenKIAdapter:
         )
 
     def load_reference_data(self) -> ReferenceData:
-        return self._ref_loader.load_reference_data()  # type: ignore[return-value]
+        return cast(ReferenceData, self._ref_loader.load_reference_data())
 
     def run(self, request: GenePerturbationRequest) -> PerturbationResult:
         return self._perturbation.run(request)

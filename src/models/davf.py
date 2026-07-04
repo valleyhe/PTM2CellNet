@@ -30,6 +30,14 @@ class DAVFConfig:
 
     Extends BiPerturbConfig with Flow Matching specific fields.
     """
+    # Default architecture constants (also mirrored as DAVF class-level attrs)
+    _DEFAULT_HIDDEN_DIM: int = 256
+    _DEFAULT_X_ENCODER_HIDDEN: int = 512
+    _DEFAULT_VELOCITY_HIDDEN: int = 512
+    _DEFAULT_MODULATION_DIM: int = 128
+    _DEFAULT_NUM_GENES: int = 5000
+    _DEFAULT_NUM_STEPS: int = 50
+
     # Gene embedding (from BiPerturb)
     gene_embed_dim: int = 192
     gene_embed_frozen: bool = True
@@ -43,32 +51,32 @@ class DAVFConfig:
     magnitude_hidden_dim: Optional[int] = None
 
     # Multi-target attention (from BiPerturb)
-    hidden_dim: int = 256
+    hidden_dim: int = _DEFAULT_HIDDEN_DIM
     num_heads: int = 4
     attention_dropout: float = 0.1
 
     # Flow Matching specific
     time_embed_dim: int = 64
-    x_encoder_hidden: int = 512  # 256 → 512 (增大容量)
-    velocity_hidden: int = 512    # 256 → 512 (增大容量)
+    x_encoder_hidden: int = _DEFAULT_X_ENCODER_HIDDEN  # 256 -> 512
+    velocity_hidden: int = _DEFAULT_VELOCITY_HIDDEN     # 256 -> 512
     num_velocity_layers: int = 3
 
-    # 残差连接 (v2.0改进)
+    # Residual connection (v2.0 improvement)
     use_residual: bool = True
     residual_gate_init: float = 0.1
 
-    # 增强condition projection (v2.0/v5.0改进)
-    condition_projection_depth: int = 3  # 2 → 3 (增强非线性表达能力)
+    # Enhanced condition projection (v2.0/v5.0 improvement)
+    condition_projection_depth: int = 3  # 2 -> 3 (increased nonlinearity)
 
     # Output
-    num_genes: int = 5000
+    num_genes: int = _DEFAULT_NUM_GENES
 
     # Regularization
     dropout: float = 0.1
 
     # Hybrid injection fields (D19-01~05)
     condition_injection: str = "hybrid"  # "hybrid" | "concat"
-    modulation_dim: int = 128            # Cross-Attention + FiLM internal dim
+    modulation_dim: int = _DEFAULT_MODULATION_DIM   # Cross-Attention + FiLM internal dim
     num_kv_heads: int = 8                # Number of condition sub-vectors for K/V
 
     def __post_init__(self):
@@ -452,11 +460,12 @@ class DAVF(nn.Module):
     1. ODE integration from x_0 to x_1 using predicted velocity
     """
 
-    # Default architecture constants (matched by DAVFConfig defaults)
-    DEFAULT_HIDDEN_DIM = 256
-    DEFAULT_LATENT_DIM = 512
-    DEFAULT_MODULATION_DIM = 128
-    DEFAULT_NUM_GENES = 5000
+    # Default architecture constants — single source of truth (DAVFConfig)
+    DEFAULT_HIDDEN_DIM = DAVFConfig._DEFAULT_HIDDEN_DIM
+    DEFAULT_LATENT_DIM = DAVFConfig._DEFAULT_X_ENCODER_HIDDEN
+    DEFAULT_MODULATION_DIM = DAVFConfig._DEFAULT_MODULATION_DIM
+    DEFAULT_NUM_GENES = DAVFConfig._DEFAULT_NUM_GENES
+    DEFAULT_NUM_STEPS = DAVFConfig._DEFAULT_NUM_STEPS
 
     def __init__(
         self,
@@ -649,7 +658,7 @@ class DAVF(nn.Module):
         gene_ids: Optional[torch.Tensor] = None,
         directions: Optional[torch.Tensor] = None,
         magnitudes: Optional[torch.Tensor] = None,  # Kept for API compatibility, but ignored
-        num_steps: int = 50,
+        num_steps: int = DAVFConfig._DEFAULT_NUM_STEPS,
         use_ema: bool = True,
         ema_alpha: float = 0.85,
         *,
@@ -836,7 +845,7 @@ class DAVF(nn.Module):
             with torch.no_grad():
                 # 预测
                 x_1_pred = self.predict(
-                    x_0, gene_ids, directions, num_steps=50, attention_mask=attention_mask
+                    x_0, gene_ids, directions, num_steps=DAVFConfig._DEFAULT_NUM_STEPS, attention_mask=attention_mask
                 )
 
                 # 计算delta并提取目标位点

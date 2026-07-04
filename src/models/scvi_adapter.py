@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import numpy as np
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -325,11 +326,11 @@ class ScVIAdapter:
         self,
         adata: Any,
         latent_davf: Any,
-        gene_ids: Any,
-        directions: Any,
-        magnitudes: Any = None,
+        gene_ids: Optional[torch.Tensor] = None,
+        directions: Optional[torch.Tensor] = None,
+        magnitudes: Optional[torch.Tensor] = None,
         num_steps: int = 50,
-        attention_mask: Any = None,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> np.ndarray:
         """Full gene -> latent -> perturbed latent -> gene pipeline.
 

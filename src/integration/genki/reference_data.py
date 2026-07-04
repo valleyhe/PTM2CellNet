@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import anndata as ad
 import numpy as np
@@ -194,7 +194,7 @@ class ReferenceDataLoader:
 
     def load_reference_data(self) -> Dict[str, Any]:
         if self._cache_is_valid():
-            return self._reference_cache  # type: ignore[return-value]
+            return cast(Dict[str, Any], self._reference_cache)
 
         backend_info = self.get_backend_info()
         if backend_info["backend"] == "genki_source":
