@@ -40,6 +40,7 @@ class TestDeferredRegistry:
 
 class TestRoadmapHelpers:
     def test_esm3_encoder_falls_back_to_esm2(self, monkeypatch, caplog):
+        """When ESM3Encoder is unavailable, esm3_encoder falls back to ESM2Encoder."""
         class FakeESM2Encoder:
             def __init__(self, *args, **kwargs):
                 self.args = args
@@ -50,13 +51,30 @@ class TestRoadmapHelpers:
         monkeypatch.setattr(pretrained_encoders, "ESM2Encoder", FakeESM2Encoder)
         monkeypatch.delattr(pretrained_encoders, "ESM3Encoder", raising=False)
 
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("INFO"):
             encoder = esm3_encoder(model_size="650M", freeze=True)
 
         assert isinstance(encoder, FakeESM2Encoder)
         assert encoder.kwargs["model_size"] == "650M"
         assert encoder.kwargs["freeze"] is True
-        assert "Falling back to ESM2Encoder" in caplog.text
+        assert "ESM2Encoder" in caplog.text
+
+    def test_esm3_encoder_uses_esm3_when_available(self, monkeypatch):
+        """When ESM3Encoder is available, esm3_encoder returns an ESM3Encoder instance."""
+        class FakeESM3Encoder:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+
+        import src.models.pretrained_encoders as pretrained_encoders
+
+        monkeypatch.setattr(pretrained_encoders, "ESM3Encoder", FakeESM3Encoder)
+
+        encoder = esm3_encoder(model_size="small", freeze=True)
+
+        assert isinstance(encoder, FakeESM3Encoder)
+        assert encoder.kwargs["model_size"] == "small"
+        assert encoder.kwargs["freeze"] is True
 
     def test_mass_spec_stream_parses_tsv_stream(self):
         stream = StringIO("position\tptm_type\tintensity\tconfidence\n12\tphospho\t0.8\t0.99\n")

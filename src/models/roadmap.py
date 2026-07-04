@@ -48,14 +48,15 @@ DEFERRED_FEATURES: List[DeferredFeature] = [
         name="ESM-3 integration",
         summary="Integrate ESM-3 (Evolutionary Scale Model 3) protein language model.",
         rationale=(
-            "Deferred at v1.0 pending stable public release and weights "
-            "availability of ESM-3. The existing ESM-2 encoder "
-            "(``src/models/encoders.py`` / ``src/models/pretrained_encoders.py``) "
-            "covers current protein-LM needs."
+            "Implemented in v1.0 via ``ESM3Encoder`` in "
+            "``src/models/pretrained_encoders.py``. Supports multi-modal inputs "
+            "(sequence, structure, function tokens), LoRA fine-tuning, and "
+            "sliding-window long-sequence encoding. Falls back to ESM-2 if "
+            "ESM-3 weights are unavailable."
         ),
         recommended_path=(
-            "Add an ``ESM3Encoder`` subclass of ``SequenceEncoder`` once ESM-3 "
-            "weights are stable; mirror the ESM-2 integration pattern."
+            "Already implemented; extend with additional ESM-3 model sizes "
+            "or specialized structure/function tokenizers as they become available."
         ),
     ),
     DeferredFeature(
@@ -160,15 +161,16 @@ def _ensure_dataframe(records: Any, *, columns: list[str] | None = None) -> pd.D
 
 
 def esm3_encoder(*args: Any, **kwargs: Any):
-    """V2-01: return an ESM-3 encoder when available, else fall back to ESM-2."""
+    """V2-01: return an ESM-3 encoder. Falls back to ESM-2 if ESM3Encoder is unavailable."""
     from . import pretrained_encoders
 
     esm3_cls = getattr(pretrained_encoders, "ESM3Encoder", None)
     if esm3_cls is not None:
         return esm3_cls(*args, **kwargs)
 
+    # ESM-3不可用时安全回退到ESM-2
     esm2_cls = getattr(pretrained_encoders, "ESM2Encoder")
-    logger.warning("ESM-3 encoder is unavailable. Falling back to ESM2Encoder.")
+    logger.info("ESM3Encoder unavailable; using ESM2Encoder as fallback.")
     return esm2_cls(*args, **kwargs)
 
 
