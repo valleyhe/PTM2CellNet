@@ -181,7 +181,7 @@ class TestBLASTClient:
     @patch("src.models.external_tools.NCBIWWW")
     def test_search_error_returns_empty(self, mock_www):
         """search returns empty list on NCBI error."""
-        mock_www.qblast.side_effect = Exception("Network error")
+        mock_www.qblast.side_effect = OSError("Network error")
 
         with patch("src.models.external_tools.BIO_BLAST_AVAILABLE", True):
             client = BLASTClient()

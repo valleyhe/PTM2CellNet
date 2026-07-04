@@ -4,15 +4,15 @@
 设计思路: 封装评估指标，支持批量评估和交叉验证
 """
 
-from typing import Any, Callable, Dict, List, Optional, Sized, Type, cast
+from typing import Any, Callable, Dict, List, Optional, Sized, Type, Union, cast
 
-from typing_extensions import TypeAlias
+from typing_extensions import TypeAlias, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from ..utils.logging import setup_logger
 from .metrics import (
@@ -35,8 +35,31 @@ from .metrics import (
 
 logger = setup_logger(__name__)
 
-Array: TypeAlias = NDArray[Any]
+Array: TypeAlias = NDArray[np.floating]
 Batch: TypeAlias = Dict[str, torch.Tensor]
+
+MetricValue: TypeAlias = Union[float, object]
+ClassificationMetrics: TypeAlias = Dict[str, MetricValue]
+
+
+class EvalResult(TypedDict, total=False):
+    """Result dict returned by :func:`evaluate`."""
+
+    metrics: ClassificationMetrics
+    predictions: Array
+    targets: Array
+    probabilities: Array
+
+
+class CrossValidationResult(TypedDict, total=False):
+    """Result dict returned by :meth:`Evaluator.cross_validate`."""
+
+    fold_metrics: List[ClassificationMetrics]
+    mean_metrics: Dict[str, float]
+    std_metrics: Dict[str, float]
+    confidence_intervals: Dict[str, Dict[str, float]]
+    n_splits: int
+    fold_predictions: List[Array]
 
 
 def evaluate(
@@ -45,8 +68,8 @@ def evaluate(
     device: Optional[str] = None,
     task_type: str = "classification",
     return_predictions: bool = False,
-    config: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    config: Optional[Dict[str, object]] = None,
+) -> EvalResult:
     """Standalone evaluate function.
 
     Evaluates *model* on *dataloader* and returns metrics.  This is the
@@ -146,7 +169,7 @@ def evaluate(
     else:
         probabilities_array = None
 
-    metrics: Dict[str, Any]
+    metrics: ClassificationMetrics
     if task_type == "classification":
         metrics = _calculate_classification_metrics(
             targets_array,
@@ -163,7 +186,7 @@ def evaluate(
                 if ranking:
                     metrics["ranking_ndcg"] = ranking.get("ndcg", 0.0)
                     metrics["ranking_map"] = ranking.get("map", 0.0)
-        except Exception as e:
+        except (ImportError, AttributeError, ValueError) as e:
             logger.debug("Ranking metrics not computed: %s", e)
 
         # Compute bootstrap confidence intervals for main metrics
@@ -183,19 +206,22 @@ def evaluate(
                             ci_results[f"{metric_name}_ci"] = ci
                 if ci_results:
                     metrics["confidence_intervals"] = ci_results
-        except Exception as e:
+        except (ImportError, AttributeError, ValueError) as e:
             logger.debug("Confidence intervals not computed: %s", e)
 
     else:
-        metrics = _calculate_regression_metrics(
-            targets_array,
-            predictions_array,
+        metrics = cast(
+            ClassificationMetrics,
+            _calculate_regression_metrics(
+                targets_array,
+                predictions_array,
+            ),
         )
 
     logger.info("评估完成: %s", metrics)
 
     if return_predictions:
-        result: Dict[str, Any] = {
+        result: EvalResult = {
             "metrics": metrics,
             "predictions": predictions_array,
             "targets": targets_array,
@@ -208,10 +234,10 @@ def evaluate(
 
 
 def cross_validate(
-    model_class: type,
-    dataset: Any,
+    model_class: Type[nn.Module],
+    dataset: Dataset[object],
     n_splits: int = 5,
-    **kwargs: Any,
+    **kwargs: object,
 ) -> Dict[str, float]:
     """Standalone cross-validation matching AGENTS.md interface.
 
@@ -233,7 +259,7 @@ def cross_validate(
     """
     evaluator = Evaluator(model=model_class())
     results = evaluator.cross_validate(
-        model_class=model_class, dataset=dataset, n_splits=n_splits, **kwargs
+        model_class=model_class, dataset=dataset, n_splits=n_splits, **cast(Dict[str, Any], kwargs)
     )
     # Return only scalar metrics (mean across folds)
     scalar_results = {}
@@ -250,7 +276,7 @@ def _calculate_classification_metrics(
     y_pred: Array,
     y_score: Optional[Array] = None,
     ptm_types: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+) -> ClassificationMetrics:
     """计算分类指标。"""
     if y_score is not None and len(y_score.shape) > 1:
         n_labels = len(np.unique(y_true))
@@ -262,7 +288,7 @@ def _calculate_classification_metrics(
                 f"请确保评估数据与模型输出类别数匹配。"
             )
 
-    metrics: Dict[str, Any] = {
+    metrics: ClassificationMetrics = {
         "accuracy": calculate_accuracy(y_true, y_pred),
         "precision_macro": calculate_precision(y_true, y_pred, average="macro"),
         "precision_micro": calculate_precision(y_true, y_pred, average="micro"),
@@ -309,7 +335,7 @@ class Evaluator:
     def __init__(
         self,
         model: nn.Module,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, object]] = None,
         device: Optional[str] = None,
         task_type: str = "classification",
     ) -> None:
@@ -329,7 +355,7 @@ class Evaluator:
         self,
         dataloader: DataLoader[Batch],
         return_predictions: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> EvalResult:
         """评估模型并返回指标。委托给模块级 :func:`evaluate`。"""
         return evaluate(
             model=self.model,
@@ -342,17 +368,17 @@ class Evaluator:
 
     def cross_validate(
         self,
-        model_class: Optional[Type] = None,
-        dataset: Optional[torch.utils.data.Dataset] = None,
+        model_class: Optional[Type[nn.Module]] = None,
+        dataset: Optional[Dataset[object]] = None,
         n_splits: int = 5,
-        model_kwargs: Optional[Dict[str, Any]] = None,
+        model_kwargs: Optional[Dict[str, object]] = None,
         batch_size: int = 32,
         shuffle: bool = True,
         seed: int = 42,
         return_predictions: bool = False,
-        train_fn: Optional[Callable[..., Any]] = None,
-        train_fn_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        train_fn: Optional[Callable[..., None]] = None,
+        train_fn_kwargs: Optional[Dict[str, object]] = None,
+    ) -> CrossValidationResult:
         """K-fold cross-validation.
 
         Parameter order follows the AGENTS.md contract
@@ -435,7 +461,7 @@ class Evaluator:
                 "结果不能反映训练后性能。请传入 train_fn 回调以启用真正的交叉验证训练。"
             )
 
-        fold_metrics: List[Dict[str, Any]] = []
+        fold_metrics: List[ClassificationMetrics] = []
         fold_predictions: List[Array] = []
 
         # 3. Iterate folds
@@ -449,7 +475,7 @@ class Evaluator:
             val_subset = Subset(dataset, val_idx.tolist())
 
             train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+            val_loader: DataLoader[Batch] = cast("DataLoader[Batch]", DataLoader(val_subset, batch_size=batch_size, shuffle=False))
 
             logger.info("交叉验证 fold %d/%d", fold_idx + 1, n_splits)
 
@@ -463,7 +489,7 @@ class Evaluator:
             if train_fn is not None:
                 try:
                     train_fn(self.model, train_loader, **(train_fn_kwargs or {}))
-                except Exception as exc:
+                except (RuntimeError, ValueError) as exc:
                     logger.error("fold %d 训练失败: %s", fold_idx + 1, exc)
                     raise
                 # 确保训练后切回评估模式
@@ -486,7 +512,7 @@ class Evaluator:
         std_metrics: Dict[str, float] = {}
         confidence_intervals: Dict[str, Dict[str, float]] = {}
         for key in all_keys:
-            values = [float(fm[key]) for fm in fold_metrics]
+            values = [float(cast(Union[float, int], fm[key])) for fm in fold_metrics]
             mean_metrics[key] = float(np.mean(values))
             std_metrics[key] = float(np.std(values))
             # 计算t分布置信区间，跳过NaN/非有限值
@@ -502,7 +528,7 @@ class Evaluator:
                 }
 
         # 5. Build result dict
-        cv_result: Dict[str, Any] = {
+        cv_result: CrossValidationResult = {
             "fold_metrics": fold_metrics,
             "mean_metrics": mean_metrics,
             "std_metrics": std_metrics,
@@ -521,7 +547,7 @@ class Evaluator:
         y_pred: Array,
         y_score: Optional[Array] = None,
         ptm_types: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> ClassificationMetrics:
         """计算分类指标。委托给模块级函数。"""
         return _calculate_classification_metrics(y_true, y_pred, y_score, ptm_types)
 

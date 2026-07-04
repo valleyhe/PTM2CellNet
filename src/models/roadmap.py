@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 try:  # pragma: no cover - optional dependency
     import lightning as _LIGHTNING_MODULE
     _LIGHTNING_IMPORT_ERROR: Exception | None = None
-except Exception as exc:  # pragma: no cover - optional dependency
+except ImportError as exc:  # pragma: no cover - optional dependency
     _LIGHTNING_MODULE = None  # type: ignore[assignment]  # optional dep absent
     _LIGHTNING_IMPORT_ERROR = exc
 
 try:  # pragma: no cover - optional dependency
     import streamlit as _STREAMLIT_MODULE  # noqa: F401
     _STREAMLIT_IMPORT_ERROR: Exception | None = None
-except Exception as exc:  # pragma: no cover - optional dependency
+except ImportError as exc:  # pragma: no cover - optional dependency
     _STREAMLIT_MODULE = None
     _STREAMLIT_IMPORT_ERROR = exc
 

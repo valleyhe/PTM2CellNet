@@ -3,9 +3,10 @@ import logging
 import pickle
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import networkx as nx
+from typing_extensions import TypedDict
 
 from ..utils.io import safe_pickle_load
 
@@ -30,6 +31,27 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 # directory when services are launched from elsewhere), causing cache misses
 # and repeated downloads.
 _DEFAULT_CACHE_DIR = str(Path(__file__).resolve().parents[2] / ".cache" / "pathway_cache")
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class PathwayMatchResult(TypedDict):
+    """Shape of the dict returned by ``_find_best_pathway_match``."""
+
+    pathway_id: Optional[str]
+    pathway_name: Optional[str]
+    genes: Set[str]
+    gene_count: int
+
+
+class InteractionNetworkData(TypedDict):
+    """Shape of the dict returned by ``load_interaction_network`` / ``_load_edge_table``."""
+
+    edges: List[Tuple[str, str, float, str]]
+    genes: Set[str]
+    source: Optional[str]
 
 
 class PathwayDatabaseIntegration:
@@ -110,7 +132,7 @@ class PathwayDatabaseIntegration:
         try:
             with open(cache_file, "rb") as f:
                 payload = safe_pickle_load(f)
-        except Exception as e:  # noqa: BLE001 - corrupt cache should rebuild
+        except (pickle.UnpicklingError, EOFError, OSError) as e:
             logger.warning("Pathway cache unreadable, will rebuild: %s (%s)", cache_file, e)
             return False
         if not isinstance(payload, dict) or payload.get("version") != CACHE_VERSION:
@@ -151,7 +173,11 @@ class PathwayDatabaseIntegration:
             logger.info("Loading KEGG pathways from cache: %s", cache_file)
             with open(cache_file, 'rb') as f:
                 payload = safe_pickle_load(f)
-            self.kegg_pathways = payload["pathways"]
+            if isinstance(payload, dict):
+                self.kegg_pathways = payload["pathways"]
+            else:
+                logger.warning("KEGG cache payload is not a dict; reloading from source")
+                return self.load_kegg_pathways(organism, use_cache=False)
             self._kegg_loaded = True
             return self.kegg_pathways
 
@@ -171,7 +197,7 @@ class PathwayDatabaseIntegration:
                 except (pickle.PicklingError, TypeError) as e:
                     logger.warning("Could not cache pathways: %s", e)
 
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             logger.error("Failed to load KEGG pathways: %s", e)
             raise
 
@@ -199,7 +225,11 @@ class PathwayDatabaseIntegration:
             logger.info("Loading Reactome pathways from cache: %s", cache_file)
             with open(cache_file, 'rb') as f:
                 payload = safe_pickle_load(f)
-            self.reactome_pathways = payload["pathways"]
+            if isinstance(payload, dict):
+                self.reactome_pathways = payload["pathways"]
+            else:
+                logger.warning("Reactome cache payload is not a dict; reloading from source")
+                return self.load_reactome_pathways(organism, use_cache=False)
             self._reactome_loaded = True
             return self.reactome_pathways
 
@@ -219,7 +249,7 @@ class PathwayDatabaseIntegration:
                 except (pickle.PicklingError, TypeError) as e:
                     logger.warning("Could not cache pathways: %s", e)
 
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             logger.error("Failed to load Reactome pathways: %s", e)
             raise
 
@@ -276,7 +306,7 @@ class PathwayDatabaseIntegration:
         builtin_genes: Set[str],
     ) -> Dict:
         """Find pathway with maximum gene overlap."""
-        best_match: Dict[str, Any] = {
+        best_match: PathwayMatchResult = {
             'pathway_id': None,
             'pathway_name': None,
             'genes': set(),
@@ -299,7 +329,7 @@ class PathwayDatabaseIntegration:
 
         return best_match
 
-    def load_interaction_network(self) -> Dict[str, Any]:
+    def load_interaction_network(self) -> InteractionNetworkData:
         """Load a protein-protein interaction (PPI) edge table from cache.
 
         Looks for a preprocessed edge table under ``cache_dir``. Supported
@@ -323,13 +353,13 @@ class PathwayDatabaseIntegration:
             if path.exists():
                 try:
                     return self._load_edge_table(path)
-                except Exception as e:  # noqa: BLE001 - corrupt file -> try next
+                except (OSError, ValueError) as e:
                     logger.warning("Failed to read interaction table %s: %s", path, e)
                     continue
         return {"edges": [], "genes": set(), "source": None}
 
     @staticmethod
-    def _load_edge_table(path: Path) -> Dict[str, Any]:
+    def _load_edge_table(path: Path) -> InteractionNetworkData:
         """Parse a TSV edge table into an edge list + gene set."""
         edges: List[tuple] = []
         genes: Set[str] = set()

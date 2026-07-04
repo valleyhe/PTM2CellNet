@@ -3,7 +3,29 @@
 功能: 添加更多通路、药物-靶点关系、疾病关联
 """
 
-from typing import Any, Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, TypedDict, Union, cast
+
+
+class PathwaySiteAnnotation(TypedDict, total=False):
+    """Annotation for a single PTM site within a pathway."""
+
+    kinase: str
+    effect: str
+    condition: str
+    function: str
+    conservation: str
+    disease_relevance: str
+    frequency: str
+    pathway: str
+    disease: str
+
+
+class PathwayInfo(TypedDict, total=False):
+    """Shape of a pathway entry stored in ExtendedPathwayKnowledgeBase._pathways."""
+
+    name: str
+    category: str
+    sites: Dict[str, PathwaySiteAnnotation]
 
 # ============================================================
 # 药物-靶点关系数据库
@@ -568,18 +590,13 @@ class ExtendedPathwayKnowledgeBase:
     """
 
     def __init__(self) -> None:
-        self._pathways: Dict[str, Dict[str, Any]] = {
-            **{
-                name: {"category": "metabolic_ptm_regulation", "sites": sites}
-                for name, sites in METABOLIC_PTM_REGULATION.items()
-            },
-            **{
-                name: {"category": "cell_cycle_checkpoint", "sites": sites}
-                for name, sites in CELL_CYCLE_CHECKPOINTS.items()
-            },
-        }
+        self._pathways: Dict[str, PathwayInfo] = {}
+        for name, sites in METABOLIC_PTM_REGULATION.items():
+            self._pathways[name] = cast(PathwayInfo, {"category": "metabolic_ptm_regulation", "sites": sites})
+        for name, sites in CELL_CYCLE_CHECKPOINTS.items():
+            self._pathways[name] = cast(PathwayInfo, {"category": "cell_cycle_checkpoint", "sites": sites})
 
-    def get_pathway(self, name: str) -> Dict[str, Any]:
+    def get_pathway(self, name: str) -> PathwayInfo:
         """按名称查询通路。
 
         查询范围包括代谢通路 PTM 调控与细胞周期检查点。若未找到，返回空字典。
@@ -592,7 +609,7 @@ class ExtendedPathwayKnowledgeBase:
         """
         return self._pathways.get(name, {})
 
-    def search_pathways(self, query: str) -> List[Dict[str, Any]]:
+    def search_pathways(self, query: str) -> List[PathwayInfo]:
         """按子串搜索通路。
 
         匹配对大小写不敏感，返回所有通路名称包含 ``query`` 的通路，
@@ -605,13 +622,13 @@ class ExtendedPathwayKnowledgeBase:
             匹配到的通路字典列表。
         """
         query_lower = query.lower()
-        results: List[Dict[str, Any]] = []
+        results: List[PathwayInfo] = []
         for name, data in self._pathways.items():
             if query_lower in name.lower():
                 results.append({"name": name, **data})
         return results
 
-    def get_kinase_substrates(self, kinase: str) -> List[Dict[str, Any]]:
+    def get_kinase_substrates(self, kinase: str) -> List[PathwaySiteAnnotation]:
         """查询某个激酶调控的 PTM 底物位点。
 
         在代谢通路 PTM 调控与细胞周期检查点字典中搜索 ``kinase`` 字段
@@ -625,7 +642,7 @@ class ExtendedPathwayKnowledgeBase:
             ``site`` 以及原始注释字段。
         """
         kinase_lower = kinase.lower()
-        substrates: List[Dict[str, Any]] = []
+        substrates: List[PathwaySiteAnnotation] = []
         for category, source in (
             ("metabolic_ptm_regulation", METABOLIC_PTM_REGULATION),
             ("cell_cycle_checkpoint", CELL_CYCLE_CHECKPOINTS),
@@ -635,16 +652,16 @@ class ExtendedPathwayKnowledgeBase:
                     site_kinase = annotation.get("kinase", "")
                     if isinstance(site_kinase, str) and kinase_lower in site_kinase.lower():
                         substrates.append(
-                            {
+                            cast(PathwaySiteAnnotation, {
                                 "pathway": pathway_name,
                                 "category": category,
                                 "site": site_id,
                                 **annotation,
-                            }
+                            })
                         )
         return substrates
 
-    def get_ptm_annotations(self, accession: str) -> List[Dict[str, Any]]:
+    def get_ptm_annotations(self, accession: str) -> List[PathwaySiteAnnotation]:
         """查询与给定蛋白名称/登录号相关的 PTM 注释。
 
         根据 PTM 位点键的前缀匹配蛋白标识符（例如 ``"PFKFB3"`` 可匹配
@@ -658,7 +675,7 @@ class ExtendedPathwayKnowledgeBase:
             PTM 注释列表。
         """
         accession_lower = accession.lower()
-        annotations: List[Dict[str, Any]] = []
+        annotations: List[PathwaySiteAnnotation] = []
 
         for category, source in (
             ("metabolic_ptm_regulation", METABOLIC_PTM_REGULATION),
@@ -668,24 +685,24 @@ class ExtendedPathwayKnowledgeBase:
                 for site_id, annotation in sites.items():
                     if site_id.lower().startswith(accession_lower):
                         annotations.append(
-                            {
+                            cast(PathwaySiteAnnotation, {
                                 "pathway": pathway_name,
                                 "category": category,
                                 "site": site_id,
                                 **annotation,
-                            }
+                            })
                         )
 
         for conservation_level, sites in PTM_CONSERVATION.items():
             for site_id, annotation in sites.items():
                 if site_id.lower().startswith(accession_lower):
                     annotations.append(
-                        {
+                        cast(PathwaySiteAnnotation, {
                             "category": "ptm_conservation",
                             "conservation_level": conservation_level,
                             "site": site_id,
                             **annotation,
-                        }
+                        })
                     )
 
         for ptm_type, effect_groups in PTM_DISEASE_ASSOCIATIONS.items():
@@ -693,20 +710,20 @@ class ExtendedPathwayKnowledgeBase:
                 for variant_id, annotation in variants.items():
                     if variant_id.lower().startswith(accession_lower):
                         annotations.append(
-                            {
+                            cast(PathwaySiteAnnotation, {
                                 "category": "ptm_disease_association",
                                 "ptm_type": ptm_type,
                                 "effect_type": effect_type,
                                 "variant": variant_id,
                                 **annotation,
-                            }
+                            })
                         )
 
         return annotations
 
     def detect_crosstalk(
         self, pathway_a: str, pathway_b: str
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[str, List[str], float, bool]]:
         """检测两条通路之间潜在的串扰。
 
         比较两条通路（来自代谢调控或细胞周期检查点）的激酶集合与 PTM
@@ -733,7 +750,7 @@ class ExtendedPathwayKnowledgeBase:
                 "detected": False,
             }
 
-        def _extract_sets(info: Dict[str, Any]) -> Tuple[Set[str], Set[str]]:
+        def _extract_sets(info: PathwayInfo) -> Tuple[Set[str], Set[str]]:
             sites = info.get("sites", {})
             kinases: Set[str] = set()
             site_ids: Set[str] = set()

@@ -9,24 +9,61 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, Protocol, Set, Union, cast, runtime_checkable
 
 import torch
 import torch.nn as nn
+from typing_extensions import TypedDict
 
 from src.utils.io import safe_torch_load
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Protocol for objects with state_dict (optimizers, schedulers, etc.)
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class _Stateful(Protocol):
+    """Protocol for objects that support state_dict / load_state_dict."""
+
+    # state_dict returns heterogeneous tensor maps; Any is the most specific
+    # type we can give without knowing the concrete optimizer/scheduler.
+    def state_dict(self) -> Dict[str, Any]: ...  # noqa: TY102
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None: ...  # noqa: TY102
+
+
+# ---------------------------------------------------------------------------
+# Typed structures for checkpoint dictionaries
+# ---------------------------------------------------------------------------
+
+# Type alias for the heterogeneous config dict stored in checkpoints.
+# This is genuinely dynamic (YAML-loaded), so Dict[str, Any] is correct here.
+_CheckpointConfig = Dict[str, Union[str, int, float, bool, List[Any], Dict[str, Any]]]
+
+
+class CheckpointMetadata(TypedDict, total=False):
+    """TypedDict for checkpoint payload dictionaries.
+
+    All fields are optional because checkpoints may contain different
+    subsets depending on the training stage.
+    """
+    model_state_dict: Dict[str, torch.Tensor]
+    optimizer_state_dict: Dict[str, Any]
+    scheduler_state_dict: Dict[str, Any]
+    epoch: int
+    config: _CheckpointConfig  # noqa: TY102
+
 
 # DAVF config/architecture classes embedded in legacy fine-tuned checkpoints.
 # These are safe types that cannot be loaded with vanilla weights_only=True
 # because they are custom Python objects (dataclasses / nn.Module subclasses).
 # We import them lazily to avoid circular-dependency issues and only when
 # actually loading a DAVF checkpoint.
-_DAVF_ALLOWED_CLASSES: Optional[set] = None
+_DAVF_ALLOWED_CLASSES: Optional[Set[Union[str, type]]] = None
 
 
-def _get_davf_allowed_classes() -> set:
+def _get_davf_allowed_classes() -> Set[Union[str, type]]:
     global _DAVF_ALLOWED_CLASSES
     if _DAVF_ALLOWED_CLASSES is None:
         from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
@@ -38,10 +75,10 @@ def _get_davf_allowed_classes() -> set:
     return _DAVF_ALLOWED_CLASSES
 
 
-def _load_checkpoint_payload(ckpt_path: Path, device: str) -> Dict[str, Any]:
+def _load_checkpoint_payload(ckpt_path: Path, device: str) -> CheckpointMetadata:
     """Load a checkpoint with allowlisted DAVF types for weights_only=True."""
     return cast(
-        Dict[str, Any],
+        CheckpointMetadata,
         safe_torch_load(
             ckpt_path,
             map_location=device,
@@ -53,10 +90,10 @@ def _load_checkpoint_payload(ckpt_path: Path, device: str) -> Dict[str, Any]:
 def save_checkpoint(
     path: str,
     model: nn.Module,
-    optimizer: Optional[Any] = None,
-    scheduler: Optional[Any] = None,
+    optimizer: Optional[_Stateful] = None,
+    scheduler: Optional[_Stateful] = None,
     epoch: Optional[int] = None,
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[_CheckpointConfig] = None,
     **extras: Any,
 ) -> None:
     """Save a unified checkpoint dictionary.
@@ -84,7 +121,7 @@ def save_checkpoint(
 
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(ckpt, out_path)
+    torch.save(cast(CheckpointMetadata, ckpt), out_path)
 
 
 def load_checkpoint(
@@ -92,7 +129,7 @@ def load_checkpoint(
     device: str = "cpu",
     strict: bool = True,
     allow_unsafe_legacy: bool = False,
-) -> Dict[str, Any]:
+) -> CheckpointMetadata:
     """Load a checkpoint dictionary from disk.
 
     Args:
@@ -125,11 +162,14 @@ def load_checkpoint(
             "Consider using allowed_classes= to whitelist required types instead.",
             ckpt_path,
         )
-        ckpt = safe_torch_load(
-            ckpt_path,
-            map_location=device,
-            weights_only=False,
-            enforce_safe_only=False,
+        ckpt = cast(
+            CheckpointMetadata,
+            safe_torch_load(
+                ckpt_path,
+                map_location=device,
+                weights_only=False,
+                enforce_safe_only=False,
+            ),
         )
     if not isinstance(ckpt, dict):
         raise ValueError("Checkpoint must be a dictionary")
@@ -147,10 +187,10 @@ def load_checkpoint(
 
 
 def resume_training_state(
-    checkpoint_dict: Dict[str, Any],
+    checkpoint_dict: CheckpointMetadata,
     model: nn.Module,
-    optimizer: Optional[Any] = None,
-    scheduler: Optional[Any] = None,
+    optimizer: Optional[_Stateful] = None,
+    scheduler: Optional[_Stateful] = None,
 ) -> int:
     """Resume model/optimizer/scheduler state from a checkpoint dictionary.
 
@@ -179,7 +219,7 @@ def resume_training_state(
             config_hash = hashlib.sha256(
                 json.dumps(config, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()[:8]
-        except Exception as e:
+        except (TypeError, ValueError) as e:
             logger.warning("Failed to compute config hash while resuming training state: %s", e)
 
     logger.info(

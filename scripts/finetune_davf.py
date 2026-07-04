@@ -74,7 +74,7 @@ def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="DAVF 端到端微调脚本 (V22-01)")
     parser.add_argument("--config", type=str, default="configs/default.yaml",
-                        help="配置文件路径")
+                        help="配置文件路径（首次运行推荐使用 configs/smoke/ 下的配置）")
     parser.add_argument("--data", type=str, required=True,
                         help="训练数据 CSV 路径")
     parser.add_argument("--checkpoint", type=str,
@@ -136,16 +136,25 @@ def create_dataloaders(train_df, val_df, test_df, config: Config, batch_size: in
 
 
 def build_model(config: Config, checkpoint_path: str, num_classes: int) -> PTM2CellNet:
-    """Build a PTM2CellNet backbone wired with a DAVF feature extractor."""
-    model_config = config.to_dict().get("model", {})
-    model_config["davf"] = model_config.get("davf", {})
-    model_config["davf"]["enabled"] = True
-    model_config["davf"]["checkpoint_path"] = checkpoint_path
-    model_config["davf"]["freeze"] = True  # stage 1 default
-    if "num_classes" in model_config:
-        model_config["num_classes"] = num_classes
+    """Build a PTM2CellNet backbone wired with a DAVF feature extractor.
 
-    model = PTM2CellNet(model_config)
+    Uses :meth:`PTM2CellNet.from_config` which properly translates config
+    dict keys (e.g. ``max_sequence_length`` → ``max_seq_len``, ``hidden_dim``
+    → ``embed_dim``) into :class:`PTM2CellNetBase.__init__` keyword arguments
+    and wires up the DAVF inference module when ``model.use_davf`` is set.
+    """
+    config_dict = config.to_dict()
+    model_cfg = config_dict.setdefault("model", {})
+    model_cfg["use_davf"] = True
+    # Move inline ``davf`` sub-config to the key ``from_config`` expects
+    # and inject the checkpoint path / training freeze.
+    davf_cfg = model_cfg.setdefault("davf_config", model_cfg.pop("davf", {}))
+    davf_cfg["checkpoint_path"] = checkpoint_path
+    davf_cfg["freeze"] = True  # stage 1 default
+    if "num_classes" in model_cfg:
+        model_cfg["num_classes"] = num_classes
+
+    model = PTM2CellNet.from_config(config_dict)
     return model
 
 
@@ -210,7 +219,7 @@ def train_stage(
             batch = _move_batch_to_device(batch, device)
             optimizer.zero_grad()
             outputs = model(batch)
-            loss = criterion(outputs, batch["labels"])
+            loss = criterion(outputs["logits"], batch["label"])
             loss.backward()
             optimizer.step()
             running_loss += float(loss.item())
@@ -265,15 +274,16 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
     for batch in loader:
         batch = _move_batch_to_device(batch, device)
         outputs = model(batch)
-        loss = criterion(outputs, batch["labels"])
+        loss = criterion(outputs["logits"], batch["label"])
         total_loss += float(loss.item())
         n_batches += 1
 
-        probs = torch.softmax(outputs, dim=-1) if outputs.ndim == 2 else outputs
+        logits = outputs["logits"]
+        probs = torch.softmax(logits, dim=-1) if logits.ndim == 2 else logits
         preds = torch.argmax(probs, dim=-1)
         all_probs.append(probs.detach().cpu().numpy())
         all_preds.append(preds.detach().cpu().numpy())
-        all_labels.append(batch["labels"].detach().cpu().numpy())
+        all_labels.append(batch["label"].detach().cpu().numpy())
 
     import numpy as np
 

@@ -349,89 +349,10 @@ class ESM2Encoder(PretrainedEncoder):
         返回:
             embeddings: [batch_size, max_seq_len, hidden_dim] 每个残基的嵌入
         """
-        from .long_sequence import LongSequenceHandler
+        from .long_sequence import SlidingWindowHandler
 
-        try:
-            device = next(self.parameters()).device
-            dtype = next(self.parameters()).dtype
-        except StopIteration:
-            device = torch.device("cpu")
-            dtype = torch.float32
-        batch_embeddings: List[torch.Tensor] = []
-        max_seq_len = 0
-
-        for seq in sequences:
-            seq_len = len(seq)
-            if seq_len > max_seq_len:
-                max_seq_len = seq_len
-
-            if seq_len <= 1022:
-                # 短序列：直接tokenize并提取残基嵌入
-                tokens = self.tokenize([seq])
-                input_ids = tokens["input_ids"].to(device)
-                attention_mask = tokens.get("attention_mask")
-                if attention_mask is not None:
-                    attention_mask = attention_mask.to(device)
-
-                with torch.no_grad() if not any(p.requires_grad for p in self.parameters()) else torch.enable_grad():
-                    outputs = self(input_ids=input_ids, attention_mask=attention_mask)
-
-                # 去掉 <cls> (位置0) 和 <eos> (位置 seq_len+1)
-                # outputs: [1, token_len, hidden_dim]
-                token_len = outputs.size(1)
-                # 保留残基对应的token: 1 到 token_len-1 (去掉cls和eos)
-                residue_emb = outputs[:, 1:token_len - 1, :]
-                # 如果由于padding导致token_len-1 > seq_len+1，截断到seq_len
-                if residue_emb.size(1) > seq_len:
-                    residue_emb = residue_emb[:, :seq_len, :]
-                batch_embeddings.append(residue_emb.squeeze(0))
-            else:
-                # 长序列：使用滑动窗口
-                handler = LongSequenceHandler(sequence_length=seq_len, window_size=1022, overlap=100)
-                accumulated = torch.zeros(seq_len, self.hidden_dim, device=device, dtype=dtype)
-                counts = torch.zeros(seq_len, device=device, dtype=dtype)
-
-                for start, end in handler.window_boundaries:
-                    window_seq = seq[start:end]
-                    tokens = self.tokenize([window_seq])
-                    input_ids = tokens["input_ids"].to(device)
-                    attention_mask = tokens.get("attention_mask")
-                    if attention_mask is not None:
-                        attention_mask = attention_mask.to(device)
-
-                    with torch.no_grad() if not any(p.requires_grad for p in self.parameters()) else torch.enable_grad():
-                        outputs = self(input_ids=input_ids, attention_mask=attention_mask)
-
-                    token_len = outputs.size(1)
-                    window_emb = outputs[:, 1:token_len - 1, :]
-                    window_len = end - start
-                    if window_emb.size(1) > window_len:
-                        window_emb = window_emb[:, :window_len, :]
-
-                    window_emb = window_emb.squeeze(0)  # [window_len, hidden_dim]
-                    accumulated[start:end] += window_emb
-                    counts[start:end] += 1.0
-
-                residue_emb = accumulated / counts.unsqueeze(-1).clamp(min=1)
-                batch_embeddings.append(residue_emb)
-
-        # 填充到相同长度并堆叠
-        if len(batch_embeddings) == 1:
-            return batch_embeddings[0].unsqueeze(0)
-
-        padded = []
-        for emb in batch_embeddings:
-            if emb.size(0) < max_seq_len:
-                padding = torch.zeros(
-                    max_seq_len - emb.size(0),
-                    self.hidden_dim,
-                    device=device,
-                    dtype=emb.dtype,
-                )
-                emb = torch.cat([emb, padding], dim=0)
-            padded.append(emb)
-
-        return torch.stack(padded)
+        handler = SlidingWindowHandler(window_size=1022, overlap=100)
+        return handler.encode_sequences(self, sequences)
 
 
 class ESM3Encoder(PretrainedEncoder):
@@ -647,87 +568,10 @@ class ESM3Encoder(PretrainedEncoder):
         返回:
             embeddings: [batch_size, max_seq_len, hidden_dim] 每个残基的嵌入
         """
-        from .long_sequence import LongSequenceHandler
+        from .long_sequence import SlidingWindowHandler
 
-        try:
-            device = next(self.parameters()).device
-            dtype = next(self.parameters()).dtype
-        except StopIteration:
-            device = torch.device("cpu")
-            dtype = torch.float32
-        batch_embeddings: List[torch.Tensor] = []
-        max_seq_len = 0
-
-        for seq in sequences:
-            seq_len = len(seq)
-            if seq_len > max_seq_len:
-                max_seq_len = seq_len
-
-            if seq_len <= 1022:
-                # 短序列：直接tokenize并提取残基嵌入
-                tokens = self.tokenize([seq])
-                input_ids = tokens["input_ids"].to(device)
-                attention_mask = tokens.get("attention_mask")
-                if attention_mask is not None:
-                    attention_mask = attention_mask.to(device)
-
-                with torch.no_grad() if not any(p.requires_grad for p in self.parameters()) else torch.enable_grad():
-                    outputs = self(input_ids=input_ids, attention_mask=attention_mask)
-
-                # 去掉 <cls> (位置0) 和 <eos> (位置 seq_len+1)
-                token_len = outputs.size(1)
-                residue_emb = outputs[:, 1:token_len - 1, :]
-                # 截断到实际序列长度
-                if residue_emb.size(1) > seq_len:
-                    residue_emb = residue_emb[:, :seq_len, :]
-                batch_embeddings.append(residue_emb.squeeze(0))
-            else:
-                # 长序列：使用滑动窗口
-                handler = LongSequenceHandler(sequence_length=seq_len, window_size=1022, overlap=100)
-                accumulated = torch.zeros(seq_len, self.hidden_dim, device=device, dtype=dtype)
-                counts = torch.zeros(seq_len, device=device, dtype=dtype)
-
-                for start, end in handler.window_boundaries:
-                    window_seq = seq[start:end]
-                    tokens = self.tokenize([window_seq])
-                    input_ids = tokens["input_ids"].to(device)
-                    attention_mask = tokens.get("attention_mask")
-                    if attention_mask is not None:
-                        attention_mask = attention_mask.to(device)
-
-                    with torch.no_grad() if not any(p.requires_grad for p in self.parameters()) else torch.enable_grad():
-                        outputs = self(input_ids=input_ids, attention_mask=attention_mask)
-
-                    token_len = outputs.size(1)
-                    window_emb = outputs[:, 1:token_len - 1, :]
-                    window_len = end - start
-                    if window_emb.size(1) > window_len:
-                        window_emb = window_emb[:, :window_len, :]
-
-                    window_emb = window_emb.squeeze(0)  # [window_len, hidden_dim]
-                    accumulated[start:end] += window_emb
-                    counts[start:end] += 1.0
-
-                residue_emb = accumulated / counts.unsqueeze(-1).clamp(min=1)
-                batch_embeddings.append(residue_emb)
-
-        # 填充到相同长度并堆叠
-        if len(batch_embeddings) == 1:
-            return batch_embeddings[0].unsqueeze(0)
-
-        padded = []
-        for emb in batch_embeddings:
-            if emb.size(0) < max_seq_len:
-                padding = torch.zeros(
-                    max_seq_len - emb.size(0),
-                    self.hidden_dim,
-                    device=device,
-                    dtype=emb.dtype,
-                )
-                emb = torch.cat([emb, padding], dim=0)
-            padded.append(emb)
-
-        return torch.stack(padded)
+        handler = SlidingWindowHandler(window_size=1022, overlap=100)
+        return handler.encode_sequences(self, sequences)
 
 
 class ProtBERTEncoder(PretrainedEncoder):

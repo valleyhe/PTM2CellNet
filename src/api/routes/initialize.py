@@ -313,7 +313,7 @@ async def initialize_endpoint(
         initialize_pathway_mapper()
         try:
             initialize_variant_workflow(str(ckpt_path))
-        except Exception as exc:
+        except (ImportError, ValueError, RuntimeError) as exc:
             logger.warning("initialize: variant workflow 初始化失败: %s", exc)
 
         total_params = sum(p.numel() for p in model.parameters())

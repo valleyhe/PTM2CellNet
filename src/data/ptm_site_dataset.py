@@ -169,8 +169,6 @@ class PTMSiteDataset(Dataset):
             'label': torch.tensor(label, dtype=torch.long),
             'position': torch.tensor(position, dtype=torch.long),
             'aa_idx': torch.tensor(AA_TO_IDX.get(aa, 20), dtype=torch.long),
-            'uniprot_id': row['uniprot_id'],
-            'ptm_type': row['ptm_type'],
         }
 
 

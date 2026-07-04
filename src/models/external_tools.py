@@ -7,10 +7,12 @@ available and fall back to built-in methods when external tools are not installe
 
 import logging
 import re
+import subprocess
 import tempfile
 import os
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 try:
     import requests
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+    from requests.exceptions import Timeout as RequestsTimeout
+    from requests.exceptions import HTTPError as RequestsHTTPError
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
@@ -77,6 +82,106 @@ _CHOU_FASMAN_COIL: Dict[str, float] = {
     'M': 0.60, 'N': 1.49, 'P': 1.84, 'Q': 0.71, 'R': 0.85,
     'S': 1.40, 'T': 1.13, 'V': 0.41, 'W': 0.59, 'Y': 0.94,
 }
+
+
+# ---------------------------------------------------------------------------
+# Structured response types (replace Dict[str, Any] patterns)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolConfig:
+    """Configuration dictionary for external tool clients.
+
+    Supports both ``ToolConfig(params={"timeout": 10})`` and
+    ``ToolConfig({"timeout": 10})`` (positional dict) for backward
+    compatibility with code that passed plain dicts.
+    """
+    params: Dict[str, Union[str, int, float, bool]] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        params: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+    ) -> None:
+        self.params = params if params is not None else {}
+
+    def __getitem__(self, key: str) -> Union[str, int, float, bool]:
+        return self.params[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.params
+
+    def get(self, key: str, default: Union[str, int, float, bool, None] = None) -> Union[str, int, float, bool, None]:
+        return self.params.get(key, default)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self.params == other
+        if isinstance(other, ToolConfig):
+            return self.params == other.params
+        return NotImplemented
+
+
+@dataclass
+class StructurePrediction:
+    """Response from protein structure prediction (AlphaFold)."""
+    pdb_string: str = ""
+    confidence: float = 0.0
+    predicted_aligned_error: List[object] = field(default_factory=list)
+
+    def __getitem__(self, key: str) -> object:
+        return getattr(self, key)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, key)
+
+    def get(self, key: str, default: object = None) -> object:
+        return getattr(self, key, default)
+
+
+@dataclass
+class BLASTHit:
+    """Single BLAST search hit."""
+    accession: str = ""
+    description: str = ""
+    e_value: float = 0.0
+    score: float = 0.0
+    identity: str = ""
+
+    def __getitem__(self, key: str) -> object:
+        return getattr(self, key)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, key)
+
+
+@dataclass
+class AlignmentResult:
+    """Response from multiple sequence alignment (ClustalW)."""
+    alignment: Dict[str, str] = field(default_factory=dict)
+    phylogenetic_tree: str = ""
+    consensus: str = ""
+
+    def __getitem__(self, key: str) -> object:
+        return getattr(self, key)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, key)
+
+
+@dataclass
+class SecondaryStructurePrediction:
+    """Response from secondary structure prediction (PSIPRED)."""
+    ss_prediction: str = ""
+    confidence_scores: List[float] = field(default_factory=list)
+
+    def __getitem__(self, key: str) -> object:
+        return getattr(self, key)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, key)
+
+    def get(self, key: str, default: object = None) -> object:
+        return getattr(self, key, default)
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +256,8 @@ class AlphaFoldClient:
     Falls back to a simple extended-chain PDB when the API is unreachable.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
-        self.config: Dict[str, Any] = config or {}
+    def __init__(self, config: Optional[ToolConfig] = None) -> None:
+        self.config: ToolConfig = config or ToolConfig()
 
     def check_available(self) -> bool:
         """Return whether the AlphaFold API is reachable."""
@@ -161,13 +266,22 @@ class AlphaFoldClient:
         try:
             resp = requests.get("https://alphafold.ebi.ac.uk/api", timeout=5)
             return bool(resp.ok)
-        except Exception as e:
-            logger.warning("AlphaFold API check failed: %s", e)
+        except RequestsConnectionError as e:
+            logger.warning("AlphaFold API connection failed: %s", e)
+            return False
+        except RequestsTimeout:
+            logger.warning("AlphaFold API request timed out")
+            return False
+        except RequestsHTTPError as e:
+            logger.warning("AlphaFold API HTTP error: %s", e)
+            return False
+        except (OSError, RuntimeError) as e:
+            logger.error("Unexpected error checking AlphaFold API: %s", e)
             return False
 
     def predict_structure(
-        self, sequence: str, **kwargs: Any
-    ) -> Dict[str, Any]:
+        self, sequence: str, **kwargs: Union[str, int, float, bool]
+    ) -> StructurePrediction:
         """Predict the 3D structure of a protein.
 
         Tries the EBI AlphaFold Database API first (requires *uniprot_id* in
@@ -204,18 +318,26 @@ class AlphaFoldClient:
                     if pdb_url:
                         pdb_resp = requests.get(pdb_url, timeout=60)
                         if pdb_resp.ok:
-                            return {
-                                "pdb_string": pdb_resp.text,
-                                "confidence": confidence / 100.0 if confidence > 1.0 else confidence,
-                                "predicted_aligned_error": pae,
-                            }
-            except Exception as exc:
-                logger.warning("AlphaFold EBI API error: %s", exc)
+                            return StructurePrediction(
+                                pdb_string=pdb_resp.text,
+                                confidence=confidence / 100.0 if confidence > 1.0 else confidence,
+                                predicted_aligned_error=pae,
+                            )
+            except RequestsConnectionError as exc:
+                logger.warning("AlphaFold EBI API connection failed: %s", exc)
+            except RequestsTimeout:
+                logger.warning("AlphaFold EBI API request timed out")
+            except RequestsHTTPError as exc:
+                logger.warning("AlphaFold EBI API HTTP error: %s", exc)
+            except (ValueError, KeyError) as exc:
+                logger.warning("AlphaFold EBI API response parsing error: %s", exc)
+            except (OSError, RuntimeError) as exc:
+                logger.error("Unexpected AlphaFold EBI API error: %s", exc)
 
         logger.info("Using fallback PDB generation")
         return self._fallback_pdb(sequence)
 
-    def _fallback_pdb(self, sequence: str) -> Dict[str, Any]:
+    def _fallback_pdb(self, sequence: str) -> StructurePrediction:
         """Generate a simple extended-chain PDB string."""
         lines = []
         x, y, z = 0.0, 0.0, 0.0
@@ -238,11 +360,11 @@ class AlphaFoldClient:
             )
         pdb_str = "\n".join(lines)
 
-        return {
-            "pdb_string": pdb_str,
-            "confidence": confidence,
-            "predicted_aligned_error": [],
-        }
+        return StructurePrediction(
+            pdb_string=pdb_str,
+            confidence=confidence,
+            predicted_aligned_error=[],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -256,8 +378,8 @@ class BLASTClient:
     to an empty result set on failure.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
-        self.config: Dict[str, Any] = config or {}
+    def __init__(self, config: Optional[ToolConfig] = None) -> None:
+        self.config: ToolConfig = config or ToolConfig()
 
     def check_available(self) -> bool:
         """Return whether BioPython BLAST modules are available."""
@@ -268,7 +390,7 @@ class BLASTClient:
         sequence: str,
         database: str = "nr",
         e_value: float = 0.001,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[BLASTHit]:
         """Search for similar sequences using BLAST.
 
         Args:
@@ -290,17 +412,17 @@ class BLASTClient:
             )
             blast_records = NCBIXML.parse(result_handle)
 
-            hits: List[Dict[str, Any]] = []
+            hits: List[BLASTHit] = []
             for record in blast_records:
                 for alignment in record.alignments[:20]:
                     for hsp in alignment.hsps:
-                        hits.append({
-                            "accession": alignment.accession,
-                            "description": alignment.title,
-                            "e_value": hsp.expect,
-                            "score": hsp.score,
-                            "identity": f"{hsp.identities}/{hsp.align_length}",
-                        })
+                        hits.append(BLASTHit(
+                            accession=alignment.accession,
+                            description=alignment.title,
+                            e_value=hsp.expect,
+                            score=hsp.score,
+                            identity=f"{hsp.identities}/{hsp.align_length}",
+                        ))
                     if len(hits) >= 50:
                         break
                 if len(hits) >= 50:
@@ -309,8 +431,20 @@ class BLASTClient:
             result_handle.close()
             return hits
 
-        except Exception as exc:
-            logger.warning("BLAST search error: %s", exc)
+        except RequestsConnectionError as exc:
+            logger.warning("BLAST search connection failed: %s", exc)
+            return []
+        except RequestsTimeout:
+            logger.warning("BLAST search request timed out")
+            return []
+        except RequestsHTTPError as exc:
+            logger.warning("BLAST search HTTP error: %s", exc)
+            return []
+        except (ValueError, KeyError) as exc:
+            logger.warning("BLAST search response parsing error: %s", exc)
+            return []
+        except (OSError, RuntimeError) as exc:
+            logger.error("Unexpected BLAST search error: %s", exc)
             return []
 
 
@@ -325,8 +459,8 @@ class ClustalWClient:
     progressive pairwise alignment using Needleman-Wunsch.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
-        self.config: Dict[str, Any] = config or {}
+    def __init__(self, config: Optional[ToolConfig] = None) -> None:
+        self.config: ToolConfig = config or ToolConfig()
 
     def check_available(self) -> bool:
         """Return whether ClustalW (or Clustal Omega) is on PATH."""
@@ -340,7 +474,7 @@ class ClustalWClient:
 
     def align(
         self, sequences: Dict[str, str]
-    ) -> Dict[str, Any]:
+    ) -> AlignmentResult:
         """Perform multiple sequence alignment.
 
         Args:
@@ -352,16 +486,16 @@ class ClustalWClient:
             ``phylogenetic_tree`` (Newick string), and ``consensus``.
         """
         if len(sequences) == 0:
-            return {"alignment": {}, "phylogenetic_tree": "", "consensus": ""}
+            return AlignmentResult(alignment={}, phylogenetic_tree="", consensus="")
 
         if len(sequences) == 1:
             only_name = next(iter(sequences))
             only_seq = sequences[only_name]
-            return {
-                "alignment": {only_name: only_seq},
-                "phylogenetic_tree": f"({only_name});",
-                "consensus": only_seq,
-            }
+            return AlignmentResult(
+                alignment={only_name: only_seq},
+                phylogenetic_tree=f"({only_name});",
+                consensus=only_seq,
+            )
 
         # Try external ClustalW first
         result = self._run_external_clustal(sequences)
@@ -375,7 +509,7 @@ class ClustalWClient:
     # External ClustalW
     # ------------------------------------------------------------------
 
-    def _run_external_clustal(self, sequences: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def _run_external_clustal(self, sequences: Dict[str, str]) -> Optional[AlignmentResult]:
         if not BIO_CLUSTAL_APP_AVAILABLE or not BIO_ALIGN_AVAILABLE:
             return None
 
@@ -421,13 +555,22 @@ class ClustalWClient:
 
             consensus = self._compute_consensus(alignment_dict)
 
-            return {
-                "alignment": alignment_dict,
-                "phylogenetic_tree": tree_newick,
-                "consensus": consensus,
-            }
-        except Exception as exc:
-            logger.warning("External ClustalW error: %s", exc)
+            return AlignmentResult(
+                alignment=alignment_dict,
+                phylogenetic_tree=tree_newick,
+                consensus=consensus,
+            )
+        except (OSError, IOError) as exc:
+            logger.warning("External ClustalW file I/O error: %s", exc)
+            return None
+        except subprocess.SubprocessError as exc:
+            logger.warning("External ClustalW subprocess error: %s", exc)
+            return None
+        except (ValueError, KeyError) as exc:
+            logger.warning("External ClustalW parsing error: %s", exc)
+            return None
+        except (OSError, RuntimeError) as exc:
+            logger.error("Unexpected external ClustalW error: %s", exc)
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -459,7 +602,7 @@ class ClustalWClient:
     # Built-in progressive alignment (fallback)
     # ------------------------------------------------------------------
 
-    def _progressive_align(self, sequences: Dict[str, str]) -> Dict[str, Any]:
+    def _progressive_align(self, sequences: Dict[str, str]) -> AlignmentResult:
         """Progressive multiple sequence alignment using Needleman-Wunsch."""
         names = list(sequences.keys())
         seqs = [sequences[n] for n in names]
@@ -543,11 +686,11 @@ class ClustalWClient:
         alignment_dict = clusters[root]
         consensus = self._compute_consensus(alignment_dict)
 
-        return {
-            "alignment": alignment_dict,
-            "phylogenetic_tree": tree_newick,
-            "consensus": consensus,
-        }
+        return AlignmentResult(
+            alignment=alignment_dict,
+            phylogenetic_tree=tree_newick,
+            consensus=consensus,
+        )
 
     @staticmethod
     def _merge_two_clusters(
@@ -629,8 +772,8 @@ class PSIPREDClient:
     smoother as a built-in predictor.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
-        self.config: Dict[str, Any] = config or {}
+    def __init__(self, config: Optional[ToolConfig] = None) -> None:
+        self.config: ToolConfig = config or ToolConfig()
 
     def check_available(self) -> bool:
         """Always available (built-in predictor)."""
@@ -638,7 +781,7 @@ class PSIPREDClient:
 
     def predict_secondary_structure(
         self, sequence: str
-    ) -> Dict[str, Any]:
+    ) -> SecondaryStructurePrediction:
         """Predict secondary structure using Chou-Fasman propensities.
 
         Uses a sliding window of length 7 to smooth per-residue predictions.
@@ -655,7 +798,7 @@ class PSIPREDClient:
         seq = sequence.upper()
         n = len(seq)
         if n == 0:
-            return {"ss_prediction": "", "confidence_scores": []}
+            return SecondaryStructurePrediction(ss_prediction="", confidence_scores=[])
 
         window = 7
         half = window // 2
@@ -687,7 +830,7 @@ class PSIPREDClient:
 
         ss_prediction = ''.join(ss_chars)
 
-        return {
-            "ss_prediction": ss_prediction,
-            "confidence_scores": confs,
-        }
+        return SecondaryStructurePrediction(
+            ss_prediction=ss_prediction,
+            confidence_scores=confs,
+        )

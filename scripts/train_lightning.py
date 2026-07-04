@@ -67,8 +67,8 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/lightning.yaml",
-        help="配置文件路径",
+        default="configs/smoke/lightning_cnn_cpu.yaml",
+        help="配置文件路径（首次使用推荐 configs/smoke/ 下的配置）",
     )
     parser.add_argument(
         "--data",

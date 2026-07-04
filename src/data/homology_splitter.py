@@ -529,7 +529,7 @@ class HomologyAwareSplitter:
                     best_score = score
                     best_labels = labels
 
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:
                 logger.debug("聚类数 %d 失败: %s", n_clusters, str(e))
                 continue
 

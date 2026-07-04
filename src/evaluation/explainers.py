@@ -6,7 +6,7 @@ from dataclasses import asdict
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Dict, Iterable, List, Optional, Protocol, TypedDict, Union, cast, runtime_checkable
 
 import pandas as pd
 import torch
@@ -23,17 +23,63 @@ from ..utils.io import save_dataframe, save_json
 logger = logging.getLogger(__name__)
 
 
-def _parse_ptm_sites(ptm_sites: Any) -> List[Dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# TypedDict / Protocol definitions for structured dicts and duck-typed deps
+# ---------------------------------------------------------------------------
+
+class PtmSite(TypedDict, total=False):
+    """Shape of a single PTM site dictionary used throughout this module."""
+
+    type: str
+    position: int
+    residue: str
+    confidence: float
+
+
+class _PredictResult(TypedDict):
+    """Return shape of ``LeaveOnePTMOutScorer._predict``."""
+
+    label: str
+    probability: float
+
+
+@runtime_checkable
+class _CandidateMapper(Protocol):
+    """Structural type for the mapper dependency in TwoStageExplanationPipeline."""
+
+    def map_candidate(self, candidate: CandidateRecord) -> str: ...
+
+
+@runtime_checkable
+class _GenKIAdapterProto(Protocol):
+    """Structural type for the genki_adapter dependency in TwoStageExplanationPipeline."""
+
+    def build_request(
+        self,
+        gene_symbol: str,
+        mode: str,
+        magnitude: float,
+        source_protein_id: str,
+        source_ptm_type: str,
+        source_ptm_position: int,
+    ) -> GenePerturbationRequest: ...
+
+    def run(self, request: GenePerturbationRequest) -> PerturbationResult: ...
+
+    def run_batch(self, requests: List[GenePerturbationRequest]) -> List[PerturbationResult]: ...
+
+
+def _parse_ptm_sites(ptm_sites: Union[str, List[PtmSite]]) -> List[PtmSite]:
     if isinstance(ptm_sites, list):
         return [site for site in ptm_sites if isinstance(site, dict)]
     if isinstance(ptm_sites, str) and ptm_sites.strip():
         parsed = json.loads(ptm_sites)
         if isinstance(parsed, list):
-            return [site for site in parsed if isinstance(site, dict)]
+            return cast(List[PtmSite], [site for site in parsed if isinstance(site, dict)])
     return []
 
 
-def _same_site(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+def _same_site(a: PtmSite, b: PtmSite) -> bool:
     """Stable identity comparison for PTM sites based on type + position + residue.
 
     Dictionary ``==`` does a deep, full-key comparison that silently returns
@@ -55,9 +101,9 @@ def _same_site(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
 
 
 def _encode_ptm_mask(
-    ptm_sites: Iterable[Dict[str, Any]],
+    ptm_sites: Iterable[PtmSite],
     sequence_length: int,
-    drop_site: Optional[Dict[str, Any]] = None,
+    drop_site: Optional[PtmSite] = None,
 ) -> torch.Tensor:
     mask = torch.zeros((1, sequence_length), dtype=torch.float32)
     for site in ptm_sites:
@@ -115,9 +161,9 @@ class LeaveOnePTMOutScorer:
         self,
         model: torch.nn.Module,
         sequence: str,
-        ptm_sites: List[Dict[str, Any]],
-        drop_site: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        ptm_sites: List[PtmSite],
+        drop_site: Optional[PtmSite] = None,
+    ) -> _PredictResult:
         batch = self._build_batch(sequence, ptm_sites, drop_site=drop_site)
         try:
             device = next(model.parameters()).device
@@ -142,8 +188,8 @@ class LeaveOnePTMOutScorer:
     def _build_batch(
         self,
         sequence: str,
-        ptm_sites: List[Dict[str, Any]],
-        drop_site: Optional[Dict[str, Any]] = None,
+        ptm_sites: List[PtmSite],
+        drop_site: Optional[PtmSite] = None,
     ) -> Dict[str, torch.Tensor]:
         sequence_tensor = torch.zeros((1, len(sequence)), dtype=torch.long)
         for index, amino_acid in enumerate(sequence):
@@ -176,9 +222,9 @@ def aggregate_by_protein(candidates: List[CandidateRecord]) -> Dict[str, float]:
 def _build_gene_ranking_rows(
     candidate: CandidateRecord,
     result: PerturbationResult,
-) -> List[Dict[str, Any]]:
+) -> List[Dict[str, object]]:
     generank = build_generank_dataframe(result)
-    rows: List[Dict[str, Any]] = []
+    rows: List[Dict[str, object]] = []
     for _, ranked_row in generank.iterrows():
         rows.append(
             {
@@ -208,8 +254,8 @@ class TwoStageExplanationPipeline:
     def __init__(
         self,
         scorer: LeaveOnePTMOutScorer,
-        mapper: Any,
-        genki_adapter: Any,
+        mapper: _CandidateMapper,
+        genki_adapter: _GenKIAdapterProto,
         top_k_candidates: int = 1,
         perturbation_mode: str = "hard_ko",
     ) -> None:
@@ -223,13 +269,13 @@ class TwoStageExplanationPipeline:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        candidate_rows: List[Dict[str, Any]] = []
-        explanation_rows: List[Dict[str, Any]] = []
-        gene_ranking_rows: List[Dict[str, Any]] = []
-        significant_gene_rows: List[Dict[str, Any]] = []
-        gsea_rows: List[Dict[str, Any]] = []
-        unmapped_rows: List[Dict[str, Any]] = []
-        failed_rows: List[Dict[str, Any]] = []
+        candidate_rows: List[Dict[str, object]] = []
+        explanation_rows: List[Dict[str, object]] = []
+        gene_ranking_rows: List[Dict[str, object]] = []
+        significant_gene_rows: List[Dict[str, object]] = []
+        gsea_rows: List[Dict[str, object]] = []
+        unmapped_rows: List[Dict[str, object]] = []
+        failed_rows: List[Dict[str, object]] = []
         results: List[PerturbationResult] = []
 
         # First pass: rank candidates and build perturbation requests. Mapping
@@ -331,8 +377,8 @@ class TwoStageExplanationPipeline:
         pd.DataFrame(gsea_rows).to_csv(output_path / "gsea_rankings.tsv", sep="\t", index=False, encoding="utf-8")
         save_dataframe(pd.DataFrame(unmapped_rows), str(output_path / "unmapped_candidates.csv"))
         save_dataframe(pd.DataFrame(failed_rows), str(output_path / "failed_candidates.csv"))
-        save_json(explanation_rows, str(output_path / "genki_explanations.json"))
-        save_json(build_two_stage_summary_payload(results), str(output_path / "two_stage_summary.json"))
+        save_json(cast(List[object], explanation_rows), str(output_path / "genki_explanations.json"))
+        save_json(cast(Dict[str, object], build_two_stage_summary_payload(results)), str(output_path / "two_stage_summary.json"))
         self._write_markdown_summary(results, output_path)
         return results
 
@@ -340,7 +386,7 @@ class TwoStageExplanationPipeline:
         self,
         candidates: List[CandidateRecord],
         requests: List[GenePerturbationRequest],
-        failed_rows: List[Dict[str, Any]],
+        failed_rows: List[Dict[str, object]],
     ) -> List[Optional[PerturbationResult]]:
         """Run a batch of perturbation requests, isolating per-candidate failures.
 

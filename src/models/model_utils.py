@@ -1,13 +1,15 @@
-# mypy: disable-error-code="annotation-unchecked,union-attr"
+# mypy: disable-error-code="annotation-unchecked"
 """
 模型工具函数
 功能概述: 提供模型配置验证、参数量统计、计算量分析等工具
 """
 
 import logging
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import torch
 from torch import nn
+from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,39 @@ DEFAULT_AVAILABLE_MEMORY_GB = 8.0
 MAX_BATCH_SIZE_CAP = 512
 
 
-def validate_model_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class _ModuleParamStats(TypedDict):
+    """Per-module parameter statistics."""
+
+    total: int
+    trainable: int
+    percentage: float
+
+
+class ParameterStats(TypedDict):
+    """Shape of the dict returned by ``count_parameters``."""
+
+    total_params: int
+    total_params_m: float
+    trainable_params: int
+    trainable_params_m: float
+    frozen_params: int
+    modules: Dict[str, _ModuleParamStats]
+
+
+class MemoryEstimate(TypedDict):
+    """Shape of the dict returned by ``get_model_memory_usage``."""
+
+    params_memory_mb: float
+    activation_memory_mb: float
+    total_memory_mb: float
+    recommended_batch_size: int
+
+
+def validate_model_config(config: Dict[str, Union[str, int, float, bool, List[Any]]]) -> Tuple[bool, List[str]]:
     """
     验证模型配置的有效性
 
@@ -79,7 +113,7 @@ def validate_model_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def count_parameters(model: nn.Module, trainable_only: bool = False) -> Dict[str, Any]:
+def count_parameters(model: nn.Module, trainable_only: bool = False) -> ParameterStats:
     """
     统计模型参数量
 
@@ -116,7 +150,12 @@ def count_parameters(model: nn.Module, trainable_only: bool = False) -> Dict[str
     }
 
 
-def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int = 1000) -> Dict[str, Union[float, int]]:
+def get_model_memory_usage(
+    model: nn.Module,
+    batch_size: int = 1,
+    seq_len: int = 1000,
+    config: Optional[Dict[str, Union[str, int, float]]] = None,
+) -> MemoryEstimate:
     """
     估算模型内存使用量
 
@@ -124,6 +163,7 @@ def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int =
         model: PyTorch模型
         batch_size: 批次大小
         seq_len: 序列长度
+        config: 可选模型配置字典，用于提供 num_layers 等参数
 
     返回:
         内存使用量估算（MB）
@@ -143,18 +183,21 @@ def get_model_memory_usage(model: nn.Module, batch_size: int = 1, seq_len: int =
             hidden_dim = int(embed_dim)
 
     # 假设10层 → 改为从模型实际探测层数（避免对 base/large 变体误估）。
-    hidden_dim, num_layers = _infer_activation_depth(model)
+    hidden_dim, num_layers = _infer_activation_depth(model, config=config)
     activation_memory_mb = batch_size * seq_len * hidden_dim * num_layers * BYTES_PER_PARAM / BYTES_PER_MB
 
     return {
         "params_memory_mb": param_memory_mb,
         "activation_memory_mb": activation_memory_mb,
         "total_memory_mb": param_memory_mb + activation_memory_mb,
-        "recommended_batch_size": estimate_max_batch_size(model, seq_len)
+        "recommended_batch_size": estimate_max_batch_size(model, seq_len, config=config)
     }
 
 
-def _infer_activation_depth(model: nn.Module) -> tuple:
+def _infer_activation_depth(
+    model: nn.Module,
+    config: Optional[Dict[str, Union[str, int, float]]] = None,
+) -> tuple:
     """Best-effort inference of (hidden_dim, num_layers) for activation memory.
 
     Previously this logic hardcoded ``num_layers = 10``, which wildly
@@ -163,12 +206,24 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
     for the most common layer-count attributes, falling back to counting
     transformer/LSTM blocks when no explicit attribute is exposed.
 
+    An optional *config* dict (typically the model config) is consulted first;
+    keys ``num_layers``, ``n_layers``, or ``num_encoder_layers`` override
+    any heuristic. This lets callers pass the authoritative layer count
+    without relying on introspection.
+
     Returns ``(hidden_dim, num_layers)``. Both default to conservative values
     when nothing can be inferred so the caller still gets a usable estimate.
     """
     hidden_dim = getattr(model, "embed_dim", None) or getattr(model, "hidden_dim", None) or DEFAULT_HIDDEN_DIM
 
-    # 1. Explicit attributes — most reliable.
+    # 0. Explicit config override — highest priority when available.
+    if config is not None:
+        for key in ("num_layers", "n_layers", "num_encoder_layers"):
+            val = config.get(key)
+            if isinstance(val, int) and val > 0:
+                return int(hidden_dim), int(val)
+
+    # 1. Explicit attributes on the model object.
     for attr in ("num_layers", "n_layers", "num_encoder_layers"):
         val = getattr(model, attr, None)
         if isinstance(val, int) and val > 0:
@@ -177,7 +232,7 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
     # 2. Common submodule names that hold stacked blocks.
     for attr in ("layers", "encoder", "transformer", "blocks"):
         sub = getattr(model, attr, None)
-        if hasattr(sub, "layers") and isinstance(sub.layers, (list, nn.ModuleList)):
+        if sub is not None and hasattr(sub, "layers") and isinstance(sub.layers, (list, nn.ModuleList)):
             return int(hidden_dim), max(1, len(sub.layers))
 
     # 3. Heuristic: count TransformerEncoderLayer / LSTM / GRU / MambaBlock
@@ -198,7 +253,7 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
         if candidate_depths:
             # Pick the largest stack we saw — usually the encoder stack.
             return int(hidden_dim), max(candidate_depths)
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError) as e:
         logger.warning("Failed to infer model depth from named_modules: %s", e)
         pass
 
@@ -207,7 +262,8 @@ def _infer_activation_depth(model: nn.Module) -> tuple:
 
 
 def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
-                            available_memory_gb: float = DEFAULT_AVAILABLE_MEMORY_GB) -> int:
+                            available_memory_gb: float = DEFAULT_AVAILABLE_MEMORY_GB,
+                            config: Optional[Dict[str, Union[str, int, float]]] = None) -> int:
     """
     估算最大批次大小
 
@@ -215,6 +271,7 @@ def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
         model: PyTorch模型
         seq_len: 序列长度
         available_memory_gb: 可用GPU内存（GB）
+        config: 可选模型配置字典，用于提供 num_layers 等参数
 
     返回:
         估算的最大批次大小
@@ -228,8 +285,8 @@ def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
     usable_memory_mb = available_memory_mb * MEMORY_RESERVE_RATIO - param_memory_mb
 
     # 每个样本的激活内存。层数从模型实际探测而非硬编码（旧实现固定为
-    # ``num_layers = 10``，对 base/large 变体都不准）。
-    hidden_dim, num_layers = _infer_activation_depth(model)
+    # ``num_layers = 10``，对 base/large 变体都不准）。可由 config 显式指定。
+    hidden_dim, num_layers = _infer_activation_depth(model, config=config)
     activation_per_sample_mb = seq_len * hidden_dim * num_layers * BYTES_PER_PARAM / BYTES_PER_MB
 
     if activation_per_sample_mb <= 0:

@@ -5,8 +5,29 @@
 """
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
 import yaml
+from typing_extensions import TypedDict
+
+
+# ---------------------------------------------------------------------------
+# TypedDict for config dict values that are known at the leaf level.
+# Config is YAML-loaded and genuinely dynamic, so the internal storage
+# remains Dict[str, Any]. We only tighten the public API signatures
+# where a more specific type is practical.
+# ---------------------------------------------------------------------------
+
+class ConfigDict(TypedDict, total=False):
+    """Minimal typed shape for the top-level config dict.
+
+    Only the most common top-level keys are declared. Additional
+    keys from YAML files are still accepted (``total=False``).
+    """
+
+    model: Dict[str, Union[str, int, float, bool]]
+    data: Dict[str, Union[str, int, float, bool, list]]
+    training: Dict[str, Union[str, int, float, bool]]
 
 
 class Config:

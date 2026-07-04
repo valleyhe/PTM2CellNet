@@ -220,7 +220,7 @@ class GeneformerEmbeddingLoader:
                     f"Vocab size: {self._vocab_size}, Embedding dim: {self.embedding_dim}"
                 )
 
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             logger.warning(f"Failed to load Geneformer from HuggingFace: {e}")
             logger.warning("Using random embeddings as fallback (NOT for production)")
             self._use_fallback()

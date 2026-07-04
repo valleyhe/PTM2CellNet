@@ -13,11 +13,12 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import torch
 import yaml
 from torch import nn
+from typing_extensions import TypedDict
 
 from .encoders import CNNEncoder, TransformerEncoder, LSTMEncoder, GRUEncoder
 from .mamba_encoder import MambaEncoder
@@ -32,6 +33,51 @@ from .davf_inference import DAVFInferenceModule, DAVFInferenceConfig
 from .ptm_direction_mapper import PTMDirectionMapper
 
 logger = setup_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions — replace Dict[str, Any] with precise shapes
+# ---------------------------------------------------------------------------
+
+
+class DAVFConfig(TypedDict, total=False):
+    """Configuration dict for the DAVF inference branch."""
+
+    state_space: str
+    checkpoint_path: str
+    feature_dim: int
+    hidden_dim: int
+    freeze: bool
+    latent_dim: int
+    num_genes: int
+    num_steps: int
+    device: Optional[str]
+    scvi_model_path: Optional[str]
+    geneformer_path: Optional[str]
+
+
+class ModelInfo(TypedDict, total=False):
+    """Return shape of :meth:`PTM2CellNetBase.get_model_info`."""
+
+    variant: str
+    encoder_type: str
+    embed_dim: int
+    num_classes: int
+    task_type: str
+    pool_type: str
+    freeze_encoder: bool
+    use_davf: bool
+    davf_feature_dim: int
+    davf_config: Optional[Dict[str, Any]]
+    total_params: int
+    trainable_params: int
+
+
+class ModelConfig(TypedDict, total=False):
+    """Top-level config dict accepted by ``from_config`` and helpers."""
+
+    model: Dict[str, Any]
+    data: Dict[str, Any]
 
 
 class PTM2CellNetBase(nn.Module):
@@ -106,7 +152,7 @@ class PTM2CellNetBase(nn.Module):
         pool_type: str = "mean",
         multitask_configs: Optional[list] = None,
         use_davf: bool = False,
-        davf_config: Optional[Dict[str, Any]] = None,
+        davf_config: Optional[DAVFConfig] = None,
         recurrent_hidden_multiplier: Optional[int] = None,
     ):
         super().__init__()
@@ -443,11 +489,11 @@ class PTM2CellNetBase(nn.Module):
         output = self.predictor(pooled)
         return cast(Dict[str, torch.Tensor], output)
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> ModelInfo:
         from .model_utils import count_parameters
 
         param_stats = count_parameters(self)
-        info: Dict[str, Any] = {
+        info: ModelInfo = {
             "variant": self.VARIANT,
             "encoder_type": self.encoder_type,
             "embed_dim": self.embed_dim,
@@ -468,7 +514,7 @@ class PTM2CellNetBase(nn.Module):
     # ------------------------------------------------------------------
 
     @classmethod
-    def _load_davf_config_defaults(cls) -> Dict[str, Any]:
+    def _load_davf_config_defaults(cls) -> DAVFConfig:
         config_path = Path(cls.DAVF_CONFIG_PATH)
         try:
             yaml_cfg = yaml.safe_load(config_path.read_text())
@@ -488,7 +534,7 @@ class PTM2CellNetBase(nn.Module):
     @classmethod
     def _resolve_model_args_from_config(
         cls,
-        config: Dict[str, Any],
+        config: Union[ModelConfig, Dict[str, Any]],
         use_large_overrides: bool = False,
     ) -> Dict[str, Any]:
         """Translate a config dict into ``__init__`` kwargs.
@@ -538,7 +584,7 @@ class PTM2CellNetBase(nn.Module):
         # DAVF configuration
         use_davf = _pick("use_davf", False)
         davf_config = _pick("davf_config", None)
-        merged_davf_config: Optional[Dict[str, Any]] = None
+        merged_davf_config: Optional[DAVFConfig] = None
 
         if use_davf:
             merged_davf_config = cls._load_davf_config_defaults()
@@ -586,7 +632,7 @@ class PTM2CellNetLarge(PTM2CellNetBase):
     _DEFAULT_RECURRENT_HIDDEN_MULTIPLIER = 4
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "PTM2CellNetLarge":
+    def from_config(cls, config: Union[ModelConfig, Dict[str, Any]]) -> "PTM2CellNetLarge":
         return cls(**cls._resolve_model_args_from_config(config, use_large_overrides=True))
 
 
@@ -605,5 +651,5 @@ class PTM2CellNet(PTM2CellNetBase):
     _DEFAULT_RECURRENT_HIDDEN_MULTIPLIER = 2
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "PTM2CellNet":
+    def from_config(cls, config: Union[ModelConfig, Dict[str, Any]]) -> "PTM2CellNet":
         return cls(**cls._resolve_model_args_from_config(config, use_large_overrides=False))

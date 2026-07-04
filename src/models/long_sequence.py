@@ -4,10 +4,12 @@
 设计思路: 使用滑动窗口和层次化池化来聚合长序列表示
 
 主要组件:
-    - SlidingWindowESM2: 滑动窗口ESM-2编码器
+    - SlidingWindowHandler: 滑动窗口编码处理器（供ESM2/ESM3复用）
     - LongSequenceHandler: 位置映射工具类
+    - SlidingWindowESM2: 滑动窗口ESM-2编码器
 """
 
+import typing
 from typing import List, Literal, Optional, Tuple
 
 import torch
@@ -123,6 +125,167 @@ class LongSequenceHandler:
     def get_num_windows(self) -> int:
         """获取窗口数量"""
         return len(self.window_boundaries)
+
+
+class SlidingWindowHandler:
+    """
+    滑动窗口编码处理器
+    封装长序列的滑动窗口分块、编码、聚合逻辑，供ESM2Encoder和ESM3Encoder复用
+    """
+
+    def __init__(
+        self,
+        window_size: int = 1022,
+        overlap: int = 100,
+    ):
+        """
+        初始化滑动窗口处理器
+
+        参数:
+            window_size: 窗口大小（不包括特殊token）
+            overlap: 窗口之间的重叠大小
+        """
+        self.window_size = window_size
+        self.overlap = overlap
+
+    def encode_sequences(
+        self,
+        encoder: nn.Module,
+        sequences: List[str],
+    ) -> torch.Tensor:
+        """
+        编码蛋白质序列列表，支持长序列(>window_size)的滑动窗口处理。
+
+        参数:
+            encoder: 具有tokenize/forward/hidden_dim属性的编码器实例
+            sequences: 蛋白质序列字符串列表
+
+        返回:
+            embeddings: [batch_size, max_seq_len, hidden_dim] 每个残基的嵌入
+        """
+        try:
+            device = next(encoder.parameters()).device
+            dtype = next(encoder.parameters()).dtype
+        except StopIteration:
+            device = torch.device("cpu")
+            dtype = torch.float32
+
+        hidden_dim = encoder.hidden_dim
+        batch_embeddings: List[torch.Tensor] = []
+        max_seq_len = 0
+
+        for seq in sequences:
+            seq_len = len(seq)
+            if seq_len > max_seq_len:
+                max_seq_len = seq_len
+
+            if seq_len <= self.window_size:
+                # 短序列：直接tokenize并提取残基嵌入
+                residue_emb = self._encode_short_sequence(
+                    encoder, seq, device
+                )
+                batch_embeddings.append(residue_emb)
+            else:
+                # 长序列：使用滑动窗口
+                residue_emb = self._encode_long_sequence(
+                    encoder, seq, device, dtype, hidden_dim
+                )
+                batch_embeddings.append(residue_emb)
+
+        # 填充到相同长度并堆叠
+        return self._pad_and_stack(batch_embeddings, max_seq_len, hidden_dim, device, dtype)
+
+    def _encode_short_sequence(
+        self,
+        encoder: nn.Module,
+        seq: str,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """编码短序列（<= window_size）"""
+        tokens = encoder.tokenize([seq])
+        input_ids = tokens["input_ids"].to(device)
+        attention_mask = tokens.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(device)
+
+        with torch.no_grad() if not any(p.requires_grad for p in encoder.parameters()) else torch.enable_grad():
+            outputs = encoder(input_ids=input_ids, attention_mask=attention_mask)
+
+        # 去掉 <cls> (位置0) 和 <eos> (位置 seq_len+1)
+        token_len = outputs.size(1)
+        residue_emb = outputs[:, 1:token_len - 1, :]
+        # 截断到实际序列长度
+        seq_len = len(seq)
+        if residue_emb.size(1) > seq_len:
+            residue_emb = residue_emb[:, :seq_len, :]
+        return typing.cast(torch.Tensor, residue_emb.squeeze(0))
+
+    def _encode_long_sequence(
+        self,
+        encoder: nn.Module,
+        seq: str,
+        device: torch.device,
+        dtype: torch.dtype,
+        hidden_dim: int,
+    ) -> torch.Tensor:
+        """编码长序列（> window_size），使用滑动窗口"""
+        seq_len = len(seq)
+        handler = LongSequenceHandler(
+            sequence_length=seq_len,
+            window_size=self.window_size,
+            overlap=self.overlap,
+        )
+        accumulated = torch.zeros(seq_len, hidden_dim, device=device, dtype=dtype)
+        counts = torch.zeros(seq_len, device=device, dtype=dtype)
+
+        for start, end in handler.window_boundaries:
+            window_seq = seq[start:end]
+            tokens = encoder.tokenize([window_seq])
+            input_ids = tokens["input_ids"].to(device)
+            attention_mask = tokens.get("attention_mask")
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+
+            with torch.no_grad() if not any(p.requires_grad for p in encoder.parameters()) else torch.enable_grad():
+                outputs = encoder(input_ids=input_ids, attention_mask=attention_mask)
+
+            token_len = outputs.size(1)
+            window_emb = outputs[:, 1:token_len - 1, :]
+            window_len = end - start
+            if window_emb.size(1) > window_len:
+                window_emb = window_emb[:, :window_len, :]
+
+            window_emb = window_emb.squeeze(0)  # [window_len, hidden_dim]
+            accumulated[start:end] += window_emb
+            counts[start:end] += 1.0
+
+        return accumulated / counts.unsqueeze(-1).clamp(min=1)
+
+    @staticmethod
+    def _pad_and_stack(
+        embeddings: List[torch.Tensor],
+        max_seq_len: int,
+        hidden_dim: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """将不等长的嵌入填充到相同长度并堆叠"""
+        if len(embeddings) == 1:
+            return embeddings[0].unsqueeze(0)
+
+        padded = []
+        for emb in embeddings:
+            if emb.size(0) < max_seq_len:
+                padding = torch.zeros(
+                    max_seq_len - emb.size(0),
+                    hidden_dim,
+                    device=device,
+                    dtype=emb.dtype,
+                )
+                emb = torch.cat([emb, padding], dim=0)
+            padded.append(emb)
+
+        return torch.stack(padded)
 
 
 class SlidingWindowESM2(nn.Module):

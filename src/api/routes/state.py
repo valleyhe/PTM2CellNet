@@ -1,7 +1,7 @@
 """Shared API router state and initialization helpers."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from torch import nn
 
@@ -96,7 +96,7 @@ def initialize_model(
     model_instance: nn.Module,
     cell_state_labels: List[str],
     model_device: str = "cpu",
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[Dict[str, Union[str, int, float, bool, List[Any], Dict[str, Any]]]] = None,
 ) -> None:
     """初始化模型。
 
@@ -138,7 +138,7 @@ def initialize_variant_workflow(model_path: str) -> None:
     try:
         STATE.variant_workflow = VariantEffectWorkflow(model_path=model_path)
         logger.info("Variant workflow initialized")
-    except Exception as e:
+    except (ImportError, ValueError, RuntimeError) as e:
         logger.warning("Variant workflow initialization failed: %s", e)
         STATE.variant_workflow = None
 
@@ -153,12 +153,12 @@ def initialize_pathway_mapper() -> None:
     try:
         STATE.pathway_mapper = SignalingNetworkMapper()
         logger.info("Signaling network pathway mapper initialized")
-    except Exception as e:
+    except (ImportError, ValueError, RuntimeError) as e:
         logger.error("Failed to initialize pathway mapper: %s", e)
         STATE.pathway_mapper = None
 
 
-def _read_model_kind(config: Optional[Dict[str, Any]]) -> Optional[str]:
+def _read_model_kind(config: Optional[Dict[str, Union[str, int, float, bool, List[Any], Dict[str, Any]]]]) -> Optional[str]:
     """Resolve ``model_kind`` from a config dict (P1-3).
 
     Looks for an explicit ``model.model_kind`` / ``model_card.model_kind`` field.
@@ -189,7 +189,7 @@ def _read_model_kind(config: Optional[Dict[str, Any]]) -> Optional[str]:
 def record_model_provenance(
     checkpoint_path: Optional[str],
     config_path: Optional[str],
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[Dict[str, Union[str, int, float, bool, List[Any], Dict[str, Any]]]] = None,
 ) -> None:
     """Record where the loaded model came from and whether it is a demo (P1-3).
 

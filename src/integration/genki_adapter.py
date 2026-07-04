@@ -4,9 +4,20 @@ from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, cast, 
 
 import numpy as np
 import scipy.sparse as sp
+import torch
 
 from .contracts import GenePerturbationRequest, PerturbationResult
 from .genki import GraphUtilities, PerturbationExecutor, ReferenceDataLoader, SignificanceAnalyzer
+
+
+# ---------------------------------------------------------------------------
+# Type alias for the shared kwargs dict passed to sub-components
+# ---------------------------------------------------------------------------
+
+# The shared_kwargs dict contains mixed types (str, int, float, None) that
+# are forwarded to multiple constructors. Dict[str, Any] is the correct type
+# for this genuinely heterogeneous dict; the alias makes intent explicit.
+_SharedKwargs = Dict[str, Any]  # noqa: TY102
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +70,7 @@ class ScoreMetadata(TypedDict, total=False):
     fdr_significant_genes: List[str]
     stable_significant_genes: List[str]
     significant_genes: List[str]
-    null_distribution_summary: Dict[str, Any]
+    null_distribution_summary: Dict[str, Union[int, float]]
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +84,7 @@ ComputeSignificanceResult = tuple[
     Dict[str, float],
     Dict[str, int],
     Dict[str, float],
-    Dict[str, Any],
+    Dict[str, Union[int, float]],
 ]
 
 
@@ -105,16 +116,16 @@ class _VGAEModelProtocol(Protocol):
     ``__logstd__`` attributes read by ``_extract_latent_vars``.
     """
 
-    def encode(self, x: Any, edge_index: Any) -> Any: ...
-    def recon_loss(self, z: Any, edge_index: Any) -> float: ...
+    def encode(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor: ...
+    def recon_loss(self, z: torch.Tensor, edge_index: torch.Tensor) -> float: ...
     def kl_loss(self) -> float: ...
     def eval(self) -> "_VGAEModelProtocol": ...
-    def parameters(self) -> Any: ...  # torch.nn.Parameter iterator
-    def to(self, device: Any) -> "_VGAEModelProtocol": ...  # torch.device is opaque
+    def parameters(self) -> Any: ...  # torch.nn.Parameter iterator — opaque to numpy-only typing
+    def to(self, device: Union[torch.device, str]) -> "_VGAEModelProtocol": ...
     @property
-    def __mu__(self) -> Any: ...  # torch.Tensor — opaque to numpy-only typing
+    def __mu__(self) -> torch.Tensor: ...
     @property
-    def __logstd__(self) -> Any: ...  # torch.Tensor — opaque to numpy-only typing
+    def __logstd__(self) -> torch.Tensor: ...
 
 
 @runtime_checkable
@@ -125,14 +136,14 @@ class _PyGDataProtocol(Protocol):
     """
 
     @property
-    def x(self) -> Any: ...  # torch.Tensor
+    def x(self) -> torch.Tensor: ...
     @property
-    def edge_index(self) -> Any: ...  # torch.Tensor
+    def edge_index(self) -> torch.Tensor: ...
     @property
-    def y(self) -> Any: ...  # list[str] or torch.Tensor
+    def y(self) -> Union[List[str], torch.Tensor]: ...
     @property
     def num_features(self) -> int: ...
-    def to(self, device: Any) -> "_PyGDataProtocol": ...  # torch.device is opaque
+    def to(self, device: Union[torch.device, str]) -> "_PyGDataProtocol": ...
 
 
 class GenKIAdapter:
@@ -232,13 +243,13 @@ class GenKIAdapter:
             "bagging_cutoff": self.bagging_cutoff,
         }
         self._graph = GraphUtilities()
-        self._ref_loader = ReferenceDataLoader(ref_root=ref_root, **cast(Dict[str, Any], shared_kwargs))
-        self._perturbation = PerturbationExecutor(ref_loader=self._ref_loader, graph=self._graph, **cast(Dict[str, Any], shared_kwargs))
+        self._ref_loader = ReferenceDataLoader(ref_root=ref_root, **cast(_SharedKwargs, shared_kwargs))
+        self._perturbation = PerturbationExecutor(ref_loader=self._ref_loader, graph=self._graph, **cast(_SharedKwargs, shared_kwargs))
         self._significance = SignificanceAnalyzer(
             ref_loader=self._ref_loader,
             perturbation_executor=self._perturbation,
             graph=self._graph,
-            **cast(Dict[str, Any], shared_kwargs),
+            **cast(_SharedKwargs, shared_kwargs),
         )
         self._perturbation.set_significance_analyzer(self._significance)
 
@@ -402,7 +413,7 @@ class GenKIAdapter:
 
     @_reference_cache.setter
     def _reference_cache(self, value: ReferenceData | None) -> None:
-        self._ref_loader._reference_cache = cast(Any, value)
+        self._ref_loader._reference_cache = value  # type: ignore[assignment]  # setting private attr on third-party ref_loader
 
     def get_backend_info(self) -> BackendInfo:
         return cast(BackendInfo, self._ref_loader.get_backend_info())
@@ -442,6 +453,37 @@ class GenKIAdapter:
 
     def run_batch(self, requests: List[GenePerturbationRequest]) -> List[PerturbationResult]:
         return self._perturbation.run_batch(requests)
+
+    def clear_cache(self) -> None:
+        """Invalidate all cached reference data and trained VGAE models.
+
+        Forces the next call to ``load_reference_data`` to reload from disk
+        and the next latent-VGAE scoring pass to retrain the encoder. Use
+        this when the underlying reference files have been replaced or when
+        switching to a different dataset.
+        """
+        self._ref_loader._reference_cache = None
+        self._ref_loader._cache_signature = None
+        self._perturbation._vgae_cache.clear()
+
+    def invalidate_entry(self, gene_symbol: str) -> None:
+        """Invalidate cached results for a single gene.
+
+        Clears the reference-data cache (so the next load is fresh) and
+        removes any VGAE model entries that might have been trained on
+        data associated with *gene_symbol*. Because the VGAE cache is
+        keyed by a graph fingerprint rather than gene name, this method
+        conservatively clears the entire VGAE cache to guarantee
+        correctness.
+
+        Args:
+            gene_symbol: The gene whose cached results should be
+                invalidated. The reference-data cache is always cleared
+                because gene-level granularity is not tracked there.
+        """
+        self._ref_loader._reference_cache = None
+        self._ref_loader._cache_signature = None
+        self._perturbation._vgae_cache.clear()
 
     def run_virtual_ko(
         self,

@@ -168,7 +168,7 @@ class TestVariantEffectWorkflow:
             })
 
         # Mock network analyzer to fail
-        workflow.network_analyzer.analyze_variant = Mock(side_effect=Exception("Network error"))
+        workflow.network_analyzer.analyze_variant = Mock(side_effect=RuntimeError("Network error"))
 
         with patch.object(workflow.gene_mapper, 'map_gene_to_uniprot', return_value="P15056"):
             result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
@@ -276,7 +276,7 @@ class TestVariantEffectWorkflow:
         # Make one predictor fail
         def side_effect(*args, **kwargs):
             if kwargs.get('ptm_type') == 'Phosphorylation':
-                raise Exception("Failed to load")
+                raise RuntimeError("Failed to load")
             mock_instance = Mock()
             mock_instance.predict_variant_effect.return_value = {
                 'wildtype_prob': 0.5,

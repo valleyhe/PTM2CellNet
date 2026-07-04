@@ -59,7 +59,7 @@ def _import_lightning():
         import lightning as L
         from lightning.pytorch import loggers as L_loggers
         return L, L_loggers
-    except Exception as e:  # pragma: no cover - environment dependent
+    except ImportError as e:  # pragma: no cover - environment dependent
         raise ImportError(
             "Lightning is required for logger configuration but is not available: "
             f"{e}"

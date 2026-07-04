@@ -721,6 +721,8 @@ def main():
         _run_batch_predict(args, model, cell_states, device, logger, preprocess_request)
     else:
         logger.warning("未提供输入数据，请使用 --sequence 或 --input 参数")
+        print("错误: 未指定输入数据。请使用 --sequence 进行单样本推理或 --input 进行批量 CSV 推理。", file=sys.stderr)
+        sys.exit(1)
 
     logger.info("=" * 60)
     logger.info("预测完成")

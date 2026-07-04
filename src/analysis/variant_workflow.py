@@ -1,8 +1,8 @@
-# mypy: disable-error-code="annotation-unchecked,dict-item,no-any-return"
+# mypy: disable-error-code="annotation-unchecked"
 """Complete variant effect prediction workflow (FEAT-01)."""
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, cast
 from dataclasses import dataclass
 
 import requests
@@ -26,7 +26,7 @@ class VariantEffectResult:
     """Complete variant effect prediction result."""
     variant: Dict
     sequence_info: Dict
-    ptm_effects: Dict[str, Dict]  # PTM type -> effect
+    ptm_effects: Dict[str, Dict[str, Union[float, str]]]  # PTM type -> effect
     pathway_impacts: Optional[Dict] = None
 
 
@@ -66,7 +66,7 @@ class VariantEffectWorkflow:
                     model_path=resolved_path,
                     ptm_type=ptm_type,
                 )
-            except Exception as e:
+            except (FileNotFoundError, OSError, RuntimeError, ValueError) as e:
                 logger.warning(f"Failed to load predictor for {ptm_type}: {e}")
 
     def _resolve_model_path(self, ptm_type: str) -> str:
@@ -120,7 +120,7 @@ class VariantEffectWorkflow:
             logger.warning(f"Reference validation failed for {hgvs_string}")
 
         # Step 4: Predict effects for all PTM types
-        ptm_effects = {}
+        ptm_effects: Dict[str, Dict[str, Union[float, str]]] = {}
         for ptm_type, predictor in self.predictors.items():
             try:
                 effect = predictor.predict_variant_effect(
@@ -129,8 +129,8 @@ class VariantEffectWorkflow:
                     ref_aa=variant.ref_aa,
                     alt_aa=variant.alt_aa,
                 )
-                ptm_effects[ptm_type] = effect
-            except Exception as e:
+                ptm_effects[ptm_type] = cast(Dict[str, Union[float, str]], effect)
+            except (RuntimeError, ValueError) as e:
                 logger.error(f"Prediction failed for {ptm_type}: {e}")
                 ptm_effects[ptm_type] = {
                     'wildtype_prob': 0.0,
@@ -165,7 +165,7 @@ class VariantEffectWorkflow:
                             "genes": output_genes,
                             "confidence": confidence,
                         }
-            except Exception as e:
+            except (KeyError, ValueError, AttributeError, RuntimeError) as e:
                 logger.warning(f"Pathway analysis failed: {e}")
                 pathway_impacts = {}
 
@@ -262,7 +262,7 @@ class VariantEffectWorkflow:
         uniprot_id = results[0].get("primaryAccession")
         if not uniprot_id:
             raise ValueError(f"Could not resolve accession {accession} to a UniProt ID")
-        return uniprot_id
+        return str(uniprot_id)
 
     @staticmethod
     def _looks_like_uniprot_accession(accession: str) -> bool:
@@ -347,7 +347,7 @@ class VariantEffectWorkflow:
                 sequence=var.get('sequence'),
             )
             return result
-        except Exception as e:
+        except (ValueError, KeyError, RuntimeError) as e:
             logger.error(f"Batch prediction failed for {var}: {e}")
             # Add error result
             return VariantEffectResult(

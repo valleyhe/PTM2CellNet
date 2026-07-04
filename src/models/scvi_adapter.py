@@ -64,7 +64,7 @@ def _check_scvi_available() -> bool:
         import scvi  # noqa: F401
         _SCVI_IMPORT_ERROR = None
         return True
-    except Exception as e:  # pragma: no cover - environment dependent
+    except ImportError as e:  # pragma: no cover - environment dependent
         _SCVI_IMPORT_ERROR = e
         logger.warning(
             "scvi-tools import failed; scVI-dependent features are disabled: %s. "
@@ -274,7 +274,7 @@ class ScVIAdapter:
         # gene count, then call the decoder module.
         try:
             import torch
-        except Exception as e:  # pragma: no cover
+        except ImportError as e:  # pragma: no cover
             raise ImportError(
                 f"torch is required for scVI decode but unavailable: {e}"
             ) from e
@@ -387,7 +387,7 @@ class ScVIAdapter:
         if summary is not None:
             try:
                 return int(summary.get("n_vars", 0))
-            except Exception as exc:
+            except (TypeError, AttributeError, KeyError, RuntimeError) as exc:
                 logger.warning("Could not read n_vars from model summary; defaulting to 0: %s", exc)
         return 0
 

@@ -191,7 +191,7 @@ class SignalingNetworkMapper:
                 self.pathway_integration.cache_dir = Path(db_path)
                 loaders.append(("KEGG", self.pathway_integration.load_kegg_pathways))
                 loaders.append(("Reactome", self.pathway_integration.load_reactome_pathways))
-            except Exception as e:
+            except (FileNotFoundError, OSError, ValueError) as e:
                 logger.warning(
                     "无法识别的通路数据库路径 '%s' (%s)。回退到内置通路。",
                     db_path, e,
@@ -201,7 +201,7 @@ class SignalingNetworkMapper:
         for name, loader_fn in loaders:
             try:
                 pw = loader_fn()
-            except Exception as e:
+            except (RuntimeError, ValueError, OSError) as e:
                 logger.warning(
                     "加载 %s 通路失败: %s。%s 通路将仅使用内置数据。",
                     name, e, name,
@@ -398,7 +398,7 @@ class SignalingNetworkMapper:
 
             return self._validation_report
 
-        except Exception as e:
+        except (RuntimeError, ValueError, KeyError, OSError) as e:
             logger.error(f"Pathway validation failed: {e}")
             # Return empty report on failure
             return {}

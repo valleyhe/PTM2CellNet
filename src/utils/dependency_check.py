@@ -96,7 +96,7 @@ def _safe_version(import_name: str) -> Optional[str]:
                 return metadata.version(name)
             except metadata.PackageNotFoundError:
                 continue
-    except Exception as e:
+    except (metadata.PackageNotFoundError, ValueError, AttributeError) as e:
         logger.warning("Failed to resolve version for %s: %s", import_name, e)
         return None
     return None

@@ -29,7 +29,16 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypedDict,
+    Union,
+)
 
 import pandas as pd
 import torch
@@ -42,13 +51,46 @@ from ..utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Type definitions
+# ---------------------------------------------------------------------------
+
+# Config dicts carry nested YAML-derived values. ``Any`` is required here
+# because callers chain ``.get()`` on nested sub-dicts (e.g. cfg["data"]["cell_states"]).
+# Centralising the alias keeps the ``Any`` to this single definition.
+ConfigDict = Dict[str, Any]
+
+# Metrics dicts map metric names to numeric measurements.
+MetricsDict = Dict[str, Union[float, int]]
+
+# Metadata dicts carry encoder / dataset profile info with simple scalar values.
+MetadataDict = Dict[str, Union[str, int, float, bool, List[str], None]]
+
+
+class _MetricCheckResult(TypedDict):
+    threshold: float
+    value: Union[float, int, None]
+    passed: bool
+
+
+class ReleaseGateResult(TypedDict):
+    passed: bool
+    checked: Dict[str, _MetricCheckResult]
+    missing: List[str]
+
+
+# Manifest dicts are JSON-serializable records with heterogeneous value types.
+# Using ``object`` avoids false-positive mypy errors from dynamic construction
+# while still being more precise than ``Any`` (no implicit subtyping).
+ManifestDict = Dict[str, object]
+
 
 # ---------------------------------------------------------------------------
 # Label mapping
 # ---------------------------------------------------------------------------
 
 def derive_and_apply_label_mapping(
-    config: Union[Config, Dict[str, Any]],
+    config: Union[Config, ConfigDict],
     train_df: pd.DataFrame,
     label_col: str = "cell_state",
 ) -> Tuple[List[str], Dict[str, int]]:
@@ -77,7 +119,7 @@ def derive_and_apply_label_mapping(
 # Inference artifact export (state_dict + config)
 # ---------------------------------------------------------------------------
 
-def _unwrap_model(model_or_module: Any) -> nn.Module:
+def _unwrap_model(model_or_module: Union[nn.Module, object]) -> nn.Module:
     """Return the bare ``nn.Module`` from a Lightning module or pass through."""
     # Lightning modules expose the underlying model at ``.model``.
     base = getattr(model_or_module, "model", None)
@@ -92,7 +134,7 @@ def _unwrap_model(model_or_module: Any) -> nn.Module:
 
 
 def _resolve_cell_states_for_export(
-    config: Union[Config, Dict[str, Any]],
+    config: Union[Config, ConfigDict],
     cell_states: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """Pick the authoritative cell_states order for export.
@@ -114,13 +156,13 @@ def _resolve_cell_states_for_export(
 
 
 def export_inference_artifact(
-    model_or_module: Any,
-    config: Union[Config, Dict[str, Any]],
+    model_or_module: Union[nn.Module, object],
+    config: Union[Config, ConfigDict],
     output_dir: Union[str, Path],
     cell_states: Optional[Sequence[str]] = None,
     is_demo_data: bool = False,
     data_source: str = "unknown",
-    extra_encoder_metadata: Optional[Dict[str, Any]] = None,
+    extra_encoder_metadata: Optional[MetadataDict] = None,
 ) -> Dict[str, str]:
     """Write the bare ``best_model.pt`` + ``best_model.config.yaml`` pair.
 
@@ -206,7 +248,7 @@ def _git_commit() -> str:
             ["git", "rev-parse", "HEAD"],
             capture_output=True, text=True, timeout=5,
         ).stdout.strip()
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         logger.warning("Failed to get git commit hash: %s", e)
         return "unknown"
 
@@ -222,9 +264,9 @@ def dataset_hash(df: pd.DataFrame) -> str:
 
 
 def evaluate_release_gate(
-    metrics: Dict[str, Any],
+    metrics: MetricsDict,
     thresholds: Dict[str, float],
-) -> Dict[str, Any]:
+) -> ReleaseGateResult:
     """Evaluate test metrics against configurable release thresholds (P1-1).
 
     Each ``thresholds`` entry names a metric and its minimum acceptable value.
@@ -236,7 +278,7 @@ def evaluate_release_gate(
     and ``missing`` (threshold metrics with no measurement). Experiments below
     threshold are still saved — they are simply marked ``deployable=False``.
     """
-    checked: Dict[str, Dict[str, Any]] = {}
+    checked: Dict[str, _MetricCheckResult] = {}
     missing: List[str] = []
     all_passed = True
     for metric_name, threshold in thresholds.items():
@@ -265,20 +307,20 @@ def write_artifact_manifest(
     *,
     model_class: str,
     cell_states: Sequence[str],
-    config: Union[Config, Dict[str, Any]],
+    config: Union[Config, ConfigDict],
     training_entrypoint: str,
     is_demo_data: bool = False,
     data_source: str = "unknown",
     train_df: Optional[pd.DataFrame] = None,
     split_strategy: Optional[str] = None,
-    metrics: Optional[Dict[str, Any]] = None,
-    encoder_metadata: Optional[Dict[str, Any]] = None,
+    metrics: Optional[MetricsDict] = None,
+    encoder_metadata: Optional[MetadataDict] = None,
     intended_use: Optional[str] = None,
     limitations: Optional[str] = None,
     deployable: Optional[bool] = None,
-    dataset_profile: Optional[Dict[str, Any]] = None,
+    dataset_profile: Optional[MetadataDict] = None,
     release_thresholds: Optional[Dict[str, float]] = None,
-) -> Dict[str, Any]:
+) -> ManifestDict:
     """Write ``artifact_manifest.json`` with provenance + release-gating fields.
 
     The manifest is the authoritative record of *what* was trained and *whether*
@@ -290,7 +332,7 @@ def write_artifact_manifest(
     out_dir = Path(output_dir)
     model_kind = "demo" if is_demo_data else "real"
 
-    manifest: Dict[str, Any] = {
+    manifest: ManifestDict = {
         "checkpoint_path": str(out_dir / "best_model.pt"),
         "config_path": str(out_dir / "best_model.config.yaml"),
         "training_entrypoint": training_entrypoint,
@@ -352,7 +394,7 @@ def write_artifact_manifest(
         manifest["limitations"] = limitations
     # Release gate: demo is never deployable. For real data, run the configured
     # metric thresholds when provided; otherwise deployable iff metrics exist.
-    gate_result: Optional[Dict[str, Any]] = None
+    gate_result: Optional[ReleaseGateResult] = None
     if not is_demo_data and metrics and release_thresholds:
         gate_result = evaluate_release_gate(metrics, release_thresholds)
         manifest["release_gate"] = gate_result
@@ -378,6 +420,11 @@ def write_artifact_manifest(
 
 
 __all__ = [
+    "ConfigDict",
+    "ManifestDict",
+    "MetricsDict",
+    "MetadataDict",
+    "ReleaseGateResult",
     "derive_and_apply_label_mapping",
     "export_inference_artifact",
     "write_artifact_manifest",

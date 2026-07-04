@@ -5,7 +5,7 @@
 """
 
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import numpy as np
 
@@ -40,6 +40,31 @@ DEFAULT_PTM_TYPES = [
 
 PTM_TYPES = DEFAULT_PTM_TYPES
 PTM_TO_IDX = {ptm: i for i, ptm in enumerate(PTM_TYPES)}
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions replacing Dict[str, Any] annotations
+# ---------------------------------------------------------------------------
+
+
+class _PtmSiteDict(TypedDict, total=False):
+    """Shape of a single PTM site dictionary in feature extraction.
+
+    ``position`` is always present at runtime but declared total=False so
+    that partially-constructed dicts still type-check without casts.
+    """
+
+    position: int
+    type: str
+    residue: str
+    confidence: float
+
+
+class _PtmFeatureResult(TypedDict):
+    """Return type of :meth:`FeatureExtractor.extract_ptm_features`."""
+
+    position_features: Any  # np.ndarray — TypedDict values must be hashable-name types
+    count_features: Any  # np.ndarray
 
 
 class FeatureExtractor:
@@ -279,7 +304,7 @@ class FeatureExtractor:
 
         return features
 
-    def _load_ptm_sites(self, ptm_sites_input: Union[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def _load_ptm_sites(self, ptm_sites_input: Union[str, List[_PtmSiteDict]]) -> List[_PtmSiteDict]:
         """归一化PTM输入为列表。"""
         if isinstance(ptm_sites_input, list):
             return [site for site in ptm_sites_input if isinstance(site, dict)]
@@ -293,9 +318,9 @@ class FeatureExtractor:
 
     def extract_ptm_features(
         self,
-        ptm_sites_input: Union[str, List[Dict[str, Any]]],
+        ptm_sites_input: Union[str, List[_PtmSiteDict]],
         sequence_length: int,
-    ) -> Dict[str, np.ndarray]:
+    ) -> _PtmFeatureResult:
         """
         提取PTM特征
 
@@ -328,7 +353,7 @@ class FeatureExtractor:
             "count_features": count_features,
         }
 
-    def extract_ptm_features_array(self, ptm_sites: List[Dict[str, Any]], sequence_length: int) -> np.ndarray:
+    def extract_ptm_features_array(self, ptm_sites: List[_PtmSiteDict], sequence_length: int) -> np.ndarray:
         """返回 [position_features.flatten(), count_features] 的拼接向量。"""
         feature_dict = self.extract_ptm_features(ptm_sites, sequence_length)
         return np.concatenate(
@@ -384,11 +409,12 @@ class FeatureExtractor:
 
         try:
             if self.structural_source == "alphafold":
-                from src.models.external_tools import AlphaFoldClient
+                from src.models.external_tools import AlphaFoldClient, ToolConfig
 
-                af_client = AlphaFoldClient(self.config)
+                tool_cfg = ToolConfig(self.config) if isinstance(self.config, dict) else None
+                af_client = AlphaFoldClient(tool_cfg)
                 result = af_client.predict_structure(sequence)
-                plddt = float(result.get("confidence", 0.0))
+                plddt = float(result.confidence)
                 # AlphaFold 返回 PDB 字符串，无逐残基二级结构标签；
                 # 以 pLDDT 作为整体置信度，coil 倾向 = pLDDT，helix/sheet 各占
                 # 剩余置信度的一半（保守近似），保证三维向量非零且可区分。
@@ -399,12 +425,13 @@ class FeatureExtractor:
                 structural[:seq_len] = row
                 return structural
             elif self.structural_source == "psipred":
-                from src.models.external_tools import PSIPREDClient
+                from src.models.external_tools import PSIPREDClient, ToolConfig
 
-                client = PSIPREDClient(self.config)
-                result = client.predict_secondary_structure(sequence)
-                ss_pred = result.get("ss_prediction", "")
-                confs = result.get("confidence_scores", [])
+                tool_cfg = ToolConfig(self.config) if isinstance(self.config, dict) else None
+                client = PSIPREDClient(tool_cfg)
+                ss_result = client.predict_secondary_structure(sequence)
+                ss_pred: str = ss_result.ss_prediction
+                confs: List[float] = ss_result.confidence_scores
                 for i in range(min(seq_len, len(ss_pred))):
                     ch = ss_pred[i]
                     conf = float(confs[i]) if i < len(confs) else 0.5
@@ -417,7 +444,7 @@ class FeatureExtractor:
                 return structural
         except ImportError as exc:
             logger.warning("无法导入 external_tools (%s)", exc)
-        except Exception as exc:  # noqa: BLE001 - 网络或解析失败需回退
+        except (OSError, ValueError, RuntimeError) as exc:  # 网络或解析失败需回退
             logger.warning("external_tools 结构预测失败: %s", exc)
         return None
 
@@ -618,7 +645,7 @@ class FeatureExtractor:
     def _extract_sample_vector(
         self,
         sequence: str,
-        ptm_sites_json: Optional[Union[str, List[Dict[str, Any]]]] = None,
+        ptm_sites_json: Optional[Union[str, List[_PtmSiteDict]]] = None,
     ) -> np.ndarray:
         """使用FeatureExtractor方法构建单个样本的向量。"""
         seq_features = self.extract_sequence_features([sequence])
@@ -635,7 +662,7 @@ class FeatureExtractor:
     def extract_features_for_sample(
         self,
         sequence: str,
-        ptm_sites_json: Optional[Union[str, List[Dict[str, Any]]]] = None,
+        ptm_sites_json: Optional[Union[str, List[_PtmSiteDict]]] = None,
     ) -> np.ndarray:
         """
         提取单个样本的组合特征

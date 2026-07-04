@@ -18,15 +18,15 @@ from .ptm_virtual_perturbation import PTMPerturbationProfile, apply_soft_perturb
 try:
     from .genki import GraphUtilities, PerturbationExecutor, ReferenceDataLoader, SignificanceAnalyzer
 except ImportError:
-    ReferenceDataLoader = None  # type: ignore[misc,assignment]
-    PerturbationExecutor = None  # type: ignore[misc,assignment]
-    SignificanceAnalyzer = None  # type: ignore[misc,assignment]
-    GraphUtilities = None  # type: ignore[misc,assignment]
+    ReferenceDataLoader = None  # type: ignore[assignment,misc]  # optional dep: genki not installed
+    PerturbationExecutor = None  # type: ignore[assignment,misc]  # optional dep: genki not installed
+    SignificanceAnalyzer = None  # type: ignore[assignment,misc]  # optional dep: genki not installed
+    GraphUtilities = None  # type: ignore[assignment,misc]  # optional dep: genki not installed
 
 try:
     from .genki_adapter import GenKIAdapter
 except ImportError:
-    GenKIAdapter = None  # type: ignore[misc,assignment]
+    GenKIAdapter = None  # type: ignore[assignment,misc]  # optional dep: genki not installed
 
 __all__ = [
     "CandidateRecord",

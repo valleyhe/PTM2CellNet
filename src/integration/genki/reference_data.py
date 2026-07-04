@@ -11,6 +11,32 @@ from typing import Any, Dict, List, Optional, Union, cast
 import anndata as ad
 import numpy as np
 import scipy.sparse as sp
+from typing_extensions import TypedDict
+
+
+class _BackendInfo(TypedDict, total=False):
+    backend: str
+    runtime_ready: bool
+    ref_root: str
+    missing_dependencies: List[str]
+    missing_files: List[str]
+    uses_explicit_files: bool
+    has_adata_file: bool
+    has_grn_dir: bool
+    scoring_method: str
+    null_permutations: int
+    bagging_threshold: float
+    bagging_cutoff: float
+
+
+class _ReferenceData(TypedDict, total=False):
+    gene_names: List[str]
+    network: Any
+    counts: Any
+    backend: str
+    loaded_at: float
+    adata_file: Optional[str]
+    grn_file_dir: Optional[str]
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +89,13 @@ class ReferenceDataLoader:
         self.significance_alpha = float(significance_alpha)
         self.bagging_threshold = float(bagging_threshold)
         self.bagging_cutoff = float(bagging_cutoff)
-        self._reference_cache: Dict[str, Any] | None = None
+        self._reference_cache: _ReferenceData | None = None
         # Timestamp + backend fingerprint used to invalidate the cache when the
         # underlying reference files change or exceed the TTL.
         self._cache_ttl_seconds: float = 86400.0  # 24 hours
         self._cache_signature: str | None = None
 
-    def get_backend_info(self) -> Dict[str, Any]:
+    def get_backend_info(self) -> _BackendInfo:
         explicit_files = all([self.gene_list_file, self.network_file, self.counts_file])
         if explicit_files:
             return {
@@ -192,9 +218,9 @@ class ReferenceDataLoader:
             return False
         return True
 
-    def load_reference_data(self) -> Dict[str, Any]:
+    def load_reference_data(self) -> _ReferenceData:
         if self._cache_is_valid():
-            return cast(Dict[str, Any], self._reference_cache)
+            return cast(_ReferenceData, self._reference_cache)
 
         backend_info = self.get_backend_info()
         if backend_info["backend"] == "genki_source":
@@ -223,14 +249,14 @@ class ReferenceDataLoader:
         }
         return self._reference_cache
 
-    def _load_reference_data_from_genki_source(self) -> Dict[str, Any]:
+    def _load_reference_data_from_genki_source(self) -> _ReferenceData:
         self.validate_runtime_ready()
         if self.adata_file is None or self.grn_file_dir is None:
             raise ValueError("genki_source backend requires adata_file and grn_file_dir")
 
         try:
             adata = ad.read_h5ad(self.adata_file)
-        except Exception as exc:  # pragma: no cover - depends on file content
+        except (OSError, ValueError, KeyError) as exc:  # pragma: no cover - depends on file content
             raise ValueError(
                 f"adata_file {self.adata_file} is not a valid .h5ad file: {exc}"
             ) from exc
@@ -251,7 +277,7 @@ class ReferenceDataLoader:
         # networks; downstream scoring densifies on demand.
         try:
             network = sp.load_npz(net_path)
-        except Exception as exc:  # pragma: no cover - depends on file content
+        except (OSError, ValueError) as exc:  # pragma: no cover - depends on file content
             raise ValueError(
                 f"GRN file {net_path} is not a valid scipy sparse npz: {exc}"
             ) from exc
@@ -314,7 +340,7 @@ class ReferenceDataLoader:
                 continue
             try:
                 importlib.import_module(module_name)
-            except Exception as e:
+            except ImportError as e:
                 logger.warning("Failed to import optional dependency %s: %s", module_name, e)
                 missing_dependencies.append(module_name)
         return missing_dependencies

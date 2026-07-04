@@ -170,7 +170,7 @@ class TestGeneMapper:
         """Test handling of network errors."""
         mock_instance = Mock()
         mock_protmapper.return_value = mock_instance
-        mock_instance.get.side_effect = Exception("Network error")
+        mock_instance.get.side_effect = ConnectionError("Network error")
 
         mapper = GeneMapper()
         result = mapper.map_gene_to_uniprot('BRAF')

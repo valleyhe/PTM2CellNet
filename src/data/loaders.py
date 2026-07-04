@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, TypedDict, Union, cast
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -20,6 +20,32 @@ from ..utils.logging import setup_logger
 from ..utils.helpers import validate_sequence, clean_sequence
 
 logger = setup_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Specific type definitions replacing Dict[str, Any] throughout this module
+# ---------------------------------------------------------------------------
+
+class UniProtRecord(TypedDict, total=False):
+    """Shape of a single record from the UniProt JSON API response."""
+    primaryAccession: str
+    sequence: Dict[str, str]
+    genes: List[Dict[str, Dict[str, str]]]
+
+
+class UniProtRow(TypedDict, total=False):
+    """Row produced by load_from_uniprot before DataFrame construction."""
+    sequence: str
+    gene_symbol: str
+    accession: str
+
+
+class JsonRecord(TypedDict, total=False):
+    """Record returned by load_from_json — keys depend on source file."""
+
+
+# Pandas read_csv keyword-argument bag; values are str/int/bool/None
+_ReadCsvKwargs = Dict[str, Union[str, int, bool, None]]
 
 
 class DataLoader:
@@ -141,7 +167,7 @@ class DataLoader:
         logger.info("加载完成，共 %d 条有效序列", len(sequences))
         return sequences
 
-    def load_from_json(self, file_path: str) -> List[Dict[str, Any]]:
+    def load_from_json(self, file_path: str) -> List[JsonRecord]:
         """
         从JSON文件加载数据
 
@@ -171,7 +197,7 @@ class DataLoader:
             raise TypeError("JSON内容必须是对象或对象数组")
 
         logger.info("加载完成，共 %d 条记录", len(records))
-        return records
+        return cast(List[JsonRecord], records)
 
     @staticmethod
     def _normalize_column_name(column_name: str) -> str:
@@ -185,7 +211,7 @@ class DataLoader:
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
     @staticmethod
-    def _extract_amino_acid_and_position(value: Any) -> tuple[Optional[str], Optional[int]]:
+    def _extract_amino_acid_and_position(value: Union[str, float, int, None]) -> tuple[Optional[str], Optional[int]]:
         """
         Extract amino acid and position from a PTM residue string such as ``S473-p``.
         """
@@ -360,7 +386,7 @@ class DataLoader:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"数据文件不存在: {file_path}")
 
-        read_kwargs: Dict[str, Any] = {"comment": "#", "compression": "infer"}
+        read_kwargs: _ReadCsvKwargs = {"comment": "#", "compression": "infer"}
         if sep is None:
             read_kwargs.update({"sep": None, "engine": "python"})
         else:
@@ -596,7 +622,7 @@ class DataLoader:
             logger.error("解析 CPLM 数据失败: %s", exc)
             return self._empty_or_raise(self._empty_ptm_df(), "CPLM")
 
-    def _fetch_uniprot_batch(self, accession_ids: List[str]) -> List[Dict[str, Any]]:
+    def _fetch_uniprot_batch(self, accession_ids: List[str]) -> List[UniProtRecord]:
         """
         通过UniProt批量端点获取蛋白质数据
 
@@ -649,7 +675,7 @@ class DataLoader:
                 "UniProt batch URL 会超过 %d 字节，拆分为 %d 个子请求",
                 max_url_bytes, len(chunks),
             )
-            aggregated: List[Dict[str, Any]] = []
+            aggregated: List[UniProtRecord] = []
             for chunk in chunks:
                 aggregated.extend(self._fetch_uniprot_batch(chunk))
             return aggregated
@@ -678,7 +704,7 @@ class DataLoader:
             )
             response.raise_for_status()
         data = response.json()
-        return cast(List[Dict[str, Any]], data.get("results", []))
+        return cast(List[UniProtRecord], data.get("results", []))
 
     def _uniprot_session(self) -> requests.Session:
         """构建带指数退避重试的 UniProt 请求 Session（惰性创建）。"""
@@ -702,7 +728,7 @@ class DataLoader:
                 adapter = HTTPAdapter(max_retries=retry)
                 session.mount("http://", adapter)
                 session.mount("https://", adapter)
-            except Exception as exc:  # 重试配置失败不阻塞基础功能；可用 monkeypatch requests.adapters.HTTPAdapter 抛异常测试该分支
+            except (ValueError, TypeError, AttributeError) as exc:  # 重试配置失败不阻塞基础功能；可用 monkeypatch requests.adapters.HTTPAdapter 抛异常测试该分支
                 logger.warning("配置 UniProt HTTP 重试失败，使用默认 Session: %s", exc)
             self._uniprot_http_session = session
         return self._uniprot_http_session
@@ -711,7 +737,7 @@ class DataLoader:
         """Return the directory used to cache UniProt JSON responses."""
         return Path(self.data_raw_dir).parent / "uniprot_cache"
 
-    def _fetch_uniprot_single(self, accession: str) -> Optional[Dict[str, Any]]:
+    def _fetch_uniprot_single(self, accession: str) -> Optional[UniProtRecord]:
         """Fetch one UniProt entry, reading from cache when possible."""
         cache_dir = self._uniprot_cache_dir()
         cache_file = cache_dir / f"{accession}.json"
@@ -719,7 +745,7 @@ class DataLoader:
         if cache_file.exists():
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
-                    return cast(Dict[str, Any], json.load(f))
+                    return cast(UniProtRecord, json.load(f))
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("读取UniProt缓存 %s 失败: %s", cache_file, exc)
 
@@ -735,7 +761,7 @@ class DataLoader:
         except OSError as exc:
             logger.warning("写入UniProt缓存 %s 失败: %s", cache_file, exc)
 
-        return cast(Dict[str, Any], data)
+        return cast(UniProtRecord, data)
 
     def load_from_uniprot(self, accession_ids: List[str]) -> pd.DataFrame:
         """
@@ -754,7 +780,7 @@ class DataLoader:
 
         logger.info("从UniProt加载 %d 个蛋白质数据", len(accession_ids))
 
-        records: List[Dict[str, Any]] = []
+        records: List[UniProtRecord] = []
         if len(accession_ids) == 1:
             try:
                 data = self._fetch_uniprot_single(accession_ids[0])
@@ -780,7 +806,7 @@ class DataLoader:
             logger.warning("未获取到任何UniProt记录")
             return pd.DataFrame(columns=columns)
 
-        rows: List[Dict[str, Any]] = []
+        rows: List[UniProtRow] = []
         for entry in records:
             accession = entry.get("primaryAccession", "")
             seq_data = entry.get("sequence", {})

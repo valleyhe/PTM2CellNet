@@ -14,7 +14,41 @@ if TYPE_CHECKING:
 
 
 class SignificanceAnalyzer:
-    """Compute p-values, FDR correction, and bagging stability statistics."""
+    """Compute p-values, FDR correction, and bagging stability statistics.
+
+    Provides empirical p-values via null-distribution sampling, adjusts
+    them using the Benjamini–Hochberg procedure, and computes bagging
+    stability frequencies to identify robustly significant downstream
+    genes.
+
+    Args:
+        ref_loader: Reference data loader for accessing gene names and
+            baseline matrices.
+        perturbation_executor: Executor used to re-run perturbations
+            when building the null distribution.
+        gene_list_file: Path to gene list text file.
+        network_file: Path to network ``.npy`` file.
+        counts_file: Path to counts ``.npy`` file.
+        adata_file: Path to ``.h5ad`` AnnData file (genki_source backend).
+        grn_file_dir: Directory containing GRN ``.npz`` files.
+        pcnet_name: Name of the pcNet GRN file.
+        cutoff: Percentile cutoff for GRN edge filtering.
+        target_cell: Cell type label for AnnData filtering.
+        obs_label: AnnData ``obs`` column for cell-type labels.
+        scoring_method: ``"shift"`` for matrix-diff or ``"latent_vgae"``
+            for VGAE latent distance.
+        trainer_epochs: VGAE training epochs.
+        trainer_lr: VGAE learning rate.
+        trainer_beta: KL-divergence weight.
+        trainer_seed: Random seed for VGAE training.
+        trainer_out_channels: VGAE latent dimensionality.
+        null_permutations: Number of null permutations.
+        null_seed: Random seed for permutation RNG.
+        significance_alpha: FDR threshold for BH correction.
+        bagging_threshold: Score percentile threshold for bagging.
+        bagging_cutoff: Frequency cutoff for stable genes.
+        graph: Optional pre-configured :class:`GraphUtilities`.
+    """
 
     def __init__(
         self,
@@ -76,6 +110,30 @@ class SignificanceAnalyzer:
         combined_shift: np.ndarray,
         backend: str,
     ) -> Dict[str, Any]:
+        """Build the full significance metadata dict for a perturbation result.
+
+        Computes empirical p-values, BH-adjusted p-values, and bagging
+        stability statistics, then assembles them into a structured dict
+        alongside the gene scores and null-distribution summary.
+
+        Args:
+            gene_names: Ordered list of gene names.
+            gene_index: Index of the perturbed target gene.
+            request: The original perturbation request.
+            baseline_counts: Baseline expression counts matrix.
+            baseline_network: Baseline gene–gene network matrix.
+            combined_shift: Per-gene shift scores from perturbation.
+            backend: Backend identifier (``"array_files"`` or
+                ``"genki_source"``).
+
+        Returns:
+            Dict with keys: target_gene_index, ref_root, magnitude,
+            backend, scoring_method, gene_scores, gene_indices,
+            empirical_pvalues, adjusted_pvalues, bagging_hits,
+            bagging_frequencies, fdr_significant_genes,
+            stable_significant_genes, significant_genes,
+            null_distribution_summary.
+        """
         (
             gene_scores,
             gene_indices,
@@ -141,6 +199,25 @@ class SignificanceAnalyzer:
         Dict[str, float],
         Dict[str, Any],
     ]:
+        """Compute full significance statistics for a perturbation.
+
+        Derives empirical p-values by comparing observed scores against
+        a null distribution, adjusts them via Benjamini–Hochberg, and
+        computes bagging stability statistics.
+
+        Args:
+            gene_names: Ordered list of gene names.
+            gene_index: Index of the perturbed target gene.
+            request: The perturbation request.
+            baseline_counts: Baseline expression counts matrix.
+            baseline_network: Baseline gene–gene network matrix.
+            combined_shift: Per-gene shift scores.
+
+        Returns:
+            7-tuple of (gene_scores, gene_indices, empirical_pvalues,
+            adjusted_pvalues, bagging_hits, bagging_frequencies,
+            null_distribution_summary).
+        """
         observed_pairs = [
             (gene_name, float(combined_shift[idx]))
             for idx, gene_name in enumerate(gene_names)
@@ -232,6 +309,31 @@ class SignificanceAnalyzer:
         baseline_network: np.ndarray,
         observed_scores: np.ndarray,
     ) -> np.ndarray:
+        """Generate a null distribution by permuting the target gene.
+
+        For the ``"shift"`` scoring method, pseudo-target resampling is used:
+        each permutation replaces the true target with a randomly chosen
+        non-target gene and re-scores. For other methods, observed scores
+        are permuted directly.
+
+        Vectorized paths are used for both ``hard_ko`` and ``soft_ptm``
+        modes to avoid per-permutation Python loops on large networks.
+
+        Args:
+            gene_index: Index of the true target gene.
+            request: Perturbation request (mode and magnitude used to
+                determine the perturbation strategy).
+            baseline_counts: Baseline expression counts matrix.
+            baseline_network: Baseline gene–gene network matrix.
+            observed_scores: 1-D array of observed per-gene shift scores
+                (excluding the target gene).
+
+        Returns:
+            2-D array of shape ``(null_permutations, n_non_target_genes)``
+            containing null shift scores. Returns an empty array with
+            shape ``(0, n)`` if null_permutations <= 0 or no candidate
+            pseudo-targets exist.
+        """
         if self.null_permutations <= 0:
             return np.empty((0, observed_scores.shape[0]), dtype=float)
 
@@ -330,6 +432,18 @@ class SignificanceAnalyzer:
         return null_scores
 
     def _benjamini_hochberg(self, pvalues: np.ndarray) -> np.ndarray:
+        """Apply the Benjamini–Hochberg step-up procedure for FDR control.
+
+        Adjusts raw p-values so that the expected fraction of false
+        discoveries among rejected hypotheses is bounded by the
+        significance alpha.
+
+        Args:
+            pvalues: 1-D array of raw p-values.
+
+        Returns:
+            1-D array of adjusted p-values, clipped to [0, 1].
+        """
         if pvalues.size == 0:
             return pvalues
         order = np.argsort(pvalues)
@@ -346,6 +460,23 @@ class SignificanceAnalyzer:
         return restored
 
     def _compute_bagging_statistics(self, null_scores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Compute bagging stability hits and frequencies from null scores.
+
+        For each permutation, the top genes (above the bagging_threshold
+        percentile) are identified. A gene's "hit count" is the number of
+        permutations in which it appears in that top set, and its
+        "frequency" is the hit count divided by the total number of
+        permutations.
+
+        Args:
+            null_scores: 2-D array of shape ``(n_permutations, n_genes)``
+                containing null shift scores.
+
+        Returns:
+            Tuple of (hits, frequencies) where *hits* is an integer array
+            of per-gene hit counts and *frequencies* is a float array of
+            per-gene stability frequencies in [0, 1].
+        """
         if null_scores.size == 0:
             return np.zeros((0,), dtype=int), np.zeros((0,), dtype=float)
         threshold_index = int(null_scores.shape[1] * (1.0 - self.bagging_threshold))

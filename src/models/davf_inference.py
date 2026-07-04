@@ -376,7 +376,7 @@ class DAVFInferenceModule(nn.Module):
                 f"unexpected_keys={len(incompatible.unexpected_keys)})"
             )
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, ImportError, pickle.UnpicklingError) as e:
             logger.warning(
                 f"Failed to load checkpoint from {ckpt_path}: {e}. "
                 "DAVFInferenceModule will return zero features."

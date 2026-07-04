@@ -4,6 +4,82 @@
 
 > ⚠️ **DEMO 模型说明**：仓库自带的 `outputs/models/best_model.pt` 是在**随机生成的合成数据**上训练的冒烟测试模型，仅用于验证训练/推理链路可跑通，**不代表真实生物学预测能力**（评估准确率 ≈ 随机基线）。请勿直接用于真实预测。真实数据准备方式见 [数据接入指南](docs/guides/data_integration.md)，模型性质详情见 [outputs/models/README.md](outputs/models/README.md)。
 
+## Quick Start（快速开始）
+
+以下命令链从零开始运行完整的训练→推理流程（约 5 分钟，CPU 可用）：
+
+### 1. 训练（smoke 测试模式）
+
+```bash
+python scripts/train.py \
+    --config configs/smoke/cnn_cpu.yaml \
+    --data data/raw/sample_data.csv \
+    --output outputs/quickstart
+```
+
+### 2. 单样本推理
+
+```bash
+python scripts/predict.py \
+    --model outputs/quickstart/models/best_model.pt \
+    --sequence "ACDEFGHIKLMNPQRSTVWY" \
+    --output outputs/quickstart/pred.csv
+```
+
+### 3. 带 PTM 位点的推理
+
+```bash
+python scripts/predict.py \
+    --model outputs/quickstart/models/best_model.pt \
+    --sequence "ACDEFGHIKLMNPQRSTVWY" \
+    --ptm-sites '[{"position":3,"type":"phosphorylation"}]' \
+    --output outputs/quickstart/pred_ptm.csv
+```
+
+### 4. 批量 CSV 推理
+
+```bash
+python scripts/predict.py \
+    --model outputs/quickstart/models/best_model.pt \
+    --input data/raw/sample_data.csv \
+    --output outputs/quickstart/batch_pred.csv
+```
+
+### 5. API 服务
+
+```bash
+# development 模式启动（无需 API key）
+PTM2CELLNET_ENV=development python -c "
+from src.api.app import create_app
+import uvicorn
+uvicorn.run(create_app(), host='0.0.0.0', port=8000)
+"
+
+# 初始化模型
+curl -X POST http://localhost:8000/api/v1/initialize \
+    -H "Content-Type: application/json" \
+    -d '{"checkpoint_path": "outputs/quickstart/models/best_model.pt"}'
+
+# 预测
+curl -X POST http://localhost:8000/api/v1/predict \
+    -H "Content-Type: application/json" \
+    -d '{"sequence": "ACDEFGHIKLMNPQRSTVWY"}'
+```
+
+### 运行全部测试
+
+```bash
+# 单元测试
+python -m pytest tests/unit/ -v
+
+# 端到端测试（约 10 分钟）
+python -m pytest tests/e2e/ -v --timeout=600
+```
+
+> **提示**: 首次运行推荐使用 `configs/smoke/` 下的配置（小模型、CPU、1 epoch），验证安装无误后再切换到研究配置。
+
+---
+
 ## 目录结构
 
 ```

@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -112,6 +113,20 @@ def _reset_api_state(monkeypatch):
     reset_state()
     yield
     reset_state()
+
+
+@pytest.fixture(scope="module")
+def native_artifact(tmp_path_factory):
+    """Create a minimal trained-artifact for batch PTM parsing edge case tests."""
+    tmp = tmp_path_factory.mktemp("native_artifact")
+    num_classes = 3
+    cell_states = ["a", "b", "c"]
+    ckpt = tmp / "best_model.pt"
+    cfg = tmp / "best_model.config.yaml"
+    model = _build_cnn(num_classes=num_classes)
+    torch.save(model.state_dict(), ckpt)
+    _write_config_for_model(cfg, num_classes=num_classes, cell_states=cell_states)
+    return {"ckpt": ckpt, "cfg": cfg}
 
 
 # ---------------------------------------------------------------------------
@@ -296,3 +311,160 @@ class TestModelInfoDemoFlag:
         info = client.get("/api/v1/model/info").json()
         assert info["is_demo_model"] is True
         assert info["model_kind"] == "demo"
+
+
+# =============================================================================
+# 批量 PTM 位点解析边界场景 (对应缺口分析 §3.1 — Gap 4)
+# =============================================================================
+
+class TestBatchPTMParsingEdgeCases:
+    """CSV 批量推理中 PTM 位点解析的边界场景 E2E 覆盖。
+
+    对应缺口分析: "没有测试批量 CSV 中 ptm_sites 列包含真实 JSON
+    位点数据的完整路径" — 覆盖 None/空/非法 JSON/越界 position。
+    """
+
+    def test_batch_ptm_sites_none_value(self, native_artifact, tmp_path):
+        """ptm_sites 列为 None/空值时应正确处理。"""
+        batch_csv = tmp_path / "batch_none.csv"
+        batch_csv.write_text(
+            "id,sequence,ptm_sites\n"
+            "1,ACDEFGHIKLMNPQRSTVWY,\n"       # empty ptm_sites
+            "2,ACDEFGHIKLMNPQRSTVWY,\n",       # empty ptm_sites
+            encoding="utf-8",
+        )
+        out = tmp_path / "pred_none.csv"
+        _run([
+            sys.executable, str(SCRIPTS / "predict.py"),
+            "--model", str(native_artifact["ckpt"]),
+            "--input", str(batch_csv),
+            "--output", str(out),
+            "--device", "cpu",
+        ])
+        import pandas as pd
+        df = pd.read_csv(out)
+        assert len(df) == 2
+        assert int(df["ptm_count"].iloc[0]) == 0
+        assert int(df["ptm_count"].iloc[1]) == 0
+
+    def test_batch_ptm_sites_empty_list(self, native_artifact, tmp_path):
+        """ptm_sites 列为 [] 空列表时应正确处理。"""
+        batch_csv = tmp_path / "batch_empty_list.csv"
+        batch_csv.write_text(
+            "id,sequence,ptm_sites\n"
+            '1,ACDEFGHIKLMNPQRSTVWY,[]\n'
+            '2,ACDEFGHIKLMNPQRSTVWY,[]\n',
+            encoding="utf-8",
+        )
+        out = tmp_path / "pred_empty_list.csv"
+        _run([
+            sys.executable, str(SCRIPTS / "predict.py"),
+            "--model", str(native_artifact["ckpt"]),
+            "--input", str(batch_csv),
+            "--output", str(out),
+            "--device", "cpu",
+        ])
+        import pandas as pd
+        df = pd.read_csv(out)
+        assert len(df) == 2
+        assert int(df["ptm_count"].iloc[0]) == 0
+
+    def test_batch_ptm_sites_malformed_json(self, native_artifact, tmp_path):
+        """ptm_sites 列为非法 JSON 时应输出警告但仍可完成推理。"""
+        batch_csv = tmp_path / "batch_malformed.csv"
+        batch_csv.write_text(
+            "id,sequence,ptm_sites\n"
+            '1,ACDEFGHIKLMNPQRSTVWY,"{invalid json}"\n'
+            '2,ACDEFGHIKLMNPQRSTVWY,"[{""position"":3,""type"":""phosphorylation""}]"\n',
+            encoding="utf-8",
+        )
+        out = tmp_path / "pred_malformed.csv"
+        result = _run([
+            sys.executable, str(SCRIPTS / "predict.py"),
+            "--model", str(native_artifact["ckpt"]),
+            "--input", str(batch_csv),
+            "--output", str(out),
+            "--device", "cpu",
+        ])
+        import pandas as pd
+        df = pd.read_csv(out)
+        assert len(df) == 2
+        # 第 1 行 PTM 解析失败 → ptm_count 应为 0
+        assert int(df["ptm_count"].iloc[0]) == 0
+        # 第 2 行正常 → ptm_count 应为 1
+        assert int(df["ptm_count"].iloc[1]) == 1
+
+    def test_batch_ptm_sites_position_out_of_bounds(self, native_artifact, tmp_path):
+        """position 超出序列长度时应跳过该位点并输出警告。"""
+        batch_csv = tmp_path / "batch_oob.csv"
+        batch_csv.write_text(
+            "id,sequence,ptm_sites\n"
+            # sequence 只有 20 AA, position=999 越界
+            '1,ACDEFGHIKLMNPQRSTVWY,"[{""position"":999,""type"":""phosphorylation""}]"\n'
+            '2,ACDEFGHIKLMNPQRSTVWY,"[{""position"":3,""type"":""methylation""}]"\n',
+            encoding="utf-8",
+        )
+        out = tmp_path / "pred_oob.csv"
+        _run([
+            sys.executable, str(SCRIPTS / "predict.py"),
+            "--model", str(native_artifact["ckpt"]),
+            "--input", str(batch_csv),
+            "--output", str(out),
+            "--device", "cpu",
+        ])
+        import pandas as pd
+        df = pd.read_csv(out)
+        assert len(df) == 2
+        # 越界 position 应被跳过 → ptm_count 为 0
+        assert int(df["ptm_count"].iloc[0]) == 0
+        # 正常位点 → ptm_count 为 1
+        assert int(df["ptm_count"].iloc[1]) == 1
+
+    def test_batch_ptm_sites_missing_ptm_column(self, native_artifact, tmp_path):
+        """CSV 缺少 ptm_sites 列时应默认视为无 PTM 位点。"""
+        batch_csv = tmp_path / "batch_no_ptm_col.csv"
+        batch_csv.write_text(
+            "id,sequence\n"
+            "1,ACDEFGHIKLMNPQRSTVWY\n"
+            "2,ACDEFGHIKLMNPQRSTVWC\n",
+            encoding="utf-8",
+        )
+        out = tmp_path / "pred_no_ptm_col.csv"
+        _run([
+            sys.executable, str(SCRIPTS / "predict.py"),
+            "--model", str(native_artifact["ckpt"]),
+            "--input", str(batch_csv),
+            "--output", str(out),
+            "--device", "cpu",
+        ])
+        import pandas as pd
+        df = pd.read_csv(out)
+        assert len(df) == 2
+        assert int(df["ptm_count"].iloc[0]) == 0
+        assert int(df["ptm_count"].iloc[1]) == 0
+
+    def test_batch_ptm_sites_various_string_artifacts(self, native_artifact, tmp_path):
+        """处理 CSV 中常见的 pandas NaN/null/None 字符串产物。"""
+        batch_csv = tmp_path / "batch_artifacts.csv"
+        batch_csv.write_text(
+            "id,sequence,ptm_sites\n"
+            '1,ACDEFGHIKLMNPQRSTVWY,nan\n'
+            '2,ACDEFGHIKLMNPQRSTVWY,null\n'
+            '3,ACDEFGHIKLMNPQRSTVWY,None\n'
+            '4,ACDEFGHIKLMNPQRSTVWY,\n'
+            '5,ACDEFGHIKLMNPQRSTVWY,[]\n',
+            encoding="utf-8",
+        )
+        out = tmp_path / "pred_artifacts.csv"
+        _run([
+            sys.executable, str(SCRIPTS / "predict.py"),
+            "--model", str(native_artifact["ckpt"]),
+            "--input", str(batch_csv),
+            "--output", str(out),
+            "--device", "cpu",
+        ])
+        import pandas as pd
+        df = pd.read_csv(out)
+        assert len(df) == 5
+        # 所有各种 artifacts 均应解析为 0 个 PTM 位点
+        assert all(int(df["ptm_count"].iloc[i]) == 0 for i in range(5))

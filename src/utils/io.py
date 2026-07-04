@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import torch
 from numpy.typing import NDArray
+from typing_extensions import TypedDict
 
 from .logging import setup_logger
 
@@ -36,7 +37,24 @@ def _warn_hdf5_fallback() -> None:
     logger.warning("h5py is not available; falling back to a pickled archive for HDF5 IO")
 
 
-def _is_string_array(array: NDArray[Any]) -> bool:
+# Typed structure for HDF5/JSON serialisable dictionaries.
+# Keys are arbitrary strings; values are limited to the types supported
+# by ``_write_hdf5_value`` and ``save_json``.
+class SerializationConfig(TypedDict, total=False):
+    """TypedDict for serialisable dictionary payloads.
+
+    Only the value types that ``_write_hdf5_value`` and ``save_json``
+    can handle are listed.  Keys are dynamic so this serves as
+    documentation rather than an exhaustive contract.
+    """
+    pass  # Keys are dynamic; this marks the shape for readers.
+
+
+# Union of value types accepted by HDF5 serialisation helpers.
+Hdf5Value = Union[torch.Tensor, pd.DataFrame, np.ndarray, str, np.generic, int, float, bool]
+
+
+def _is_string_array(array: NDArray[np.str_]) -> bool:
     if array.dtype.kind in {"U", "S"}:
         return True
     if array.dtype.kind != "O":
@@ -45,7 +63,7 @@ def _is_string_array(array: NDArray[Any]) -> bool:
     return all(isinstance(item, str) for item in flat)
 
 
-def _create_string_dataset(group: "h5py.Group", key: str, value: Union[str, NDArray[Any]]) -> None:
+def _create_string_dataset(group: "h5py.Group", key: str, value: Union[str, NDArray[np.str_]]) -> None:
     if h5py is None:
         raise RuntimeError("h5py is required to create string datasets")
 
@@ -54,7 +72,7 @@ def _create_string_dataset(group: "h5py.Group", key: str, value: Union[str, NDAr
     group.create_dataset(key, data=data, dtype=string_dtype)
 
 
-def _write_hdf5_value(group: "h5py.Group", key: str, value: Union[torch.Tensor, pd.DataFrame, np.ndarray, str, np.generic, int, float, bool]) -> None:
+def _write_hdf5_value(group: "h5py.Group", key: str, value: Hdf5Value) -> None:
     if h5py is None:
         raise RuntimeError("h5py is required for HDF5 serialization")
 
@@ -98,7 +116,7 @@ def _read_hdf5_dataset(dataset: "h5py.Dataset") -> Union[str, np.ndarray, torch.
     item_type = dataset.attrs.get("item_type", "ndarray")
 
     if item_type == "string":
-        return dataset.asstr()[()]  # type: ignore[no-any-return]
+        return dataset.asstr()[()]  # type: ignore[no-any-return]  # h5py asstr() returns Any; no precise stubs available
 
     if dataset.dtype.kind in {"O", "S"}:
         return np.asarray(dataset.asstr()[()])
@@ -107,7 +125,7 @@ def _read_hdf5_dataset(dataset: "h5py.Dataset") -> Union[str, np.ndarray, torch.
     if item_type == "torch_tensor":
         return torch.from_numpy(np.asarray(value))
     if item_type == "scalar":
-        return value.item() if hasattr(value, "item") else value  # type: ignore[no-any-return]
+        return value.item() if hasattr(value, "item") else value  # type: ignore[no-any-return]  # h5py dataset values are Any; no precise stubs
     return np.asarray(value)
 
 
@@ -129,12 +147,12 @@ def _read_hdf5_value(node: Union["h5py.Dataset", "h5py.Group"]) -> Union[str, np
     return pd.DataFrame(data, index=pd.Index(index_values))
 
 
-def _load_pickle_archive(file_path: str) -> Dict[str, Any]:
+def _load_pickle_archive(file_path: str) -> Dict[str, object]:
     with open(file_path, "rb") as file_obj:
         data = _SafeUnpickler(file_obj).load()
     if not isinstance(data, dict):
         raise TypeError("Pickle fallback content must be a dictionary")
-    return cast(Dict[str, Any], data)
+    return cast(Dict[str, object], data)
 
 
 _SAFE_MODULES: Set[str] = {'builtins', 'collections', 'typing', 'numpy', 'torch'}
@@ -154,7 +172,7 @@ class SafeUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def safe_pickle_load(file_obj: BinaryIO) -> Any:
+def safe_pickle_load(file_obj: BinaryIO) -> object:
     """Load pickle data using SafeUnpickler for restricted deserialization.
 
     Parameters
@@ -233,14 +251,14 @@ class _SafeUnpickler(pickle.Unpickler):
     }
 
     # 项目自定义类白名单（按需扩展）。使用 ``module: {name}`` 形式。
-    _PROJECT_SAFE_GLOBALS: Dict[str, set] = {
+    _PROJECT_SAFE_GLOBALS: Dict[str, Set[str]] = {
         # 示例：若未来需要 pickle 项目数据类，可在此显式声明
         # "src.data.schemas": {"PTMSite", "PTMRecord"},
     }
 
     @classmethod
-    def _all_safe_globals(cls) -> Dict[str, set]:
-        merged: Dict[str, set] = {}
+    def _all_safe_globals(cls) -> Dict[str, Set[str]]:
+        merged: Dict[str, Set[str]] = {}
         for source in (cls._SAFE_GLOBALS, cls._PROJECT_SAFE_GLOBALS):
             for module, names in source.items():
                 merged.setdefault(module, set()).update(names)
@@ -257,7 +275,7 @@ class _SafeUnpickler(pickle.Unpickler):
         raise pickle.UnpicklingError(f"Disallowed global: {module}.{name}")
 
 
-def save_pickle(obj: Any, file_path: str) -> None:
+def save_pickle(obj: object, file_path: str) -> None:
     """
     将对象保存为pickle文件
 
@@ -273,7 +291,7 @@ def save_pickle(obj: Any, file_path: str) -> None:
         pickle.dump(obj, f)
 
 
-def load_pickle(file_path: str, safe: bool = True) -> Any:
+def load_pickle(file_path: str, safe: bool = True) -> object:
     """
     从pickle文件加载对象
 
@@ -305,7 +323,7 @@ def load_pickle(file_path: str, safe: bool = True) -> Any:
         return _SafeUnpickler(f).load()
 
 
-def save_hdf5(obj: Dict[str, Any], file_path: str) -> None:
+def save_hdf5(obj: Dict[str, Hdf5Value], file_path: str) -> None:
     """
     将字典对象保存为HDF5文件。
 
@@ -325,7 +343,7 @@ def save_hdf5(obj: Dict[str, Any], file_path: str) -> None:
             _write_hdf5_value(handle, key, value)
 
 
-def load_hdf5(file_path: str) -> Dict[str, Any]:
+def load_hdf5(file_path: str) -> Dict[str, Hdf5Value]:
     """
     从HDF5文件加载字典对象。
 
@@ -346,7 +364,7 @@ def load_hdf5(file_path: str) -> Dict[str, Any]:
         return _load_pickle_archive(file_path)
 
 
-def save_json(obj: Union[Dict[str, Any], List[Any]], file_path: str, indent: int = 2) -> None:
+def save_json(obj: Union[Dict[str, object], List[object]], file_path: str, indent: int = 2) -> None:
     """
     将对象保存为JSON文件
 
@@ -360,7 +378,7 @@ def save_json(obj: Union[Dict[str, Any], List[Any]], file_path: str, indent: int
         json.dump(obj, f, indent=indent, ensure_ascii=False)
 
 
-def load_json(file_path: str) -> Union[Dict[str, Any], List[Any]]:
+def load_json(file_path: str) -> Union[Dict[str, object], List[object]]:
     """
     从JSON文件加载对象
 
@@ -400,7 +418,7 @@ def save_model(model: torch.nn.Module, file_path: str) -> None:
 # only tensor storage and fundamental numeric types.  If a checkpoint contains
 # additional safe types (e.g. custom config dataclasses), callers should pass
 # their own ``allowed_classes`` set.
-_TORCH_LOAD_ALLOWED_CLASSES: set = {
+_TORCH_LOAD_ALLOWED_CLASSES: Set[str] = {
     # Tensor internals — required for any state_dict / optimizer checkpoint
     "torch._utils._rebuild_tensor_v2",
     "torch._utils._rebuild_parameter",
@@ -427,17 +445,17 @@ _TORCH_LOAD_ALLOWED_CLASSES: set = {
 # Classes that are allowed in torch.load(weights_only=True, allowed_classes=...)
 # for DAVF-related legacy checkpoints.  These must be actual class objects
 # (not strings), so the list is populated lazily below.
-_DAVF_SAFE_CLASSES: Optional[list] = None
+_DAVF_SAFE_CLASSES: Optional[List[type]] = None
 
 
 def safe_torch_load(
     path: Union[str, "os.PathLike[str]", BinaryIO],
     map_location: Optional[Union[str, torch.device]] = None,
     *,
-    allowed_classes: Optional[set] = None,
+    allowed_classes: Optional[Set[Union[str, type]]] = None,
     enforce_safe_only: bool = True,
     **kwargs: Any,
-) -> Any:
+) -> object:
     """Load a PyTorch artifact with a safe-by-default ``weights_only`` strategy.
 
     Security model
@@ -524,9 +542,9 @@ def safe_torch_load(
         return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
 
     # Build the merged allowlist for the weights_only=True path.
-    merged_classes = _TORCH_LOAD_ALLOWED_CLASSES
+    merged_classes: Set[Union[str, type]] = set(_TORCH_LOAD_ALLOWED_CLASSES)
     if allowed_classes:
-        merged_classes = _TORCH_LOAD_ALLOWED_CLASSES | allowed_classes
+        merged_classes = merged_classes | allowed_classes
 
     # Attempt safe load with allowlist (PyTorch >= 2.0 supports allowed_classes).
     try:
@@ -747,7 +765,7 @@ def load_dataframe(file_path: str) -> pd.DataFrame:
     return pd.read_csv(file_path)
 
 
-def save_numpy(arr: NDArray[Any], file_path: str) -> None:
+def save_numpy(arr: NDArray[np.generic], file_path: str) -> None:
     """
     保存NumPy数组
 
@@ -759,7 +777,7 @@ def save_numpy(arr: NDArray[Any], file_path: str) -> None:
     np.save(file_path, arr)
 
 
-def load_numpy(file_path: str) -> NDArray[Any]:
+def load_numpy(file_path: str) -> NDArray[np.generic]:
     """
     加载NumPy数组
 
@@ -772,7 +790,7 @@ def load_numpy(file_path: str) -> NDArray[Any]:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
-    return cast(NDArray[Any], np.load(file_path))
+    return cast(NDArray[np.generic], np.load(file_path))
 
 
 def ensure_dir(file_path: str) -> str:

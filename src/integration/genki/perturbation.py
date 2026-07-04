@@ -24,7 +24,54 @@ logger = logging.getLogger(__name__)
 
 
 class PerturbationExecutor:
-    """Execute perturbation requests and compute perturbation scores."""
+    """Execute perturbation requests and compute perturbation scores.
+
+    Supports two backends:
+
+    * **array_files** — dense NumPy arrays loaded from gene-list / network /
+      counts files on disk.
+    * **genki_source** — the original GenKI package loaded dynamically from
+      ``ref_root``, using AnnData + GRN files and a torch-geometric data
+      pipeline.
+
+    For both backends the executor applies the requested perturbation mode
+    (``hard_ko`` or ``soft_ptm``), scores the resulting shift between
+    baseline and perturbed states, ranks downstream genes, and delegates
+    significance computation to a :class:`SignificanceAnalyzer`.
+
+    Args:
+        ref_loader: Reference data loader responsible for discovering the
+            backend and loading gene names, counts, and network matrices.
+        gene_list_file: Path to a text file listing gene names (one per line).
+        network_file: Path to a ``.npy`` file containing the gene–gene
+            interaction network as a dense matrix.
+        counts_file: Path to a ``.npy`` file containing gene expression
+            counts as a dense matrix.
+        adata_file: Path to an ``.h5ad`` AnnData file (genki_source backend).
+        grn_file_dir: Directory containing GRN ``.npz`` files (genki_source
+            backend).
+        pcnet_name: Name of the pcNet GRN file (without extension).
+        cutoff: Percentile cutoff for GRN edge filtering.
+        target_cell: Cell type label to filter in the AnnData object.
+        obs_label: Column in ``adata.obs`` that stores cell-type labels.
+        scoring_method: Scoring approach — ``"shift"`` for matrix-diff
+            scoring or ``"latent_vgae"`` for variational-GAE latent-space
+            distance.
+        trainer_epochs: Training epochs for the VGAE encoder.
+        trainer_lr: Learning rate for the VGAE optimizer.
+        trainer_beta: Weight for the KL-divergence term in the VGAE loss.
+        trainer_seed: Random seed for reproducible VGAE training.
+        trainer_out_channels: Dimensionality of the VGAE latent space.
+        null_permutations: Number of null-distribution permutations for
+            significance testing.
+        null_seed: Random seed for the null permutation RNG.
+        significance_alpha: FDR threshold for Benjamini–Hochberg correction.
+        bagging_threshold: Score percentile threshold for bagging stability.
+        bagging_cutoff: Frequency cutoff for declaring a gene stable.
+        graph: Optional pre-configured :class:`GraphUtilities` instance.
+        significance_analyzer: Optional pre-configured
+            :class:`SignificanceAnalyzer` instance.
+    """
 
     def __init__(
         self,
@@ -83,9 +130,16 @@ class PerturbationExecutor:
         self._vgae_patience = 5
 
     def set_significance_analyzer(self, analyzer: "SignificanceAnalyzer") -> None:
+        """Attach a SignificanceAnalyzer for score metadata computation.
+
+        Args:
+            analyzer: The significance analyzer to use for building score
+                metadata and computing p-values / FDR corrections.
+        """
         self._significance_analyzer = analyzer
 
     def _require_significance(self) -> "SignificanceAnalyzer":
+        """Return the attached SignificanceAnalyzer or raise RuntimeError."""
         if self._significance_analyzer is None:
             raise RuntimeError("SignificanceAnalyzer is not configured for PerturbationExecutor")
         return self._significance_analyzer
@@ -99,6 +153,19 @@ class PerturbationExecutor:
         source_ptm_type: str = "",
         source_ptm_position: int = -1,
     ) -> GenePerturbationRequest:
+        """Construct a GenePerturbationRequest from perturbation parameters.
+
+        Args:
+            gene_symbol: HGNC symbol of the target gene.
+            mode: Perturbation mode (``"hard_ko"`` or ``"soft_ptm"``).
+            magnitude: Perturbation strength in [0, 1].
+            source_protein_id: UniProt ID of the source protein (PTM context).
+            source_ptm_type: PTM type label (e.g. ``"phosphorylation"``).
+            source_ptm_position: Residue position of the PTM.
+
+        Returns:
+            A frozen :class:`GenePerturbationRequest` dataclass.
+        """
         return GenePerturbationRequest(
             gene_symbol=gene_symbol,
             source_protein_id=source_protein_id,
@@ -109,6 +176,24 @@ class PerturbationExecutor:
         )
 
     def run(self, request: GenePerturbationRequest) -> PerturbationResult:
+        """Execute a single perturbation request and return a scored result.
+
+        Loads reference data, applies the perturbation mode (``hard_ko`` or
+        ``soft_ptm``), computes the shift score, ranks affected genes, and
+        attaches significance metadata.
+
+        Args:
+            request: A :class:`GenePerturbationRequest` specifying the
+                target gene, mode, and magnitude.
+
+        Returns:
+            A :class:`PerturbationResult` with distance score, ranked
+            genes, and significance metadata.
+
+        Raises:
+            KeyError: If the requested gene symbol is not in the reference.
+            ValueError: If the perturbation mode is unsupported.
+        """
         reference = self._ref_loader.load_reference_data()
         if reference["backend"] == "genki_source":
             return self._run_with_genki_source(request)
@@ -197,6 +282,21 @@ class PerturbationExecutor:
         mode: str = "hard_ko",
         magnitude: float = 1.0,
     ) -> PerturbationResult:
+        """Run a virtual knock-out and return the top-k most affected genes.
+
+        Convenience wrapper around :meth:`run` that truncates the ranked
+        gene list to *top_k* entries.
+
+        Args:
+            gene_symbol: Target gene to perturb.
+            top_k: Number of top-ranked downstream genes to return.
+            mode: Perturbation mode (``"hard_ko"`` or ``"soft_ptm"``).
+            magnitude: Perturbation strength.
+
+        Returns:
+            A :class:`PerturbationResult` with ``ranked_genes`` truncated
+            to *top_k* and ``metadata["top_k"]`` set.
+        """
         result = self.run(
             self.build_request(
                 gene_symbol=gene_symbol,
@@ -213,6 +313,23 @@ class PerturbationExecutor:
         )
 
     def _run_with_genki_source(self, request: GenePerturbationRequest) -> PerturbationResult:
+        """Execute a perturbation using the GenKI source backend.
+
+        Loads wild-type and (for hard_ko) knock-out data via the GenKI
+        DataLoader, applies soft_ptm perturbation in-memory when needed,
+        scores the shift, and attaches significance metadata.
+
+        Args:
+            request: Perturbation request to execute.
+
+        Returns:
+            A :class:`PerturbationResult` with distance score and metadata.
+
+        Raises:
+            KeyError: If the gene symbol is not found in the loaded data.
+            ValueError: If the perturbation mode is unsupported, or if
+                adata_file / grn_file_dir are not configured.
+        """
         loader = self._build_genki_loader(request.gene_symbol)
         wt_data = loader.load_data()
         gene_names = [str(gene_name) for gene_name in wt_data.y]

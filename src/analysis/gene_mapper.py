@@ -183,7 +183,7 @@ class GeneMapper:
             logger.debug(f"Mapped {gene_symbol} -> {uniprot_id}")
             return str(uniprot_id) if uniprot_id is not None else None
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, ValueError, KeyError) as e:
             logger.error(f"Error mapping gene {gene_symbol}: {e}")
             return None
 
@@ -239,7 +239,7 @@ class GeneMapper:
                     results[gene] = None
                     self._gene_cache[gene] = None
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, ValueError, KeyError) as e:
             logger.error(f"Error in batch gene mapping: {e}")
             # Return what we have, mark rest as None
             for gene in uncached_genes:

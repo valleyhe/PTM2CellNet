@@ -1,11 +1,12 @@
 """Prediction endpoints."""
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from fastapi import APIRouter, HTTPException, status
+from typing_extensions import TypedDict
 
 from ..schemas import (
     BatchPredictionRequest,
@@ -24,6 +25,25 @@ from ...utils.logging import setup_logger
 from .state import STATE
 
 logger = setup_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class DAVFSiteDict(TypedDict):
+    """Shape of a single DAVF site dict passed to the model."""
+
+    position: int
+    ptm_type: str
+
+
+class DAVFInputs(TypedDict, total=False):
+    """Shape of the dict returned by ``_collect_davf_inputs``."""
+
+    davf_positions: List[int]
+    davf_ptm_types: List[str]
+    davf_gene_names: List[str]
+
 
 # Mapping from PTM type to expected signaling effect direction.
 # Lowercase keys match the PTM types used in DEFAULT_PTM_TYPES / API requests.
@@ -47,7 +67,7 @@ router = APIRouter()
 def _collect_davf_inputs(
     ptm_sites: List,
     max_len: int,
-) -> Dict[str, Any]:
+) -> DAVFInputs:
     """Collect DAVF inputs (sites + gene names) from validated PTM sites.
 
     Shared by single-sample and batch preprocessing. Each PTM site that
@@ -152,7 +172,7 @@ def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, torch.Tensor
     # DAVF per-sample inputs (heterogeneous lists — the DAVF branch consumes
     # a list-of-lists rather than a padded tensor).
     collect_davf = any(_model_supports_davf(getattr(s, "use_davf", False)) for s in samples)
-    davf_sites_per_sample: List[List[Dict[str, Any]]] = []
+    davf_sites_per_sample: List[List[DAVFSiteDict]] = []
     davf_gene_names_per_sample: List[List[str]] = []
 
     valid_amino_acids = set(amino_acids)
@@ -263,8 +283,16 @@ def _compute_pathway_impacts(
                 )
                 for name, activity in report["pathway_activities"].items()
             ]
-    except Exception as exc:
-        logger.warning("Optional pathway analysis failed: %s", exc)
+    except (ValueError, KeyError, RuntimeError) as exc:
+        logger.warning(
+            "Optional pathway analysis failed [%s]: %s",
+            type(exc).__name__, exc,
+        )
+    except (TypeError, AttributeError, OSError) as exc:
+        logger.warning(
+            "Optional pathway analysis failed with unexpected error [%s]: %s",
+            type(exc).__name__, exc, exc_info=True,
+        )
     return None
 
 
@@ -329,7 +357,7 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
                 ptm_types[pos] = ptm_idx
         valid_ptm_sites.append(ptm_site)
 
-    out: Dict[str, Any] = {
+    out: Dict[str, Union[torch.Tensor, List[DAVFSiteDict], List[str]]] = {
         "sequence": seq_tensor,
         "ptm_mask": ptm_mask,
         "ptm_types": ptm_types,
@@ -434,7 +462,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
         # Add batch dimension for single-sample inference. DAVF inputs
         # (``davf_sites`` / ``davf_gene_names``) are Python lists, not tensors,
         # so wrap them as single-element lists instead of calling ``.unsqueeze``.
-        tensorized: Dict[str, Any] = {}
+        tensorized: Dict[str, Union[torch.Tensor, List[Any]]] = {}
         for key, val in batch.items():
             if isinstance(val, torch.Tensor):
                 tensorized[key] = val.unsqueeze(0).to(STATE.device)
@@ -458,8 +486,22 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
 
     except HTTPException:
         raise
+    except (ValueError, KeyError) as e:
+        logger.error("预测请求错误 [%s]: %s", type(e).__name__, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"请求参数错误: {e}",
+        ) from e
+    except RuntimeError as e:
+        logger.error("预测运行时错误 [%s]: %s", type(e).__name__, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="预测过程中发生运行时错误",
+        ) from e
     except Exception as e:
-        logger.error("预测错误: %s", e, exc_info=True)
+        logger.error(
+            "预测未知错误 [%s]: %s", type(e).__name__, e, exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="预测过程中发生错误",
@@ -527,8 +569,22 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
 
     except HTTPException:
         raise
+    except (ValueError, KeyError) as e:
+        logger.error("批量预测请求错误 [%s]: %s", type(e).__name__, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"批量预测请求参数错误: {e}",
+        ) from e
+    except RuntimeError as e:
+        logger.error("批量预测运行时错误 [%s]: %s", type(e).__name__, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="批量预测过程中发生运行时错误",
+        ) from e
     except Exception as e:
-        logger.error("批量预测错误: %s", e, exc_info=True)
+        logger.error(
+            "批量预测未知错误 [%s]: %s", type(e).__name__, e, exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="批量预测过程中发生错误",
@@ -561,7 +617,25 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
             try:
                 sequence = STATE.variant_workflow.fetch_sequence_from_uniprot(request.uniprot_id)
                 logger.info(f"Fetched sequence from UniProt for {request.uniprot_id}")
-            except Exception as e:
+            except (ConnectionError, TimeoutError) as e:
+                logger.warning("UniProt fetch network error [%s]: %s", type(e).__name__, e)
+                warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=f"Could not reach UniProt for {request.uniprot_id}: {e}",
+                ) from e
+            except (ValueError, KeyError) as e:
+                logger.warning("UniProt fetch parse error [%s]: %s", type(e).__name__, e)
+                warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not fetch sequence for {request.uniprot_id}: {e}",
+                ) from e
+            except (TypeError, AttributeError, OSError) as e:
+                logger.warning(
+                    "UniProt fetch unexpected error [%s]: %s",
+                    type(e).__name__, e, exc_info=True,
+                )
                 warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -633,8 +707,17 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
                 variant_label = STATE.idx_to_label.get(variant_pred_idx, "unknown")
                 # Express the cell-state prediction as the predicted state.
                 cell_state_prediction = variant_label
-            except Exception as exc:
-                logger.warning("Variant cell-state prediction failed: %s", exc)
+            except (ValueError, KeyError, RuntimeError) as exc:
+                logger.warning(
+                    "Variant cell-state prediction failed [%s]: %s",
+                    type(exc).__name__, exc,
+                )
+                warnings_list.append(f"Cell-state prediction unavailable: {exc}")
+            except (TypeError, AttributeError, OSError) as exc:
+                logger.warning(
+                    "Variant cell-state prediction unexpected error [%s]: %s",
+                    type(exc).__name__, exc, exc_info=True,
+                )
                 warnings_list.append(f"Cell-state prediction unavailable: {exc}")
 
         processing_time_ms = (time.time() - start_time) * 1000
@@ -658,8 +741,23 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
 
     except HTTPException:
         raise
+    except (ValueError, KeyError) as e:
+        logger.error("Variant prediction request error [%s]: %s", type(e).__name__, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Variant prediction request error: {e}",
+        ) from e
+    except RuntimeError as e:
+        logger.error("Variant prediction runtime error [%s]: %s", type(e).__name__, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Variant prediction runtime error",
+        ) from e
     except Exception as e:
-        logger.error("Variant prediction error: %s", e, exc_info=True)
+        logger.error(
+            "Variant prediction unexpected error [%s]: %s",
+            type(e).__name__, e, exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Variant prediction failed: {str(e)}",

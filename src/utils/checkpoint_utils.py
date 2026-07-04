@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+from typing_extensions import TypedDict
 
 from .config import Config
 from .logging import setup_logger
@@ -28,7 +29,28 @@ from .io import safe_torch_load
 logger = setup_logger(__name__)
 
 
-def extract_model_state_dict(checkpoint: Any) -> Dict[str, Any]:
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class DiagnoseResult(TypedDict):
+    """Shape of the dict returned by ``diagnose_load_result``."""
+
+    missing_keys: list
+    unexpected_keys: list
+    missing_keys_count: int
+    unexpected_keys_count: int
+    checkpoint_path: Optional[str]
+
+
+class StateDictMismatchResult(TypedDict):
+    """Shape of the dict returned by ``diagnose_state_dict_mismatch``."""
+
+    missing_keys: List[str]
+    unexpected_keys: List[str]
+
+
+def extract_model_state_dict(checkpoint: Any) -> Dict[str, torch.Tensor]:
     """从任意 checkpoint 结构中提取裸模型 ``state_dict``。
 
     支持以下格式（统一 checkpoint 合约，对应审计报告 P0-3）：
@@ -78,7 +100,7 @@ def extract_model_state_dict(checkpoint: Any) -> Dict[str, Any]:
     )
 
 
-def _strip_lightning_prefix(state_dict: Dict[str, Any]) -> Dict[str, Any]:
+def _strip_lightning_prefix(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """剥离 Lightning module 的 ``model.`` 前缀。
 
     仅当 **所有** 键都以 ``model.`` 开头时才剥离，避免误伤本就不带前缀的权重。
@@ -95,7 +117,7 @@ def diagnose_load_result(
     missing_keys: list,
     unexpected_keys: list,
     checkpoint_path: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> DiagnoseResult:
     """汇总 ``load_state_dict`` 的 missing/unexpected，给出可读诊断。"""
     return {
         "missing_keys": missing_keys,
@@ -163,7 +185,7 @@ def load_checkpoint_with_config(
         try:
             config_obj = Config.from_yaml(str(resolved_config_path))
             logger.info("已加载 checkpoint 配置: %s", resolved_config_path)
-        except Exception as exc:  # pragma: no cover - 配置解析错误属于异常路径；难以在单测中稳定复现 YAML 语法/类型错误经 Config.from_yaml 抛出的多种底层异常，故保留 no cover
+        except (OSError, ValueError, TypeError) as exc:  # pragma: no cover - 配置解析错误属于异常路径；难以在单测中稳定复现 YAML 语法/类型错误经 Config.from_yaml 抛出的多种底层异常，故保留 no cover
             logger.warning("加载配置 %s 失败: %s", resolved_config_path, exc)
             config_obj = None
     else:
@@ -208,9 +230,9 @@ def resolve_inference_config(
 
 
 def diagnose_state_dict_mismatch(
-    model_state_keys: Dict[str, Any],
-    checkpoint_state_keys: Dict[str, Any],
-) -> Dict[str, list]:
+    model_state_keys: Dict[str, torch.Tensor],
+    checkpoint_state_keys: Dict[str, torch.Tensor],
+) -> StateDictMismatchResult:
     """比较模型与 checkpoint 的 state_dict 键，输出缺失/多余键。"""
     model_keys = set(model_state_keys)
     ckpt_keys = set(checkpoint_state_keys)

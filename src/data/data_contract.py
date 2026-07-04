@@ -27,9 +27,10 @@ the stricter bar a *release-eligible* dataset must clear.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
+from typing_extensions import TypedDict
 
 from ..utils.logging import setup_logger
 
@@ -46,11 +47,55 @@ RECOMMENDED_COLUMNS = (
 VALID_AA = set("ACDEFGHIKLMNPQRSTVWY")
 
 
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class PTMSiteRaw(TypedDict, total=False):
+    """Shape of a single parsed PTM site dict from data contract parsing."""
+
+    position: int
+    type: str
+
+
+class ContractReport(TypedDict):
+    """Shape of the dict returned by ``validate_data_contract``."""
+
+    ok: bool
+    hard_failures: List[str]
+    warnings: List[str]
+    missing_required: List[str]
+    missing_recommended: List[str]
+    invalid_ptm_rows: int
+    row_count: int
+
+
+class SequenceLengthProfile(TypedDict):
+    """Shape of the sequence_length sub-dict in dataset profiles."""
+
+    min: int
+    max: int
+    mean: float
+
+
+class DatasetProfile(TypedDict, total=False):
+    """Shape of the dict returned by ``profile_dataset``."""
+
+    row_count: int
+    label_distribution: Dict[str, int]
+    num_classes: int
+    sequence_length: SequenceLengthProfile
+    duplicate_rate: float
+    ptm_type_distribution: Dict[str, int]
+    homology_leakage_accessions: int
+    homology_leakage_warning: str
+
+
 class DataContractError(ValueError):
     """Raised when a dataset violates the real-data release contract."""
 
 
-def _parse_ptm_sites(raw: Any) -> List[Dict[str, Any]]:
+def _parse_ptm_sites(raw: Any) -> List[PTMSiteRaw]:
     """Tolerantly parse a ptm_sites cell into a list of dicts.
 
     Accepts an already-parsed list, a JSON string, or empty/NaN. Returns ``[]``
@@ -78,7 +123,7 @@ def validate_data_contract(
     df: pd.DataFrame,
     *,
     require_all_rows_valid_ptm: bool = False,
-) -> Dict[str, Any]:
+) -> ContractReport:
     """Validate ``df`` against the real-data release contract.
 
     Args:
@@ -165,14 +210,14 @@ def validate_data_contract(
     }
 
 
-def profile_dataset(df: pd.DataFrame, label_col: str = "cell_state") -> Dict[str, Any]:
+def profile_dataset(df: pd.DataFrame, label_col: str = "cell_state") -> DatasetProfile:
     """Produce a dataset profile for ``artifact_manifest.json`` provenance (P1-1).
 
     Covers: sample count, label distribution, PTM-type distribution, sequence
     length stats, duplicate rate, and a homology-leakage heuristic when an
     accession column is present.
     """
-    profile: Dict[str, Any] = {"row_count": int(len(df))}
+    profile: DatasetProfile = {"row_count": int(len(df))}
 
     if label_col in df.columns:
         dist = df[label_col].dropna().astype(str).value_counts().to_dict()

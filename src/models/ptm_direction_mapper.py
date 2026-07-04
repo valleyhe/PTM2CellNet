@@ -20,6 +20,19 @@ from src.data.schemas import PTMSite
 
 logger = logging.getLogger(__name__)
 
+try:
+    import requests as _requests
+    _REQUESTS_AVAILABLE = True
+except ImportError:
+    _REQUESTS_AVAILABLE = False
+
+
+# Exception types to catch when gene mapper makes network calls.
+if _REQUESTS_AVAILABLE:
+    _NetworkError = _requests.RequestException
+else:
+    _NetworkError = OSError
+
 
 # --------------------------------------------------------------------------
 # Direction codes
@@ -310,7 +323,7 @@ class PTMDirectionMapper:
             uniprot_id = self.gene_mapper.map_gene_to_uniprot(gene_name)
             if uniprot_id and uniprot_id in gene_to_idx:
                 return gene_to_idx[uniprot_id], 1
-        except Exception as e:
+        except (_NetworkError, ValueError, KeyError) as e:
             logger.debug(f"GeneMapper lookup failed for '{gene_name}': {e}")
 
         # Unknown gene - mask out (D-08, D-10)

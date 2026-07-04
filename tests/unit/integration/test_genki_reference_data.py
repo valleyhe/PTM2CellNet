@@ -58,7 +58,7 @@ class TestReferenceDataErrors:
 
         def raise_for_scipy(name, package=None):
             if name == "scipy":
-                raise Exception("import failed")
+                raise ImportError("import failed")
             return original_import_module(name, package)
 
         monkeypatch.setattr(importlib, "import_module", raise_for_scipy)

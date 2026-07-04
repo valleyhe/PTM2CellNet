@@ -1,10 +1,11 @@
-# mypy: disable-error-code="annotation-unchecked,assignment,no-any-return"
+# mypy: disable-error-code="annotation-unchecked"
 """
 注意力池化模块
 功能概述: 提供基于attention的序列聚合方法，替代简单的mean pooling
 """
 
-from typing import Optional
+import typing
+from typing import Optional, Union
 
 import torch
 from torch import nn
@@ -109,7 +110,7 @@ class AttentionPooling(nn.Module):
         # 输出投影
         output = self.out_proj(output)
 
-        return output
+        return typing.cast(torch.Tensor, output)
 
 
 class MultiHeadAttentionPooling(nn.Module):
@@ -151,7 +152,7 @@ class MultiHeadAttentionPooling(nn.Module):
 
         # 聚合多个query的输出
         if num_queries > 1:
-            self.query_agg = nn.Linear(hidden_dim * num_queries, hidden_dim)
+            self.query_agg: Union[nn.Linear, nn.Identity] = nn.Linear(hidden_dim * num_queries, hidden_dim)
         else:
             self.query_agg = nn.Identity()
 
@@ -198,7 +199,7 @@ class MultiHeadAttentionPooling(nn.Module):
         else:
             output = outputs[0]
 
-        return output
+        return typing.cast(torch.Tensor, output)
 
 
 class WeightedMeanPooling(nn.Module):

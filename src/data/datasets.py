@@ -5,7 +5,7 @@ PyTorch数据集模块
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 
 import pandas as pd
 import torch
@@ -25,6 +25,76 @@ from .dataset_base import PTMDatasetBase
 logger = setup_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# TypedDict definitions replacing Dict[str, Any] annotations
+# ---------------------------------------------------------------------------
+
+
+class _PtmSiteDict(TypedDict, total=False):
+    """Shape of a single PTM site dictionary in data loading.
+
+    ``position`` is always present at runtime but declared total=False so
+    that partially-constructed dicts still type-check without casts.
+    """
+
+    position: int
+    type: str
+    residue: str
+    confidence: float
+    gene_name: str
+    gene_symbol: str
+    gene: str
+
+
+class _DataConfigSection(TypedDict, total=False):
+    """Nested ``config["data"]`` section."""
+
+    max_sequence_length: int
+    valid_amino_acids: List[str]
+    ptm_types: List[str]
+    cell_states: List[str]
+    label_to_idx: Dict[str, int]
+    cache_dir: str
+    use_davf: bool
+    persistent_workers: bool
+    pin_memory: bool
+
+
+class _FeaturesConfigSection(TypedDict, total=False):
+    """Nested ``config["features"]`` section."""
+
+    sequence_encoding: str
+    kmer_size: int
+    include_physicochemical: bool
+    include_ptm_features: bool
+    include_structural_features: bool
+    structural_source: str
+    use_feature_extractor: bool
+
+
+class _AugmentationConfigSection(TypedDict, total=False):
+    """Nested ``config["augmentation"]`` section (or preset dict)."""
+
+    sequence_augment_prob: float
+    max_truncate_ratio: float
+    mask_token_id: int
+    mask_prob: float
+    random_swap_prob: float
+    ptm_drop_prob: float
+    ptm_noise_prob: float
+    noise_radius: int
+    davf_drop_prob: float
+    davf_noise_prob: float
+
+
+class _DatasetConfig(TypedDict, total=False):
+    """Top-level config dict accepted by PTMDataset / PTMPlainDataModule / ESMTokenizedDataset."""
+
+    data: _DataConfigSection
+    features: _FeaturesConfigSection
+    augmentation: _AugmentationConfigSection
+
+
 class PTMDataset(PTMDatasetBase):
     """
     PTM数据集类
@@ -35,7 +105,7 @@ class PTMDataset(PTMDatasetBase):
         self,
         df: pd.DataFrame,
         feature_extractor: Optional[FeatureExtractor] = None,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[_DatasetConfig] = None,
         return_sequence: bool = True,
         return_ptm: bool = True,
         return_label: bool = True,
@@ -59,7 +129,7 @@ class PTMDataset(PTMDatasetBase):
 
         # Pre-parse PTM sites JSON to avoid repeated json.loads in __getitem__
         # 接入 DatasetCache：当 data.cache_dir 配置时，缓存预解析的 PTM 位点列表。
-        self._parsed_ptm_sites: List[Optional[List[Dict[str, Any]]]] = []
+        self._parsed_ptm_sites: List[Optional[List[_PtmSiteDict]]] = []
         cache_key_config = {
             "ptm_types": self.ptm_types,
             "max_sequence_length": self.config.get("data", {}).get("max_sequence_length", 1000),
@@ -185,7 +255,7 @@ class PTMDataset(PTMDatasetBase):
 
         return seq_tensor
 
-    def _encode_ptm(self, ptm_sites: List[Dict[str, Any]], sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _encode_ptm(self, ptm_sites: List[_PtmSiteDict], sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """编码PTM位点（ptm_sites已是解析后的列表）"""
         ptm_mask = torch.zeros(self.max_sequence_length, dtype=torch.float32)
         ptm_types = torch.zeros(self.max_sequence_length, dtype=torch.long)
@@ -208,7 +278,7 @@ class PTMDataset(PTMDatasetBase):
     # DAVF gene name column candidates, checked in priority order
     _DAVF_GENE_COLUMNS = ("gene_name", "gene_symbol", "gene", "gene_names", "gene_symbols")
 
-    def _extract_davf_gene_names(self, row: pd.Series, valid_sites: List[Dict[str, Any]]) -> List[str]:
+    def _extract_davf_gene_names(self, row: pd.Series, valid_sites: List[_PtmSiteDict]) -> List[str]:
         """Extract gene names for DAVF from PTM site dicts or row-level column.
 
         Checks each PTM site dict for gene_name/gene_symbol/gene keys first.
@@ -250,7 +320,9 @@ class PTMDataset(PTMDatasetBase):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """获取单个样本"""
         row = self.df.iloc[idx]
-        sample: Dict[str, Any] = {}
+        # Builder accumulates mixed types; cast to Dict[str, torch.Tensor] at return
+        _SampleValue = Union[torch.Tensor, List[int], List[str]]
+        sample: Dict[str, _SampleValue] = {}
 
         if self.return_sequence and "sequence" in row:
             sequence = str(row["sequence"])
@@ -342,7 +414,7 @@ class PTMPlainDataModule:
         train_df: pd.DataFrame,
         val_df: Optional[pd.DataFrame] = None,
         test_df: Optional[pd.DataFrame] = None,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[_DatasetConfig] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         use_feature_extractor: bool = False,
@@ -495,7 +567,7 @@ class ESMTokenizedDataset(PTMDatasetBase):
         df: pd.DataFrame,
         tokenizer,
         max_length: int = 1024,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[_DatasetConfig] = None,
         training: bool = True,
         sequence_augmenter: Optional[SequenceAugmenter] = None,
         ptm_augmenter: Optional[PTMAugmenter] = None,

@@ -8,8 +8,54 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 from scipy import stats
+from typing_extensions import TypedDict
 
 from .contracts import PerturbationResult
+
+
+class _GeneRankRow(TypedDict):
+    affected_gene: str
+    dis: float | None
+    rank: int
+    gene_index: int | None
+    hit: int
+    frequency: float
+    empirical_pvalue: float | None
+    adjusted_pvalue: float | None
+    is_significant: bool
+
+
+class _ComparisonMetrics(TypedDict, total=False):
+    top_gene_overlap_at_3: int
+    top_gene_overlap_at_10: int
+
+
+class _ResultSummaryPayload(TypedDict):
+    gene_symbol: str
+    mode: str
+    distance_score: float
+    scoring_method: str | None
+    significant_gene_count: int
+    top_ranked_genes: List[str]
+    top_significant_genes: List[str]
+    top_gsea_genes: List[str]
+    null_distribution_summary: Dict[str, Any]
+
+
+class _ComparisonSummaryPayload(TypedDict):
+    gene_symbol: str
+    backend: Dict[str, Any]
+    hard_ko: _ResultSummaryPayload
+    soft_ptm: _ResultSummaryPayload
+    comparison: _ComparisonMetrics
+
+
+class _TwoStageSummaryPayload(TypedDict):
+    total_results: int
+    mode_counts: Dict[str, int]
+    unique_genes: List[str]
+    top_results: List[_ResultSummaryPayload]
+    results: List[_ResultSummaryPayload]
 
 
 def build_generank_dataframe(result: PerturbationResult) -> pd.DataFrame:
@@ -23,7 +69,7 @@ def build_generank_dataframe(result: PerturbationResult) -> pd.DataFrame:
     frequencies = metadata.get("bagging_frequencies", {})
     significant = set(metadata.get("significant_genes", []))
 
-    rows: List[Dict[str, Any]] = []
+    rows: List[_GeneRankRow] = []
     for rank, gene_name in enumerate(result.ranked_genes, start=1):
         rows.append(
             {
@@ -77,7 +123,7 @@ def save_gsea_ranked_tsv(result: PerturbationResult, file_path: str) -> None:
     gsea.to_csv(path, sep="\t", index=False, encoding="utf-8")
 
 
-def build_result_summary_payload(result: PerturbationResult, top_k: int = 5) -> Dict[str, Any]:
+def build_result_summary_payload(result: PerturbationResult, top_k: int = 5) -> _ResultSummaryPayload:
     """Build a compact JSON-serializable summary for one perturbation result."""
     gsea = build_gsea_ranked_dataframe(result)
     significant_genes = list(result.metadata.get("significant_genes", []))
@@ -97,10 +143,10 @@ def build_result_summary_payload(result: PerturbationResult, top_k: int = 5) -> 
 def build_comparison_summary_payload(
     hard: PerturbationResult,
     soft: PerturbationResult,
-    comparison: Dict[str, Any],
+    comparison: _ComparisonMetrics,
     backend_info: Dict[str, Any],
     top_k: int = 5,
-) -> Dict[str, Any]:
+) -> _ComparisonSummaryPayload:
     """Build a unified summary payload for hard-vs-soft perturbation comparison."""
     return {
         "gene_symbol": hard.gene_symbol,
@@ -111,7 +157,7 @@ def build_comparison_summary_payload(
     }
 
 
-def render_comparison_summary_markdown(payload: Dict[str, Any]) -> str:
+def render_comparison_summary_markdown(payload: _ComparisonSummaryPayload) -> str:
     """Render a human-readable markdown summary for perturbation comparison."""
     hard = payload["hard_ko"]
     soft = payload["soft_ptm"]
@@ -141,7 +187,7 @@ def render_comparison_summary_markdown(payload: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_two_stage_summary_payload(results: List[PerturbationResult], top_k: int = 5) -> Dict[str, Any]:
+def build_two_stage_summary_payload(results: List[PerturbationResult], top_k: int = 5) -> _TwoStageSummaryPayload:
     """Build an aggregate JSON summary for two-stage explanation results."""
     per_result = [build_result_summary_payload(result, top_k=top_k) for result in results]
     mode_counts: Dict[str, int] = {}

@@ -6,9 +6,40 @@ perturbation execution and significance analysis.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+from typing_extensions import TypedDict
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class PerturbationParams(TypedDict, total=False):
+    """Shape of a single perturbation dict in ``run_batch_ptm_perturbations``."""
+
+    protein_id: str
+    ptm_type: str
+    ptm_position: int
+    gene_symbol: str
+    mode: str
+    magnitude: float
+    node_decay: float
+    edge_scale: float
+
+
+class StrategyConfig(TypedDict, total=False):
+    """Shape of a strategy config dict in ``compare_perturbation_strategies``."""
+
+    name: str
+    protein_id: str
+    ptm_type: str
+    ptm_position: int
+    mode: str
+    magnitude: float
+    node_decay: float
+    edge_scale: float
 
 
 @dataclass(frozen=True)
@@ -22,6 +53,7 @@ def apply_soft_perturbation(
     counts: np.ndarray,
     net: np.ndarray,
     profile: PTMPerturbationProfile,
+    method: str = "multiply",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Apply a soft PTM perturbation to counts and network matrices.
 
@@ -30,16 +62,32 @@ def apply_soft_perturbation(
         net: Gene-gene interaction network [n_genes, n_genes].
         profile: PTM perturbation profile specifying which gene to target
             and by how much to decay/scale.
+        method: Perturbation method. ``"multiply"`` (default) scales the
+            target gene's counts and edges by ``node_decay`` / ``edge_scale``.
+            ``"add"`` adds ``node_decay`` to the target gene's counts column
+            and ``edge_scale`` to the target gene's row and column in the
+            network (additive perturbation, e.g. for over-expression).
 
     Returns:
         Tuple of (perturbed_counts, perturbed_network).
+
+    Raises:
+        ValueError: If *method* is not ``"multiply"`` or ``"add"``.
     """
+    if method not in ("multiply", "add"):
+        raise ValueError(f"method must be 'multiply' or 'add', got {method!r}")
+
     counts_new = np.array(counts, dtype=float, copy=True)
     net_new = np.array(net, dtype=float, copy=True)
 
-    counts_new[:, profile.target_gene_index] *= profile.node_decay
-    net_new[:, profile.target_gene_index] *= profile.edge_scale
-    net_new[profile.target_gene_index, :] *= profile.edge_scale
+    if method == "multiply":
+        counts_new[:, profile.target_gene_index] *= profile.node_decay
+        net_new[:, profile.target_gene_index] *= profile.edge_scale
+        net_new[profile.target_gene_index, :] *= profile.edge_scale
+    else:  # method == "add"
+        counts_new[:, profile.target_gene_index] += profile.node_decay
+        net_new[:, profile.target_gene_index] += profile.edge_scale
+        net_new[profile.target_gene_index, :] += profile.edge_scale
     return counts_new, net_new
 
 
@@ -168,7 +216,7 @@ class PTMVirtualPerturbationEngine:
 
     def run_batch_ptm_perturbations(
         self,
-        perturbations: List[Dict[str, Any]],
+        perturbations: List[PerturbationParams],
     ) -> List[Any]:
         """Run multiple PTM-driven virtual perturbations in batch.
 
@@ -196,7 +244,7 @@ class PTMVirtualPerturbationEngine:
     def compare_perturbation_strategies(
         self,
         gene_symbol: str,
-        strategies: List[Dict[str, Any]],
+        strategies: List[StrategyConfig],
     ) -> Dict[str, Any]:
         """Compare different perturbation strategies for a target gene.
 
@@ -209,7 +257,7 @@ class PTMVirtualPerturbationEngine:
         Returns:
             Dict mapping strategy name to PerturbationResult.
         """
-        results: Dict[str, Any] = {}
+        results: Dict[str, Union[Any, Dict[str, Any]]] = {}
         for strategy in strategies:
             name = strategy.get("name", strategy.get("mode", "unknown"))
             result = self.run_ptm_perturbation(

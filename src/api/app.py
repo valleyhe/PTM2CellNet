@@ -9,7 +9,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, List, Optional, Tuple, TypedDict, cast
 
 import torch
 from fastapi import FastAPI, Request
@@ -31,9 +31,64 @@ from ..utils.logging import setup_logger
 logger = setup_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# TypedDict definitions replacing Dict[str, Any] annotations
+# ---------------------------------------------------------------------------
+
+class _DataSection(TypedDict, total=False):
+    """Nested 'data' section of a training config YAML."""
+    cell_states: List[str]
+
+
+class _ModelSection(TypedDict, total=False):
+    """Nested 'model' section of a training config YAML."""
+    num_classes: int
+
+
+class _TrainingConfig(TypedDict, total=False):
+    """Config dict loaded from a training YAML file."""
+    data: _DataSection
+    model: _ModelSection
+    model_kind: str
+    model_card: str
+    data_provenance: str
+
+
+class _ArtifactManifest(TypedDict, total=False):
+    """Manifest dict loaded from a sibling artifact_manifest.json."""
+    cell_states: List[str]
+    model_kind: str
+    model_card: str
+    data_provenance: str
+
+
+class _LatencyStats(TypedDict):
+    """Percentile latency statistics."""
+    avg_ms: float
+    p50_ms: float
+    p95_ms: float
+    p99_ms: float
+
+
+class _MetricsSnapshot(TypedDict):
+    """Return type of _RuntimeMetrics.snapshot()."""
+    request_count: int
+    error_count: int
+    error_rate: float
+    latency: _LatencyStats
+    latency_buckets: dict[str, int]
+
+
+class _GpuMetrics(TypedDict, total=False):
+    """GPU utilization metrics collected at /metrics."""
+    gpu_utilization_pct: float
+    gpu_memory_allocated_mb: float
+    gpu_memory_reserved_mb: float
+
+
 def _resolve_autoinit_cell_states(
-    config: Dict[str, Any],
-    manifest: Dict[str, Any],
+    config: _TrainingConfig,
+    manifest: _ArtifactManifest,
     env_cell_states: Optional[str],
 ) -> Tuple[Optional[List[str]], str]:
     """Resolve cell-state labels for auto-init following a strict priority.
@@ -68,7 +123,7 @@ def _resolve_autoinit_cell_states(
     return None, "none"
 
 
-def _infer_logits_dim(state_dict: Dict[str, Any]) -> Optional[int]:
+def _infer_logits_dim(state_dict: dict[str, torch.Tensor]) -> Optional[int]:
     """Best-effort: infer the classifier output dimension from checkpoint weights.
 
     Looks for the final classifier weight/bias by name patterns common across
@@ -123,7 +178,7 @@ def _infer_logits_dim(state_dict: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _resolve_autoinit_config(checkpoint_path: str, config_path: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def _resolve_autoinit_config(checkpoint_path: str, config_path: str) -> Tuple[_TrainingConfig, _ArtifactManifest]:
     """Load config dict + sibling manifest dict for auto-init.
 
     Returns ``(config, manifest)``; either may be empty when the file is absent
@@ -132,20 +187,20 @@ def _resolve_autoinit_config(checkpoint_path: str, config_path: str) -> Tuple[Di
     """
     import yaml
 
-    config: Dict[str, Any] = {}
+    config: _TrainingConfig = {}
     if Path(config_path).exists():
         try:
             with open(config_path) as f:
-                config = yaml.safe_load(f) or {}
+                config = cast(_TrainingConfig, yaml.safe_load(f) or {})
         except (yaml.YAMLError, OSError) as exc:
             logger.warning("读取 config %s 失败: %s", config_path, exc)
 
-    manifest: Dict[str, Any] = {}
+    manifest: _ArtifactManifest = {}
     manifest_path = Path(checkpoint_path).with_name("artifact_manifest.json")
     if manifest_path.exists():
         try:
             with open(manifest_path) as f:
-                manifest = json.load(f) or {}
+                manifest = cast(_ArtifactManifest, json.load(f) or {})
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("读取 manifest %s 失败: %s", manifest_path, exc)
 
@@ -242,7 +297,7 @@ def _try_auto_initialize() -> None:
         if isinstance(config["model"], dict):
             config["model"]["num_classes"] = len(cell_states)
 
-        model = PTM2CellNet.from_config(config)
+        model = PTM2CellNet.from_config(cast(dict[str, Any], config))
 
         # P0-2: 启动自动初始化同样使用严格加载。权重不匹配时不进入 healthy 状态，
         # 避免后续预测来自随机/部分初始化模型（这比启动失败更危险）。
@@ -259,8 +314,8 @@ def _try_auto_initialize() -> None:
             "自动初始化标签来源: %s, cell_states=%s (num_classes=%d)",
             label_source, cell_states, len(cell_states),
         )
-        initialize_model(model, cell_states, model_device=device, config=config)
-        record_model_provenance(checkpoint_path, config_path, config)
+        initialize_model(model, cell_states, model_device=device, config=cast(dict[str, Any], config))
+        record_model_provenance(checkpoint_path, config_path, cast(dict[str, Any], config))
 
         # P1-3: warn loudly when the auto-loaded model is only a demo, so
         # operators don't ship biological predictions from a smoke model.
@@ -276,7 +331,7 @@ def _try_auto_initialize() -> None:
         initialize_pathway_mapper()
         try:
             initialize_variant_workflow(checkpoint_path)
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError) as e:
             # Variant workflow is optional; continue starting the API without it
             # so that standard prediction endpoints remain available.
             logger.warning("Variant workflow initialization failed: %s", e)
@@ -321,7 +376,7 @@ class _RuntimeMetrics:
             self._latency_samples_ms.pop(0)
         self._latency_samples_ms.append(duration_ms)
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> _MetricsSnapshot:
         samples = self._latency_samples_ms
         count = len(samples)
         if count:
@@ -330,28 +385,28 @@ class _RuntimeMetrics:
             p50 = sorted_samples[count // 2]
             p95 = sorted_samples[min(int(count * 0.95), count - 1)]
             p99 = sorted_samples[min(int(count * 0.99), count - 1)]
-            latency_stats = {
+            latency_stats: _LatencyStats = {
                 "avg_ms": round(avg, 3),
                 "p50_ms": round(p50, 3),
                 "p95_ms": round(p95, 3),
                 "p99_ms": round(p99, 3),
             }
         else:
-            latency_stats = {"avg_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0}
+            latency_stats = cast(_LatencyStats, {"avg_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0})
 
-        bucket_counts: Dict[str, int] = {}
+        bucket_counts: dict[str, int] = {}
         for bound in self._latency_buckets_ms:
             bucket_counts[f"le_{bound}ms"] = sum(1 for s in samples if s <= bound)
         bucket_counts["le_+Inf"] = count
 
         error_rate = (self.error_count / self.request_count) if self.request_count else 0.0
-        return {
+        return cast(_MetricsSnapshot, {
             "request_count": self.request_count,
             "error_count": self.error_count,
             "error_rate": round(error_rate, 6),
             "latency": latency_stats,
             "latency_buckets": bucket_counts,
-        }
+        })
 
 
 _RUNTIME_METRICS = _RuntimeMetrics()
@@ -444,7 +499,7 @@ class _RateLimitState:
         self.requests_per_minute = requests_per_minute
         self.burst = burst
         # key -> list of request timestamps (epoch seconds).
-        self._hits: Dict[str, List[float]] = {}
+        self._hits: dict[str, list[float]] = {}
         import threading
 
         self._lock = threading.Lock()
@@ -728,7 +783,7 @@ def _setup_monitoring(app: FastAPI) -> None:
         if Path(config_path).exists():
             cfg = yaml.safe_load(open(config_path, encoding="utf-8")) or {}
             monitoring_config = cfg.get("monitoring", {})
-    except Exception as exc:  # pragma: no cover - config loading is best-effort
+    except (OSError, ValueError) as exc:  # pragma: no cover - config loading is best-effort
         logger.debug("Could not load monitoring config: %s", exc)
 
     metrics_enabled = monitoring_config.get("metrics_enabled", False)
@@ -797,7 +852,7 @@ def _setup_monitoring(app: FastAPI) -> None:
                     lines.append(
                         f"ptm2cellnet_gpu_memory_reserved_mb {round(reserved / (1024 * 1024), 2)}"
                     )
-            except Exception as exc:  # GPU metrics are best-effort.
+            except (RuntimeError, OSError, ModuleNotFoundError) as exc:  # GPU metrics are best-effort.
                 logger.debug("GPU metrics unavailable: %s", exc)
             return "\n".join(lines) + "\n"
 
@@ -817,7 +872,7 @@ def _setup_monitoring(app: FastAPI) -> None:
 
             runtime = _RUNTIME_METRICS.snapshot()
 
-            gpu_metrics: Dict[str, Any] = {}
+            gpu_metrics: _GpuMetrics = {}
             try:
                 if torch.cuda.is_available():
                     gpu_metrics["gpu_utilization_pct"] = round(
@@ -831,7 +886,7 @@ def _setup_monitoring(app: FastAPI) -> None:
                     gpu_metrics["gpu_memory_reserved_mb"] = round(
                         reserved / (1024 * 1024), 2
                     )
-            except Exception as exc:  # GPU metrics are best-effort.
+            except (RuntimeError, OSError, ModuleNotFoundError) as exc:  # GPU metrics are best-effort.
                 logger.debug("GPU metrics unavailable: %s", exc)
 
             if not want_json:

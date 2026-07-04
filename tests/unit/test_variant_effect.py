@@ -167,7 +167,7 @@ class TestPredictPTMEffectsForVariant:
         p_good = mock.Mock(spec=VariantPTMEffectPredictor)
         p_good.predict_variant_effect.return_value = {"effect": "neutral", "delta_prob": 0.0}
         p_bad = mock.Mock(spec=VariantPTMEffectPredictor)
-        p_bad.predict_variant_effect.side_effect = Exception("boom")
+        p_bad.predict_variant_effect.side_effect = RuntimeError("boom")
 
         models = {"Good": p_good, "Bad": p_bad}
         results = predict_ptm_effects_for_variant("P1", 1, "A", "V", "ACDEFG", models)

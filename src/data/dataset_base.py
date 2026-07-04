@@ -3,15 +3,42 @@
 功能概述: 提供共享功能和工具，减少ESMTokenizedDataset和PTMDataset之间的重复代码
 """
 import json
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+from typing_extensions import TypedDict
 
 from ..utils.logging import setup_logger
 
 logger = setup_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class PTMSiteDict(TypedDict, total=False):
+    """Shape of a single PTM site dict used in dataset processing."""
+
+    position: int
+    type: str
+    amino_acid: Optional[str]
+
+
+class DatasetStatistics(TypedDict, total=False):
+    """Shape of the dict returned by ``PTMDatasetBase.get_statistics``."""
+
+    num_samples: int
+    num_features: int
+    columns: List[str]
+    sequence_length: Dict[str, Union[int, float]]
+    num_classes: int
+    labels: List[str]
+    label_distribution: Dict[str, int]
+    ptm_per_sample: Dict[str, Union[int, float]]
+    ptm_type_distribution: Dict[str, int]
 
 
 class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
@@ -23,7 +50,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
     def __init__(
         self,
         df: pd.DataFrame,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Union[str, int, float, List[Any], Dict[str, Any]]]] = None,
     ):
         self.df = df.reset_index(drop=True)
         self.config = config or {}
@@ -58,7 +85,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             try:
                 from .validation import DatasetCache
                 self.dataset_cache = DatasetCache(cache_dir)
-            except Exception as exc:  # 缓存初始化失败不阻塞数据加载
+            except (ImportError, TypeError, ValueError) as exc:  # 缓存初始化失败不阻塞数据加载
                 logger.warning("DatasetCache 初始化失败 (%s)，将不使用缓存", exc)
 
     def _get_ptm_types(self) -> List[str]:
@@ -87,7 +114,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             )
         raise ValueError(f"未知标签: {label}，可用标签: {list(self.label_to_idx.keys())}")
 
-    def _parse_ptm_sites(self, ptm_sites_json: str) -> List[Dict[str, Any]]:
+    def _parse_ptm_sites(self, ptm_sites_json: str) -> List[PTMSiteDict]:
         """解析PTM位点JSON字符串为列表"""
         try:
             if pd.isna(ptm_sites_json):
@@ -104,7 +131,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
 
         return ptm_sites if isinstance(ptm_sites, list) else []
 
-    def _validate_ptm_site(self, site: Dict[str, Any], seq_length: Optional[int] = None) -> Tuple[bool, str]:
+    def _validate_ptm_site(self, site: PTMSiteDict, seq_length: Optional[int] = None) -> Tuple[bool, str]:
         """
         验证单个PTM位点的有效性
 
@@ -161,7 +188,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
 
         return ptm_counts
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> DatasetStatistics:
         """
         获取数据集统计信息
 

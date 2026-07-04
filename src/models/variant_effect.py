@@ -115,7 +115,7 @@ class VariantPTMEffectPredictor:
         )
 
         # 加载状态字典（处理Lightning格式）
-        if 'state_dict' in checkpoint:
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
             state_dict: Dict[str, Any] = {}
             for k, v in checkpoint['state_dict'].items():
                 if k.startswith('model.'):
@@ -294,7 +294,7 @@ class VariantPTMEffectPredictor:
                     'ptm_type': self.ptm_type,
                     **effect
                 })
-            except Exception as e:
+            except (RuntimeError, ValueError) as e:
                 logger.error(f"预测失败: {uniprot_id}:{position}, 错误: {e}")
 
         return pd.DataFrame(results)
@@ -330,7 +330,7 @@ def predict_ptm_effects_for_variant(
                 sequence, position, ref_aa, alt_aa
             )
             results[ptm_type] = effect
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.error(f"PTM {ptm_type} 预测失败: {e}")
 
     return results

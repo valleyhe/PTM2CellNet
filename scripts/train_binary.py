@@ -230,7 +230,8 @@ def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="PTM2CellNet 二分类微调")
-    parser.add_argument("--config", type=str, default="configs/training/finetune_binary.yaml")
+    parser.add_argument("--config", type=str, default="configs/smoke/cnn_cpu.yaml",
+                        help="配置文件路径（首次使用推荐 configs/smoke/ 下的配置）")
     parser.add_argument("--output", type=str, default="outputs/models/binary_finetune")
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)

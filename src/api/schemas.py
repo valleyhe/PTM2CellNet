@@ -7,11 +7,16 @@
 from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
+from src.data.schemas import PTMSite as DataPTMSite
+
 
 class PTMSite(BaseModel):
     """
     PTM位点模型
     表示单个蛋白质翻译后修饰位点
+
+    Extends the data-layer :class:`src.data.schemas.PTMSite` with
+    API-specific fields (e.g. ``gene_symbol`` for DAVF inference).
 
     ``gene_symbol`` is optional but required when the request enables DAVF
     inference (DAVF plan Task 5): without a gene identifier the DAVF branch
@@ -26,6 +31,32 @@ class PTMSite(BaseModel):
         description="基因符号（如BRAF、TP53）。启用 DAVF 推理（use_davf=true）时必填，"
         "用于将 PTM 位点映射到 DAVF 基因潜在空间。",
     )
+
+    @classmethod
+    def from_data_model(cls, data_site: DataPTMSite) -> "PTMSite":
+        """Construct from the data-layer :class:`PTMSite` dataclass.
+
+        Core fields (``position``, ``type``, ``amino_acid``) are copied;
+        API-only fields (``gene_symbol``) default to ``None``.
+        """
+        return cls(
+            position=data_site.position,
+            type=data_site.type,
+            amino_acid=data_site.amino_acid,
+            gene_symbol=None,
+        )
+
+    def to_data_model(self) -> DataPTMSite:
+        """Convert to the data-layer :class:`PTMSite` dataclass.
+
+        API-only fields (``gene_symbol``) are dropped since the data
+        layer does not define them.
+        """
+        return DataPTMSite(
+            position=self.position,
+            type=self.type,
+            amino_acid=self.amino_acid,
+        )
 
 
 class PredictionRequest(BaseModel):
@@ -90,7 +121,7 @@ class PredictionResponse(BaseModel):
     pathway_impacts: Optional[List["PathwayImpact"]] = Field(None, description="信号通路影响分析")
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
 
-    @computed_field(description="预测的细胞状态（旧字段名，等价于 cell_state）")  # type: ignore[prop-decorator]
+    @computed_field(description="预测的细胞状态（旧字段名，等价于 cell_state）")  # type: ignore[prop-decorator]  # Pydantic v2 computed_field typing limitation
     @property
     def predicted_cell_state(self) -> str:
         """Legacy alias for ``cell_state`` (kept for backward compatibility)."""

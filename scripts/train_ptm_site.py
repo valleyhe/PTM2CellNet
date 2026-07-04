@@ -23,6 +23,7 @@ from lightning.pytorch.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
 )
+from lightning.pytorch.loggers import TensorBoardLogger
 
 from src.data.ptm_site_dataset import PTMSiteDataModule
 from src.models.ptm_site_predictor import create_model
@@ -225,16 +226,10 @@ def main():
             save_top_k=3,
             save_last=True,
         ),
-        EarlyStopping(
-            monitor='val_auroc',
-            patience=10,
-            mode='max',
-            verbose=True,
-        ),
     ]
 
     # Logger
-    logger = L.loggers.TensorBoardLogger(
+    logger = TensorBoardLogger(
         save_dir=output_dir / "logs",
         name=f"ptm_{args.encoder}",
     )
@@ -268,11 +263,13 @@ def main():
     print("测试模型...")
     print("=" * 60)
 
-    test_results = trainer.test(datamodule=data_module)
-
-    print("\n测试结果:")
-    for key, value in test_results[0].items():
-        print(f"  {key}: {value:.4f}")
+    try:
+        test_results = trainer.test(datamodule=data_module, ckpt_path=None)
+        print("\n测试结果:")
+        for key, value in test_results[0].items():
+            print(f"  {key}: {value:.4f}")
+    except ValueError as e:
+        print(f"测试阶段跳过（无可用 checkpoint）: {e}")
 
     print("\n" + "=" * 60)
     print("训练完成！")

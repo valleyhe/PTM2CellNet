@@ -7,15 +7,59 @@ import hashlib
 import json
 import pickle
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import pandas as pd
 import torch
+from typing_extensions import TypedDict
 
 from ..utils.io import safe_pickle_load
 from ..utils.logging import setup_logger
 
+# Optional safetensors import — provides a safer serialization format when
+# available.  Falls back to pickle when the package is not installed or when
+# the cached payload contains non-tensor data that safetensors cannot handle.
+try:
+    import safetensors.torch as st_torch
+    _HAS_SAFETENSORS = True
+except ImportError:
+    st_torch = None  # type: ignore[assignment]  # optional dep: safetensors not installed
+    _HAS_SAFETENSORS = False
+
 logger = setup_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for structured dicts used in this module
+# ---------------------------------------------------------------------------
+
+class PTMSiteDict(TypedDict, total=False):
+    """Shape of a single PTM site dictionary.
+
+    ``position`` and ``type`` are required in practice but marked optional
+    here because the validator itself checks for their presence.
+    """
+
+    position: int
+    type: str
+    amino_acid: str
+
+
+class CacheConfig(TypedDict, total=False):
+    """Shape of the config dict passed to DatasetCache methods."""
+
+    data: Dict[str, Any]  # nested data config
+
+
+class CacheInfo(TypedDict):
+    """Shape of the dict returned by ``DatasetCache.get_cache_info``."""
+
+    cache_dir: str
+    num_files: int
+    num_pkl_files: int
+    num_safetensors_files: int
+    total_size_mb: float
+    safetensors_available: bool
 
 
 class DataValidator:
@@ -55,7 +99,7 @@ class DataValidator:
 
     def validate_ptm_site(
         self,
-        site: Dict[str, Any],
+        site: PTMSiteDict,
         seq_length: Optional[int] = None
     ) -> Tuple[bool, str]:
         """
@@ -91,9 +135,9 @@ class DataValidator:
 
     def validate_ptm_sites(
         self,
-        ptm_sites: List[Dict[str, Any]],
+        ptm_sites: List[PTMSiteDict],
         seq_length: Optional[int] = None
-    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+    ) -> Tuple[List[PTMSiteDict], List[str]]:
         """
         验证PTM位点列表
 
@@ -190,10 +234,13 @@ class DatasetCache:
         - 缓存数据包含版本号，版本不匹配时自动失效
         - 缓存数据包含源数据校验和，检测数据损坏或源变更
         - 加载时使用 try/except 捕获反序列化异常并给出明确错误信息
+        - 优先使用 safetensors 格式（当可用且数据为纯张量时），消除 pickle
+          反序列化的代码注入风险；当 safetensors 不可用或数据包含非张量
+          对象时，自动回退到 pickle。
 
-    # TODO: 生产环境应考虑迁移到 safetensors 格式，彻底消除 pickle 反序列化风险。
-    #       safetensors 不支持任意 Python 对象，天然防止代码注入。
-    #       参考: https://github.com/huggingface/safetensors
+    .. note::
+        生产环境推荐安装 ``safetensors`` 以获得更安全的缓存格式。
+        参见 https://github.com/huggingface/safetensors
     """
 
     CACHE_VERSION = 1
@@ -202,7 +249,7 @@ class DatasetCache:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_cache_key(self, df: pd.DataFrame, config: Dict[str, Any]) -> str:
+    def _get_cache_key(self, df: pd.DataFrame, config: Union[CacheConfig, Dict[str, Any]]) -> str:
         """生成缓存key"""
         # 基于数据内容和配置的哈希
         data_hash = hashlib.md5(
@@ -221,10 +268,32 @@ class DatasetCache:
         ).hexdigest()
 
     def _get_cache_path(self, cache_key: str) -> Path:
-        """获取缓存文件路径"""
+        """获取缓存文件路径（pickle 格式，向后兼容）"""
         return self.cache_dir / f"{cache_key}.pkl"
 
-    def load(self, df: pd.DataFrame, config: Dict[str, Any]) -> Optional[List[Any]]:
+    def _get_safetensors_cache_path(self, cache_key: str) -> Path:
+        """获取 safetensors 格式的缓存文件路径"""
+        return self.cache_dir / f"{cache_key}.safetensors"
+
+    @staticmethod
+    def _is_tensor_data(data: List[Any]) -> bool:
+        """判断数据是否仅包含可被 safetensors 序列化的张量。
+
+        safetensors 仅支持 ``Dict[str, torch.Tensor]``，因此要使用此
+        格式，``data`` 列表中的每个元素必须是字典，且所有值都是
+        ``torch.Tensor``。
+        """
+        if not _HAS_SAFETENSORS:
+            return False
+        for item in data:
+            if not isinstance(item, dict):
+                return False
+            for value in item.values():
+                if not isinstance(value, torch.Tensor):
+                    return False
+        return True
+
+    def load(self, df: pd.DataFrame, config: Union[CacheConfig, Dict[str, Any]]) -> Optional[List[Any]]:
         """
         尝试从缓存加载数据
 
@@ -232,6 +301,8 @@ class DatasetCache:
             1. 缓存版本号必须与当前 CACHE_VERSION 一致，否则失效
             2. 源数据校验和必须匹配，否则失效（源数据已变更）
             3. 反序列化异常会被捕获并记录，不会传播
+
+        优先尝试 safetensors 格式（更安全），不存在时回退到 pickle。
 
         参数:
             df: 数据DataFrame
@@ -241,6 +312,71 @@ class DatasetCache:
             缓存的数据列表，如果不存在或验证失败则返回None
         """
         cache_key = self._get_cache_key(df, config)
+
+        # --- Try safetensors first (safer, no arbitrary code execution) ---
+        st_path = self._get_safetensors_cache_path(cache_key)
+        if _HAS_SAFETENSORS and st_path.exists():
+            try:
+                metadata_and_tensors = st_torch.load_file(str(st_path))
+                # safetensors stores everything as tensors; metadata is packed
+                # into a special key as a JSON-encoded byte tensor.
+                meta_tensor = metadata_and_tensors.pop("__cache_metadata__", None)
+                if meta_tensor is not None:
+                    import json as _json
+                    meta = _json.loads(meta_tensor.numpy().tobytes().decode("utf-8"))
+                else:
+                    meta = {}
+
+                if meta.get("cache_version") != self.CACHE_VERSION:
+                    logger.info(
+                        "safetensors 缓存版本不匹配（当前=%d, 缓存=%d）— 将重新计算。路径: %s",
+                        self.CACHE_VERSION, meta.get("cache_version"), st_path.name,
+                    )
+                    return self._load_pickle(cache_key, df)
+
+                expected_checksum = self._compute_data_checksum(df)
+                if meta.get("data_checksum", "") != expected_checksum:
+                    logger.info(
+                        "safetensors 缓存校验和不匹配 — 将重新计算。路径: %s",
+                        st_path.name,
+                    )
+                    return self._load_pickle(cache_key, df)
+
+                # Reconstruct data list from flat tensor dict.
+                # Keys are "item_{i}.{field}" → group by item index.
+                data: List[Any] = []
+                current_idx = -1
+                current_item: Dict[str, Union[torch.Tensor, Any]] = {}
+                for key in sorted(metadata_and_tensors.keys()):
+                    parts = key.split(".", 1)
+                    if len(parts) != 2:
+                        continue
+                    idx_str, field = parts
+                    idx = int(idx_str.split("_", 1)[1])
+                    if idx != current_idx:
+                        if current_item:
+                            data.append(current_item)
+                        current_item = {}
+                        current_idx = idx
+                    current_item[field] = metadata_and_tensors[key]
+                if current_item:
+                    data.append(current_item)
+
+                logger.info("从 safetensors 缓存加载数据: %s", st_path.name)
+                return data
+
+            except (OSError, ValueError, RuntimeError) as e:
+                logger.warning(
+                    "safetensors 缓存加载失败: %s: %s — 尝试 pickle 回退。路径: %s",
+                    type(e).__name__, e, st_path.name,
+                )
+                # Fall through to pickle path
+
+        # --- Fallback: pickle format ---
+        return self._load_pickle(cache_key, df)
+
+    def _load_pickle(self, cache_key: str, df: pd.DataFrame) -> Optional[List[Any]]:
+        """从 pickle 格式缓存加载数据（内部方法）。"""
         cache_path = self._get_cache_path(cache_key)
 
         if not cache_path.exists():
@@ -255,7 +391,7 @@ class DatasetCache:
                 e, cache_path.name,
             )
             return None
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.warning(
                 "缓存加载出现意外错误: %s: %s — 将重新计算。路径: %s",
                 type(e).__name__, e, cache_path.name,
@@ -291,11 +427,13 @@ class DatasetCache:
         logger.info("从缓存加载数据: %s", cache_path.name)
         return cast(List[Any], cached["data"])
 
-    def save(self, df: pd.DataFrame, config: Dict[str, Any], data: List[Any]) -> None:
+    def save(self, df: pd.DataFrame, config: Union[CacheConfig, Dict[str, Any]], data: List[Any]) -> None:
         """
         保存数据到缓存
 
         保存结构包含版本号和源数据校验和，供 load() 验证使用。
+        当数据仅包含张量且 safetensors 已安装时，优先使用 safetensors
+        格式；否则回退到 pickle。
 
         参数:
             df: 数据DataFrame
@@ -303,6 +441,37 @@ class DatasetCache:
             data: 要缓存的数据列表
         """
         cache_key = self._get_cache_key(df, config)
+
+        # --- Try safetensors first when data is pure tensors ---
+        if self._is_tensor_data(data):
+            try:
+                # Flatten data list into a single dict: "item_{i}.{field}" → tensor
+                flat_tensors: Dict[str, torch.Tensor] = {}
+                for i, item in enumerate(data):
+                    for field, value in item.items():
+                        flat_tensors[f"item_{i}.{field}"] = value
+
+                # Pack metadata as a JSON byte tensor
+                import json as _json
+                meta_bytes = _json.dumps({
+                    "cache_version": self.CACHE_VERSION,
+                    "data_checksum": self._compute_data_checksum(df),
+                }).encode("utf-8")
+                flat_tensors["__cache_metadata__"] = torch.frombuffer(
+                    bytearray(meta_bytes), dtype=torch.uint8
+                )
+
+                st_path = self._get_safetensors_cache_path(cache_key)
+                st_torch.save_file(flat_tensors, str(st_path))
+                logger.info("数据已缓存 (safetensors): %s", st_path.name)
+                return
+            except (OSError, ValueError, RuntimeError) as e:
+                logger.warning(
+                    "safetensors 缓存保存失败: %s — 回退到 pickle", e,
+                )
+                # Fall through to pickle
+
+        # --- Fallback: pickle format ---
         cache_path = self._get_cache_path(cache_key)
 
         cache_payload = {
@@ -314,25 +483,30 @@ class DatasetCache:
         try:
             with open(cache_path, "wb") as f:
                 pickle.dump(cache_payload, f)
-            logger.info("数据已缓存: %s", cache_path.name)
-        except Exception as e:
+            logger.info("数据已缓存 (pickle): %s", cache_path.name)
+        except (OSError, RuntimeError) as e:
             logger.warning("缓存保存失败: %s", e)
 
     def clear(self) -> None:
-        """清除所有缓存"""
-        for cache_file in self.cache_dir.glob("*.pkl"):
+        """清除所有缓存（包括 pickle 和 safetensors 格式）"""
+        for cache_file in list(self.cache_dir.glob("*.pkl")) + list(self.cache_dir.glob("*.safetensors")):
             cache_file.unlink()
         logger.info("缓存已清除")
 
-    def get_cache_info(self) -> Dict[str, Any]:
+    def get_cache_info(self) -> CacheInfo:
         """获取缓存信息"""
-        cache_files = list(self.cache_dir.glob("*.pkl"))
-        total_size = sum(f.stat().st_size for f in cache_files)
+        pkl_files = list(self.cache_dir.glob("*.pkl"))
+        st_files = list(self.cache_dir.glob("*.safetensors"))
+        all_files = pkl_files + st_files
+        total_size = sum(f.stat().st_size for f in all_files)
 
         return {
             "cache_dir": str(self.cache_dir),
-            "num_files": len(cache_files),
+            "num_files": len(all_files),
+            "num_pkl_files": len(pkl_files),
+            "num_safetensors_files": len(st_files),
             "total_size_mb": total_size / (1024 * 1024),
+            "safetensors_available": _HAS_SAFETENSORS,
         }
 
 

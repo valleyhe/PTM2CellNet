@@ -3,12 +3,30 @@
 功能概述: 支持同时预测多个细胞状态属性
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Union
 
 import torch
 from torch import nn
+from typing_extensions import TypedDict
 
 from .predictors import _build_mlp
+
+
+# ---------------------------------------------------------------------------
+# TypedDict definitions for task configurations
+# ---------------------------------------------------------------------------
+
+class TaskConfig(TypedDict, total=False):
+    """Shape of a single task configuration dict.
+
+    ``name`` and ``type`` are required in practice but marked optional
+    here because the validator checks for their presence.
+    """
+
+    name: str
+    type: str
+    num_classes: int
+    output_dim: int
 
 
 class MultiTaskPredictor(nn.Module):
@@ -33,7 +51,7 @@ class MultiTaskPredictor(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        task_configs: List[Dict[str, Any]],
+        task_configs: List[TaskConfig],
         hidden_dims: Optional[List[int]] = None,
         task_specific_layers: Optional[List[int]] = None,
         dropout: float = 0.1,
@@ -171,8 +189,8 @@ class HierarchicalMultiTaskPredictor(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        primary_task: Dict[str, Any],
-        sub_tasks: List[Dict[str, Any]],
+        primary_task: TaskConfig,
+        sub_tasks: List[TaskConfig],
         hidden_dims: Optional[List[int]] = None,
         dropout: float = 0.1,
     ):

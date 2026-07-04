@@ -1,8 +1,10 @@
-# mypy: disable-error-code="annotation-unchecked,arg-type,no-any-return,union-attr"
+# mypy: disable-error-code="annotation-unchecked"
 """
 多任务PTM位点预测模型
 功能: 联合训练多种PTM类型，提升K修饰类型区分能力
 """
+
+import typing
 
 import torch
 import torch.nn as nn
@@ -81,7 +83,7 @@ class MultiTaskPTMPredictor(nn.Module):
         self.hidden_dim = hidden_dim
         self.encoder_type = encoder_type
         self.window_size = window_size
-        self.ptm_types = ptm_types or [
+        self.ptm_types: List[str] = ptm_types or [
             'Phosphorylation',
             'Acetylation',
             'Ubiquitination',
@@ -181,7 +183,7 @@ class MultiTaskPTMPredictor(nn.Module):
                 raise ValueError("不共享编码器时需要指定ptm_type")
             encoded = self.encoder[ptm_type](embedded)
 
-        return encoded
+        return typing.cast(torch.Tensor, encoded)
 
     def forward(
         self,
@@ -282,17 +284,17 @@ class MultiTaskLoss(nn.Module):
         """
         super().__init__()
 
-        self.ptm_types = ptm_types
+        self.ptm_types: List[str] = ptm_types if ptm_types is not None else []
         self.use_uncertainty_weighting = use_uncertainty_weighting
 
         # 任务权重
         if task_weights is None:
-            task_weights = {ptm: 1.0 for ptm in ptm_types}
+            task_weights = {ptm: 1.0 for ptm in self.ptm_types}
         self.task_weights = task_weights
 
         # 不确定性参数（可学习）
         if use_uncertainty_weighting:
-            self.log_vars = nn.Parameter(torch.zeros(len(ptm_types)))
+            self.log_vars = nn.Parameter(torch.zeros(len(self.ptm_types)))
 
     def forward(
         self,

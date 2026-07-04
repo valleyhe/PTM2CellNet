@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, TypedDict
 from pathlib import Path
 import logging
 from collections import defaultdict
@@ -17,6 +17,17 @@ import random
 from src.data.aa_constants import AA_TO_IDX, PAD_IDX, AA_PAD_CHAR
 
 logger = logging.getLogger(__name__)
+
+
+class SampleDict(TypedDict):
+    """Shape of a single sample dictionary in MultiTaskPTMDataset."""
+
+    uniprot_id: str
+    position: int
+    aa: str
+    sequence_window: str
+    label: int
+    ptm_type: str
 
 
 class MultiTaskPTMDataset(Dataset):
@@ -45,7 +56,7 @@ class MultiTaskPTMDataset(Dataset):
         max_samples_per_type: Optional[int] = None,
         balance_types: bool = True,
         augment_minority: bool = True,
-        samples: Optional[List[Dict[str, Any]]] = None,
+        samples: Optional[List[SampleDict]] = None,
         ptm_types: Optional[List[str]] = None,
     ):
         """
@@ -66,7 +77,7 @@ class MultiTaskPTMDataset(Dataset):
         self.augment_minority = augment_minority
 
         # 加载所有数据
-        self.samples: List[Dict[str, Any]] = []
+        self.samples: List[SampleDict] = []
         if samples is not None:
             self.samples = list(samples)
             self.ptm_types = ptm_types if ptm_types is not None else sorted(
@@ -123,17 +134,17 @@ class MultiTaskPTMDataset(Dataset):
             logger.info(f"  {ptm}: {count}")
 
     def _balance_by_ptm_type(
-        self, samples: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, samples: List[SampleDict]
+    ) -> List[SampleDict]:
         """对各 PTM 类型进行下采样至最小类型样本数（保持正负比例）。"""
-        by_type: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        by_type: Dict[str, List[SampleDict]] = defaultdict(list)
         for s in samples:
             by_type[s['ptm_type']].append(s)
         if not by_type:
             return samples
         min_count = min(len(v) for v in by_type.values())
         rng = random.Random(42)
-        balanced: List[Dict[str, Any]] = []
+        balanced: List[SampleDict] = []
         for ptm_type, items in by_type.items():
             if len(items) > min_count:
                 items = rng.sample(items, min_count)
@@ -142,10 +153,10 @@ class MultiTaskPTMDataset(Dataset):
         return balanced
 
     def _augment_minority_types(
-        self, samples: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, samples: List[SampleDict]
+    ) -> List[SampleDict]:
         """对少数类 PTM 类型过采样至中位数样本数（复制样本，不引入噪声）。"""
-        by_type: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        by_type: Dict[str, List[SampleDict]] = defaultdict(list)
         for s in samples:
             by_type[s['ptm_type']].append(s)
         if not by_type:
@@ -155,7 +166,7 @@ class MultiTaskPTMDataset(Dataset):
             return samples
         target = int(np.median(counts))
         rng = random.Random(42)
-        augmented: List[Dict[str, Any]] = []
+        augmented: List[SampleDict] = []
         for ptm_type, items in by_type.items():
             augmented.extend(items)
             if len(items) < target:
