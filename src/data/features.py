@@ -18,12 +18,8 @@ except ImportError:
     PCA = TruncatedSVD = TSNE = None
 
 from src.data.aa_constants import (
-    AMINO_ACIDS,
     AMINO_ACIDS_STR,
     AA_TO_IDX,
-    NON_STANDARD_AA_MAP,
-    PAD_IDX,
-    AA_PAD_CHAR,
 )
 from src.utils.logging import setup_logger
 

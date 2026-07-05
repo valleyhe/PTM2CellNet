@@ -1,4 +1,3 @@
-import pytest
 
 from src.data.schemas import PTMSite, PTMRecord, validate_protein_data
 

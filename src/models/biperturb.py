@@ -10,7 +10,7 @@ Core innovation:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, Dict, List, cast
+from typing import Optional, Tuple, Dict, cast
 from dataclasses import dataclass
 
 from src.models.davf_attention import DirectionAwareAttention

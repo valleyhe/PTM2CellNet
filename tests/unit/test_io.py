@@ -3,7 +3,6 @@ IO工具模块单元测试
 """
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd

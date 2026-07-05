@@ -7,7 +7,6 @@ hint when an optional dependency is missing.
 
 from __future__ import annotations
 
-import builtins
 import logging
 
 import pytest

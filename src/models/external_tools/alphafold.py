@@ -130,4 +130,5 @@ class AlphaFoldClient:
             pdb_string=pdb_str,
             confidence=confidence,
             predicted_aligned_error=[],
+            model_kind="synthetic_fallback",
         )

@@ -38,7 +38,6 @@ def main():
     _ensure_project_root()
     import torch
 
-    from src.utils.config import Config
     from src.utils.logging import setup_logger, get_timestamped_log_filename
     from src.utils.io import load_model
     from src.utils.checkpoint_utils import resolve_inference_config

@@ -56,8 +56,7 @@ from src.data.preprocess import DataPreprocessor
 from src.data.datasets import PTMDataset
 from src.data.features import FeatureExtractor
 from src.models.architectures import PTM2CellNet
-from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
-from src.training.callbacks import ModelCheckpoint, EarlyStopping
+from src.models.davf_inference import DAVFInferenceModule
 from src.training.losses import FocalLoss
 from src.evaluation.metrics import (
     calculate_accuracy,

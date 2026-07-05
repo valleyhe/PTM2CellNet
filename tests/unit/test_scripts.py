@@ -7,13 +7,10 @@ These tests avoid heavy model loading and focus on:
 """
 
 import importlib.util
-import os
 import py_compile
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
 
 import pytest
 import torch

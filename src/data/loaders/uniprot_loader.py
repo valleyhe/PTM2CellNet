@@ -3,7 +3,6 @@ UniProtLoaderMixin — UniProt REST API 批量/单条加载 + 缓存。
 """
 
 import json
-import os
 from pathlib import Path
 from typing import List, Optional, cast
 
@@ -12,6 +11,7 @@ import requests
 
 from ...utils.logging import setup_logger
 from ...utils.helpers import validate_sequence, clean_sequence
+
 from .types import UniProtRecord, UniProtRow
 
 logger = setup_logger(__name__)

@@ -5,7 +5,6 @@
 
 import math
 
-import numpy as np
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset

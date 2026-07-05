@@ -13,11 +13,9 @@ Core innovation:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, Dict, List, cast
+from typing import Optional, Dict, List, cast
 
 from src.models.biperturb import (
-    BiPerturbConfig,
-    DirectionEncoder,
     BiPerturbEncoder
 )
 from src.models.geneformer_embedding import GeneformerEmbeddingLoader
@@ -357,7 +355,6 @@ class DAVF(nn.Module):
             # This removes one full axis of Python overhead and collapses
             # B embedding-loader calls into one, which is the actual hotspot
             # the audit flagged (davf.py:739-771).
-            import numpy as _np
 
             flat_cpu = gene_ids.detach().cpu().numpy().reshape(-1)
             gene_names_arr = list(self.gene_names)

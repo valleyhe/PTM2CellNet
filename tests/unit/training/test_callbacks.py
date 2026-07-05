@@ -3,7 +3,6 @@
 使用mock隔离文件系统和模型依赖
 """
 
-import pytest
 import torch
 from unittest.mock import MagicMock
 

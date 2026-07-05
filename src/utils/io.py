@@ -7,7 +7,7 @@
 import json
 import os
 import pickle
-from typing import Any, BinaryIO, Dict, List, Optional, Set, Union, cast
+from typing import Dict, List, Optional, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from typing_extensions import TypedDict
 
 from .logging import setup_logger
-from .safe_io import SafeUnpickler, safe_pickle_load, _SafeUnpickler, _load_pickle_archive, safe_torch_load
+from .safe_io import _SafeUnpickler, _load_pickle_archive, safe_pickle_load, safe_torch_load  # noqa: F401
 
 try:
     import h5py
@@ -405,7 +405,7 @@ def load_dataframe(file_path: str) -> pd.DataFrame:
                     return value
             raise TypeError(
                 f"HDF5 文件内容无法解析为 DataFrame: {file_path}"
-            )
+            ) from None
 
     return pd.read_csv(file_path)
 

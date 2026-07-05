@@ -5,9 +5,8 @@ ESM-2预训练编码器模块
 
 import torch
 import torch.nn as nn
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +131,7 @@ class ESM2Encoder(nn.Module):
         except ImportError:
             raise ImportError(
                 "请安装fair-esm: pip install fair-esm"
-            )
+            ) from None
 
     def encode_sequence(
         self,

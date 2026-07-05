@@ -1,5 +1,4 @@
 """Tests for MCC and AUPR metrics (EVAL-01)."""
-import pytest
 import numpy as np
 import torch
 import math

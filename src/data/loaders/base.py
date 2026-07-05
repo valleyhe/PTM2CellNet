@@ -5,8 +5,7 @@ DataLoaderBase — __init__ 以及被其它 mixin 共享的工具方法。
 import os
 import re
 import tempfile
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Protocol, Tuple, Union, runtime_checkable
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -16,6 +15,59 @@ from ...utils.logging import setup_logger
 from .types import _ReadCsvKwargs
 
 logger = setup_logger(__name__)
+
+
+@runtime_checkable
+class _DataLoaderProtocol(Protocol):
+    """Protocol defining the interface that DataLoader mixins depend on.
+
+    This makes mixin method calls statically visible to mypy without
+    requiring mixins to inherit from DataLoaderBase.
+    """
+
+    data_raw_dir: str
+    strict_load: bool
+
+    def _download_if_url(self, path_or_url: str) -> str: ...
+
+    def _read_tabular_file(self, file_path: str, sep: Optional[str] = None) -> pd.DataFrame: ...
+
+    def _get_matching_column(self, df: pd.DataFrame, candidates: List[str]) -> Optional[str]: ...
+
+    def _build_ptm_dataframe(
+        self,
+        df: pd.DataFrame,
+        accession_candidates: List[str],
+        position_candidates: List[str],
+        amino_acid_candidates: List[str],
+        source: str,
+        ptm_type: str,
+    ) -> pd.DataFrame: ...
+
+    def _empty_or_raise(self, empty_df: pd.DataFrame, source: str) -> pd.DataFrame: ...
+
+    @staticmethod
+    def _empty_phosphositeplus_df() -> pd.DataFrame: ...
+
+    @staticmethod
+    def _empty_ptm_df() -> pd.DataFrame: ...
+
+    @staticmethod
+    def _normalize_column_name(column_name: str) -> str: ...
+
+    @staticmethod
+    def _extract_amino_acid_and_position(value: Union[str, float, int, None]) -> Tuple[Optional[str], Optional[int]]: ...
+
+# Default production download allowlist: official bioinformatics data sources.
+# These are the hosts that the project's data loaders are known to fetch from.
+# Operators can extend this via PTM2CELLNET_DOWNLOAD_ALLOWLIST.
+_DEFAULT_DOWNLOAD_ALLOWLIST = frozenset({
+    "www.uniprot.org",
+    "rest.uniprot.org",
+    "alphafold.ebi.ac.uk",
+    "ftp.ebi.ac.uk",
+    "www.phosphosite.org",
+})
 
 
 class DataLoaderBase:
@@ -112,9 +164,9 @@ class DataLoaderBase:
             - Caps total downloaded size at ``PTM2CELLNET_MAX_DOWNLOAD_BYTES``
               (default 256 MiB) to prevent accidental OOM from a hostile or
               misconfigured endpoint.
-            - Optionally restricts the host via ``PTM2CELLNET_DOWNLOAD_ALLOWLIST``
-              (comma-separated). When unset, any host is allowed (preserving
-              existing behaviour); when set, only listed hosts may be fetched.
+            - Restricts the host via ``PTM2CELLNET_DOWNLOAD_ALLOWLIST``
+              (comma-separated). When unset, the production default allowlist
+              applies; set to empty string to allow any host (dev mode).
         """
         if not self._is_url(path_or_url):
             return path_or_url
@@ -135,15 +187,35 @@ class DataLoaderBase:
                 parsed.netloc,
             )
 
-        # Optional host allowlist (env-driven so the default behaviour is
-        # unchanged but operators can lock down data sources in production).
-        allowlist_env = os.environ.get("PTM2CELLNET_DOWNLOAD_ALLOWLIST", "")
-        if allowlist_env:
-            allowed_hosts = {h.strip().lower() for h in allowlist_env.split(",") if h.strip()}
-            if parsed.netloc.split(":")[0].lower() not in allowed_hosts:
+        # Host allowlist: when PTM2CELLNET_DOWNLOAD_ALLOWLIST is unset, only
+        # the default production allowlist (official bioinformatics hosts) is
+        # permitted.  Set the env var to override with a custom list, or to
+        # empty string to allow all hosts (dev/test back-compat).
+        allowlist_env = os.environ.get("PTM2CELLNET_DOWNLOAD_ALLOWLIST", None)
+        if allowlist_env is not None:
+            # Explicit env var: use only the hosts listed (empty string = allow all,
+            # preserving backward compat for dev/test).
+            if allowlist_env.strip():
+                allowed_hosts = {h.strip().lower() for h in allowlist_env.split(",") if h.strip()}
+                if parsed.netloc.split(":")[0].lower() not in allowed_hosts:
+                    raise ValueError(
+                        f"Download host {parsed.netloc!r} is not in the "
+                        "PTM2CELLNET_DOWNLOAD_ALLOWLIST allowlist."
+                    )
+        else:
+            # No env var set: use default production allowlist
+            if parsed.netloc.split(":")[0].lower() not in _DEFAULT_DOWNLOAD_ALLOWLIST:
+                logger.warning(
+                    "Download host %r is not in the default production allowlist. "
+                    "Set PTM2CELLNET_DOWNLOAD_ALLOWLIST to allow this host explicitly.",
+                    parsed.netloc,
+                )
                 raise ValueError(
-                    f"Download host {parsed.netloc!r} is not in the "
-                    "PTM2CELLNET_DOWNLOAD_ALLOWLIST allowlist."
+                    f"Download host {parsed.netloc!r} is not in the default "
+                    "production allowlist. To allow this host, set "
+                    "PTM2CELLNET_DOWNLOAD_ALLOWLIST environment variable with a "
+                    "comma-separated list of allowed hosts, or set it to empty "
+                    "string to allow all hosts (not recommended for production)."
                 )
 
         # Max download size cap. Read the Content-Length header first; if the

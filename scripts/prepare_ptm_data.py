@@ -5,13 +5,12 @@ PTM预训练数据准备脚本
 功能: 从dbPTM和UniProt数据构建训练数据集
 """
 
-import os
 import sys
 from pathlib import Path
 import pandas as pd
 import gzip
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from collections import defaultdict
 import random
 

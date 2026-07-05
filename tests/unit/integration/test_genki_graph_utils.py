@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 import scipy.sparse as sp
 
 from src.integration.genki.graph_utils import GraphUtilities

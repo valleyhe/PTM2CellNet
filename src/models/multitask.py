@@ -3,7 +3,7 @@
 功能概述: 支持同时预测多个细胞状态属性
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import torch
 from torch import nn

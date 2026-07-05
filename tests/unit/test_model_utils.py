@@ -9,10 +9,7 @@
 estimate_max_batch_size 硬编码层数已修复，但缺乏回归测试。
 """
 
-import math
 
-import pytest
-import torch
 from torch import nn
 
 from src.models.model_utils import (

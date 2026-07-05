@@ -5,18 +5,14 @@ CPTAC数据下载和处理脚本
 功能: 下载CPTAC磷蛋白组数据用于验证PTM预测模型
 """
 
-import os
 import sys
 import argparse
 import logging
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict
 import json
-import urllib.request
-import gzip
-import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -230,7 +226,6 @@ class CPTACValidator:
 
     def _load_models(self):
         """加载PTM预测模型"""
-        import torch
         from src.utils.io import safe_torch_load
         sys.path.insert(0, str(self.model_dir.parent.parent))
         from src.models.ptm_site_predictor import PTMSitePredictor

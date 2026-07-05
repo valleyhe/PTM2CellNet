@@ -70,7 +70,7 @@ def _assert_backend_ready(adapter) -> None:
             "GenKI source backend 依赖未就绪。请安装 genki 可选依赖：\n"
             "    pip install -e .[genki]\n"
             "注意 torch-geometric 需与当前 torch/CUDA 版本匹配，详见 README。"
-        )
+        ) from exc
 
 
 def main():

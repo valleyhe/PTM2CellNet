@@ -12,7 +12,27 @@ def generate_tech_doc():
 
     date_str = datetime.now().strftime("%Y年%m月%d日")
 
+    # Warning: This static document generator produces content that may be
+    # out of sync with the current codebase architecture. It references
+    # APIs and features that may have been refactored, renamed, or removed.
+    # For authoritative documentation, see the code itself and the
+    # docs/ directory. This script is retained for historical reference only.
+    print(
+        "WARNING: create_tech_doc.py generates a STATIC document that may NOT "
+        "reflect the current codebase. The content includes outdated API "
+        "signatures, module references, and features (e.g., ONNX/TensorRT) "
+        "that are not part of PTM2CellNet. For authoritative docs, consult "
+        "the code and docs/ directory. This script should NOT be used as a "
+        "documentation source."
+    )
+
     doc_content = f"""# PTM2CellNet 项目技术说明文档
+
+> ⚠️ **文档准确性警告**: 本文档由静态模板生成，内容可能不反映当前代码架构。
+> 部分 API 签名、模块引用和功能描述可能已过时或不存在（如 ONNX/TensorRT 示例）。
+> 如需权威文档，请参考源代码和 `docs/` 目录。本文档仅供参考，不应作为开发依据。
+
+
 
 **文档版本**: 1.0
 **生成日期**: {date_str}
@@ -1439,4 +1459,12 @@ print(metrics)
     print(f"文档大小: {len(doc_content)} 字符")
 
 if __name__ == "__main__":
+    import sys
+    print("=" * 70)
+    print("WARNING: This script generates potentially outdated documentation.")
+    print("For current architecture, see the code and docs/ directory.")
+    print("=" * 70)
+    if "--force" not in sys.argv:
+        print("Pass --force to proceed anyway.")
+        sys.exit(1)
     generate_tech_doc()

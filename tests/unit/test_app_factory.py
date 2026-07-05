@@ -8,7 +8,6 @@ limiting, and rate limiting. Follows the patterns in ``test_api.py`` and
 """
 
 import os
-from unittest.mock import patch
 
 import pytest
 import torch

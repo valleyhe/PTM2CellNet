@@ -245,7 +245,6 @@ class ScVIAdapter:
                     action="build a scVI model",
                 )
             )
-        import scvi
         from scvi.model import SCVI
 
         SCVI.setup_anndata(adata)

@@ -12,7 +12,6 @@ import matplotlib
 matplotlib.use("Agg")
 
 import numpy as np
-import pytest
 
 from src.evaluation.visualization import (
     plot_attention_heatmap,

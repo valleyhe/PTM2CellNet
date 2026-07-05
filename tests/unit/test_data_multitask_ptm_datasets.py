@@ -2,7 +2,6 @@
 多任务PTM数据集和PTM位点数据集单元测试
 """
 
-import json
 import os
 import tempfile
 
@@ -13,7 +12,6 @@ import torch
 from src.data.multitask_dataset import (
     MultiTaskPTMDataset,
     MultiTaskPTMDataModule,
-    SampleDataset,
     collate_multitask_batch,
 )
 from src.data.ptm_site_dataset import PTMSiteDataset, PTMSiteDataModule

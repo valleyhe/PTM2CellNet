@@ -143,11 +143,11 @@ class TestRoadmapHelpers:
                 self.config = config
                 self.device = device
 
-        import src.models.roadmap as roadmap
+        import src.training.distributed as dist_module
 
-        monkeypatch.setattr(roadmap, "_LIGHTNING_IMPORT_ERROR", RuntimeError("missing lightning"))
-        monkeypatch.setattr(roadmap, "_LIGHTNING_MODULE", None)
-        monkeypatch.setattr(roadmap, "Trainer", FakeTrainer)
+        monkeypatch.setattr(dist_module, "_LIGHTNING_IMPORT_ERROR", RuntimeError("missing lightning"))
+        monkeypatch.setattr(dist_module, "_LIGHTNING_MODULE", None)
+        monkeypatch.setattr(dist_module, "Trainer", FakeTrainer)
 
         model = MagicMock()
         datamodule = MagicMock()

@@ -1,7 +1,6 @@
 """Integration tests for variant effect workflow."""
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import torch
+from unittest.mock import Mock, patch
 import requests
 
 from src.analysis.variant_workflow import (
@@ -132,7 +131,7 @@ class TestVariantEffectWorkflow:
         sequence = "A" * 599 + "V" + "A" * 100
 
         # Mock predictors to return effects that will trigger MAPK pathway
-        for ptm_type, predictor in workflow.predictors.items():
+        for _ptm_type, predictor in workflow.predictors.items():
             predictor.predict_variant_effect = Mock(return_value={
                 'wildtype_prob': 0.8,
                 'mutant_prob': 0.2,
@@ -159,7 +158,7 @@ class TestVariantEffectWorkflow:
         sequence = "A" * 599 + "V" + "A" * 100
 
         # Mock predictors
-        for ptm_type, predictor in workflow.predictors.items():
+        for _ptm_type, predictor in workflow.predictors.items():
             predictor.predict_variant_effect = Mock(return_value={
                 'wildtype_prob': 0.8,
                 'mutant_prob': 0.2,
@@ -252,7 +251,7 @@ class TestVariantEffectWorkflow:
 
         # Verify predictor was called
         assert len(result.ptm_effects) > 0
-        for ptm_type, effect in result.ptm_effects.items():
+        for _ptm_type, effect in result.ptm_effects.items():
             assert 'wildtype_prob' in effect
             assert 'mutant_prob' in effect
             assert 'delta_prob' in effect

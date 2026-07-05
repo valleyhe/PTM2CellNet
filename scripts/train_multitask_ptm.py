@@ -5,23 +5,19 @@
 功能: 联合训练多种PTM类型，提升K修饰区分能力
 """
 
-import os
 import sys
 import argparse
 import logging
 from pathlib import Path
 from collections import defaultdict
 import json
-from datetime import datetime
 
 # 添加项目根目录
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 from src.utils.io import safe_torch_load
-import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 import numpy as np
@@ -29,8 +25,6 @@ import numpy as np
 from src.models.multitask_ptm import MultiTaskPTMPredictor, MultiTaskLoss
 from src.data.multitask_dataset import (
     MultiTaskPTMDataModule,
-    SampleDataset,
-    collate_multitask_batch,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -8,9 +8,8 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import lightning as L
 from lightning.pytorch import Trainer
 
 from src.training.lightning_module import PTM2CellNetLightning

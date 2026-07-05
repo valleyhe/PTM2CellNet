@@ -9,7 +9,6 @@ Covers:
 """
 
 import pytest
-import torch
 from unittest.mock import Mock
 
 from src.data.schemas import PTMSite

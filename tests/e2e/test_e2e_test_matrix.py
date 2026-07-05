@@ -146,7 +146,7 @@ class TestCustomLabelSemantics:
         rng = random.Random(0)
         amino = "ACDEFGHIKLMNPQRSTVWY"
         rows = []
-        for cls_idx, label in enumerate(cell_states):
+        for _cls_idx, label in enumerate(cell_states):
             for _ in range(14):
                 seq = "".join(rng.choice(amino) for _ in range(rng.randint(12, 20)))
                 rows.append((seq, label, "[]"))

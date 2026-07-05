@@ -5,10 +5,9 @@ Provides the ``_setup_monitoring`` function that optionally registers a
 ``/metrics`` endpoint with Prometheus exposition format and JSON fallback.
 """
 
-import json
 import os
 from pathlib import Path
-from typing import Any, List
+from typing import List
 
 import torch
 from fastapi import FastAPI, Request

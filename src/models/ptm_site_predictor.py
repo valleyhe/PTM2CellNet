@@ -190,11 +190,6 @@ class PTMSitePredictor(nn.Module):
 
 # Pooled encoder aliases for backward compatibility.
 # The canonical definitions live in src.models.encoders as Pooled* variants.
-from .encoders import (
-    PooledCNNEncoder as CNNEncoder,
-    PooledTransformerEncoder as TransformerEncoder,
-    PooledLSTMEncoder as LSTMEncoder,
-)
 
 def create_model(config: Dict[str, Any]) -> PTMSitePredictor:
     """

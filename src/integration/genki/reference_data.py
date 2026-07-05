@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, List, Optional, cast
 
 try:
     import anndata as ad

@@ -1,12 +1,11 @@
 import importlib
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-from src.integration.contracts import GenePerturbationRequest, PerturbationResult
-from src.integration.genki.graph_utils import GraphUtilities
+from src.integration.contracts import PerturbationResult
 from src.integration.genki.perturbation import PerturbationExecutor
 from src.integration.genki.reference_data import ReferenceDataLoader
 from src.integration.genki.significance import SignificanceAnalyzer

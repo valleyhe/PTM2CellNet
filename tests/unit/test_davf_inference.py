@@ -8,11 +8,7 @@ and graceful degradation when checkpoint is missing.
 import pytest
 import pickle
 import torch
-import torch.nn as nn
-from dataclasses import dataclass
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
-import tempfile
+from unittest.mock import MagicMock, patch
 import warnings
 
 from src.models.ptm_direction_mapper import PTMDirectionMapperOutput
@@ -331,7 +327,7 @@ class TestDAVFInferenceOutput:
 
     def test_output_has_davf_features(self, mock_checkpoint, mock_mapper_output):
         """Output contains davf_features field."""
-        from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig, DAVFInferenceOutput
+        from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
 
         config = DAVFInferenceConfig(checkpoint_path=str(mock_checkpoint))
         module = DAVFInferenceModule(config)

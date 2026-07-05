@@ -8,7 +8,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _ensure_project_root() -> None:
@@ -51,7 +51,7 @@ def parse_args(args=None):
 
 def _run_prediction_on_batch(
     model,
-    batch: Dict[str, "torch.Tensor"],
+    batch: Dict[str, Any],
     device: str,
 ) -> Tuple:
     """对已经堆叠好的一个 batch 执行一次前向传播。

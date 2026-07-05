@@ -3,7 +3,7 @@
 import logging
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.models.scvi_adapter import (
     ScVIAdapter,

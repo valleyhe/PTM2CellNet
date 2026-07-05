@@ -156,13 +156,13 @@ class SelectiveSSM(nn.Module):
             y: [B, L, d_inner] 输出
 
         Note:
-            Three execution paths:
+            Two execution paths:
             1. If ``mamba_ssm`` is installed and input is on CUDA, use the fused
                ``selective_scan_fn`` for maximum performance.
-            2. If on GPU without ``mamba_ssm``, use the vectorized parallel scan
+            2. Otherwise, use the vectorized parallel scan
                (``_ssm_step_parallel``) via cumulative product + cumulative sum.
-            3. If on CPU, fall back to the sequential Python loop (optimized
-               with pre-allocation).
+               This works on both CPU and GPU and is significantly faster than
+               the sequential Python loop.
         """
         # Path 1: Fused CUDA kernel via mamba_ssm
         if _HAS_MAMBA_SSM and x.is_cuda:
@@ -172,16 +172,14 @@ class SelectiveSSM(nn.Module):
         if not getattr(self, '_fallback_logged', False):
             logger.info(
                 "Mamba fused kernel not available (mamba_ssm not installed or no CUDA). "
-                "Using sequential SSM implementation."
+                "Using vectorized parallel scan implementation."
             )
             self._fallback_logged = True
 
-        # Path 2: Vectorized parallel scan on GPU (more efficient)
-        if x.is_cuda:
-            return self._ssm_step_parallel(x, delta, B, C)
-
-        # Path 3: Sequential scan (CPU or fallback)
-        return self._ssm_step_sequential(x, delta, B, C)
+        # Path 2: Vectorized parallel scan (GPU or CPU)
+        # The cumprod/cumsum approach is faster than a Python loop on both
+        # GPU and CPU, though GPU benefits more from parallelism.
+        return self._ssm_step_parallel(x, delta, B, C)
 
     def _ssm_step_sequential(
         self,
@@ -193,7 +191,10 @@ class SelectiveSSM(nn.Module):
         """
         Sequential SSM scan — Python loop, one timestep at a time.
 
-        This is the original implementation, kept as CPU fallback.
+        This is the original implementation, kept as a CPU fallback for
+        debugging or when numerical stability of the parallel scan is a
+        concern. For production use, prefer ``_ssm_step_parallel`` which
+        is vectorized and significantly faster on both CPU and GPU.
         """
         batch_size, seq_len, d_inner = x.shape
 

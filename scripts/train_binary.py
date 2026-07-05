@@ -22,7 +22,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.utils.config import Config
 from src.utils.logging import setup_logger
-from src.utils.io import save_model, save_json
+from src.utils.io import save_json
 from src.data.preprocess import DataPreprocessor
 from src.data.datasets import PTMDataset
 from src.data.features import FeatureExtractor
@@ -155,7 +155,6 @@ def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
     logger.info("验证集结果: %s", val_logs)
 
     # 在测试集上评估：遍历全部 batch，正确收集预测概率、预测类别与真实标签
-    import numpy as np
     all_probs: list = []
     all_preds: list = []
     all_labels: list = []

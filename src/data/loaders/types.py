@@ -3,7 +3,7 @@
 从 loaders.py 拆分，供包内各模块共用。
 """
 
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import Dict, List, TypedDict, Union
 
 
 class UniProtRecord(TypedDict, total=False):

@@ -4,7 +4,7 @@ FileLoaderMixin — CSV / FASTA / JSON 文件加载 + 示例数据生成。
 
 import json
 import os
-from typing import Any, Dict, List, Optional, cast
+from typing import Dict, List, Optional, cast
 
 import pandas as pd
 from Bio import SeqIO

@@ -8,7 +8,6 @@ from .base import (
     _CHOU_FASMAN_HELIX,
     _CHOU_FASMAN_SHEET,
     _CHOU_FASMAN_COIL,
-    logger,
 )
 
 

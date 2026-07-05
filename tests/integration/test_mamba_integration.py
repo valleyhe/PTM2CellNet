@@ -5,7 +5,6 @@ Mamba集成测试
 
 import pytest
 import torch
-import yaml
 
 from src.models.architectures import PTM2CellNet
 from src.models.mamba_encoder import MambaEncoder

@@ -351,7 +351,7 @@ class Trainer:
         返回:
             True如果对象具有train_dataloader方法
         """
-        return hasattr(obj, "train_dataloader") and callable(getattr(obj, "train_dataloader"))
+        return hasattr(obj, "train_dataloader") and callable(obj.train_dataloader)
 
     def fit(
         self,

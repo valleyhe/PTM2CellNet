@@ -5,7 +5,6 @@ ESM-2预训练模型微调训练脚本
 功能: 使用ESM-2蛋白质语言模型进行PTM位点预测
 """
 
-import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -144,7 +143,7 @@ class ESM2FineTunedModel(nn.Module):
                 logger.info("ESM-2参数已冻结")
 
         except ImportError:
-            raise ImportError("请安装fair-esm: pip install fair-esm")
+            raise ImportError("请安装fair-esm: pip install fair-esm") from None
 
     def encode_sequences(self, sequences):
         """编码序列"""

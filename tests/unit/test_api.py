@@ -2,6 +2,7 @@
 API模块单元测试
 """
 
+import pydantic
 import pytest
 from fastapi.testclient import TestClient
 import torch
@@ -17,8 +18,8 @@ from src.api.schemas import (
     VariantInfo,
 )
 from src.api.app import create_app
-from src.api.routes import initialize_model, initialize_variant_workflow
-from src.api.routes.state import STATE, reset_state
+from src.api.routes import initialize_model
+from src.api.routes.state import reset_state
 
 
 class SimpleModel(nn.Module):
@@ -195,7 +196,7 @@ class TestVariantSchemas:
 
     def test_ptm_effect_probabilities_validated(self):
         """Test PTMEffect validates probability ranges."""
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(pydantic.ValidationError):
             PTMEffect(
                 ptm_type="Phosphorylation",
                 wildtype_prob=1.5,  # Invalid: > 1.0
@@ -234,7 +235,7 @@ class TestVariantSchemas:
 
     def test_variant_info_position_validation(self):
         """Test VariantInfo validates position >= 1."""
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(pydantic.ValidationError):
             VariantInfo(
                 hgvs="BRAF:p.V600E",
                 position=0,  # Invalid: < 1

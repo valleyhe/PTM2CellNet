@@ -5,6 +5,7 @@
 "Load via /api/v1/initialize"。
 """
 
+import hmac
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -141,7 +142,7 @@ def _require_api_key(x_api_key: Optional[str] = None) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="X-API-Key header is required",
         )
-    if x_api_key != expected:
+    if not hmac.compare_digest(str(x_api_key), str(expected)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key",
@@ -260,7 +261,7 @@ async def initialize_endpoint(
         config_obj.set("model.num_classes", len(cell_states))
         model = PTM2CellNet.from_config(config_obj.to_dict())
 
-        raw_checkpoint = safe_torch_load(str(ckpt_path), map_location=device)
+        raw_checkpoint = safe_torch_load(str(ckpt_path), map_location=device, enforce_safe_only=True)
         loaded_format = _detect_checkpoint_format(raw_checkpoint)
         state_dict = extract_model_state_dict(raw_checkpoint)
 

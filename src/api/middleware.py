@@ -8,7 +8,7 @@ and optional API-key authentication.
 import hmac
 import os
 import threading
-from typing import List, Optional, Tuple, TypedDict, cast
+from typing import List, Tuple, TypedDict, cast
 
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware

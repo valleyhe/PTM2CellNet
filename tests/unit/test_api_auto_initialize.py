@@ -9,7 +9,6 @@ the model is loaded from environment variables at lifespan startup.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest

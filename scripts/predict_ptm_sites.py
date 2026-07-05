@@ -7,7 +7,6 @@ sites and PTM-variant effects from protein sequences; it does not predict cell
 states.
 """
 
-import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,12 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import torch
 from src.utils.io import safe_torch_load
 import torch.nn as nn
-import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import argparse
 import logging
-import json
 from tqdm import tqdm
 from Bio import SeqIO
 import warnings

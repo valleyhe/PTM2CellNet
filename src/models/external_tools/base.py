@@ -207,6 +207,7 @@ class StructurePrediction:
     pdb_string: str = ""
     confidence: float = 0.0
     predicted_aligned_error: List[object] = field(default_factory=list)
+    model_kind: str = "real"
 
     def __getitem__(self, key: str) -> object:
         return getattr(self, key)

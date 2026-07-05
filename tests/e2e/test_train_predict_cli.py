@@ -9,7 +9,6 @@
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -174,7 +173,6 @@ class TestNativeTrainPredictE2E:
         bare = tmp_path / "bare.pt"
         bare.write_bytes(native_artifact["ckpt"].read_bytes())
         # 复制训练 config 但移除 cell_states，强制走 fallback 路径
-        import copy
         cfg_dict = yaml.safe_load(native_artifact["cfg"].read_text())
         cfg_dict.setdefault("data", {}).pop("cell_states", None)
         cfg_dict["data"].pop("label_to_idx", None)
@@ -290,7 +288,6 @@ class TestLightningE2E:
 
     def _small_lightning_config(self, tmp_path, num_classes=3):
         import yaml
-        from pathlib import Path
         cell_states = [f"class_{i}" for i in range(num_classes)]
         cfg = {
             "model": {
@@ -337,8 +334,7 @@ class TestLightningE2E:
     def test_lightning_export_has_correct_num_classes(self, tmp_path):
         """Train with 3-class data, config model.num_classes=4 initially.
         After fix P0-1, exported config should have num_classes=3."""
-        import os, sys, subprocess, yaml
-        from pathlib import Path
+        import sys, subprocess, yaml
         cfg_path, cell_states = self._small_lightning_config(tmp_path)
         data_csv = self._make_3class_data(tmp_path)
 
@@ -365,8 +361,7 @@ class TestLightningE2E:
 
     def test_lightning_ckpt_inference(self, tmp_path):
         """Use Lightning-exported best_model.pt for CLI inference."""
-        import os, sys, subprocess, yaml
-        from pathlib import Path
+        import sys, subprocess
         cfg_path, cell_states = self._small_lightning_config(tmp_path)
         data_csv = self._make_3class_data(tmp_path)
 
@@ -414,7 +409,6 @@ class TestBatchProbabilityColumns:
             encoding="utf-8",
         )
         import subprocess, sys
-        from pathlib import Path
         out = tmp_path / "batch_prob_pred.csv"
         result = subprocess.run(
             [sys.executable, str(SCRIPTS / "predict.py"),
@@ -438,8 +432,7 @@ class TestConfigInjection:
     def test_max_sequence_length_respected(self, native_artifact, tmp_path):
         """When training config has max_sequence_length=64, inference preprocessing
         should use 64, not the default 1000."""
-        import subprocess, sys, yaml
-        from pathlib import Path
+        import subprocess, sys
         # Override config to set max_sequence_length=64
         out = tmp_path / "cfg_pred.csv"
         result = subprocess.run(

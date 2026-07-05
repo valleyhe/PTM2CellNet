@@ -10,11 +10,11 @@ Embedding dimension: 1152 (Geneformer V1)
 
 import logging
 import hashlib
+import os
 import warnings
 from typing import Dict, List, Optional, Union
 
 import torch
-import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class GeneformerEmbeddingLoader:
             raise ImportError(
                 "transformers library required for Geneformer. "
                 "Install with: pip install transformers"
-            )
+            ) from None
 
         logger.info(f"Loading Geneformer from {self.model_path}...")
 
@@ -236,10 +236,24 @@ class GeneformerEmbeddingLoader:
         """Use random embeddings as fallback when Geneformer cannot be loaded."""
         global _geneformer_is_fallback
         _geneformer_is_fallback = True
+
+        # Strict mode: fail-fast instead of random fallback
+        strict_mode = os.environ.get("PTM2CELLNET_STRICT_MODEL_ASSETS", "").lower() in ("1", "true", "yes")
+        if strict_mode:
+            raise RuntimeError(
+                "Geneformer model assets could not be loaded and "
+                "PTM2CELLNET_STRICT_MODEL_ASSETS is enabled. "
+                "Random fallback embeddings are NOT allowed in strict mode. "
+                "Ensure Geneformer model weights are available or unset "
+                "PTM2CELLNET_STRICT_MODEL_ASSETS to allow fallback."
+            )
+
         warnings.warn(
             "Geneformer could not be loaded. Using random embeddings. "
-            "This is NOT suitable for production use.",
-            UserWarning
+            "This is NOT suitable for production use. "
+            "Set PTM2CELLNET_STRICT_MODEL_ASSETS=1 to enforce fail-fast.",
+            UserWarning,
+            stacklevel=2,
         )
         # Create random embeddings with correct dimension
         self._vocab_size = 30000  # Typical Geneformer vocab size
@@ -287,7 +301,7 @@ class GeneformerEmbeddingLoader:
                 if 0 <= idx < self._vocab_size:
                     indices.append(idx)
                 else:
-                    warnings.warn(f"Gene index {idx} out of range [0, {self._vocab_size})")
+                    warnings.warn(f"Gene index {idx} out of range [0, {self._vocab_size})", stacklevel=2)
                     indices.append(0)  # Default to index 0
 
         # Lookup embeddings
@@ -344,6 +358,16 @@ class GeneformerEmbeddingLoader:
             self._embeddings = self._embeddings.to(device)
         return self
 
+    @property
+    def model_provenance(self) -> str:
+        """Return provenance information for the loaded model.
+
+        Returns:
+            'real' if genuine Geneformer weights are loaded.
+            'fallback_random' if using random fallback embeddings.
+        """
+        return "fallback_random" if _geneformer_is_fallback else "real"
+
 
 # Singleton instance for shared use across the project
 _geneformer_loader: Optional[GeneformerEmbeddingLoader] = None
@@ -352,6 +376,21 @@ _geneformer_loader: Optional[GeneformerEmbeddingLoader] = None
 def is_fallback_mode() -> bool:
     """Return True if the Geneformer loader is using random (non-production) embeddings."""
     return _geneformer_is_fallback
+
+
+def get_provenance() -> str:
+    """Return the provenance of the global Geneformer loader.
+
+    Returns:
+        'real' if genuine Geneformer weights are loaded.
+        'fallback_random' if using random fallback embeddings.
+        'not_loaded' if no Geneformer loader has been created yet.
+    """
+    if _geneformer_loader is not None:
+        return _geneformer_loader.model_provenance
+    if _geneformer_is_fallback:
+        return "fallback_random"
+    return "not_loaded"
 
 
 def get_geneformer_loader(

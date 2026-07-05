@@ -5,7 +5,6 @@
 功能: 整合多个模型的预测结果
 """
 
-import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,11 +14,9 @@ from src.utils.io import safe_torch_load
 import torch.nn as nn
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import argparse
 import logging
-import json
-from collections import defaultdict
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -87,7 +84,6 @@ class ModelEnsemble:
 
     def _load_esm2_model(self, path, model_type):
         """加载ESM-2模型"""
-        # 简化版本，实际需要完整实现
         import esm
 
         if 't12' in model_type:
@@ -109,11 +105,42 @@ class ModelEnsemble:
                 )
                 self.load_state_dict(state_dict, strict=False)
                 self.alphabet = alphabet
+                self.batch_converter = alphabet.get_batch_converter()
 
             def forward(self, sequences, ptm_type=None):
-                raise NotImplementedError(
-                    "ESM2 model not available. Install esm package."
-                )
+                # sequences can be a list of strings or a batch tensor
+                if isinstance(sequences, (list, tuple)):
+                    # Convert sequences to ESM format: list of (label, seq) tuples
+                    data = [(f"seq_{i}", seq) for i, seq in enumerate(sequences)]
+                    batch_labels, batch_strs, batch_tokens = self.batch_converter(data)
+                    batch_tokens = batch_tokens.to(next(self.esm.parameters()).device)
+
+                    with torch.no_grad():
+                        results = self.esm(batch_tokens, repr_layers=[self.esm.num_layers])
+                        token_representations = results["representations"][self.esm.num_layers]
+
+                    # Mean pooling over sequence (exclude BOS/EOS tokens)
+                    mask = batch_tokens.ne(self.alphabet.padding_idx)
+                    # Remove BOS (index 0)
+                    mask[:, 0] = False
+
+                    # For each sequence, find the EOS position and exclude it
+                    for i in range(mask.shape[0]):
+                        eos_idx = (batch_tokens[i] == self.alphabet.eos_idx).nonzero(as_tuple=False)
+                        if len(eos_idx) > 0:
+                            mask[i, eos_idx[0, 0]] = False
+
+                    # Mean pool
+                    masked_repr = token_representations * mask.unsqueeze(-1)
+                    lengths = mask.sum(dim=1, keepdim=True).clamp(min=1)
+                    pooled = masked_repr.sum(dim=1) / lengths
+                else:
+                    # Already a tensor — pass through ESM directly
+                    pooled = sequences
+
+                logits = self.classifier(pooled)
+                probs = torch.softmax(logits, dim=-1)
+                return {"probs": probs, "logits": logits}
 
         state_dict = safe_torch_load(path, map_location=self.device)
         model = ESM2Wrapper(esm_model, state_dict)

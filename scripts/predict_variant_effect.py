@@ -10,14 +10,13 @@ import sys
 import argparse
 import logging
 from pathlib import Path
-import pandas as pd
 import json
 
 # 添加项目根目录
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models.variant_effect import VariantPTMEffectPredictor, predict_ptm_effects_for_variant
-from src.models.signaling_network import PTMNetworkAnalyzer, SignalingNetworkMapper
+from src.models.signaling_network import PTMNetworkAnalyzer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

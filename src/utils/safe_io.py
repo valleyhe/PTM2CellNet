@@ -71,7 +71,7 @@ def safe_pickle_load(file_obj: BinaryIO) -> object:
     try:
         return SafeUnpickler(file_obj).load()
     except pickle.UnpicklingError as e:
-        raise ValueError('Unsafe pickle: ' + str(e))
+        raise ValueError('Unsafe pickle: ' + str(e)) from e
 
 
 # ---------------------------------------------------------------------------
@@ -261,10 +261,25 @@ def safe_torch_load(
     **kwargs :
         Additional keyword arguments forwarded to ``torch.load``.
 
+    Environment variables
+    ---------------------
+    ``PTM2CELLNET_SAFE_LOAD_ONLY`` :
+        When set to ``"1"``, ``"true"``, or ``"yes"`` (case-insensitive),
+        globally forces ``enforce_safe_only=True`` regardless of the per-call
+        argument.  This is a defense-in-depth mechanism for production
+        deployments where no unsafe loads should ever occur.
+
     Returns
     -------
     The loaded PyTorch object.
     """
+    # Global hardening: environment variable can force safe-only mode regardless
+    # of the per-call enforce_safe_only parameter. This is a defense-in-depth
+    # measure for production deployments where no unsafe loads should ever occur.
+    _global_safe_only = os.environ.get("PTM2CELLNET_SAFE_LOAD_ONLY", "").lower() in ("1", "true", "yes")
+    if _global_safe_only:
+        enforce_safe_only = True
+
     explicit_weights_only = kwargs.pop("weights_only", None)
 
     # enforce_safe_only forbids any weights_only=False path — including an

@@ -11,9 +11,8 @@ Provides:
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional, Tuple, Dict, List, cast
-from dataclasses import dataclass, field
+from typing import Optional, cast
+from dataclasses import dataclass
 
 from src.models.biperturb import BiPerturbConfig
 

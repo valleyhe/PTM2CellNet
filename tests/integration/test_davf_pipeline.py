@@ -22,7 +22,7 @@ import torch
 
 from src.models.architectures import PTM2CellNet
 from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
-from src.models.ptm_direction_mapper import PTMDirectionMapper, PTMDirectionMapperOutput
+from src.models.ptm_direction_mapper import PTMDirectionMapper
 from src.api.schemas import PTMSite
 
 

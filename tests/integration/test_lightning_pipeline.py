@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import pytest
-import torch
 import lightning as L
 import pandas as pd
 from lightning.pytorch.loggers import CSVLogger

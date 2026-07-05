@@ -6,7 +6,6 @@ import gzip
 from io import BytesIO, StringIO
 
 import pandas as pd
-import pytest
 import requests
 
 from src.data.loaders import DataLoader

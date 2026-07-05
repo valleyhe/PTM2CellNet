@@ -6,8 +6,6 @@ predict, DAVFLoss, and DirectionConsistencyLoss with small tensor sizes.
 
 import pytest
 import torch
-import torch.nn as nn
-from unittest.mock import MagicMock
 
 from src.models.davf import (
     DAVFConfig,

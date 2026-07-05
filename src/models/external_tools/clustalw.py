@@ -138,7 +138,7 @@ class ClustalWClient:
         except (ValueError, KeyError) as exc:
             logger.warning("External ClustalW parsing error: %s", exc)
             return None
-        except (OSError, RuntimeError) as exc:
+        except RuntimeError as exc:
             logger.error("Unexpected external ClustalW error: %s", exc)
             return None
         finally:

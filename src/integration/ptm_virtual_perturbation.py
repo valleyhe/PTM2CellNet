@@ -5,7 +5,7 @@ experiments, integrating PTMPerturbationProfile with GenKI-based
 perturbation execution and significance analysis.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -189,7 +189,7 @@ class PTMVirtualPerturbationEngine:
                 f"Gene symbol '{gene_symbol}' not found in reference data. "
                 f"Available genes ({len(gene_names)}): "
                 f"{', '.join(gene_names[:10])}{'...' if len(gene_names) > 10 else ''}"
-            )
+            ) from None
 
         profile = PTMPerturbationProfile(
             target_gene_index=gene_index,

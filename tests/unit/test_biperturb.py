@@ -6,7 +6,6 @@ PerturbationGNN, BiPerturb, and BiPerturbLoss with small tensor sizes.
 
 import pytest
 import torch
-import torch.nn as nn
 
 from src.models.biperturb import (
     BiPerturbConfig,

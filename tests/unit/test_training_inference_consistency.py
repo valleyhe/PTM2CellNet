@@ -9,7 +9,6 @@ import pickle
 
 import pytest
 import torch
-import numpy as np
 
 from src.models.architectures import PTM2CellNet
 from src.utils.io import safe_torch_load
@@ -263,7 +262,6 @@ class TestTrainingInferenceConsistency:
         """测试导出为ONNX格式"""
         try:
             import onnx
-            import onnxruntime as ort
         except ImportError:
             pytest.skip("ONNX libraries not available")
 
@@ -367,7 +365,7 @@ class TestTrainingInferenceConsistency:
 
         # 检查是否有梯度
         has_grad = False
-        for name, param in model.named_parameters():
+        for _name, param in model.named_parameters():
             if param.grad is not None and param.grad.abs().sum() > 0:
                 has_grad = True
                 break
@@ -592,7 +590,7 @@ class TestCheckpointConsistency:
         assert checkpoint["best_loss"] == best_loss
 
         # 验证模型状态一致
-        for (n1, p1), (n2, p2) in zip(
+        for (_n1, p1), (_n2, p2) in zip(
             model.named_parameters(),
             loaded_model.named_parameters()
         ):

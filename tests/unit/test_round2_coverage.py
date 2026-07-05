@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 # ---------------------------------------------------------------------------

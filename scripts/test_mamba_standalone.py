@@ -8,7 +8,6 @@ Mamba 编码器独立测试脚本
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 

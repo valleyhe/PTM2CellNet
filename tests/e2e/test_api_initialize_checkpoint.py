@@ -44,7 +44,6 @@ def _dev_env_and_allowed_roots(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _restore_state():
     """每个测试后恢复全局 STATE，避免状态泄漏到其他测试。"""
-    import copy
     orig = {
         "model": STATE.model,
         "cell_states": list(STATE.cell_states),

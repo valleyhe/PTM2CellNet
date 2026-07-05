@@ -4,7 +4,6 @@ from src.integration.contracts import PerturbationResult
 from src.integration.genki_reports import (
     build_comparison_summary_payload,
     build_generank_dataframe,
-    build_gsea_ranked_dataframe,
     build_result_summary_payload,
     build_significant_gene_dataframe,
     build_two_stage_summary_payload,

@@ -1,122 +1,35 @@
-"""Project roadmap helpers and scope registry."""
+"""Project roadmap helpers and scope registry.
+
+This module provides backward-compatible re-exports from the refactored
+:mod:`src.project.scope` and :mod:`src.training.distributed` modules,
+along with retained deprecated shims for cancelled features.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import torch
 
-from ..training.trainers import Trainer
+from src.project.scope import (
+    CancelledFeature,
+    DeferredFeature,
+    CANCELLED_FEATURES,
+    DEFERRED_FEATURES,
+    get_cancelled_features,
+    get_deferred_features,
+)
+from src.training.distributed import distributed_trainer
 
 logger = logging.getLogger(__name__)
 
-try:  # pragma: no cover - optional dependency
-    import lightning as _LIGHTNING_MODULE
-    _LIGHTNING_IMPORT_ERROR: Exception | None = None
-except ImportError as exc:  # pragma: no cover - optional dependency
-    _LIGHTNING_MODULE = None  # type: ignore[assignment]  # optional dep absent
-    _LIGHTNING_IMPORT_ERROR = exc
-
-
-@dataclass(frozen=True)
-class DeferredFeature:
-    """Metadata for a deferred roadmap feature."""
-
-    requirement_id: str
-    name: str
-    summary: str
-    rationale: str
-    recommended_path: str
-
-
-@dataclass(frozen=True)
-class CancelledFeature:
-    """Metadata for a roadmap feature that is explicitly out of scope."""
-
-    requirement_id: str
-    name: str
-    rationale: str
-
-
-DEFERRED_FEATURES: list[DeferredFeature] = [
-    DeferredFeature(
-        requirement_id="V2-01",
-        name="ESM-3 integration",
-        summary="Integrate ESM-3 (Evolutionary Scale Model 3) protein language model.",
-        rationale=(
-            "Implemented in v1.0 via ``ESM3Encoder`` in "
-            "``src/models/pretrained_encoders.py``. Supports multi-modal inputs "
-            "(sequence, structure, function tokens), LoRA fine-tuning, and "
-            "sliding-window long-sequence encoding. Falls back to ESM-2 if "
-            "ESM-3 weights are unavailable."
-        ),
-        recommended_path=(
-            "Already implemented; extend with additional ESM-3 model sizes "
-            "or specialized structure/function tokenizers as they become available."
-        ),
-    ),
-    DeferredFeature(
-        requirement_id="V2-04",
-        name="Distributed training support",
-        summary="Multi-GPU / distributed (DDP) training.",
-        rationale=(
-            "Deferred at v1.0. Lightning (already a dependency) provides DDP "
-            "via ``L.Trainer(devices=N, strategy='ddp')``; no dedicated module "
-            "is required until distributed training is exercised in practice."
-        ),
-        recommended_path=(
-            "Pass ``strategy='ddp'`` and ``devices>1`` to the Lightning "
-            "Trainer in training scripts (e.g. ``scripts/finetune_davf.py``); "
-            "optionally add a helper in ``src/training/`` to centralize it."
-        ),
-    ),
-]
-
-CANCELLED_FEATURES: list[CancelledFeature] = [
-    CancelledFeature(
-        requirement_id="V2-02",
-        name="Real-time mass-spec streaming",
-        rationale=(
-            "Cancelled by project scope update on 2026-07-05. The project "
-            "uses offline/batch data preparation and prediction paths; no "
-            "streaming ingestion, queue consumer, or online mass-spec pipeline "
-            "should be planned."
-        ),
-    ),
-    CancelledFeature(
-        requirement_id="V2-03",
-        name="Custom PTM database support",
-        rationale=(
-            "Cancelled by project scope update on 2026-07-05. Standard public "
-            "PTM data sources and table/file imports remain valid, but a "
-            "user-managed custom PTM database/catalog/API is no longer a "
-            "project requirement."
-        ),
-    ),
-    CancelledFeature(
-        requirement_id="V2-05",
-        name="GUI interface",
-        rationale=(
-            "Cancelled by project scope update on 2026-07-05. The supported "
-            "interfaces are CLI scripts, Python APIs, and FastAPI endpoints; "
-            "no Streamlit/Gradio/desktop GUI should be implemented."
-        ),
-    ),
-    CancelledFeature(
-        requirement_id="SEC-AUTH-APIKEY",
-        name="API key feature expansion",
-        rationale=(
-            "Cancelled by project scope update on 2026-07-05. Existing "
-            "compatibility middleware may remain, but roadmap or plan documents "
-            "must not add new API-key authentication work."
-        ),
-    ),
-]
+# ---------------------------------------------------------------------------
+# Backward-compat private helpers used by the deprecated shims below
+# ---------------------------------------------------------------------------
 
 _MASS_SPEC_COLUMNS = ["position", "ptm_type", "intensity", "confidence"]
 _STANDARD_PTM_COLUMNS = [
@@ -160,18 +73,60 @@ def _ensure_dataframe(records: Any, *, columns: list[str] | None = None) -> pd.D
     return pd.DataFrame.from_records(rows, columns=columns)
 
 
-def esm3_encoder(*args: Any, **kwargs: Any):
+# ---------------------------------------------------------------------------
+# Backward-compat shims for cancelled / implemented features
+# ---------------------------------------------------------------------------
+
+
+def esm3_encoder(*args: Any, strict: bool = False, **kwargs: Any):
     """V2-01: return an ESM-3 encoder. Falls back to ESM-2 if ESM3Encoder is unavailable.
 
+    Args:
+        *args: Positional arguments forwarded to the encoder constructor.
+        strict: If True, raise RuntimeError when ESM-3 is unavailable instead
+            of falling back to ESM-2. Use in production to prevent silent
+            model substitution.  May also be enabled globally via the
+            ``PTM2CELLNET_STRICT_MODEL_ASSETS`` environment variable.
+        **kwargs: Keyword arguments forwarded to the encoder constructor.
+
     Note: ESM-3 model weights may not be publicly available. When unavailable,
-    this function transparently falls back to ESM2Encoder with the same arguments.
+    this function transparently falls back to ESM2Encoder with the same arguments
+    (unless ``strict=True`` or the environment variable is set).
     Check ``src.models.pretrained_encoders.ESM3Encoder`` for the actual implementation.
     """
+    # Also check global strict mode env var
+    _global_strict = os.environ.get("PTM2CELLNET_STRICT_MODEL_ASSETS", "").lower() in ("1", "true", "yes")
+    if _global_strict:
+        strict = True
+
     from . import pretrained_encoders
 
     esm3_cls = getattr(pretrained_encoders, "ESM3Encoder", None)
     if esm3_cls is not None:
-        return esm3_cls(*args, **kwargs)
+        try:
+            return esm3_cls(*args, **kwargs)
+        except (OSError, ImportError, ValueError, RuntimeError) as exc:
+            # ESM3Encoder class exists but instantiation failed (e.g. HuggingFace
+            # weights unavailable or download error). Log and fall back.
+            logger.warning(
+                "ESM3Encoder instantiation failed (%s: %s). %s",
+                type(exc).__name__, exc,
+                "Strict mode forbids fallback." if strict else "Falling back to ESM2Encoder.",
+            )
+            if strict:
+                raise RuntimeError(
+                    "ESM3Encoder instantiation failed and strict=True forbids "
+                    f"fallback to ESM-2. Original error: {type(exc).__name__}: {exc}"
+                ) from exc
+            # Fall through to ESM-2 below
+
+    # ESM-3 class not available or instantiation failed (non-strict)
+    if strict:
+        raise RuntimeError(
+            "ESM3Encoder is not available and strict=True forbids fallback. "
+            "Ensure ESM-3 model weights and the required dependencies are installed, "
+            "or set strict=False to allow ESM-2 fallback."
+        )
 
     # ESM-3不可用时安全回退到ESM-2
     esm2_cls = pretrained_encoders.ESM2Encoder
@@ -265,39 +220,6 @@ def load_custom_ptm_database(path_or_df: Any, **kwargs: Any) -> pd.DataFrame:
     return standardized.reset_index(drop=True)
 
 
-def distributed_trainer(model: Any, datamodule: Any, **kwargs: Any):
-    """V2-04: build a Lightning DDP trainer when possible, else fall back safely."""
-    del datamodule
-
-    if _LIGHTNING_MODULE is not None:
-        trainer_kwargs = dict(kwargs)
-        devices = int(trainer_kwargs.pop("devices", 1))
-        if torch.cuda.is_available():
-            available_devices = torch.cuda.device_count()
-            if available_devices > 1:
-                trainer_kwargs["accelerator"] = trainer_kwargs.get("accelerator", "gpu")
-                trainer_kwargs["devices"] = max(devices, available_devices)
-                trainer_kwargs["strategy"] = "ddp"
-            elif devices > 1:
-                logger.warning(
-                    "Requested devices=%s but only %s GPU is available; using a normal Lightning Trainer.",
-                    devices,
-                    available_devices,
-                )
-                trainer_kwargs["devices"] = 1
-        return _LIGHTNING_MODULE.Trainer(**trainer_kwargs)
-
-    logger.warning(
-        "lightning is unavailable (%s); falling back to plain Trainer.",
-        _LIGHTNING_IMPORT_ERROR,
-    )
-    return Trainer(
-        model,
-        config=kwargs.get("config"),
-        device=kwargs.get("device"),
-    )
-
-
 def launch_gui(**kwargs: Any):
     """V2-05: retained compatibility shim for a cancelled GUI requirement.
 
@@ -318,15 +240,9 @@ def launch_gui(**kwargs: Any):
     return False
 
 
-def get_deferred_features() -> list[DeferredFeature]:
-    """Return metadata for all deferred v1.0 roadmap features."""
-    return list(DEFERRED_FEATURES)
-
-
-def get_cancelled_features() -> list[CancelledFeature]:
-    """Return metadata for features explicitly removed from project scope."""
-    return list(CANCELLED_FEATURES)
-
+# ---------------------------------------------------------------------------
+# Public API — full backward compatibility with pre-refactor imports
+# ---------------------------------------------------------------------------
 
 __all__ = [
     "CancelledFeature",

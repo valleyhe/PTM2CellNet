@@ -13,7 +13,6 @@ AutoTokenizer/AutoConfig 用轻量 dummy 替换，与
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace

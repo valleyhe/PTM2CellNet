@@ -15,10 +15,13 @@ Usage:
 """
 
 import argparse
+import contextlib
 import logging
 import os
 import sys
 from pathlib import Path
+
+import pandas as pd
 
 # Ensure project root is on path
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,31 +102,119 @@ def main():
     trainable_params = list(model.delta_projection.parameters()) + list(downstream_head.parameters())
     optimizer = optim.Adam(trainable_params, lr=args.lr)
 
-    # Step 4: Training loop
+    # Step 4: Load training data
+    logger.info("Loading training data from %s", args.data_path)
+    df = pd.read_csv(args.data_path)
+
+    # Resolve sequence column — try common alternatives
+    seq_col = None
+    for candidate in ["sequence_window", "sequence", "peptide", "window"]:
+        if candidate in df.columns:
+            seq_col = candidate
+            break
+    if seq_col is None:
+        raise ValueError(
+            f"No sequence column found in {args.data_path}. "
+            f"Expected one of: sequence_window, sequence, peptide, window. "
+            f"Got columns: {list(df.columns)}"
+        )
+
+    # Resolve label column
+    if "label" not in df.columns:
+        raise ValueError(
+            f"No 'label' column found in {args.data_path}. "
+            f"Got columns: {list(df.columns)}"
+        )
+
+    df = df[[seq_col, "label"]].dropna()
+    logger.info(
+        "Loaded %d samples (seq_col='%s', label_col='label')",
+        len(df), seq_col,
+    )
+
+    # Step 5: Create Dataset and DataLoader
+    class SequenceDataset(torch.utils.data.Dataset):
+        """Simple sequence→tensor dataset for fine-tuning."""
+
+        def __init__(self, dataframe: pd.DataFrame, seq_col: str):
+            self.sequences = dataframe[seq_col].tolist()
+            self.labels = dataframe["label"].tolist()
+
+        def __len__(self) -> int:
+            return len(self.sequences)
+
+        def __getitem__(self, idx: int):
+            seq = str(self.sequences[idx])
+            # Map each character to an integer index: ord(c) - ord('A'), capped at 25
+            indices = [min(max(ord(c) - ord("A"), 0), 25) for c in seq.upper()]
+            return torch.tensor(indices, dtype=torch.long), torch.tensor(self.labels[idx], dtype=torch.long)
+
+    dataset = SequenceDataset(df, seq_col)
+    train_loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+    )
+
+    # Step 6: Loss function and training loop
+    criterion = nn.CrossEntropyLoss()
+
     logger.info("Starting training for %d epochs", args.epochs)
     for epoch in range(args.epochs):
+        model.train()
+        downstream_head.train()
+        epoch_loss = 0.0
+        num_batches = 0
+
         # Optionally unfreeze backbone after specified epoch
         if args.unfreeze_after is not None and epoch == args.unfreeze_after:
             logger.info("Unfreezing DAVF backbone at epoch %d", epoch)
             model.unfreeze_davf()
             # Add backbone parameters with lower learning rate
             backbone_params = []
-            if hasattr(model, 'latent_davf'):
+            if hasattr(model, "latent_davf"):
                 backbone_params.extend(model.latent_davf.parameters())
-            elif hasattr(model, 'gene_encoder'):
+            elif hasattr(model, "gene_encoder"):
                 backbone_params.extend(model.gene_encoder.parameters())
             optimizer = optim.Adam([
                 {"params": trainable_params, "lr": args.lr},
                 {"params": backbone_params, "lr": args.backbone_lr},
             ])
 
-        # Placeholder: in production, iterate over your actual data here
-        logger.info("Epoch %d/%d — replace this loop with actual data iteration", epoch + 1, args.epochs)
+        for batch_sequences, batch_labels in train_loader:
+            batch_sequences = batch_sequences.to(device)
+            batch_labels = batch_labels.to(device)
 
-    # Step 5: Save fine-tuned model
+            # Forward through DAVF
+            with torch.no_grad() if not model.training else contextlib.nullcontext():
+                davf_output = model(batch_sequences)
+            features = davf_output.davf_features  # [B, feature_dim]
+
+            # Forward through downstream head
+            logits = downstream_head(features)    # [B, num_classes]
+            loss = criterion(logits, batch_labels)
+
+            # Backward + step
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+            num_batches += 1
+
+        avg_loss = epoch_loss / max(num_batches, 1)
+        logger.info("Epoch %d/%d — avg_loss=%.4f", epoch + 1, args.epochs, avg_loss)
+
+    # Step 7: Save fine-tuned model
     output_path = os.path.join(args.output_dir, "davf_finetuned.pt")
-    torch.save(model.state_dict(), output_path)
-    logger.info("Saved fine-tuned model to %s", output_path)
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "downstream_head_state_dict": downstream_head.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "epochs_completed": args.epochs,
+        "training_completed": True,
+    }, output_path)
+    logger.info("Saved fine-tuned checkpoint to %s", output_path)
 
     logger.info("Fine-tuning complete.")
 

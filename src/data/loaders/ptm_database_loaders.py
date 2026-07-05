@@ -2,7 +2,6 @@
 PTMDatabaseLoaderMixin — PhosphoSitePlus / dbPTM / CPLM 数据库加载。
 """
 
-from typing import List, Optional
 
 import pandas as pd
 import requests

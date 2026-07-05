@@ -8,7 +8,6 @@ from typing import Dict
 import pytest
 import torch
 import torch.nn as nn
-from unittest.mock import MagicMock, patch
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.training.trainers import Trainer
@@ -285,7 +284,7 @@ class TestCallbackIntegration:
         class BadCallback(Callback):
             def on_epoch_end(self, trainer, epoch, logs):
                 if epoch >= 0:
-                    setattr(self, "should_stop", True)
+                    self.should_stop = True
 
         bad = BadCallback()
         trainer.callbacks = [bad]

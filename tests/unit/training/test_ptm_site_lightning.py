@@ -4,7 +4,7 @@ PTMSiteLightning模块单元测试
 
 import pytest
 import torch
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.training.ptm_site_lightning import PTMSiteLightning
 

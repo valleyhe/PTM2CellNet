@@ -74,7 +74,7 @@ class DataPreprocessor:
 
         for old_char, new_char in self.NON_STANDARD_AA_MAP.items():
             # 统计替换前的数量
-            count = df[sequence_col].apply(lambda s: s.count(old_char)).sum()
+            count = df[sequence_col].apply(lambda s, c=old_char: s.count(c)).sum()
             if count > 0:
                 original_count += count
                 df[sequence_col] = df[sequence_col].str.replace(

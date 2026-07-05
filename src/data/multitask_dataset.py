@@ -13,7 +13,7 @@ import logging
 from collections import defaultdict
 import random
 
-from src.data.aa_constants import AA_TO_IDX, PAD_IDX, AA_PAD_CHAR
+from src.data.aa_constants import AA_TO_IDX, PAD_IDX
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class MultiTaskPTMDataset(Dataset):
         min_count = min(len(v) for v in by_type.values())
         rng = random.Random(42)
         balanced: List[SampleDict] = []
-        for ptm_type, items in by_type.items():
+        for _ptm_type, items in by_type.items():
             if len(items) > min_count:
                 items = rng.sample(items, min_count)
             balanced.extend(items)

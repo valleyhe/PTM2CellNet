@@ -13,7 +13,6 @@
 import argparse
 import csv
 import os
-import sys
 import time
 import urllib.request
 import urllib.parse

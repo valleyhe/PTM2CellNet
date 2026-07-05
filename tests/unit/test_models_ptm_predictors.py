@@ -4,7 +4,6 @@ PTM预测器模型和Lightning模块单元测试
 
 import importlib
 import sys
-from unittest import mock
 
 import pytest
 import torch

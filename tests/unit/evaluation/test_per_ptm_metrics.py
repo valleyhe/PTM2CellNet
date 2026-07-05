@@ -1,5 +1,4 @@
 """Tests for per-PTM-type evaluation metrics (EVAL-01)."""
-import pytest
 import numpy as np
 
 from src.evaluation.metrics import calculate_per_ptm_type_metrics

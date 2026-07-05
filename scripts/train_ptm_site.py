@@ -20,7 +20,6 @@ import argparse
 import lightning as L
 from lightning.pytorch.callbacks import (
     ModelCheckpoint,
-    EarlyStopping,
     LearningRateMonitor,
 )
 from lightning.pytorch.loggers import TensorBoardLogger

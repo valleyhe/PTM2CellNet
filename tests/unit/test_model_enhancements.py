@@ -17,7 +17,6 @@ from src.models.model_utils import (
     validate_model_config,
     count_parameters,
     get_model_memory_usage,
-    print_model_summary,
 )
 
 

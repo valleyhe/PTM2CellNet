@@ -13,8 +13,7 @@ import torch.nn as nn
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
-from src.api.routes.state import STATE, _ModelState, initialize_model
-from src.api.schemas import HealthResponse, ModelInfoResponse
+from src.api.routes.state import STATE, initialize_model
 
 
 # ---------------------------------------------------------------------------

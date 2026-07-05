@@ -1,72 +1,13 @@
-"""Integration utilities for PTM2CellNet external explainability pipelines."""
+"""Integration adapters for external tools (GenKI, PTM virtual perturbation).
 
-from .contracts import CandidateRecord, GenePerturbationRequest, PerturbationResult
-from .genki_reports import (
-    build_comparison_summary_payload,
-    build_generank_dataframe,
-    build_gsea_ranked_dataframe,
-    build_result_summary_payload,
-    build_significant_gene_dataframe,
-    build_two_stage_summary_payload,
-    render_comparison_summary_markdown,
-    render_two_stage_summary_markdown,
-    save_gsea_ranked_tsv,
-)
-from .ptm_gene_mapper import ProteinGeneMapper
-from .ptm_virtual_perturbation import PTMPerturbationProfile, apply_soft_perturbation
+Lazy import pattern: submodules are imported only when their names are
+first accessed, so optional dependencies (anndata, torch_geometric, etc.)
+do not raise ImportError at package import time.
+"""
 
-try:
-    from .genki import GraphUtilities, PerturbationExecutor, ReferenceDataLoader, SignificanceAnalyzer
-except ImportError as _genki_import_error:
-    _GENKI_IMPORT_ERROR = _genki_import_error
+from typing import Any
 
-    def _make_unavailable_stub(name: str):
-        """Create a stub class that raises ImportError on any attribute access."""
-        class _Unavailable:
-            __qualname__ = name
-            def __init__(self, *args, **kwargs):
-                raise ImportError(
-                    f"{name} is unavailable because the genki optional dependency "
-                    f"is not installed. Original error: {_genki_import_error}. "
-                    f"Install with: pip install -r requirements-analysis.txt"
-                )
-            def __getattr__(self, attr):
-                raise ImportError(
-                    f"{name}.{attr} is unavailable because the genki optional dependency "
-                    f"is not installed. Original error: {_genki_import_error}."
-                )
-        _Unavailable.__name__ = name
-        return _Unavailable
-
-    ReferenceDataLoader = _make_unavailable_stub("ReferenceDataLoader")
-    PerturbationExecutor = _make_unavailable_stub("PerturbationExecutor")
-    SignificanceAnalyzer = _make_unavailable_stub("SignificanceAnalyzer")
-    GraphUtilities = _make_unavailable_stub("GraphUtilities")
-
-try:
-    from .genki_adapter import GenKIAdapter
-except ImportError as _genki_adapter_import_error:
-    _GENKI_ADAPTER_IMPORT_ERROR = _genki_adapter_import_error
-
-    def _make_genki_adapter_stub():
-        class _UnavailableGenKIAdapter:
-            __qualname__ = "GenKIAdapter"
-            def __init__(self, *args, **kwargs):
-                raise ImportError(
-                    f"GenKIAdapter is unavailable because the genki optional dependency "
-                    f"is not installed. Original error: {_genki_adapter_import_error}. "
-                    f"Install with: pip install -r requirements-analysis.txt"
-                )
-            def __getattr__(self, attr):
-                raise ImportError(
-                    f"GenKIAdapter.{attr} is unavailable because the genki optional dependency "
-                    f"is not installed. Original error: {_genki_adapter_import_error}."
-                )
-        _UnavailableGenKIAdapter.__name__ = "GenKIAdapter"
-        return _UnavailableGenKIAdapter
-
-    GenKIAdapter = _make_genki_adapter_stub()
-
+# Public API names
 __all__ = [
     "CandidateRecord",
     "GenePerturbationRequest",
@@ -89,3 +30,63 @@ __all__ = [
     "PTMPerturbationProfile",
     "apply_soft_perturbation",
 ]
+
+# Module-level import error tracking for diagnostic purposes
+_IMPORT_ERRORS: dict[str, Exception] = {}
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy import: only load submodules when their names are first accessed.
+
+    This prevents ImportError from bubbling up at package import time when
+    optional dependencies (anndata, torch_geometric) are not installed.
+    """
+    _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+        # contracts
+        "CandidateRecord": (".contracts", "CandidateRecord"),
+        "GenePerturbationRequest": (".contracts", "GenePerturbationRequest"),
+        "PerturbationResult": (".contracts", "PerturbationResult"),
+        # genki
+        "GraphUtilities": (".genki", "GraphUtilities"),
+        "PerturbationExecutor": (".genki", "PerturbationExecutor"),
+        "ReferenceDataLoader": (".genki", "ReferenceDataLoader"),
+        "SignificanceAnalyzer": (".genki", "SignificanceAnalyzer"),
+        # genki_adapter
+        "GenKIAdapter": (".genki_adapter", "GenKIAdapter"),
+        # genki_reports
+        "build_comparison_summary_payload": (".genki_reports", "build_comparison_summary_payload"),
+        "build_generank_dataframe": (".genki_reports", "build_generank_dataframe"),
+        "build_gsea_ranked_dataframe": (".genki_reports", "build_gsea_ranked_dataframe"),
+        "build_result_summary_payload": (".genki_reports", "build_result_summary_payload"),
+        "build_significant_gene_dataframe": (".genki_reports", "build_significant_gene_dataframe"),
+        "build_two_stage_summary_payload": (".genki_reports", "build_two_stage_summary_payload"),
+        "render_comparison_summary_markdown": (".genki_reports", "render_comparison_summary_markdown"),
+        "render_two_stage_summary_markdown": (".genki_reports", "render_two_stage_summary_markdown"),
+        "save_gsea_ranked_tsv": (".genki_reports", "save_gsea_ranked_tsv"),
+        # ptm_gene_mapper
+        "ProteinGeneMapper": (".ptm_gene_mapper", "ProteinGeneMapper"),
+        # ptm_virtual_perturbation
+        "PTMPerturbationProfile": (".ptm_virtual_perturbation", "PTMPerturbationProfile"),
+        "apply_soft_perturbation": (".ptm_virtual_perturbation", "apply_soft_perturbation"),
+    }
+
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        import importlib
+        try:
+            module = importlib.import_module(module_path, __package__)
+            return getattr(module, attr_name)
+        except ImportError as exc:
+            _IMPORT_ERRORS[name] = exc
+            raise ImportError(
+                f"Cannot import {name!r} from src.integration: "
+                f"{exc}. Install the required dependencies "
+                f"(e.g., pip install -r requirements-analysis.txt)."
+            ) from exc
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def get_import_errors() -> dict[str, Exception]:
+    """Return any import errors encountered during lazy loading."""
+    return dict(_IMPORT_ERRORS)

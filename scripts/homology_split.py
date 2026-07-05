@@ -98,7 +98,7 @@ def run_mmseqs_cluster(sequences_file: str, output_dir: str, identity: float = 0
     try:
         import mmseqs
     except ImportError:
-        raise ImportError("请安装mmseqs2: conda install -c conda-forge -c bioconda mmseqs2")
+        raise ImportError("请安装mmseqs2: conda install -c conda-forge -c bioconda mmseqs2") from None
 
     os.makedirs(output_dir, exist_ok=True)
     db_path = os.path.join(output_dir, 'db')

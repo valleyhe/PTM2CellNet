@@ -157,23 +157,6 @@ class GenKIAdapter:
     compatibility for external callers that relied on dynamic delegation.
     """
 
-    _PRIVATE_DELEGATES = {
-        "_load_reference_data_from_genki_source": ("_ref_loader", "_load_reference_data_from_genki_source"),
-        "_probe_dependencies": ("_ref_loader", "_probe_dependencies"),
-        "_run_with_genki_source": ("_perturbation", "_run_with_genki_source"),
-        "_build_genki_loader": ("_perturbation", "_build_genki_loader"),
-        "_score_with_latent_vgae": ("_perturbation", "_score_with_latent_vgae"),
-        "_edge_index_to_adjacency": ("_graph", "_edge_index_to_adjacency"),
-        "_adjacency_to_edge_index": ("_graph", "_adjacency_to_edge_index"),
-        "_score_from_dense_matrices": ("_graph", "_score_from_dense_matrices"),
-        "_extract_latent_vars": ("_graph", "_extract_latent_vars"),
-        "_build_score_metadata": ("_significance", "_build_score_metadata"),
-        "_compute_significance": ("_significance", "_compute_significance"),
-        "_build_null_distribution": ("_significance", "_build_null_distribution"),
-        "_benjamini_hochberg": ("_significance", "_benjamini_hochberg"),
-        "_compute_bagging_statistics": ("_significance", "_compute_bagging_statistics"),
-    }
-
     def __init__(
         self,
         ref_root: str,
@@ -253,36 +236,8 @@ class GenKIAdapter:
         )
         self._perturbation.set_significance_analyzer(self._significance)
 
-    def __getattr__(self, name: str) -> Any:  # noqa: ANN401 — dynamic delegation
-        """Cached fallback delegation for private helper methods.
-
-        Promoted delegates are defined as explicit methods below and resolved
-        by normal attribute lookup (this method is only consulted when the
-        normal lookup fails). Results are memoized per (adapter, name) pair so
-        repeated access does not re-resolve the bound method each call.
-        """
-        # Avoid recursing during __init__ before components are set.
-        if name.startswith("_") and not name.startswith("__"):
-            try:
-                delegates = type(self)._PRIVATE_DELEGATES
-            except AttributeError:
-                delegates = {}
-            delegate = delegates.get(name)
-            if delegate is not None:
-                component_name, target_name = delegate
-                try:
-                    component = getattr(self, component_name)
-                except AttributeError as exc:
-                    raise AttributeError(
-                        f"{self.__class__.__name__!r} object has no attribute {name!r}"
-                    ) from exc
-                bound = getattr(component, target_name)
-                return bound
-        raise AttributeError(f"{self.__class__.__name__!r} object has no attribute {name!r}")
-
     # ------------------------------------------------------------------
-    # Explicit delegation methods (promoted from __getattr__ so static
-    # type checkers / IDEs can resolve them). Each forwards to the matching
+    # Explicit delegation methods. Each forwards to the matching
     # component method.
     # ------------------------------------------------------------------
 

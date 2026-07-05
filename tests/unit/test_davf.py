@@ -11,7 +11,6 @@ These tests focus on DAVF behaviours not already covered in
 * ``verify_direction_accuracy`` helper
 """
 
-from unittest.mock import MagicMock
 
 import pytest
 import torch

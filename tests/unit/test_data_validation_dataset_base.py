@@ -2,9 +2,6 @@
 数据验证和数据集基类单元测试
 """
 
-import json
-import os
-import pickle
 import tempfile
 import pytest
 import pandas as pd
@@ -101,7 +98,6 @@ class TestDatasetCache:
             assert loaded == data
 
     def test_cache_load_corrupted_returns_none(self, caplog):
-        import logging
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = DatasetCache(cache_dir=tmpdir)
             # Create a dummy cache file that is not valid pickle

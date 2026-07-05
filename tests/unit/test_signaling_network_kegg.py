@@ -12,7 +12,6 @@ These tests verify that:
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.models.signaling_network import SignalingNetworkMapper
 

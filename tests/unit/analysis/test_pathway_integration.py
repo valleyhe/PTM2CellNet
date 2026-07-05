@@ -2,9 +2,8 @@
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 import pickle
-import sys
 
 import networkx as nx
 

@@ -5,7 +5,7 @@ PyTorch数据集模块
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
+from typing import Dict, List, Optional, Tuple, TypedDict, Union, cast
 
 import pandas as pd
 import torch
@@ -16,7 +16,6 @@ from .aa_constants import (
     AMINO_ACIDS_STR,
     AA_TO_IDX,
     NON_STANDARD_AA_MAP,
-    PAD_IDX,
 )
 from .augmentation import DAVFSiteAugmenter, PTMAugmenter, SequenceAugmenter, get_augmentation_config
 from .features import FeatureExtractor, DEFAULT_AMINO_ACIDS

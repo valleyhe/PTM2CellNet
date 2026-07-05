@@ -9,6 +9,8 @@ from collections import defaultdict
 from pathlib import Path
 import logging
 
+logger = logging.getLogger(__name__)
+
 try:
     from src.analysis.pathway_integration import PathwayDatabaseIntegration
     PATHWAY_INTEGRATION_AVAILABLE = True
@@ -18,8 +20,6 @@ except ImportError:
         "sspa library not installed. Using built-in pathway database only. "
         "Install sspa (pip install sspa) for KEGG/Reactome integration."
     )
-
-logger = logging.getLogger(__name__)
 
 # 下游基因表达变化受通路活性的影响因子（假设中等影响）。
 DOWNSTREAM_GENE_IMPACT_FACTOR = 0.5

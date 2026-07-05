@@ -279,27 +279,227 @@ class PerturbationExecutor:
             metadata=metadata,
         )
 
-    def run_batch(self, requests: List[GenePerturbationRequest], progress_callback=None) -> List[PerturbationResult]:
-        """Run a batch of perturbation requests sequentially.
+    def run_batch(
+        self,
+        requests: List[GenePerturbationRequest],
+        progress_callback=None,
+        parallel: bool = False,
+    ) -> List[PerturbationResult]:
+        """Run a batch of perturbation requests with shared reference data.
 
-        Sequential execution keeps the reference data and any trained VGAE
-        state consistent across requests. Future work can parallelize here
-        once reference data loading is shared.
+        Reference data is loaded once and reused across all requests, reducing
+        I/O overhead for large batches. Failed requests are isolated: the
+        exception is logged and a ``PerturbationResult`` with ``distance_score=-1``
+        and an ``error`` metadata key is returned for that request instead of
+        crashing the entire batch.
 
         Args:
             requests: List of perturbation requests to execute.
             progress_callback: Optional callable invoked after each request
                 with keyword arguments ``(completed=..., total=...)``.
+            parallel: If True, use concurrent.futures for parallel execution.
+                Currently experimental — defaults to False (sequential).
+                When enabled, each request still shares the same reference
+                data but runs in a thread pool. VGAE cache access is
+                thread-safe due to GIL.
+
+        Returns:
+            List of :class:`PerturbationResult`, one per request. Failed
+            requests have ``distance_score=-1`` and an ``error`` key in
+            metadata.
         """
+        if not requests:
+            return []
+
+        # Pre-load reference data once for the entire batch.
+        try:
+            reference = self._ref_loader.load_reference_data()
+        except Exception as exc:
+            logger.error("run_batch: failed to load reference data: %s", exc)
+            # Return error results for all requests
+            return [
+                PerturbationResult(
+                    gene_symbol=req.gene_symbol,
+                    mode=req.mode,
+                    distance_score=-1.0,
+                    ranked_genes=[],
+                    metadata={"error": f"Reference data loading failed: {exc}"},
+                )
+                for req in requests
+            ]
+
+        if parallel:
+            return self._run_batch_parallel(requests, reference, progress_callback)
+
+        # Sequential execution with shared reference data and fault isolation
         results: List[PerturbationResult] = []
         for i, request in enumerate(requests):
-            results.append(self.run(request))
+            try:
+                result = self._run_with_shared_reference(request, reference)
+                results.append(result)
+            except Exception as exc:
+                logger.error(
+                    "run_batch: request %s failed: %s", request.gene_symbol, exc
+                )
+                results.append(PerturbationResult(
+                    gene_symbol=request.gene_symbol,
+                    mode=request.mode,
+                    distance_score=-1.0,
+                    ranked_genes=[],
+                    metadata={"error": str(exc)},
+                ))
             if progress_callback is not None:
                 try:
                     progress_callback(completed=i + 1, total=len(requests))
                 except Exception:
                     pass
         return results
+
+    def _run_with_shared_reference(
+        self,
+        request: GenePerturbationRequest,
+        reference: dict,
+    ) -> PerturbationResult:
+        """Execute a single request using pre-loaded reference data.
+
+        This is the same logic as ``run()`` but skips the reference data loading
+        step, accepting a pre-loaded reference dict instead.
+
+        Args:
+            request: Perturbation request to execute.
+            reference: Pre-loaded reference data dict from
+                ``_ref_loader.load_reference_data()``.
+
+        Returns:
+            A :class:`PerturbationResult` with distance score and metadata.
+
+        Raises:
+            KeyError: If the requested gene symbol is not in the reference.
+            ValueError: If the perturbation mode is unsupported.
+        """
+        if reference["backend"] == "genki_source":
+            return self._run_with_genki_source(request)
+
+        gene_names: List[str] = reference["gene_names"]
+        if request.gene_symbol not in gene_names:
+            raise KeyError(f"Unknown gene symbol: {request.gene_symbol}")
+
+        gene_index = gene_names.index(request.gene_symbol)
+        baseline_counts = np.asarray(reference["counts"], dtype=float)
+        baseline_network = np.asarray(reference["network"], dtype=float)
+        perturbed_counts = baseline_counts.copy()
+        perturbed_network = baseline_network.copy()
+
+        if request.mode == "hard_ko":
+            perturbed_counts[:, gene_index] = 0.0
+            perturbed_network[:, gene_index] = 0.0
+            perturbed_network[gene_index, :] = 0.0
+        elif request.mode == "soft_ptm":
+            profile = PTMPerturbationProfile(
+                target_gene_index=gene_index,
+                node_decay=max(0.0, 1.0 - request.magnitude),
+                edge_scale=max(0.0, 1.0 - request.magnitude),
+            )
+            perturbed_counts, perturbed_network = apply_soft_perturbation(
+                baseline_counts,
+                baseline_network,
+                profile,
+            )
+        else:
+            raise ValueError(f"Unsupported perturbation mode: {request.mode}")
+
+        if self.scoring_method == "latent_vgae":
+            wt_data = self._build_wt_data_from_arrays(
+                baseline_counts, baseline_network, gene_names
+            )
+            combined_shift = self._score_with_latent_vgae(
+                wt_data=wt_data,
+                perturbed_counts=perturbed_counts,
+                perturbed_network=perturbed_network,
+            )
+        else:
+            combined_shift = self._graph._score_from_matrices(
+                baseline_counts=baseline_counts,
+                baseline_network=baseline_network,
+                perturbed_counts=perturbed_counts,
+                perturbed_network=perturbed_network,
+            )
+        ranked_indices = np.argsort(-combined_shift)
+        ranked_genes = [gene_names[idx] for idx in ranked_indices if gene_names[idx] != request.gene_symbol]
+        distance_score = float(np.linalg.norm(combined_shift, ord=2))
+        metadata = self._require_significance()._build_score_metadata(
+            gene_names=gene_names,
+            gene_index=gene_index,
+            request=request,
+            baseline_counts=baseline_counts,
+            baseline_network=baseline_network,
+            combined_shift=combined_shift,
+            backend=reference["backend"],
+        )
+
+        return PerturbationResult(
+            gene_symbol=request.gene_symbol,
+            mode=request.mode,
+            distance_score=distance_score,
+            ranked_genes=ranked_genes,
+            metadata=metadata,
+        )
+
+    def _run_batch_parallel(
+        self,
+        requests: List[GenePerturbationRequest],
+        reference: dict,
+        progress_callback=None,
+    ) -> List[PerturbationResult]:
+        """Parallel batch execution using a thread pool.
+
+        Args:
+            requests: List of perturbation requests.
+            reference: Pre-loaded reference data dict.
+            progress_callback: Optional progress callback.
+
+        Returns:
+            List of :class:`PerturbationResult`.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        results: List[Optional[PerturbationResult]] = [None] * len(requests)
+
+        with ThreadPoolExecutor(max_workers=min(4, len(requests))) as executor:
+            future_to_idx = {
+                executor.submit(self._run_with_shared_reference, req, reference): i
+                for i, req in enumerate(requests)
+            }
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as exc:
+                    logger.error(
+                        "run_batch parallel: request %s failed: %s",
+                        requests[idx].gene_symbol, exc,
+                    )
+                    results[idx] = PerturbationResult(
+                        gene_symbol=requests[idx].gene_symbol,
+                        mode=requests[idx].mode,
+                        distance_score=-1.0,
+                        ranked_genes=[],
+                        metadata={"error": str(exc)},
+                    )
+                if progress_callback is not None:
+                    try:
+                        completed = sum(1 for r in results if r is not None)
+                        progress_callback(completed=completed, total=len(requests))
+                    except Exception:
+                        pass
+
+        return [r or PerturbationResult(
+            gene_symbol=requests[i].gene_symbol,
+            mode=requests[i].mode,
+            distance_score=-1.0,
+            ranked_genes=[],
+            metadata={"error": "Unknown error"},
+        ) for i, r in enumerate(results)]
 
     def run_virtual_ko(
         self,
@@ -471,7 +671,7 @@ class PerturbationExecutor:
         spec.loader.exec_module(genki_module)
         # Import the dataLoader submodule relative to the now-registered package.
         module = importlib.import_module("GenKI.dataLoader")
-        data_loader_cls = getattr(module, "DataLoader")
+        data_loader_cls = module.DataLoader
         if not ANNDATA_AVAILABLE:
             raise ImportError(
                 "anndata is required for genki_source backend. "
@@ -570,9 +770,9 @@ class PerturbationExecutor:
             train_module = importlib.import_module("GenKI.train")
             utils_module = importlib.import_module("GenKI.utils")
             data_cls = importlib.import_module("torch_geometric.data").Data
-            vgae_cls = getattr(train_module, "VGAE")
-            encoder_cls = getattr(train_module, "VariationalGCNEncoder")
-            get_distance = getattr(utils_module, "get_distance")
+            vgae_cls = train_module.VGAE
+            encoder_cls = train_module.VariationalGCNEncoder
+            get_distance = utils_module.get_distance
             if self.trainer_seed is not None:
                 torch.manual_seed(self.trainer_seed)
 
@@ -604,12 +804,12 @@ class PerturbationExecutor:
                         break
             self._vgae_cache[cache_key] = (model, optimizer)
             data_cls = importlib.import_module("torch_geometric.data").Data
-            get_distance = getattr(utils_module, "get_distance")
+            get_distance = utils_module.get_distance
         else:
             train_module = importlib.import_module("GenKI.train")
             utils_module = importlib.import_module("GenKI.utils")
             data_cls = importlib.import_module("torch_geometric.data").Data
-            get_distance = getattr(utils_module, "get_distance")
+            get_distance = utils_module.get_distance
 
         perturbed_edge_index = self._graph._adjacency_to_edge_index(perturbed_network)
         data_v = data_cls(

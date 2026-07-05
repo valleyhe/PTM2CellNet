@@ -7,8 +7,7 @@ for DAVF inference pipeline.
 
 import pytest
 import torch
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Optional
+from unittest.mock import Mock
 from pydantic import BaseModel
 
 from src.data.schemas import PTMSite

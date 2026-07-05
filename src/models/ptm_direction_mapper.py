@@ -478,7 +478,7 @@ class PTMDirectionMapper:
         }
 
         registered = 0
-        for pathway_name, pathway_info in pathways.items():
+        for _pathway_name, pathway_info in pathways.items():
             description = pathway_info.get('description', '').lower()
             pathway_keywords = [kw for kw in context_keywords if kw in description]
 

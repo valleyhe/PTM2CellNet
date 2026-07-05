@@ -27,7 +27,7 @@ the stricter bar a *release-eligible* dataset must clear.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
 import pandas as pd
 from typing_extensions import TypedDict
@@ -173,7 +173,7 @@ def validate_data_contract(
             )
 
         # PTM site position semantics (1-based, within sequence length).
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             sites = _parse_ptm_sites(row["ptm_sites"])
             seq_len = len(str(row["sequence"]))
             for site in sites:

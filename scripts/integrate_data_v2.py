@@ -16,12 +16,10 @@ import argparse
 import csv
 import json
 import os
-import sys
 import time
 import urllib.request
 import urllib.parse
 from collections import defaultdict
-from pathlib import Path
 
 import pandas as pd
 

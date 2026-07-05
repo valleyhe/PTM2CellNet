@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 from src.data.aa_constants import (
     AMINO_ACIDS,
     AA_TO_IDX,
-    PAD_IDX,
     AA_PAD_CHAR,
 )
 
