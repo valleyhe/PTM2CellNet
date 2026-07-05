@@ -1,4 +1,3 @@
-# mypy: disable-error-code="annotation-unchecked,assignment,valid-type,var-annotated"
 """
 多任务PTM数据集
 功能: 同时加载多种PTM类型的训练数据
@@ -8,7 +7,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, TypedDict
+from typing import Dict, List, Optional, TypedDict, Callable, Any
 from pathlib import Path
 import logging
 from collections import defaultdict
@@ -51,7 +50,7 @@ class MultiTaskPTMDataset(Dataset):
 
     def __init__(
         self,
-        data_files: Dict[str, str] = None,
+        data_files: Optional[Dict[str, str]] = None,
         window_size: int = 15,
         max_samples_per_type: Optional[int] = None,
         balance_types: bool = True,
@@ -125,7 +124,7 @@ class MultiTaskPTMDataset(Dataset):
         random.shuffle(self.samples)
 
         # 统计
-        self.type_counts = defaultdict(int)
+        self.type_counts: Dict[str, int] = defaultdict(int)
         for s in self.samples:
             self.type_counts[s['ptm_type']] += 1
 
@@ -178,10 +177,10 @@ class MultiTaskPTMDataset(Dataset):
                 )
         return augmented
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
         sample = self.samples[idx]
 
         # 编码序列
@@ -204,7 +203,7 @@ class MultiTaskPTMDataset(Dataset):
     def get_type_weights(self) -> Dict[str, float]:
         """计算类型权重（用于平衡）"""
         total = len(self.samples)
-        weights = {}
+        weights: Dict[str, float] = {}
 
         for ptm_type in self.ptm_types:
             count = self.type_counts[ptm_type]
@@ -231,7 +230,7 @@ class MultiTaskPTMDataModule:
         train_ratio: float = 0.8,
         val_ratio: float = 0.1,
         num_workers: int = 4,
-        collate_fn: Optional[callable] = None,
+        collate_fn: Optional[Callable] = None,
         balance_types: bool = True,
         augment_minority: bool = True,
     ):
@@ -266,26 +265,26 @@ class MultiTaskPTMDataModule:
         # 默认使用多任务批处理函数；允许传入 None 回退到 PyTorch 默认 collate
         self.collate_fn = collate_fn if collate_fn is not None else collate_multitask_batch
 
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
+        self.train_dataset: Optional[Dataset] = None
+        self.val_dataset: Optional[Dataset] = None
+        self.test_dataset: Optional[Dataset] = None
 
-    def setup(self):
+    def setup(self) -> None:
         """准备数据"""
         # 查找数据文件
-        data_files = {}
+        data_files: Dict[str, str] = {}
         for ptm_type in self.ptm_types:
-            file_path = self.data_dir / f"ptm_train_{ptm_type.lower()}.csv"
-            if file_path.exists():
-                data_files[ptm_type] = str(file_path)
+            data_path = self.data_dir / f"ptm_train_{ptm_type.lower()}.csv"
+            if data_path.exists():
+                data_files[ptm_type] = str(data_path)
             else:
-                logger.warning(f"数据文件不存在: {file_path}")
+                logger.warning(f"数据文件不存在: {data_path}")
 
         if not data_files:
             raise FileNotFoundError(f"未找到任何数据文件在 {self.data_dir}")
 
         # 加载全部数据
-        all_samples = []
+        all_samples: List[SampleDict] = []
         for ptm_type, file_path in data_files.items():
             df = pd.read_csv(file_path)
 
@@ -335,7 +334,8 @@ class MultiTaskPTMDataModule:
 
         logger.info(f"数据划分: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)}")
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader:
+        assert self.train_dataset is not None, "call setup() before train_dataloader()"
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
@@ -345,7 +345,8 @@ class MultiTaskPTMDataModule:
             collate_fn=self.collate_fn,
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader:
+        assert self.val_dataset is not None, "call setup() before val_dataloader()"
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
@@ -355,7 +356,8 @@ class MultiTaskPTMDataModule:
             collate_fn=self.collate_fn,
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self) -> DataLoader:
+        assert self.test_dataset is not None, "call setup() before test_dataloader()"
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
@@ -381,14 +383,14 @@ class SampleDataset(Dataset):
         'Succinylation': 5,
     }
 
-    def __init__(self, samples, window_size=15):
+    def __init__(self, samples: List[SampleDict], window_size: int = 15) -> None:
         self.samples = samples
         self.window_size = window_size
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
         sample = self.samples[idx]
 
         seq_indices = [self.AA_TO_IDX.get(aa, PAD_IDX) for aa in sample['sequence_window']]
@@ -402,7 +404,7 @@ class SampleDataset(Dataset):
         }
 
 
-def collate_multitask_batch(batch):
+def collate_multitask_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     自定义批处理函数
 
@@ -415,7 +417,7 @@ def collate_multitask_batch(batch):
         type_batches[item['ptm_type']].append(item)
 
     # 构建输出
-    outputs = {
+    outputs: Dict[str, Any] = {
         'sequence_indices': [],
         'labels': {},
         'ptm_types': [],

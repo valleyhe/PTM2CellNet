@@ -17,10 +17,10 @@ import torch
 import yaml
 from fastapi.testclient import TestClient
 
-from src.api.app import (
+from src.api.app import create_app
+from src.api.autoinit import (
     _infer_logits_dim,
     _resolve_autoinit_cell_states,
-    create_app,
 )
 from src.api.routes.state import STATE, reset_state
 from src.models.architectures import PTM2CellNet

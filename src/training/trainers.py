@@ -505,3 +505,53 @@ class Trainer:
                 predictions.append(outputs)
 
         return predictions
+
+
+def train(
+    model: nn.Module,
+    datamodule: Any,
+    config: Optional[Dict[str, Any]] = None,
+    device: Optional[str] = None,
+    max_epochs: Optional[int] = None,
+    loss_fn: Optional[nn.Module] = None,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    callbacks: Optional[List[Any]] = None,
+) -> nn.Module:
+    """
+    Train a model using the provided data module and configuration.
+
+    This is a convenience function that wraps the Trainer class with minimal
+    boilerplate. It supports both PyTorch DataLoader and LightningDataModule
+    inputs, matching the interface contract in AGENTS.md.
+
+    Args:
+        model: PyTorch model to train
+        datamodule: Training data source — either a DataLoader or
+            LightningDataModule with train_dataloader()/val_dataloader() methods
+        config: Optional configuration dict (used for optimizer/scheduler setup)
+        device: Device string (e.g., 'cuda', 'cpu'). Auto-detected if None.
+        max_epochs: Maximum training epochs. Defaults to config value or 100.
+        loss_fn: Loss function. Defaults to CrossEntropyLoss.
+        optimizer: Pre-configured optimizer. Auto-created from config if None.
+        callbacks: List of training callbacks.
+
+    Returns:
+        The trained model (nn.Module)
+
+    Example:
+        >>> model = PTM2CellNet(config)
+        >>> datamodule = PTMDataModule(...)
+        >>> trained_model = train(model, datamodule, config)
+    """
+    trainer = Trainer(
+        model=model,
+        config=config,
+        device=device,
+    )
+    trainer.compile(
+        loss_fn=loss_fn,
+        optimizer=optimizer,
+        callbacks=callbacks,
+    )
+    trainer.fit(datamodule, max_epochs=max_epochs)
+    return model

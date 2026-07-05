@@ -1,4 +1,3 @@
-# mypy: disable-error-code="annotation-unchecked"
 """
 注意力池化模块
 功能概述: 提供基于attention的序列聚合方法，替代简单的mean pooling

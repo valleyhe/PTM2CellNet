@@ -1,4 +1,3 @@
-# mypy: disable-error-code="annotation-unchecked"
 """
 模型工具函数
 功能概述: 提供模型配置验证、参数量统计、计算量分析等工具
@@ -70,8 +69,9 @@ def validate_model_config(config: Dict[str, Union[str, int, float, bool, List[An
     返回:
         (是否有效, 错误信息列表)
     """
-    errors = []
-    model_cfg = config.get("model", {})
+    errors: List[str] = []
+    model_raw: Any = config.get("model", {})
+    model_cfg: dict = model_raw if isinstance(model_raw, dict) else {}
 
     # 必需字段检查
     required_fields = ["encoder_type"]
@@ -124,20 +124,21 @@ def count_parameters(model: nn.Module, trainable_only: bool = False) -> Paramete
     返回:
         参数量统计字典
     """
+    total_params: int
     if trainable_only:
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     else:
         total_params = sum(p.numel() for p in model.parameters())
 
     # 按模块统计
-    module_params = {}
+    module_params: Dict[str, _ModuleParamStats] = {}
     for name, module in model.named_children():
         module_count = sum(p.numel() for p in module.parameters())
         module_trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
         module_params[name] = {
             "total": module_count,
             "trainable": module_trainable,
-            "percentage": module_count / total_params * 100 if total_params > 0 else 0
+            "percentage": module_count / total_params * 100 if total_params > 0 else 0.0
         }
 
     return {

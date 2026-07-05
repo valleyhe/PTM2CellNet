@@ -1,4 +1,3 @@
-# mypy: disable-error-code="arg-type,annotation-unchecked,assignment,misc,valid-type,var-annotated"
 """
 PTM位点预测数据集
 功能: 用于PTM位点二分类预测的数据集类
@@ -6,7 +5,7 @@ PTM位点预测数据集
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -218,9 +217,9 @@ class PTMSiteDataModule(L.LightningDataModule):
         self.test_split = test_split
         self.seed = seed
 
-        self.train_dataset: Optional[PTMSiteDataset] = None
-        self.val_dataset: Optional[PTMSiteDataset] = None
-        self.test_dataset: Optional[PTMSiteDataset] = None
+        self.train_dataset: Optional[Union[PTMSiteDataset, Dataset]] = None
+        self.val_dataset: Optional[Union[PTMSiteDataset, Dataset]] = None
+        self.test_dataset: Optional[Union[PTMSiteDataset, Dataset]] = None
         self._full_dataset: Optional[PTMSiteDataset] = None
 
     def setup(self, stage: Optional[str] = None):
@@ -257,6 +256,7 @@ class PTMSiteDataModule(L.LightningDataModule):
             logger.info("数据划分: train=%d, val=%d, test=%d", train_size, val_size, test_size)
 
     def train_dataloader(self) -> DataLoader:
+        assert self.train_dataset is not None, "train_dataset not initialized — call setup() first"
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
@@ -267,6 +267,7 @@ class PTMSiteDataModule(L.LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader:
+        assert self.val_dataset is not None, "val_dataset not initialized — call setup() first"
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
@@ -276,6 +277,7 @@ class PTMSiteDataModule(L.LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
+        assert self.test_dataset is not None, "test_dataset not initialized — call setup() first"
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,

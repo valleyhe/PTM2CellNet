@@ -1,4 +1,3 @@
-# mypy: disable-error-code="annotation-unchecked"
 """
 多任务PTM位点预测模型
 功能: 联合训练多种PTM类型，提升K修饰类型区分能力
@@ -141,7 +140,7 @@ class MultiTaskPTMPredictor(nn.Module):
         # 初始化权重
         self.apply(self._init_weights)
 
-    def _create_encoder(self, encoder_type, embed_dim, hidden_dim, num_layers, num_heads, dropout):
+    def _create_encoder(self, encoder_type: str, embed_dim: int, hidden_dim: int, num_layers: int, num_heads: int, dropout: float) -> nn.Module:
         """创建编码器"""
         if encoder_type == "cnn":
             return PooledCNNEncoder(embed_dim, hidden_dim, num_layers, dropout)
@@ -152,7 +151,7 @@ class MultiTaskPTMPredictor(nn.Module):
         else:
             raise ValueError(f"未知编码器类型: {encoder_type}")
 
-    def _init_weights(self, module):
+    def _init_weights(self, module: nn.Module) -> None:
         """初始化权重"""
         if isinstance(module, nn.Linear):
             nn.init.xavier_uniform_(module.weight)
@@ -181,6 +180,7 @@ class MultiTaskPTMPredictor(nn.Module):
         else:
             if ptm_type is None:
                 raise ValueError("不共享编码器时需要指定ptm_type")
+            assert isinstance(self.encoder, nn.ModuleDict), "Expected ModuleDict when share_encoder=False"
             encoded = self.encoder[ptm_type](embedded)
 
         return typing.cast(torch.Tensor, encoded)

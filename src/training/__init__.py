@@ -3,7 +3,7 @@
 from .losses import FocalLoss, DiceLoss, MultiTaskLoss
 from .optimizers import configure_optimizer
 from .callbacks import ModelCheckpoint, EarlyStopping, TensorBoardCallback
-from .trainers import Trainer
+from .trainers import Trainer, train
 from .self_supervised import MaskedPTMPrediction, pretrain_masked_ptm
 from .logging_config import (
     configure_default_logger,
@@ -20,6 +20,7 @@ __all__ = [
     "EarlyStopping",
     "TensorBoardCallback",
     "Trainer",
+    "train",
     "MaskedPTMPrediction",
     "pretrain_masked_ptm",
     # CONF-02: library-level default Lightning logger configuration

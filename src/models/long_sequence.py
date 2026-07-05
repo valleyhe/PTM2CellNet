@@ -341,6 +341,9 @@ class SlidingWindowESM2(nn.Module):
         """
         将序列分割为重叠的窗口
 
+        Delegates to LongSequenceHandler for boundary computation to avoid
+        duplication of the sliding-window algorithm.
+
         参数:
             sequence: 蛋白质序列字符串
 
@@ -352,31 +355,13 @@ class SlidingWindowESM2(nn.Module):
         if seq_len <= self.window_size:
             return [sequence]
 
-        windows = []
-        start = 0
+        handler = LongSequenceHandler(
+            sequence_length=seq_len,
+            window_size=self.window_size,
+            overlap=self.overlap,
+        )
 
-        while start < seq_len:
-            end = min(start + self.window_size, seq_len)
-            window_seq = sequence[start:end]
-            windows.append(window_seq)
-
-            # 如果已经到达序列末尾，退出
-            if end >= seq_len:
-                break
-
-            # 下一个窗口的起始位置
-            start += self.stride
-
-            # 确保最后一个窗口包含序列末尾
-            if start + self.window_size > seq_len:
-                if seq_len > self.window_size:
-                    new_start = seq_len - self.window_size
-                    # 只有当新窗口与上一个窗口不同时才添加
-                    if new_start > start - self.stride:  # 与上一个窗口起点比较
-                        windows.append(sequence[new_start:seq_len])
-                break
-
-        return windows
+        return [sequence[start:end] for start, end in handler.window_boundaries]
 
     def _pool_windows(
         self,

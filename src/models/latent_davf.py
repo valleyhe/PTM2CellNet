@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from typing import Optional, Dict, List, cast
 from dataclasses import dataclass
 
-from src.models.davf import TimeEncoder
+from src.models.davf_encoder import TimeEncoder
 from src.models.biperturb import BiPerturbConfig, BiPerturbEncoder
 from src.models.geneformer_embedding import GeneformerEmbeddingLoader
 

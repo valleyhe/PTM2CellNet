@@ -15,6 +15,9 @@ from src.models.external_tools import (
     _needleman_wunsch,
     _nw_score,
 )
+from src.models.external_tools import alphafold as _af
+from src.models.external_tools import blast as _blast
+from src.models.external_tools import clustalw as _clustalw
 
 
 # ---------------------------------------------------------------------------
@@ -36,31 +39,31 @@ class TestAlphaFoldClient:
 
     def test_check_available_requests_unavailable(self):
         """check_available returns False when requests module is missing."""
-        with patch("src.models.external_tools.REQUESTS_AVAILABLE", False):
+        with patch.object(_af, "REQUESTS_AVAILABLE", False):
             client = AlphaFoldClient()
             assert client.check_available() is False
 
-    @patch("src.models.external_tools.requests")
+    @patch.object(_af, "requests")
     def test_check_available_api_reachable(self, mock_requests):
         """check_available returns True when API responds OK."""
         mock_resp = MagicMock()
         mock_resp.ok = True
         mock_requests.get.return_value = mock_resp
-        with patch("src.models.external_tools.REQUESTS_AVAILABLE", True):
+        with patch.object(_af, "REQUESTS_AVAILABLE", True):
             client = AlphaFoldClient()
             assert client.check_available() is True
 
-    @patch("src.models.external_tools.requests")
+    @patch.object(_af, "requests")
     def test_check_available_api_unreachable(self, mock_requests):
         """check_available returns False when API raises exception."""
         mock_requests.get.side_effect = ConnectionError("timeout")
-        with patch("src.models.external_tools.REQUESTS_AVAILABLE", True):
+        with patch.object(_af, "REQUESTS_AVAILABLE", True):
             client = AlphaFoldClient()
             assert client.check_available() is False
 
     def test_predict_structure_fallback_when_no_requests(self):
         """predict_structure falls back to PDB when requests is unavailable."""
-        with patch("src.models.external_tools.REQUESTS_AVAILABLE", False):
+        with patch.object(_af, "REQUESTS_AVAILABLE", False):
             client = AlphaFoldClient()
             result = client.predict_structure("ACDEFGHIK")
             assert "pdb_string" in result
@@ -68,7 +71,7 @@ class TestAlphaFoldClient:
             assert "predicted_aligned_error" in result
             assert len(result["pdb_string"]) > 0
 
-    @patch("src.models.external_tools.requests")
+    @patch.object(_af, "requests")
     def test_predict_structure_with_uniprot_id(self, mock_requests):
         """predict_structure fetches from EBI API with uniprot_id."""
         # Mock the prediction API response
@@ -86,21 +89,21 @@ class TestAlphaFoldClient:
 
         mock_requests.get.side_effect = [pred_resp, pdb_resp]
 
-        with patch("src.models.external_tools.REQUESTS_AVAILABLE", True):
+        with patch.object(_af, "REQUESTS_AVAILABLE", True):
             client = AlphaFoldClient()
             result = client.predict_structure("ACDEFGHIK", uniprot_id="P15056")
 
         assert result["pdb_string"] == "ATOM  ...fake PDB..."
         assert result["confidence"] == pytest.approx(0.9, abs=0.01)
 
-    @patch("src.models.external_tools.requests")
+    @patch.object(_af, "requests")
     def test_predict_structure_api_error_fallback(self, mock_requests):
         """predict_structure falls back when EBI API returns error."""
         pred_resp = MagicMock()
         pred_resp.ok = False
         mock_requests.get.return_value = pred_resp
 
-        with patch("src.models.external_tools.REQUESTS_AVAILABLE", True):
+        with patch.object(_af, "REQUESTS_AVAILABLE", True):
             client = AlphaFoldClient()
             result = client.predict_structure("ACDEFGHIK", uniprot_id="P15056")
 
@@ -137,19 +140,19 @@ class TestBLASTClient:
 
     def test_check_available_biopython_unavailable(self):
         """check_available returns False when BioPython BLAST is missing."""
-        with patch("src.models.external_tools.BIO_BLAST_AVAILABLE", False):
+        with patch.object(_blast, "BIO_BLAST_AVAILABLE", False):
             client = BLASTClient()
             assert client.check_available() is False
 
     def test_search_returns_empty_when_unavailable(self):
         """search returns empty list when BioPython BLAST is unavailable."""
-        with patch("src.models.external_tools.BIO_BLAST_AVAILABLE", False):
+        with patch.object(_blast, "BIO_BLAST_AVAILABLE", False):
             client = BLASTClient()
             result = client.search("ACDEFGHIK")
             assert result == []
 
-    @patch("src.models.external_tools.NCBIXML")
-    @patch("src.models.external_tools.NCBIWWW")
+    @patch.object(_blast, "NCBIXML")
+    @patch.object(_blast, "NCBIWWW")
     def test_search_returns_hits(self, mock_www, mock_xml):
         """search returns parsed hits from NCBI BLAST."""
         # Build mock BLAST record
@@ -170,7 +173,7 @@ class TestBLASTClient:
         mock_www.qblast.return_value = MagicMock()
         mock_xml.parse.return_value = [mock_record]
 
-        with patch("src.models.external_tools.BIO_BLAST_AVAILABLE", True):
+        with patch.object(_blast, "BIO_BLAST_AVAILABLE", True):
             client = BLASTClient()
             hits = client.search("ACDEFGHIK")
 
@@ -178,12 +181,12 @@ class TestBLASTClient:
         assert hits[0]["accession"] == "NP_12345"
         assert hits[0]["e_value"] == 1e-10
 
-    @patch("src.models.external_tools.NCBIWWW")
+    @patch.object(_blast, "NCBIWWW")
     def test_search_error_returns_empty(self, mock_www):
         """search returns empty list on NCBI error."""
         mock_www.qblast.side_effect = OSError("Network error")
 
-        with patch("src.models.external_tools.BIO_BLAST_AVAILABLE", True):
+        with patch.object(_blast, "BIO_BLAST_AVAILABLE", True):
             client = BLASTClient()
             hits = client.search("ACDEFGHIK")
             assert hits == []
@@ -247,8 +250,8 @@ class TestClustalWClient:
 
     def test_check_available_with_biopython(self):
         """check_available returns True when BioPython Align is available."""
-        with patch("src.models.external_tools.BIO_ALIGN_AVAILABLE", True), \
-             patch("src.models.external_tools.shutil") as mock_shutil:
+        with patch.object(_clustalw, "BIO_ALIGN_AVAILABLE", True), \
+             patch.object(_clustalw, "shutil") as mock_shutil:
             mock_shutil.which.return_value = None  # no external clustalw
             client = ClustalWClient()
             assert client.check_available() is True

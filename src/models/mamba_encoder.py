@@ -10,6 +10,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, einsum
 
+try:
+    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
+    _HAS_MAMBA_SSM = True
+except ImportError:
+    _HAS_MAMBA_SSM = False
+
 
 class SelectiveSSM(nn.Module):
     """
@@ -146,13 +152,36 @@ class SelectiveSSM(nn.Module):
             y: [B, L, d_inner] 输出
 
         Note:
-            真正的 Mamba selective scan 需要一个融合 CUDA kernel 才能完全
-            摆脱 Python 循环。这里做的是 *循环内* 优化：(1) 把不依赖隐藏
-            状态 ``h`` 的 ``D * x`` 输出门控预算好；(2) 把 per-timestep
-            输出张量预分配为单个 buffer 而不是 Python list + stack；(3) 把
-            ``einsum`` 替换为等价但更友好的 ``unsqueeze`` + 广播乘法，便于
-            后续 lazy CUDA 融合。递推本身（``for t in range(seq_len)``）仍
-            保留，因为状态依赖性是固有的。
+            Three execution paths:
+            1. If ``mamba_ssm`` is installed and input is on CUDA, use the fused
+               ``selective_scan_fn`` for maximum performance.
+            2. If on GPU without ``mamba_ssm``, use the vectorized parallel scan
+               (``_ssm_step_parallel``) via cumulative product + cumulative sum.
+            3. If on CPU, fall back to the sequential Python loop (optimized
+               with pre-allocation).
+        """
+        # Path 1: Fused CUDA kernel via mamba_ssm
+        if _HAS_MAMBA_SSM and x.is_cuda:
+            return self._ssm_step_fused(x, delta, B, C)
+
+        # Path 2: Vectorized parallel scan on GPU (more efficient)
+        if x.is_cuda:
+            return self._ssm_step_parallel(x, delta, B, C)
+
+        # Path 3: Sequential scan (CPU or fallback)
+        return self._ssm_step_sequential(x, delta, B, C)
+
+    def _ssm_step_sequential(
+        self,
+        x: torch.Tensor,
+        delta: torch.Tensor,
+        B: torch.Tensor,
+        C: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Sequential SSM scan — Python loop, one timestep at a time.
+
+        This is the original implementation, kept as CPU fallback.
         """
         batch_size, seq_len, d_inner = x.shape
 
@@ -163,48 +192,123 @@ class SelectiveSSM(nn.Module):
         # B̅ = Δ·B  [B, L, d_inner, N]
         B_bar = einsum(delta, B, 'b l d, b l n -> b l d n')
 
-        # Pre-compute the D-gated output term D*x once. This is independent of
-        # the hidden state, so it can be added in bulk after the recurrence.
-        # Shape: [L, B, d_inner] — pre-transposed to match the output buffer
-        # layout we build inside the loop.
-        Dx = self.D.unsqueeze(0).unsqueeze(0) * x  # broadcast: [1,1,d_inner]*[B,L,d_inner]
+        # Pre-compute the D-gated output term D*x once.
+        Dx = self.D.unsqueeze(0).unsqueeze(0) * x
         Dx = Dx.permute(1, 0, 2).contiguous()  # [L, B, d_inner]
 
-        # Pre-allocate the output buffer instead of building a Python list of
-        # tensors and stacking at the end (avoids O(L) Python list growth and
-        # a final O(L) stack allocation).
+        # Pre-allocate the output buffer.
         y_out = torch.empty(
             seq_len, batch_size, d_inner,
             device=x.device, dtype=x.dtype,
         )
 
-        # Hidden state carries the recurrence; cannot be parallelised without
-        # a selective-scan kernel, but everything *inside* the loop is now a
-        # plain elementwise multiply-add (no einsum, no Python list append).
         h = torch.zeros(
             batch_size, d_inner, self.d_state,
             device=x.device, dtype=x.dtype,
         )
 
-        # x_t base shape we reuse every step: [B, d_inner, 1]
         x_perm = x.permute(1, 0, 2).contiguous()  # [L, B, d_inner]
 
         for t in range(seq_len):
-            # h[t] = A̅[t]·h[t-1] + B̅[t]·x[t]
             A_bar_t = A_bar[:, t]  # [B, d_inner, N]
             B_bar_t = B_bar[:, t]  # [B, d_inner, N]
             x_t = x_perm[t].unsqueeze(-1)  # [B, d_inner, 1]
-            # A_bar_t * h broadcasts over N; B_bar_t * x_t broadcasts over N.
             h = A_bar_t * h + B_bar_t * x_t  # [B, d_inner, N]
 
-            # y[t] = C[t]·h[t] + D·x[t]
-            # (h @ C[t]^T): [B, d_inner, N] x [B, N, 1] -> [B, d_inner, 1]
             C_t = C[:, t].unsqueeze(-1)  # [B, N, 1]
             y_t = torch.bmm(h, C_t).squeeze(-1)  # [B, d_inner]
             y_out[t] = y_t + Dx[t]
 
-        # Back to [B, L, d_inner].
         return y_out.permute(1, 0, 2).contiguous()
+
+    def _ssm_step_fused(
+        self,
+        x: torch.Tensor,
+        delta: torch.Tensor,
+        B: torch.Tensor,
+        C: torch.Tensor,
+    ) -> torch.Tensor:
+        """Use mamba_ssm's fused selective scan kernel (CUDA only).
+
+        mamba_ssm's ``selective_scan_fn`` expects ``(B, D, L)``
+        (batch, dim, length) layout for ``u``, ``delta``, ``B``, ``C``,
+        while our code uses ``(B, L, D)``.  We permute at the boundary.
+        """
+        # Convert from our (B, L, D) to kernel's (B, D, L) layout
+        u = x.permute(0, 2, 1).contiguous()          # [B, d_inner, L]
+        delta_perm = delta.permute(0, 2, 1).contiguous()  # [B, d_inner, L]
+        # B, C: (B, L, N) -> (B, N, L)  (gets rearranged to (B, 1, N, L) inside)
+        B_perm = B.permute(0, 2, 1).contiguous()     # [B, N, L]
+        C_perm = C.permute(0, 2, 1).contiguous()     # [B, N, L]
+
+        A_param = self.A.contiguous()  # [d_inner, N]
+
+        y = selective_scan_fn(
+            u,          # [B, d_inner, L]
+            delta_perm, # [B, d_inner, L]
+            A_param,    # [d_inner, N]
+            B_perm,     # [B, N, L]
+            C_perm,     # [B, N, L]
+            z=None,
+            D=self.D,
+            delta_bias=None,
+            delta_softplus=False,
+            return_last_state=False,
+        )  # -> [B, d_inner, L]
+
+        # Convert back to our (B, L, D) layout
+        return y.permute(0, 2, 1).contiguous()
+
+    def _ssm_step_parallel(
+        self,
+        x: torch.Tensor,
+        delta: torch.Tensor,
+        B: torch.Tensor,
+        C: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Vectorized parallel scan via cumulative product + cumulative sum.
+
+        The SSM recurrence:
+            h[t] = A_bar[t]*h[t-1] + B_bar[t]*x[t]
+        can be expanded as:
+            h[t] = sum_{s=0}^{t} (prod_{r=s+1}^{t} A_bar[r]) * B_bar[s]*x[s]
+
+        Let cumprod_A[t] = prod_{s=0}^{t} A_bar[s]. Then:
+            h[t] = cumprod_A[t] * sum_{s=0}^{t} B_bar[s]*x[s] / cumprod_A[s]
+
+        This expresses the recurrence as cumprod * cumsum(Bx / cumprod),
+        which runs in O(log L) depth on GPU.
+        """
+        batch_size, seq_len, d_inner = x.shape
+
+        # Discretize: A_bar [B, L, d_inner, N], B_bar [B, L, d_inner, N]
+        A_bar = torch.exp(einsum(delta, self.A, 'b l d, d n -> b l d n'))
+        B_bar = einsum(delta, B, 'b l d, b l n -> b l d n')
+
+        # Bx[t] = B_bar[t] * x[t]   [B, L, d_inner, N]
+        Bx = B_bar * x.unsqueeze(-1)
+
+        # Cumulative product of A_bar along the sequence dimension
+        cumprod_A = torch.cumprod(A_bar, dim=1)  # [B, L, d_inner, N]
+
+        # Normalized Bx: Bx[t] / cumprod_A[t]  (eps prevents division by zero)
+        normalized_Bx = Bx * torch.reciprocal(cumprod_A + 1e-12)
+
+        # Cumulative sum of normalized_Bx
+        cumsum_Bx = torch.cumsum(normalized_Bx, dim=1)  # [B, L, d_inner, N]
+
+        # h[t] = cumprod_A[t] * cumsum_Bx[t]
+        h = cumprod_A * cumsum_Bx  # [B, L, d_inner, N]
+
+        # y[t] = C[t] @ h[t]  (einsum: 'b l n, b l d n -> b l d')
+        y = einsum(C, h, 'b l n, b l d n -> b l d')
+
+        # Add D*x
+        Dx = self.D.unsqueeze(0).unsqueeze(0) * x  # [B, L, d_inner]
+        y = y + Dx
+
+        return y
 
 
 class MambaBlock(nn.Module):

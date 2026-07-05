@@ -102,7 +102,7 @@ def test_load_from_phosphositeplus_download_url(tmp_path, monkeypatch) -> None:
         assert timeout == 30
         return _FakeResponse(payload)
 
-    monkeypatch.setattr("src.data.loaders.requests.get", fake_get)
+    monkeypatch.setattr("src.data.loaders.base.requests.get", fake_get)
 
     df = loader.load_from_phosphositeplus(
         "https://www.phosphosite.org/downloads/Phosphorylation_site_dataset.gz"
@@ -122,7 +122,7 @@ def test_load_from_phosphositeplus_network_failure_returns_empty(monkeypatch) ->
     def fake_get(url: str, stream: bool = False, timeout: int = 0):
         raise requests.RequestException("network down")
 
-    monkeypatch.setattr("src.data.loaders.requests.get", fake_get)
+    monkeypatch.setattr("src.data.loaders.base.requests.get", fake_get)
 
     df = loader.load_from_phosphositeplus(
         "https://www.phosphosite.org/downloads/Phosphorylation_site_dataset.gz"
@@ -219,7 +219,7 @@ def test_load_from_uniprot_uses_api_and_cache(tmp_path, monkeypatch) -> None:
         assert timeout == 15
         return _UniProtResponse()
 
-    monkeypatch.setattr("src.data.loaders.requests.get", fake_get)
+    monkeypatch.setattr("src.data.loaders.uniprot_loader.requests.get", fake_get)
 
     first = loader.load_from_uniprot(["P04637"])
     second = loader.load_from_uniprot(["P04637"])
@@ -243,7 +243,7 @@ def test_load_from_uniprot_network_failure_returns_empty(monkeypatch) -> None:
     def fake_get(url: str, timeout: int = 0):
         raise requests.RequestException("network down")
 
-    monkeypatch.setattr("src.data.loaders.requests.get", fake_get)
+    monkeypatch.setattr("src.data.loaders.uniprot_loader.requests.get", fake_get)
 
     df = loader.load_from_uniprot(["P04637"])
 

@@ -1,4 +1,3 @@
-# mypy: disable-error-code="annotation-unchecked"
 """Complete variant effect prediction workflow (FEAT-01)."""
 import logging
 import os
@@ -24,10 +23,10 @@ def _create_network_analyzer() -> Any:
 @dataclass
 class VariantEffectResult:
     """Complete variant effect prediction result."""
-    variant: Dict
-    sequence_info: Dict
+    variant: Dict[str, Any]
+    sequence_info: Dict[str, Any]
     ptm_effects: Dict[str, Dict[str, Union[float, str]]]  # PTM type -> effect
-    pathway_impacts: Optional[Dict] = None
+    pathway_impacts: Optional[Dict[str, Any]] = None
 
 
 class VariantEffectWorkflow:
@@ -306,7 +305,7 @@ class VariantEffectWorkflow:
 
     def predict_batch(
         self,
-        variants: List[Dict],
+        variants: List[Dict[str, Any]],
         parallel: bool = False,
         max_workers: int = 4,
     ) -> List[VariantEffectResult]:
@@ -339,7 +338,7 @@ class VariantEffectWorkflow:
                 results[idx] = future.result()
         return [r for r in results if r is not None]
 
-    def _predict_one(self, var: Dict) -> VariantEffectResult:
+    def _predict_one(self, var: Dict[str, Any]) -> VariantEffectResult:
         """Predict a single variant, returning an error result on failure."""
         try:
             result = self.predict_from_hgvs(
