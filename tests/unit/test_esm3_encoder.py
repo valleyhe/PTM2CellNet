@@ -3,9 +3,8 @@ ESM3Encoder单元测试
 覆盖初始化、前向传播、tokenize、参数冻结、工厂函数等
 """
 
-from types import SimpleNamespace
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch
+from typing import Dict, Optional
+from unittest.mock import MagicMock
 
 import pytest
 import torch
