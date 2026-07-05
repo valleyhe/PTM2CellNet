@@ -5,7 +5,6 @@ import pickle
 import tempfile
 import pytest
 import torch
-import numpy as np
 
 from src.utils.safe_io import SafeUnpickler, safe_pickle_load, safe_torch_load
 
@@ -79,7 +78,7 @@ class TestSafePickleLoad:
     def test_empty_bytesio_raises(self):
         """Loading from empty BytesIO should raise."""
         buf = io.BytesIO(b"")
-        with pytest.raises(Exception):
+        with pytest.raises(EOFError):
             safe_pickle_load(buf)
 
 

@@ -6,13 +6,13 @@ from ``src.api.routes.predictions`` that do not require a running server.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from src.api.schemas import (
     PTMSite,
     PredictionRequest,
     PredictionResponse,
     BatchPredictionRequest,
-    BatchPredictionResponse,
     PTMEffect,
     PathwayImpact,
 )
@@ -64,7 +64,7 @@ class TestPTMSite:
 
     def test_position_must_be_positive(self):
         """PTMSite position must be >= 1 (ge=1)."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PTMSite(position=0, type="phosphorylation", amino_acid="S")
 
 

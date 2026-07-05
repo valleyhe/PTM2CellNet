@@ -7,9 +7,8 @@ TestClient bootstrap.
 """
 
 import asyncio
-import time
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from fastapi import Request
 from starlette.datastructures import Headers
