@@ -24,6 +24,12 @@ class AlphaFoldClient:
 
     def __init__(self, config: Optional[ToolConfig] = None) -> None:
         self.config: ToolConfig = config or ToolConfig()
+        self._last_model_source: str = "unknown"
+
+    @property
+    def model_source(self) -> str:
+        """Return the source of the last prediction: 'api' or 'synthetic_fallback'."""
+        return self._last_model_source
 
     def check_available(self) -> bool:
         """Return whether the AlphaFold API is reachable."""
@@ -63,6 +69,7 @@ class AlphaFoldClient:
         """
         if not REQUESTS_AVAILABLE:
             logger.warning("requests module not available; using fallback PDB")
+            self._last_model_source = "synthetic_fallback"
             return self._fallback_pdb(sequence)
 
         uniprot_id = kwargs.get("uniprot_id", "")
@@ -84,6 +91,7 @@ class AlphaFoldClient:
                     if pdb_url:
                         pdb_resp = requests.get(pdb_url, timeout=60)
                         if pdb_resp.ok:
+                            self._last_model_source = "api"
                             return StructurePrediction(
                                 pdb_string=pdb_resp.text,
                                 confidence=confidence / 100.0 if confidence > 1.0 else confidence,
@@ -100,7 +108,8 @@ class AlphaFoldClient:
             except (OSError, RuntimeError) as exc:
                 logger.error("Unexpected AlphaFold EBI API error: %s", exc)
 
-        logger.info("Using fallback PDB generation")
+        self._last_model_source = "synthetic_fallback"
+        logger.warning("AlphaFold API unavailable — using synthetic fallback PDB generation (not real structural data)")
         return self._fallback_pdb(sequence)
 
     def _fallback_pdb(self, sequence: str) -> StructurePrediction:

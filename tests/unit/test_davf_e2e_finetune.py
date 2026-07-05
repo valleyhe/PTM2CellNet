@@ -109,6 +109,22 @@ class TestDAVFE2EScript:
         assert loss.item() > 0  # Positive loss value
         assert not torch.isnan(loss)
 
+    def test_production_script_importable(self):
+        """Verify that scripts/finetune_davf_e2e.py can be parsed (syntax + AST)."""
+        import ast
+        script_path = Path(__file__).resolve().parents[2] / "scripts" / "finetune_davf_e2e.py"
+        assert script_path.exists(), f"{script_path} does not exist"
+        source = script_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        # Validate top-level structure
+        classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+        assert any(c.name == "TaskHead" for c in classes), "Missing TaskHead class"
+        functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+        func_names = {f.name for f in functions}
+        for expected in ("parse_args", "load_data", "create_dataloaders",
+                         "build_model", "train_epoch", "evaluate", "main"):
+            assert expected in func_names, f"Missing expected function: {expected}"
+
     def test_optimizer_step_reduces_loss(self):
         """Verify that an optimizer step can reduce loss on a simple problem."""
         model = torch.nn.Linear(10, 2)

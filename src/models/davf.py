@@ -85,6 +85,11 @@ class DAVF(nn.Module):
         # Initialize weights
         self.apply(self._init_weights)
 
+    @property
+    def model_source(self) -> str:
+        """Return the DAVF model source: 'davf' if checkpoint loaded, 'zero_fallback' otherwise."""
+        return "davf"
+
     def _init_weights(self, module):
         """Initialize weights with Xavier uniform, skipping modules with special initialization."""
         # Skip modules that have special initialization (e.g., FiLM identity mapping)

@@ -3,7 +3,7 @@ for the external_tools package."""
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -11,34 +11,40 @@ logger = logging.getLogger(__name__)
 # Optional dependency checks (module-level)
 # ---------------------------------------------------------------------------
 
-try:
-    import requests
-    from requests.exceptions import ConnectionError as RequestsConnectionError
-    from requests.exceptions import Timeout as RequestsTimeout
-    from requests.exceptions import HTTPError as RequestsHTTPError
+# Pre-declare optional imports as Any so the except blocks can set them to
+# None without triggering type-checker errors.  The downstream modules must
+# check the _AVAILABLE booleans before using these names, so the None value
+# is never reached in practice.
 
+requests: Any = None
+RequestsConnectionError: Any = None
+RequestsTimeout: Any = None
+RequestsHTTPError: Any = None
+REQUESTS_AVAILABLE = False
+
+try:
+    import requests  # noqa: F811, F401
+    from requests.exceptions import ConnectionError as RequestsConnectionError  # noqa: F811, F401
+    from requests.exceptions import Timeout as RequestsTimeout  # noqa: F811, F401
+    from requests.exceptions import HTTPError as RequestsHTTPError  # noqa: F811, F401
     REQUESTS_AVAILABLE = True
 except ImportError:
-    requests = None  # type: ignore[assignment]
-    RequestsConnectionError = None  # type: ignore[assignment, misc]
-    RequestsTimeout = None  # type: ignore[assignment, misc]
-    RequestsHTTPError = None  # type: ignore[assignment, misc]
-    REQUESTS_AVAILABLE = False
     logger.info("requests library not installed; HTTP-based external tools will be unavailable.")
 
-try:
-    from Bio.Blast import NCBIWWW, NCBIXML
+NCBIWWW: Any = None
+NCBIXML: Any = None
+BIO_BLAST_AVAILABLE = False
 
+try:
+    from Bio.Blast import NCBIWWW, NCBIXML  # noqa: F811, F401
     BIO_BLAST_AVAILABLE = True
 except ImportError:
-    NCBIWWW = None  # type: ignore[assignment]
-    NCBIXML = None  # type: ignore[assignment]
-    BIO_BLAST_AVAILABLE = False
     logger.info("Bio.Blast not installed; BLAST web search will be unavailable.")
+
+BIO_CLUSTAL_APP_AVAILABLE = False
 
 try:
     from Bio.Align.Applications import ClustalwCommandline, ClustalOmegaCommandline
-
     BIO_CLUSTAL_APP_AVAILABLE = True
 except ImportError:
     ClustalwCommandline = None
@@ -46,19 +52,19 @@ except ImportError:
     BIO_CLUSTAL_APP_AVAILABLE = False
     logger.info("Bio.Align.Applications not installed; ClustalW/ClustalOmega will be unavailable.")
 
-try:
-    from Bio import Align
-    from Bio import SeqIO
-    from Bio.Seq import Seq
-    from Bio.SeqRecord import SeqRecord
+Align: Any = None
+SeqIO: Any = None
+Seq: Any = None
+SeqRecord: Any = None
+BIO_ALIGN_AVAILABLE = False
 
+try:
+    from Bio import Align  # noqa: F811, F401
+    from Bio import SeqIO  # noqa: F811, F401
+    from Bio.Seq import Seq  # noqa: F811, F401
+    from Bio.SeqRecord import SeqRecord  # noqa: F811, F401
     BIO_ALIGN_AVAILABLE = True
 except ImportError:
-    Align = None  # type: ignore[assignment]
-    SeqIO = None  # type: ignore[assignment]
-    Seq = None  # type: ignore[misc, assignment]
-    SeqRecord = None  # type: ignore[misc, assignment]
-    BIO_ALIGN_AVAILABLE = False
     logger.info("BioPython not installed; alignment and sequence tools will be unavailable.")
 
 # ---------------------------------------------------------------------------

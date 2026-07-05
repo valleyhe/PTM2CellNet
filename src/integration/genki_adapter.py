@@ -363,7 +363,7 @@ class GenKIAdapter:
 
     @_reference_cache.setter
     def _reference_cache(self, value: ReferenceData | None) -> None:
-        self._ref_loader._reference_cache = value  # type: ignore[assignment]  # setting private attr on third-party ref_loader
+        self._ref_loader._reference_cache = value  # type: ignore[assignment]
 
     def get_backend_info(self) -> BackendInfo:
         return cast(BackendInfo, self._ref_loader.get_backend_info())

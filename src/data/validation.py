@@ -21,12 +21,13 @@ from ..utils.logging import setup_logger
 # Optional safetensors import — provides a safer serialization format when
 # available.  Falls back to pickle when the package is not installed or when
 # the cached payload contains non-tensor data that safetensors cannot handle.
+st_torch: Any = None
+_HAS_SAFETENSORS = False
 try:
-    import safetensors.torch as st_torch
+    import safetensors.torch as st_torch  # noqa: F811
     _HAS_SAFETENSORS = True
 except ImportError:
-    st_torch = None  # type: ignore[assignment]  # optional dep: safetensors not installed
-    _HAS_SAFETENSORS = False
+    pass
 
 logger = setup_logger(__name__)
 

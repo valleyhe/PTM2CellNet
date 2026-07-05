@@ -299,6 +299,16 @@ class DAVFInferenceModule(nn.Module):
         if config.freeze:
             self.freeze_davf()
 
+    @property
+    def model_source(self) -> str:
+        """Return the DAVF model source.
+
+        Returns:
+            'davf' if a real DAVF model checkpoint is loaded.
+            'zero_fallback' if using zero-vector fallback.
+        """
+        return "zero_fallback" if not self._checkpoint_loaded else "davf"
+
     def _load_checkpoint(self) -> None:
         """Load model checkpoint with graceful fallback.
 

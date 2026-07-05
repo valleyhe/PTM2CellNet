@@ -133,7 +133,7 @@ def _build_mapper() -> Any:
 class GeneMapper:
     """Maps gene symbols to UniProt IDs and sequences."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._mapper = _build_mapper()
         # Cache for gene to UniProt mapping
         self._gene_cache: Dict[str, Optional[str]] = {}

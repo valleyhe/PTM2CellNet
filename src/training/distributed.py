@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 import torch
 
@@ -12,11 +12,14 @@ from .trainers import Trainer
 
 logger = logging.getLogger(__name__)
 
+_LIGHTNING_MODULE: Any = None
+_LIGHTNING_IMPORT_ERROR: Optional[Exception] = None
+
 try:  # pragma: no cover - optional dependency
-    import lightning as _LIGHTNING_MODULE
-    _LIGHTNING_IMPORT_ERROR: Exception | None = None
+    import lightning as _LIGHTNING_MODULE  # noqa: F811
+    _LIGHTNING_IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover - optional dependency
-    _LIGHTNING_MODULE = None  # type: ignore[assignment]  # optional dep absent
+    _LIGHTNING_MODULE = None
     _LIGHTNING_IMPORT_ERROR = exc
 
 

@@ -434,6 +434,8 @@ def _build_prediction_response(
         confidence=confidence,
         probabilities=prob_dict,
         pathway_impacts=pathway_impacts,
+        model_kind=STATE.model_kind,
+        is_demo_model=STATE.is_demo_model,
         processing_time_ms=round(timing_ms, 2),
     )
 

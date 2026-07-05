@@ -364,10 +364,18 @@ class PTM2CellNetBase(nn.Module):
                 freeze=freeze_encoder,
                 cache_dir=pretrained_cache_dir,
             )
+            # Capture ESM-3 provenance for artifact metadata (F-01)
+            esm3_source = getattr(enc, "_model_source", "unknown")
+            esm3_cache = getattr(enc, "_cache_dir", None)
             logger.info(
-                f"使用ESM-3 {model_size} 预训练编码器，"
-                f"隐藏维度: {enc.hidden_dim}"
+                "使用ESM-3 %s 预训练编码器 (model_source=%s, cache_dir=%s, "
+                "隐藏维度: %d)",
+                model_size, esm3_source, esm3_cache or "(default)", enc.hidden_dim,
             )
+            # Store provenance on the encoder instance so training scripts can
+            # extract it via ``model.encoder.model_source`` / ``._cache_dir``
+            # and pass it as ``extra_encoder_metadata`` to
+            # ``export_inference_artifact``.
             return enc, enc.hidden_dim
         if encoder_type == "protbert":
             from .pretrained_encoders import ProtBERTEncoder

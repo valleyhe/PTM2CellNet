@@ -44,6 +44,7 @@ PRETRAINED_MODELS = {
     "esm2_35M": "configs/pretrained/esm2_35m.yaml",
     "esm2_150M": "configs/pretrained/esm2_150m.yaml",
     "esm2_650M": "configs/pretrained/esm2_650m.yaml",
+    "esm3_sm_open": "configs/pretrained/esm3_sm_open.yaml",
     "protbert": "configs/pretrained/protbert.yaml",
 }
 

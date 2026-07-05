@@ -396,7 +396,7 @@ class ESM3Encoder(nn.Module):
         参数:
             model_size: 模型大小（仅支持"small"，大小写不敏感）
             freeze: 是否冻结预训练权重
-            cache_dir: 模型缓存目录（暂未使用，保留兼容）
+            cache_dir: ESM-3 model cache directory (sets ESM_DATA_DIR env var)
             checkpoint_path: 本地检查点路径。若提供且文件存在则从本地加载；
                            否则从HuggingFace自动下载
             device: 运行设备（默认自动检测）
@@ -411,6 +411,12 @@ class ESM3Encoder(nn.Module):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self._device = device
+
+        # 应用缓存目录（Task 1a: 设置 ESM_DATA_DIR 环境变量）
+        self._cache_dir = cache_dir
+        if cache_dir is not None:
+            os.environ["ESM_DATA_DIR"] = str(cache_dir)
+            logger.info("ESM-3 cache directory set to: %s", cache_dir)
 
         # 加载模型
         self.model = self._load_model(checkpoint_path, device)
@@ -447,7 +453,7 @@ class ESM3Encoder(nn.Module):
         self, path: str, device: Union[str, torch.device]
     ) -> nn.Module:
         """从本地检查点文件加载ESM-3模型"""
-        from esm.pretrained import (  # type: ignore[import]
+        from esm.pretrained import (
             ESM3,
             ESM3_structure_encoder_v0,
             ESM3_structure_decoder_v0,
@@ -471,19 +477,26 @@ class ESM3Encoder(nn.Module):
 
         state_dict = torch.load(path, map_location=device, weights_only=True)
         model.load_state_dict(state_dict, strict=False)
-        return model
+        self._model_source = "local_checkpoint"
+        return cast(nn.Module, model)
 
     def _load_from_huggingface(
         self, device: Union[str, torch.device]
     ) -> nn.Module:
         """从HuggingFace加载ESM-3模型"""
-        from esm.pretrained import ESM3_sm_open_v0  # type: ignore[import]
+        from esm.pretrained import ESM3_sm_open_v0
 
         logger.info("从HuggingFace加载ESM-3模型 (esm3_sm_open_v0)")
         # ESM3_sm_open_v0 内部调用 data_root()/data/weights/esm3_sm_open_v1.pth
         # 当本地已存在（包括我们的symlink）时不会重复下载
         model = ESM3_sm_open_v0(device=device)
-        return model
+        self._model_source = "huggingface"
+        return cast(nn.Module, model)
+
+    @property
+    def model_source(self) -> str:
+        """Return the source of the loaded model: 'local_checkpoint', 'huggingface', or 'unknown'."""
+        return getattr(self, "_model_source", "unknown")
 
     def forward(
         self,

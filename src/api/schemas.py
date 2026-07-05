@@ -120,6 +120,12 @@ class PredictionResponse(BaseModel):
     confidence: float = Field(..., description="预测置信度", ge=0.0, le=1.0)
     probabilities: Dict[str, float] = Field(..., description="各类别的概率分布")
     pathway_impacts: Optional[List["PathwayImpact"]] = Field(None, description="信号通路影响分析")
+    model_kind: Optional[str] = Field(
+        None, description="Model nature: 'demo' / 'real' / 'synthetic_fallback' / None (unknown)"
+    )
+    is_demo_model: bool = Field(
+        False, description="Trained on synthetic data (not for real biology)"
+    )
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
 
     @validator("predicted_cell_state", always=True)

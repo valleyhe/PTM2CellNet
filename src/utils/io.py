@@ -115,7 +115,7 @@ def _read_hdf5_dataset(dataset: "h5py.Dataset") -> Union[str, np.ndarray, torch.
     item_type = dataset.attrs.get("item_type", "ndarray")
 
     if item_type == "string":
-        return dataset.asstr()[()]  # type: ignore[no-any-return]  # h5py asstr() returns Any; no precise stubs available
+        return cast(str, dataset.asstr()[()])
 
     if dataset.dtype.kind in {"O", "S"}:
         return np.asarray(dataset.asstr()[()])
@@ -124,7 +124,7 @@ def _read_hdf5_dataset(dataset: "h5py.Dataset") -> Union[str, np.ndarray, torch.
     if item_type == "torch_tensor":
         return torch.from_numpy(np.asarray(value))
     if item_type == "scalar":
-        return value.item() if hasattr(value, "item") else value  # type: ignore[no-any-return]  # h5py dataset values are Any; no precise stubs
+        return cast(Union[str, np.ndarray, torch.Tensor, np.generic, int, float, bool], value.item() if hasattr(value, "item") else value)
     return np.asarray(value)
 
 

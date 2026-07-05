@@ -28,6 +28,7 @@ class DAVFLoss(nn.Module):
         self.mse_weight = mse_weight
         self.mag_weight = mag_weight
         self.adaptive_weights = adaptive_weights
+        self._step_count: int = 0
 
     def forward(
         self,
@@ -60,7 +61,7 @@ class DAVFLoss(nn.Module):
 
         # Adaptive weights: reduce mse_weight as training progresses
         # (mag_loss and dir_loss become more important)
-        if self.adaptive_weights and hasattr(self, '_step_count'):
+        if self.adaptive_weights:
             self._step_count += 1
             decay = min(1.0, self._step_count / 10000.0)
             effective_mse_weight = self.mse_weight * (1.0 - 0.3 * decay)
@@ -68,8 +69,6 @@ class DAVFLoss(nn.Module):
         else:
             effective_mse_weight = self.mse_weight
             effective_mag_weight = self.mag_weight
-            if not hasattr(self, '_step_count'):
-                self._step_count = 0
 
         total = effective_mse_weight * mse + effective_mag_weight * mag_loss + 0.1 * dir_loss
 

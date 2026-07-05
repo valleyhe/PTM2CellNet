@@ -12,7 +12,7 @@ try:
     import anndata as ad
     ANNDATA_AVAILABLE = True
 except ImportError:
-    ad = None  # type: ignore[assignment]
+    ad = None
     ANNDATA_AVAILABLE = False
 import numpy as np
 import scipy.sparse as sp

@@ -10,9 +10,10 @@ import os
 import threading
 from typing import List, Tuple, TypedDict, cast
 
-from fastapi import FastAPI, Request
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp
 
 from ..utils.logging import setup_logger
 
@@ -151,7 +152,7 @@ class _RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
     environment variable (in bytes).
     """
 
-    def __init__(self, app: FastAPI, max_bytes: int = _MAX_REQUEST_BODY_BYTES) -> None:
+    def __init__(self, app: ASGIApp, max_bytes: int = _MAX_REQUEST_BODY_BYTES) -> None:
         super().__init__(app)
         self._max_bytes = max_bytes
 
@@ -303,7 +304,7 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app: FastAPI,
+        app: ASGIApp,
         requests_per_minute: int = _DEFAULT_RATE_LIMIT_RPM,
         burst: int = _DEFAULT_RATE_LIMIT_BURST,
     ) -> None:
@@ -363,7 +364,7 @@ class _OptionalAuthMiddleware(BaseHTTPMiddleware):
     # responsive even when auth is enabled.
     _EXEMPT_SUFFIXES: Tuple[str, ...] = ("/health", "/live", "/ready", "/")
 
-    def __init__(self, app: FastAPI, api_key: str) -> None:
+    def __init__(self, app: ASGIApp, api_key: str) -> None:
         super().__init__(app)
         # Normalise to str; compare_digest requires equal-typed operands.
         self._api_key: str = api_key

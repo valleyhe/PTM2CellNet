@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 import numpy as np
 import pandas as pd
@@ -92,7 +92,7 @@ def build_significant_gene_dataframe(result: PerturbationResult) -> pd.DataFrame
     generank = build_generank_dataframe(result)
     if generank.empty:
         return generank
-    return generank[generank["is_significant"]].reset_index(drop=True)
+    return cast(pd.DataFrame, generank[generank["is_significant"]].reset_index(drop=True))
 
 
 def build_gsea_ranked_dataframe(result: PerturbationResult) -> pd.DataFrame:
@@ -107,12 +107,12 @@ def build_gsea_ranked_dataframe(result: PerturbationResult) -> pd.DataFrame:
     if gsea.empty:
         gsea["dis_norm"] = pd.Series(dtype=float)
         gsea["gsea_rank"] = pd.Series(dtype=int)
-        return gsea[["affected_gene", "dis", "dis_norm", "gsea_rank"]]
+        return cast(pd.DataFrame, gsea[["affected_gene", "dis", "dis_norm", "gsea_rank"]])
 
     gsea["dis_norm"] = _normalize_gsea_scores(gsea["dis"].to_numpy(dtype=float))
     gsea = gsea.sort_values(by="dis_norm", ascending=False).reset_index(drop=True)
     gsea["gsea_rank"] = np.arange(len(gsea)) + 1
-    return gsea[["affected_gene", "dis", "dis_norm", "gsea_rank"]]
+    return cast(pd.DataFrame, gsea[["affected_gene", "dis", "dis_norm", "gsea_rank"]])
 
 
 def save_gsea_ranked_tsv(result: PerturbationResult, file_path: str) -> None:

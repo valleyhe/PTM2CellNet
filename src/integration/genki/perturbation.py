@@ -5,13 +5,13 @@ import importlib.util
 import logging
 from pathlib import Path
 import sys
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 
 try:
     import anndata as ad
     ANNDATA_AVAILABLE = True
 except ImportError:
-    ad = None  # type: ignore[assignment]
+    ad = None
     ANNDATA_AVAILABLE = False
 import numpy as np
 import scipy.sparse as sp
@@ -20,7 +20,7 @@ import torch
 from ..contracts import GenePerturbationRequest, PerturbationResult
 from ..ptm_virtual_perturbation import PTMPerturbationProfile, apply_soft_perturbation
 from .graph_utils import GraphUtilities
-from .reference_data import ReferenceDataLoader
+from .reference_data import ReferenceDataLoader, _ReferenceData
 
 if TYPE_CHECKING:
     from .significance import SignificanceAnalyzer
@@ -358,7 +358,7 @@ class PerturbationExecutor:
     def _run_with_shared_reference(
         self,
         request: GenePerturbationRequest,
-        reference: dict,
+        reference: Union[Dict[Any, Any], _ReferenceData],
     ) -> PerturbationResult:
         """Execute a single request using pre-loaded reference data.
 
@@ -448,7 +448,7 @@ class PerturbationExecutor:
     def _run_batch_parallel(
         self,
         requests: List[GenePerturbationRequest],
-        reference: dict,
+        reference: Union[Dict[Any, Any], _ReferenceData],
         progress_callback=None,
     ) -> List[PerturbationResult]:
         """Parallel batch execution using a thread pool.

@@ -63,13 +63,13 @@ def create_app(
 
     # Request body size limit — prevents DoS via oversized payloads.
     max_body = int(os.environ.get("PTM2CELLNET_MAX_REQUEST_SIZE", _MAX_REQUEST_BODY_BYTES))
-    app.add_middleware(_RequestBodySizeLimitMiddleware, max_bytes=max_body)  # type: ignore[arg-type]  # Starlette add_middleware overload cannot match BaseHTTPMiddleware subclasses
+    app.add_middleware(_RequestBodySizeLimitMiddleware, max_bytes=max_body)
     # Per-client rate limiting — protects inference endpoints from accidental
     # DoS. Disabled when PTM2CELLNET_RATE_LIMIT_RPM=0.
     rpm = int(os.environ.get("PTM2CELLNET_RATE_LIMIT_RPM", _DEFAULT_RATE_LIMIT_RPM))
     burst = int(os.environ.get("PTM2CELLNET_RATE_LIMIT_BURST", _DEFAULT_RATE_LIMIT_BURST))
     if rpm > 0:
-        app.add_middleware(_RateLimitMiddleware, requests_per_minute=rpm, burst=burst)  # type: ignore[arg-type]  # Starlette add_middleware overload cannot match BaseHTTPMiddleware subclasses with multiple kwargs
+        app.add_middleware(_RateLimitMiddleware, requests_per_minute=rpm, burst=burst)
         logger.info(
             "Rate limiting enabled: %s req/min, burst=%s (set PTM2CELLNET_RATE_LIMIT_RPM=0 to disable)",
             rpm,
@@ -86,7 +86,7 @@ def create_app(
     # header; health/liveness/readiness probes stay exempt.
     configured_api_key = os.environ.get("PTM2CELLNET_API_KEY")
     if configured_api_key:
-        app.add_middleware(_OptionalAuthMiddleware, api_key=configured_api_key)  # type: ignore[arg-type]  # Starlette add_middleware overload cannot match BaseHTTPMiddleware subclasses with kwargs
+        app.add_middleware(_OptionalAuthMiddleware, api_key=configured_api_key)
         logger.info(
             "API-key authentication enabled: protected endpoints require X-API-Key "
             "(unset PTM2CELLNET_API_KEY to disable)."
@@ -96,6 +96,13 @@ def create_app(
             "API-key authentication disabled (PTM2CELLNET_API_KEY unset). "
             "Set it to protect prediction endpoints."
         )
+
+    # Strict model assets mode — propagates PTM2CELLNET_STRICT_MODEL_ASSETS
+    # to all sub-modules so fallbacks raise errors instead of silently degrading.
+    _strict_assets = os.environ.get("PTM2CELLNET_STRICT_MODEL_ASSETS", "0")
+    os.environ.setdefault("PTM2CELLNET_STRICT_MODEL_ASSETS", _strict_assets)
+    if _strict_assets == "1":
+        logger.info("Strict model assets mode enabled — fallbacks will raise errors")
 
     if cors_origins is None:
         env_origins = os.environ.get("PTM2CELLNET_CORS_ORIGINS", "")

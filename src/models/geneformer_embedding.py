@@ -367,6 +367,13 @@ class GeneformerEmbeddingLoader:
         return self
 
     @property
+    def model_source(self) -> str:
+        """Return the source of the loaded model."""
+        if _geneformer_is_fallback:
+            return "fallback_random"
+        return "real"
+
+    @property
     def model_provenance(self) -> str:
         """Return provenance information for the loaded model.
 
@@ -399,6 +406,12 @@ def get_provenance() -> str:
     if _geneformer_is_fallback:
         return "fallback_random"
     return "not_loaded"
+
+
+def get_model_source() -> str:
+    """Return the model source for the global Geneformer loader."""
+    loader = get_geneformer_loader()
+    return loader.model_source
 
 
 def get_geneformer_loader(

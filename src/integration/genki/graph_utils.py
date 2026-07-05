@@ -162,7 +162,7 @@ class GraphUtilities:
         import scipy.sparse as sp
 
         if method == "threshold":
-            if sp.issparse(adjacency):
+            if isinstance(adjacency, sp.spmatrix):
                 # Sparse: eliminate values below threshold
                 return adjacency.multiply(adjacency >= threshold)
             else:
@@ -172,7 +172,7 @@ class GraphUtilities:
         elif method == "topk":
             # Keep only top-k edges per node
             k = max(1, int(threshold * adjacency.shape[0])) if threshold < 1 else int(threshold)
-            if sp.issparse(adjacency):
+            if isinstance(adjacency, sp.spmatrix):
                 adj_dense = adjacency.toarray()
             else:
                 adj_dense = adjacency.copy()
@@ -205,7 +205,7 @@ class GraphUtilities:
         import scipy.sparse as sp
 
         if adjacency is not None:
-            if sp.issparse(adjacency):
+            if isinstance(adjacency, sp.spmatrix):
                 n = adjacency.shape[0]
                 e = adjacency.nnz
             else:

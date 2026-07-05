@@ -364,8 +364,8 @@ def plot_multiclass_roc(
                 label=f"{class_names[i]} (AUC = {roc_auc:.3f})")
 
     ax.plot([0, 1], [0, 1], "k--", lw=1)
-    ax.set_xlim([0.0, 1.0])
-    ax.set_ylim([0.0, 1.05])
+    ax.set_xlim((0.0, 1.0))
+    ax.set_ylim((0.0, 1.05))
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     ax.set_title("Multi-class ROC Curves (One-vs-Rest)")
@@ -408,8 +408,8 @@ def plot_calibration_curve(
     ax.set_ylabel("Fraction of positives")
     ax.set_title("Calibration Curve")
     ax.legend(loc="lower right")
-    ax.set_xlim([0.0, 1.0])
-    ax.set_ylim([0.0, 1.05])
+    ax.set_xlim((0.0, 1.0))
+    ax.set_ylim((0.0, 1.05))
     ax.grid(alpha=0.3)
 
     plt.tight_layout()
