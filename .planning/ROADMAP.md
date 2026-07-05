@@ -6,6 +6,10 @@
 - ✅ **v2.0 DAVF Integration** — Phases 10-14 (shipped 2026-05-03)
 - 🚧 **v2.1 Technical Debt & Test Stabilization** — Phases 15-17 (in progress)
 
+## Scope Update (2026-07-05)
+
+The following items are no longer project requirements and must not appear as future implementation phases: real-time mass-spec streaming, custom PTM database support, GUI, and new API-key feature work. Existing compatibility code may remain, but roadmap and plan documents should treat these as cancelled/out-of-scope.
+
 ## Phases
 
 <details>
@@ -36,6 +40,13 @@
 - [ ] **Phase 15: Test & Dependency Fixes** — Fix failing tests and declare missing dependencies
 - [ ] **Phase 16: Code Health & Consolidation** — Fix silent errors, consolidate orphaned scripts, resolve duplicates
 - [ ] **Phase 17: Configuration & Final Verification** — Fix gitignore, add logger config, achieve 830/830 pass rate
+
+### Cancelled / Out of Scope
+
+- [x] V2-02: Real-time mass-spec streaming — cancelled 2026-07-05
+- [x] V2-03: Custom PTM database support — cancelled 2026-07-05
+- [x] V2-05: GUI — cancelled 2026-07-05
+- [x] SEC-AUTH-APIKEY: API key feature expansion — cancelled 2026-07-05
 
 ## Phase Details
 
@@ -109,4 +120,4 @@ Phases execute in numeric order: 15 → 16 → 17
 
 ---
 *Created: 2026-03-30*
-*Updated: 2026-05-04 — v2.1 Technical Debt & Test Stabilization roadmap created (Phases 15-17)*
+*Updated: 2026-07-05 — cancelled real-time mass-spec streaming, custom PTM database, GUI, and API-key expansion from future scope*

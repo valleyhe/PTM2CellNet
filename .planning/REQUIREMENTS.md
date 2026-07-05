@@ -45,14 +45,27 @@
 - **V22-04**: 文档完善
 - **V22-05**: 更多PTM类型支持
 
+## Cancelled Requirements
+
+These items are explicitly removed from project scope as of 2026-07-05 and must not be reintroduced into roadmap, phase plans, or agent task prompts unless the project owner reverses this decision.
+
+- **V2-02**: 实时质谱流 / 实时质谱数据处理
+- **V2-03**: 自定义 PTM 数据库 / 用户自带 PTM database catalog
+- **V2-05**: GUI / Streamlit / Gradio / desktop interface
+- **SEC-AUTH-APIKEY**: 新增或扩展 API key 功能；现有兼容性中间件可保留，但不再作为待实现需求规划
+
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| KEGG/Reactome full implementation | Requires API keys and external service integration — too complex for debt milestone |
+| KEGG/Reactome full implementation | Requires external service integration and operational maintenance — too complex for debt milestone |
 | DAVF gene mode implementation | New feature, not debt — defer to v2.2 |
 | New model architectures | Out of scope — this is stabilization only |
 | Data directory population | Data files are runtime artifacts, not code debt |
+| Real-time mass-spec streaming | Cancelled scope item; batch/offline workflows are sufficient |
+| Custom PTM database | Cancelled scope item; use supported public sources and standard file imports |
+| GUI | Cancelled scope item; supported interfaces are CLI, Python API, and FastAPI |
+| API key feature expansion | Cancelled scope item; do not add new API-key auth work to plans |
 
 ## Traceability
 

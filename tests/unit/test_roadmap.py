@@ -1,29 +1,34 @@
-"""Unit tests for src/models/roadmap.py (V2-01 .. V2-05 helpers)."""
+"""Unit tests for src/models/roadmap.py scope registry and helpers."""
 
 from io import StringIO
-from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
 from src.models.roadmap import (
+    CANCELLED_FEATURES,
     DEFERRED_FEATURES,
+    CancelledFeature,
     DeferredFeature,
     distributed_trainer,
     esm3_encoder,
+    get_cancelled_features,
     get_deferred_features,
-    load_custom_ptm_database,
     launch_gui,
+    load_custom_ptm_database,
     mass_spec_stream,
 )
 
 
 class TestDeferredRegistry:
-    def test_registry_contains_all_v2_features(self):
+    def test_registry_contains_only_active_deferred_features(self):
         ids = {f.requirement_id for f in DEFERRED_FEATURES}
-        assert ids == {"V2-01", "V2-02", "V2-03", "V2-04", "V2-05"}
+        assert ids == {"V2-01", "V2-04"}
+
+    def test_cancelled_registry_contains_removed_scope_items(self):
+        ids = {f.requirement_id for f in CANCELLED_FEATURES}
+        assert ids == {"V2-02", "V2-03", "V2-05", "SEC-AUTH-APIKEY"}
 
     def test_get_deferred_features_returns_copy(self):
         first = get_deferred_features()
@@ -36,6 +41,18 @@ class TestDeferredRegistry:
             assert isinstance(f, DeferredFeature)
             assert f.requirement_id.startswith("V2-")
             assert f.name and f.summary and f.rationale and f.recommended_path
+
+    def test_cancelled_features_have_required_fields(self):
+        for f in CANCELLED_FEATURES:
+            assert isinstance(f, CancelledFeature)
+            assert f.requirement_id
+            assert f.name and f.rationale
+
+    def test_get_cancelled_features_returns_copy(self):
+        first = get_cancelled_features()
+        first.append("polluted")
+        second = get_cancelled_features()
+        assert "polluted" not in second
 
 
 class TestRoadmapHelpers:
@@ -142,37 +159,8 @@ class TestRoadmapHelpers:
         assert trainer.model is model
         assert "falling back to plain Trainer" in caplog.text
 
-    def test_launch_gui_returns_false_without_streamlit(self, monkeypatch, capsys):
-        import src.models.roadmap as roadmap
-
-        monkeypatch.setattr(roadmap, "_STREAMLIT_IMPORT_ERROR", RuntimeError("missing streamlit"))
-        monkeypatch.setattr(roadmap, "_STREAMLIT_MODULE", None)
-
-        launched = launch_gui(title="PTM2CellNet")
-
-        captured = capsys.readouterr()
+    def test_launch_gui_returns_false_because_gui_is_cancelled(self, caplog):
+        with caplog.at_level("WARNING"):
+            launched = launch_gui(title="PTM2CellNet")
         assert launched is False
-        assert "streamlit is not installed" in captured.out.lower()
-
-    def test_launch_gui_runs_streamlit_when_available(self, monkeypatch, tmp_path):
-        import src.models.roadmap as roadmap
-
-        run_calls = []
-
-        def fake_run(cmd, check):
-            run_calls.append((cmd, check))
-            return SimpleNamespace(returncode=0)
-
-        monkeypatch.setattr(roadmap, "_STREAMLIT_IMPORT_ERROR", None)
-        monkeypatch.setattr(roadmap, "_STREAMLIT_MODULE", object())
-        monkeypatch.setattr(roadmap, "subprocess", SimpleNamespace(run=fake_run))
-        monkeypatch.setattr(roadmap.tempfile, "gettempdir", lambda: str(tmp_path))
-
-        launched = launch_gui(title="PTM2CellNet GUI", port=8765)
-
-        assert launched is True
-        assert run_calls
-        command, check = run_calls[0]
-        assert command[:3] == ["streamlit", "run", str(Path(tmp_path) / "ptm2cellnet_streamlit_app.py")]
-        assert "--server.port" in command
-        assert check is False
+        assert "no longer in PTM2CellNet scope" in caplog.text

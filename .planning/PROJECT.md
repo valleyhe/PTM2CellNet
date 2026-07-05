@@ -77,11 +77,21 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 - [ ] 文档完善
 - [ ] 更多PTM类型支持
 
+### Cancelled
+
+- [x] 实时质谱流 / 实时质谱数据处理 — 2026-07-05 取消，不再规划流式摄取、队列消费或在线质谱预测
+- [x] 自定义 PTM 数据库 — 2026-07-05 取消，不再规划用户自带 PTM 数据库/catalog/API
+- [x] GUI — 2026-07-05 取消，不再规划 Streamlit、Gradio 或桌面界面
+- [x] API key 功能扩展 — 2026-07-05 取消；现有兼容性中间件可保留，但不作为新增需求
+
 ### Out of Scope
 
 - 分布式训练支持 — 当前单节点足够
 - 实时大规模推理服务 — 当前批处理模式满足需求
-- 实时质谱流处理 — 超出当前批处理架构
+- 实时质谱流处理 — 已取消，当前批处理架构满足需求
+- 自定义 PTM 数据库 — 已取消，使用公共 PTM 数据源和标准文件导入
+- GUI — 已取消，使用 CLI / Python API / FastAPI
+- API key 功能扩展 — 已取消，不再作为 roadmap 项
 - 通用蛋白质结构预测 — AlphaFold2 已解决
 - ESM-3 集成 — 等待稳定性和 HuggingFace 支持
 
@@ -122,4 +132,4 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-05-04 after starting v2.1 Technical Debt milestone*
+*Last updated: 2026-07-05 after cancelling real-time mass-spec streaming, custom PTM database, GUI, and API-key expansion*

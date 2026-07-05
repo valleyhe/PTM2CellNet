@@ -26,6 +26,4 @@ torch-geometric>=2.3.0
 # 文档构建（docs/conf.py 使用 sphinx.ext.autodoc/napoleon/viewcode/intersphinx）。
 sphinx>=5.0.0
 
-# V2-05 GUI (optional) —— src/models/roadmap.py 在 V2 阶段按需启动 Streamlit UI，
-# 缺失时优雅降级并 warn。仅当需要 GUI 时安装，默认不拉入。
-streamlit>=1.20.0
+# GUI 已在 2026-07-05 取消，不再声明 Streamlit/Gradio 依赖。

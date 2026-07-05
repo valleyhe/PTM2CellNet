@@ -1,13 +1,12 @@
-"""Project roadmap helpers for deferred v1.0 requirements (V2-01 .. V2-05)."""
+"""Project roadmap helpers and scope registry."""
 
 from __future__ import annotations
 
 import logging
-import subprocess
-import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, List, Mapping
+from typing import Any
 
 import pandas as pd
 import torch
@@ -23,13 +22,6 @@ except ImportError as exc:  # pragma: no cover - optional dependency
     _LIGHTNING_MODULE = None  # type: ignore[assignment]  # optional dep absent
     _LIGHTNING_IMPORT_ERROR = exc
 
-try:  # pragma: no cover - optional dependency
-    import streamlit as _STREAMLIT_MODULE  # noqa: F401
-    _STREAMLIT_IMPORT_ERROR: Exception | None = None
-except ImportError as exc:  # pragma: no cover - optional dependency
-    _STREAMLIT_MODULE = None
-    _STREAMLIT_IMPORT_ERROR = exc
-
 
 @dataclass(frozen=True)
 class DeferredFeature:
@@ -42,7 +34,16 @@ class DeferredFeature:
     recommended_path: str
 
 
-DEFERRED_FEATURES: List[DeferredFeature] = [
+@dataclass(frozen=True)
+class CancelledFeature:
+    """Metadata for a roadmap feature that is explicitly out of scope."""
+
+    requirement_id: str
+    name: str
+    rationale: str
+
+
+DEFERRED_FEATURES: list[DeferredFeature] = [
     DeferredFeature(
         requirement_id="V2-01",
         name="ESM-3 integration",
@@ -60,35 +61,6 @@ DEFERRED_FEATURES: List[DeferredFeature] = [
         ),
     ),
     DeferredFeature(
-        requirement_id="V2-02",
-        name="Real-time mass-spec streaming",
-        summary="Streaming ingestion / online prediction for mass-spectrometry data.",
-        rationale=(
-            "Deferred at v1.0; no streaming/mass-spec infrastructure is needed "
-            "for the current batch-prediction use case served by the API "
-            "(``src/api/routes/predictions.py``)."
-        ),
-        recommended_path=(
-            "Introduce a ``src/data/streaming.py`` module (Kafka/queue consumer "
-            "+ incremental PTM-site decoder) when real-time pipelines are required."
-        ),
-    ),
-    DeferredFeature(
-        requirement_id="V2-03",
-        name="Custom PTM database support",
-        summary="Load and serve user-supplied custom PTM databases.",
-        rationale=(
-            "Deferred at v1.0. PTM type knowledge is currently driven by the "
-            "extensible registry in ``src/models/ptm_direction_mapper.py`` "
-            "(see ``register_ptm_direction``), which covers the runtime "
-            "extensibility need without a dedicated DB loader."
-        ),
-        recommended_path=(
-            "Add a ``src/data/custom_ptm_db.py`` loader when on-disk custom "
-            "PTM databases (beyond the registry) are required."
-        ),
-    ),
-    DeferredFeature(
         requirement_id="V2-04",
         name="Distributed training support",
         summary="Multi-GPU / distributed (DDP) training.",
@@ -103,17 +75,45 @@ DEFERRED_FEATURES: List[DeferredFeature] = [
             "optionally add a helper in ``src/training/`` to centralize it."
         ),
     ),
-    DeferredFeature(
+]
+
+CANCELLED_FEATURES: list[CancelledFeature] = [
+    CancelledFeature(
+        requirement_id="V2-02",
+        name="Real-time mass-spec streaming",
+        rationale=(
+            "Cancelled by project scope update on 2026-07-05. The project "
+            "uses offline/batch data preparation and prediction paths; no "
+            "streaming ingestion, queue consumer, or online mass-spec pipeline "
+            "should be planned."
+        ),
+    ),
+    CancelledFeature(
+        requirement_id="V2-03",
+        name="Custom PTM database support",
+        rationale=(
+            "Cancelled by project scope update on 2026-07-05. Standard public "
+            "PTM data sources and table/file imports remain valid, but a "
+            "user-managed custom PTM database/catalog/API is no longer a "
+            "project requirement."
+        ),
+    ),
+    CancelledFeature(
         requirement_id="V2-05",
         name="GUI interface",
-        summary="Graphical user interface for model interaction.",
         rationale=(
-            "Deferred at v1.0. The FastAPI service (``src/api/``) is the "
-            "primary interaction surface; a GUI was not a v1.0 milestone."
+            "Cancelled by project scope update on 2026-07-05. The supported "
+            "interfaces are CLI scripts, Python APIs, and FastAPI endpoints; "
+            "no Streamlit/Gradio/desktop GUI should be implemented."
         ),
-        recommended_path=(
-            "Build a thin web front-end over the existing REST API rather "
-            "than a desktop GUI (e.g. Streamlit/Gradio), when needed."
+    ),
+    CancelledFeature(
+        requirement_id="SEC-AUTH-APIKEY",
+        name="API key feature expansion",
+        rationale=(
+            "Cancelled by project scope update on 2026-07-05. Existing "
+            "compatibility middleware may remain, but roadmap or plan documents "
+            "must not add new API-key authentication work."
         ),
     ),
 ]
@@ -169,7 +169,7 @@ def esm3_encoder(*args: Any, **kwargs: Any):
         return esm3_cls(*args, **kwargs)
 
     # ESM-3不可用时安全回退到ESM-2
-    esm2_cls = getattr(pretrained_encoders, "ESM2Encoder")
+    esm2_cls = pretrained_encoders.ESM2Encoder
     logger.info("ESM3Encoder unavailable; using ESM2Encoder as fallback.")
     return esm2_cls(*args, **kwargs)
 
@@ -266,50 +266,28 @@ def distributed_trainer(model: Any, datamodule: Any, **kwargs: Any):
 
 
 def launch_gui(**kwargs: Any):
-    """V2-05: launch a minimal Streamlit UI if available."""
-    title = kwargs.get("title", "PTM2CellNet")
-    port = int(kwargs.get("port", 8501))
-    app_path = Path(tempfile.gettempdir()) / "ptm2cellnet_streamlit_app.py"
-
-    if _STREAMLIT_MODULE is None:
-        print(
-            "Streamlit is not installed. Install it with `pip install streamlit` "
-            f"and run `streamlit run {app_path}` to launch the GUI."
-        )
-        logger.warning("Streamlit GUI launch skipped: %s", _STREAMLIT_IMPORT_ERROR)
-        return False
-
-    app_path.write_text(
-        "\n".join(
-            [
-                "import streamlit as st",
-                f"st.set_page_config(page_title={title!r}, layout='wide')",
-                f"st.title({title!r})",
-                "st.write('Minimal PTM2CellNet GUI placeholder.')",
-                "sequence = st.text_area('Protein sequence')",
-                "ptm_data = st.text_area('PTM records (tab-delimited)')",
-                "if st.button('Predict'):",
-                "    st.success('GUI scaffold launched. Connect this view to the API for predictions.')",
-                "    st.write({'sequence': sequence, 'ptm_data': ptm_data})",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    result = subprocess.run(
-        ["streamlit", "run", str(app_path), "--server.port", str(port)],
-        check=False,
-    )
-    return result.returncode == 0
+    """V2-05: retained compatibility shim for a cancelled GUI requirement."""
+    del kwargs
+    logger.warning("GUI launch skipped: GUI is no longer in PTM2CellNet scope.")
+    return False
 
 
-def get_deferred_features() -> List[DeferredFeature]:
+def get_deferred_features() -> list[DeferredFeature]:
     """Return metadata for all deferred v1.0 roadmap features."""
     return list(DEFERRED_FEATURES)
 
 
+def get_cancelled_features() -> list[CancelledFeature]:
+    """Return metadata for features explicitly removed from project scope."""
+    return list(CANCELLED_FEATURES)
+
+
 __all__ = [
+    "CancelledFeature",
     "DeferredFeature",
+    "CANCELLED_FEATURES",
     "DEFERRED_FEATURES",
+    "get_cancelled_features",
     "get_deferred_features",
     "esm3_encoder",
     "mass_spec_stream",
