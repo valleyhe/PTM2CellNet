@@ -42,7 +42,8 @@ class GeneformerEmbeddingLoader:
     def __init__(
         self,
         model_path: str = "ctheodoris/Geneformer",
-        device: Optional[torch.device] = None
+        device: Optional[torch.device] = None,
+        strict: bool = False
     ):
         """
         Initialize Geneformer embedding loader.
@@ -51,9 +52,18 @@ class GeneformerEmbeddingLoader:
             model_path: HuggingFace model path or local directory.
                        Default: "ctheodoris/Geneformer"
             device: Device to load embeddings on. Default: CUDA if available.
+            strict: Fail fast if Geneformer cannot be loaded, instead of
+                   falling back to random embeddings.
+                   Overridden to True if PTM2CELLNET_STRICT_MODEL_ASSETS is set.
         """
         self.model_path = model_path
         self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+
+        # Strict mode: fail-fast instead of random fallback
+        _global_strict = os.environ.get("PTM2CELLNET_STRICT_MODEL_ASSETS", "").lower() in ("1", "true", "yes")
+        if _global_strict:
+            strict = True
+        self.strict = strict
 
         # Geneformer settings
         self._embedding_dim = 1152  # Geneformer V1 uses 1152 dimensions
@@ -223,8 +233,17 @@ class GeneformerEmbeddingLoader:
                 )
 
         except (OSError, ValueError, RuntimeError) as e:
-            logger.warning(f"Failed to load Geneformer from HuggingFace: {e}")
-            logger.warning("Using random embeddings as fallback (NOT for production)")
+            if self.strict:
+                raise RuntimeError(
+                    f"Geneformer model '{self.model_path}' failed to load "
+                    f"and PTM2CELLNET_STRICT_MODEL_ASSETS is set. "
+                    f"Error: {e}. Install the model or unset PTM2CELLNET_STRICT_MODEL_ASSETS."
+                ) from e
+            logger.warning(
+                "Geneformer model '%s' failed to load: %s. "
+                "Falling back to random embeddings.",
+                self.model_path, e
+            )
             self._use_fallback()
 
     def _stable_gene_index(self, gene_id: str) -> int:
@@ -236,17 +255,6 @@ class GeneformerEmbeddingLoader:
         """Use random embeddings as fallback when Geneformer cannot be loaded."""
         global _geneformer_is_fallback
         _geneformer_is_fallback = True
-
-        # Strict mode: fail-fast instead of random fallback
-        strict_mode = os.environ.get("PTM2CELLNET_STRICT_MODEL_ASSETS", "").lower() in ("1", "true", "yes")
-        if strict_mode:
-            raise RuntimeError(
-                "Geneformer model assets could not be loaded and "
-                "PTM2CELLNET_STRICT_MODEL_ASSETS is enabled. "
-                "Random fallback embeddings are NOT allowed in strict mode. "
-                "Ensure Geneformer model weights are available or unset "
-                "PTM2CELLNET_STRICT_MODEL_ASSETS to allow fallback."
-            )
 
         warnings.warn(
             "Geneformer could not be loaded. Using random embeddings. "

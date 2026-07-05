@@ -17,7 +17,7 @@ from .base import (
 )
 from .blast import BLASTClient
 from .clustalw import ClustalWClient
-from .psipred import PSIPREDClient
+from .psipred import ChouFasmanClient, PSIPREDClient  # PSIPREDClient is deprecated
 
 __all__ = [
     "AlphaFoldClient",
@@ -25,6 +25,7 @@ __all__ = [
     "BLASTClient",
     "BLASTHit",
     "ClustalWClient",
+    "ChouFasmanClient",
     "PSIPREDClient",
     "SecondaryStructurePrediction",
     "StructurePrediction",

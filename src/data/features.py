@@ -369,8 +369,8 @@ class FeatureExtractor:
         - ``alphafold``：调用 ``src/models/external_tools.py`` 的
           :class:`AlphaFoldClient.predict_structure` 获取 pLDDT/二级结构，
           映射为 helix/sheet/coil + pLDDT 归一化列。
-        - ``psipred``：调用 :class:`PSIPREDClient.predict_secondary_structure`
-          获取二级结构字符串与置信度。
+        - ``psipred``：调用 :class:`ChouFasmanClient.predict_secondary_structure`
+           获取二级结构字符串与置信度。
 
         当 external_tools 不可用或网络失败时，自动回退到 Chou-Fasman 并记录
         warning。返回形状为 ``(max_sequence_length, 3)`` 的数组（alphafold 时
@@ -421,10 +421,10 @@ class FeatureExtractor:
                 structural[:seq_len] = row
                 return structural
             elif self.structural_source == "psipred":
-                from src.models.external_tools import PSIPREDClient, ToolConfig
+                from src.models.external_tools import ChouFasmanClient, ToolConfig
 
                 tool_cfg = ToolConfig(self.config) if isinstance(self.config, dict) else None
-                client = PSIPREDClient(tool_cfg)
+                client = ChouFasmanClient(tool_cfg)
                 ss_result = client.predict_secondary_structure(sequence)
                 ss_pred: str = ss_result.ss_prediction
                 confs: List[float] = ss_result.confidence_scores

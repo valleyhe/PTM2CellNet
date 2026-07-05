@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""DAVF End-to-End Fine-Tuning Script (UNIMPL-14).
+"""
+Fine-tune a pretrained DAVF model for a downstream task.
 
-Implements the freeze→fine-tune workflow:
-1. Load pretrained DAVFInferenceModule (frozen)
-2. Train DeltaProjection head on downstream task
-3. Optionally unfreeze DAVF backbone for full fine-tuning
+EXPERIMENTAL (F-01, 25% complete).
+This script demonstrates the DAVF fine-tuning workflow but uses a placeholder
+downstream head. For production use, replace DownstreamHead with your
+domain-specific task head.
 
-Usage:
-    python scripts/finetune_davf_e2e.py \\
-        --checkpoint_path checkpoints/latent_davf_ibd_norman/best_model.pt \\
-        --data_path data/processed/train.csv \\
-        --output_dir outputs/davf_finetuned \\
-        --epochs 10
+Usage (experimental only):
+    PTM2CELLNET_ALLOW_EXPERIMENTAL=1 python scripts/finetune_davf_e2e.py \\
+        --davf-checkpoint path/to/davf.pt \\
+        --data-path path/to/training_data.csv \\
+        --output-dir outputs/experimental/davf_e2e
 """
 
 import argparse
@@ -27,6 +27,17 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+# Experimental guard — must be before project imports that may fail
+_EXPERIMENTAL_GUARD = os.environ.get("PTM2CELLNET_ALLOW_EXPERIMENTAL", "").lower() in ("1", "true", "yes")
+if not _EXPERIMENTAL_GUARD:
+    raise RuntimeError(
+        "finetune_davf_e2e.py is an EXPERIMENTAL script (F-01 status: 25% complete). "
+        "The DownstreamHead is a generic placeholder — it does not produce scientifically "
+        "valid output. To use this script anyway, set PTM2CELLNET_ALLOW_EXPERIMENTAL=1 "
+        "and replace DownstreamHead with your domain-specific task head. "
+        "See docs/项目代码现状系统性复核报告_2026-07-05_v11.md for details."
+    )
 
 import torch
 import torch.nn as nn
@@ -81,8 +92,16 @@ def main():
     logger.info("DAVF module loaded. Frozen: %s", config.freeze)
 
     # Step 2: Create a simple downstream task head
-    # This is a placeholder — in production, replace with your actual task
     class DownstreamHead(nn.Module):
+        """EXPERIMENTAL placeholder downstream head (F-01).
+
+        This is a generic binary classification head for demonstration purposes only.
+        In production, replace with your domain-specific task head that matches your
+        data schema and scientific requirements.
+
+        Classes: PTM effect prediction (binary: significant vs not-significant)
+        """
+
         def __init__(self, feature_dim, num_classes=2):
             super().__init__()
             self.head = nn.Sequential(

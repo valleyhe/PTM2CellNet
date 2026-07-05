@@ -93,12 +93,13 @@ class PTMRecord:
 
     @classmethod
     def from_dict(cls, data: PTMRecordDict) -> "PTMRecord":
+        _conf = data.get("confidence")
         return cls(
             protein_accession=str(data["protein_accession"]),
             position=int(data["position"]),
             ptm_type=str(data["ptm_type"]),
             amino_acid=data.get("amino_acid"),
-            confidence=float(data["confidence"]) if data.get("confidence") is not None else None,
+            confidence=float(_conf) if _conf is not None else None,
             source=data.get("source"),
         )
 

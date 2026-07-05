@@ -4,7 +4,7 @@ UniProtLoaderMixin — UniProt REST API 批量/单条加载 + 缓存。
 
 import json
 from pathlib import Path
-from typing import List, Optional, cast
+from typing import TYPE_CHECKING, List, Optional, cast
 
 import pandas as pd
 import requests
@@ -18,7 +18,16 @@ logger = setup_logger(__name__)
 
 
 class UniProtLoaderMixin:
-    """UniProt REST API 加载 mixin，含批量 URL 分块、本地缓存与重试。"""
+    """UniProt REST API 加载 mixin，含批量 URL 分块、本地缓存与重试。
+
+    The data_raw_dir and valid_amino_acids attributes are provided at
+    runtime by DataLoaderBase via multiple inheritance.  They are declared
+    here as TYPE_CHECKING-only stubs so mypy can see them.
+    """
+
+    if TYPE_CHECKING:
+        data_raw_dir: str
+        valid_amino_acids: "set"
 
     def _fetch_uniprot_batch(self, accession_ids: List[str]) -> List[UniProtRecord]:
         """

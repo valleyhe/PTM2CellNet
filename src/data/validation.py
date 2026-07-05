@@ -4,8 +4,10 @@
 设计思路: 确保数据质量，提高数据加载性能
 """
 import hashlib
+import hmac
 import json
 import pickle
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -253,7 +255,7 @@ class DatasetCache:
         """生成缓存key"""
         # 基于数据内容和配置的哈希
         data_hash = hashlib.md5(
-            pd.util.hash_pandas_object(df).values.tobytes()
+            pd.util.hash_pandas_object(df).to_numpy().tobytes()
         ).hexdigest()[:16]
 
         config_str = json.dumps(config, sort_keys=True)
@@ -264,7 +266,7 @@ class DatasetCache:
     def _compute_data_checksum(self, df: pd.DataFrame) -> str:
         """计算源数据的校验和，用于检测缓存与源数据不一致或数据损坏"""
         return hashlib.sha256(
-            pd.util.hash_pandas_object(df, index=True).values.tobytes()
+            pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()
         ).hexdigest()
 
     def _get_cache_path(self, cache_key: str) -> Path:
@@ -384,7 +386,18 @@ class DatasetCache:
 
         try:
             with open(cache_path, "rb") as f:
-                cached = safe_pickle_load(f)
+                # Verify HMAC signature
+                sig_path = Path(f"{cache_path}.hmac")
+                if sig_path.exists():
+                    file_data = f.read()
+                    with open(sig_path) as sf:
+                        expected_mac = sf.read().strip()
+                    actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                    if not hmac.compare_digest(actual_mac, expected_mac):
+                        raise ValueError(f"Cache integrity check failed for {cache_path}")
+                    cached = safe_pickle_load(BytesIO(file_data))
+                else:
+                    cached = safe_pickle_load(f)
         except (pickle.UnpicklingError, EOFError, ValueError) as e:
             logger.warning(
                 "缓存反序列化失败（文件可能已损坏）: %s — 将重新计算。路径: %s",
@@ -483,6 +496,18 @@ class DatasetCache:
         try:
             with open(cache_path, "wb") as f:
                 pickle.dump(cache_payload, f)
+
+            # Write HMAC signature for integrity verification
+            try:
+                with open(cache_path, "rb") as f:
+                    file_data = f.read()
+                mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                sig_path = Path(f"{cache_path}.hmac")
+                with open(sig_path, "w") as sig_f:
+                    sig_f.write(mac)
+            except OSError as e:
+                logger.warning("缓存完整性签名写入失败: %s", e)
+
             logger.info("数据已缓存 (pickle): %s", cache_path.name)
         except (OSError, RuntimeError) as e:
             logger.warning("缓存保存失败: %s", e)

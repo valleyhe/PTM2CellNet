@@ -63,7 +63,8 @@ from .external_tools import (
     AlphaFoldClient,
     BLASTClient,
     ClustalWClient,
-    PSIPREDClient,
+    ChouFasmanClient,
+    PSIPREDClient,  # deprecated alias
 )
 
 # scVI adapter (V22-02) - gene<->latent mapping; scvi-tools is an optional dep.
@@ -125,6 +126,7 @@ __all__ = [
     "AlphaFoldClient",
     "BLASTClient",
     "ClustalWClient",
+    "ChouFasmanClient",
     "PSIPREDClient",
     "GeneformerEmbeddingLoader",
     "save_checkpoint",

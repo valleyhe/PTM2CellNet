@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 import numpy as np
 import torch
@@ -79,7 +79,7 @@ def _check_scvi_available() -> bool:
 SCVI_AVAILABLE: bool = _check_scvi_available()
 
 # Default checkpoint search paths (checked in order when no explicit path is given)
-_DEFAULT_SCVI_PATHS = [
+_DEFAULT_SCVI_PATHS: List[Union[str, Path]] = [
     "checkpoints/scvi_model",
     "models/scvi_model",
     Path(__file__).resolve().parents[2] / "checkpoints" / "scvi_model",

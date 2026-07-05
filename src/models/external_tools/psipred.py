@@ -11,7 +11,7 @@ from .base import (
 )
 
 
-class PSIPREDClient:
+class ChouFasmanClient:
     """Client for protein secondary structure prediction.
 
     Implements the Chou-Fasman statistical method with a sliding-window
@@ -84,3 +84,7 @@ class PSIPREDClient:
             ss_prediction=ss_prediction,
             confidence_scores=confs,
         )
+
+
+# PSIPREDClient is a deprecated alias for ChouFasmanClient. Use ChouFasmanClient directly.
+PSIPREDClient = ChouFasmanClient  # deprecated alias

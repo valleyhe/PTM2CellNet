@@ -31,6 +31,7 @@ Architecture flow (gene mode):
 """
 
 import logging
+import os
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,7 +66,6 @@ class DAVFInferenceConfig:
             mode (default 5000). Ignored when ``state_space="scvi_latent"``.
         num_steps: ODE integration steps (default 50)
         device: Device to use (auto-detect if None)
-        allow_unsafe_legacy_load: Whether to allow pickle-based fallback for trusted legacy checkpoints
         scvi_model_path: Path to scVI model (null = use fallback)
         geneformer_path: Path to Geneformer model (null = use random embeddings)
         gene_names_path: Path to gene names mapping (null = mapping unavailable)
@@ -83,7 +83,6 @@ class DAVFInferenceConfig:
     gene_vocab_size: int = 5000
     num_steps: int = 50
     device: Optional[str] = None
-    allow_unsafe_legacy_load: bool = False
 
     def __post_init__(self):
         """Validate configuration parameters and log warnings for null paths."""
@@ -137,8 +136,11 @@ class DAVFInferenceOutput:
 
     Attributes:
         davf_features: [B, feature_dim] tensor of DAVF feature vectors
+        model_kind: Identifier for the model kind (``"davf"`` for normal,
+            ``"zero_fallback"`` when checkpoint not loaded and strict mode off).
     """
     davf_features: torch.Tensor
+    model_kind: str = "davf"
 
 
 class DeltaProjection(nn.Module):
@@ -337,30 +339,28 @@ class DAVFInferenceModule(nn.Module):
         except ImportError:
             pass
 
+        # Load checkpoint with safe (weights_only=True) loading.
+        # If the checkpoint is a legacy format that requires unsafe pickle
+        # deserialization, this will fail gracefully with `_checkpoint_loaded=False`.
+        # Users can migrate with: python scripts/tools/migrate_legacy_checkpoint.py
         try:
-            # Load checkpoint with device mapping
-            try:
-                checkpoint = safe_torch_load(
-                    ckpt_path,
-                    map_location=self.device,
-                    allowed_classes=_DAVF_ALLOWED,
-                )
-            except (pickle.UnpicklingError, RuntimeError):
-                # Legacy checkpoints containing custom config objects cannot
-                # be loaded with weights_only=True.  Fall back to
-                # weights_only=False for trusted checkpoints only.
-                logger.warning(
-                    "Checkpoint %s requires unsafe legacy loading "
-                    "(weights_only=False).  Only use trusted checkpoints.",
-                    ckpt_path,
-                )
-                checkpoint = safe_torch_load(
-                    ckpt_path,
-                    map_location=self.device,
-                    weights_only=False,
-                    enforce_safe_only=False,
-                )
+            checkpoint = safe_torch_load(
+                ckpt_path,
+                map_location=self.device,
+                allowed_classes=_DAVF_ALLOWED,
+            )
+        except (pickle.UnpicklingError, RuntimeError) as exc:
+            logger.warning(
+                "Legacy checkpoint %s cannot be loaded with weights_only=True: %s. "
+                "DAVFInferenceModule will return zero features. "
+                "To migrate it, run: python scripts/tools/migrate_legacy_checkpoint.py "
+                "--input %s --output %s.safe",
+                ckpt_path, exc, ckpt_path, ckpt_path,
+            )
+            self._checkpoint_loaded = False
+            return
 
+        try:
             # Extract state dict (handle both formats per D-06)
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 state_dict = checkpoint["model_state_dict"]
@@ -456,6 +456,16 @@ class DAVFInferenceModule(nn.Module):
 
         # Graceful degradation: return zeros if checkpoint not loaded (per D-08)
         if not self._checkpoint_loaded:
+            # F-02: strict production mode — fail-fast instead of silent degradation
+            strict_mode = os.environ.get(
+                "PTM2CELLNET_STRICT_MODEL_ASSETS", ""
+            ).lower() in ("1", "true", "yes")
+            if strict_mode:
+                raise RuntimeError(
+                    "DAVF checkpoint not loaded and "
+                    "PTM2CELLNET_STRICT_MODEL_ASSETS=1. "
+                    "Provide a valid checkpoint path."
+                )
             logger.warning(
                 "DAVFInferenceModule.forward() called without loaded checkpoint. "
                 "Returning zero features."
@@ -465,7 +475,8 @@ class DAVFInferenceModule(nn.Module):
                     B, self.config.feature_dim,
                     device=param_device,
                     dtype=torch.float,
-                )
+                ),
+                model_kind="zero_fallback",
             )
 
         if self.config.state_space == "gene":
@@ -485,55 +496,4 @@ class DAVFInferenceModule(nn.Module):
         # Project to feature dimension
         davf_features = self.delta_projection(condition)
 
-        return DAVFInferenceOutput(davf_features=davf_features)
-
-
-def migrate_legacy_checkpoint(
-    input_path: str,
-    output_path: str,
-    device: str = "cpu",
-) -> None:
-    """Migrate a legacy DAVF checkpoint to the safe loading format.
-
-    Loads a checkpoint using the legacy (unsafe) path, re-saves it
-    in a format compatible with ``safe_torch_load`` (weights_only=True).
-
-    Args:
-        input_path: Path to the legacy checkpoint file.
-        output_path: Path to write the migrated checkpoint.
-        device: Device to load the checkpoint on.
-
-    Raises:
-        FileNotFoundError: If input_path does not exist.
-        RuntimeError: If the checkpoint cannot be loaded.
-    """
-    import pickle
-
-    input_path = Path(input_path)
-    output_path = Path(output_path)
-
-    if not input_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {input_path}")
-
-    logger.info("Migrating legacy checkpoint: %s -> %s", input_path, output_path)
-
-    try:
-        checkpoint = safe_torch_load(
-            input_path,
-            map_location=device,
-            weights_only=False,
-            enforce_safe_only=False,
-        )
-    except (pickle.UnpicklingError, RuntimeError) as e:
-        raise RuntimeError(f"Failed to load legacy checkpoint: {e}") from e
-
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        state_dict = checkpoint["model_state_dict"]
-    elif isinstance(checkpoint, dict):
-        state_dict = checkpoint
-    else:
-        raise RuntimeError(f"Unexpected checkpoint format: {type(checkpoint)}")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(state_dict, output_path)
-    logger.info("Migrated checkpoint saved to %s", output_path)
+        return DAVFInferenceOutput(davf_features=davf_features, model_kind="davf")

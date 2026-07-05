@@ -467,8 +467,7 @@ class TwoStageExplanationPipeline:
         """Aggregate explanation results by protein.
 
         Groups the two-stage explanation results by protein_id and
-        computes summary statistics (mean, max delta_probability,
-        count of significant PTM sites per protein).
+        computes max delta_probability per protein.
 
         Args:
             results: DataFrame from run() or run_batch().
@@ -476,4 +475,12 @@ class TwoStageExplanationPipeline:
         Returns:
             Aggregated DataFrame with one row per protein.
         """
-        return aggregate_by_protein(results)
+        candidates = [
+            CandidateRecord(**{f: row[f] for f in CandidateRecord.__dataclass_fields__})
+            for _, row in results.iterrows()
+        ]
+        agg_dict = aggregate_by_protein(candidates)
+        return pd.DataFrame(
+            list(agg_dict.items()),
+            columns=["protein_id", "max_delta_probability"],
+        )

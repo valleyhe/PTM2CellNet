@@ -5,7 +5,16 @@
 """
 
 import os
+import warnings
 from datetime import datetime
+
+warnings.warn(
+    "create_tech_doc.py generates static documentation that may be out of sync. "
+    "It is NOT an authoritative source. For accurate code structure, use CodeGraph "
+    "index or refer directly to source code.",
+    UserWarning,
+    stacklevel=2,
+)
 
 def generate_tech_doc():
     """生成完整的技术文档"""

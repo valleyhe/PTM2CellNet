@@ -4,12 +4,13 @@ Lightning数据模块
 设计思路: 复用现有PTMDataset，支持分布式训练和多进程数据加载
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import pandas as pd
 import lightning as L
 from torch.utils.data import DataLoader
 
+from .dataset_base import DatasetConfig
 from .datasets import PTMDataset
 from .features import FeatureExtractor
 from ..utils.logging import setup_logger
@@ -32,7 +33,7 @@ class PTMLightningDataModule(L.LightningDataModule):
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
         test_df: pd.DataFrame,
-        config: Dict[str, Any],
+        config: Union[Dict[str, Any], DatasetConfig],
         feature_extractor: Optional[FeatureExtractor] = None,
         tokenizer: Optional[Any] = None,
     ):
@@ -50,18 +51,19 @@ class PTMLightningDataModule(L.LightningDataModule):
         self.train_df = train_df
         self.val_df = val_df
         self.test_df = test_df
-        self.config = config
-        self.feature_extractor = feature_extractor or FeatureExtractor(config)
+        self._raw_config: Dict[str, Any] = config if isinstance(config, dict) else {}
+        if isinstance(config, DatasetConfig):
+            self.config = config
+        else:
+            self.config = DatasetConfig.from_dict(config)
+        self.feature_extractor = feature_extractor or FeatureExtractor(self._raw_config)
         self.tokenizer = tokenizer
 
         # 从配置中提取参数
-        training_config = config.get("training", {})
-        data_config = config.get("data", {})
-
-        self.batch_size = training_config.get("batch_size", 32)
-        self.num_workers = data_config.get("num_workers", 4)
-        self.pin_memory = data_config.get("pin_memory", True)
-        self.drop_last = training_config.get("drop_last", True)
+        self.batch_size = self.config.batch_size
+        self.num_workers = self.config.num_workers
+        self.pin_memory = self.config.pin_memory
+        self.drop_last = self.config.drop_last
 
         # 数据集实例（在setup中初始化）
         self.train_dataset: Optional[PTMDataset] = None

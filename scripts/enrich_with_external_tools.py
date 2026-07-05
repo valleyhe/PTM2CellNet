@@ -65,7 +65,7 @@ from src.models.external_tools import (  # noqa: E402  (after path setup)
     AlphaFoldClient,
     BLASTClient,
     ClustalWClient,
-    PSIPREDClient,
+    ChouFasmanClient,
 )
 
 logger = logging.getLogger("enrich_with_external_tools")
@@ -141,7 +141,7 @@ def _run_tool(name: str, sequence: str, uniprot_id: Optional[str]) -> Dict[str, 
             result = client.align_sequences([sequence])
             entry["alignment_length"] = len(result.get("alignment", ""))
         elif name == "psipred":
-            client = PSIPREDClient()
+            client = ChouFasmanClient()
             entry["available"] = client.check_available()
             result = client.predict_secondary_structure(sequence)
             entry["secondary_structure"] = result.get("secondary_structure", "")
@@ -228,7 +228,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "alphafold": AlphaFoldClient,
                 "blast": BLASTClient,
                 "clustalw": ClustalWClient,
-                "psipred": PSIPREDClient,
+                "psipred": ChouFasmanClient,
             }[name]
             try:
                 probes[name] = {"available": client_cls().check_available()}

@@ -363,7 +363,7 @@ class TestCheckpointLoading:
     """Test suite for checkpoint loading edge cases."""
 
     def test_legacy_pickle_checkpoint_stays_unloaded_without_opt_in(self, tmp_path, mock_mapper_output):
-        """Legacy pickle fallback retries with weights_only=False then degrades to zeros."""
+        """Legacy pickle is rejected by safe_torch_load — degrades to zeros."""
         from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
 
         ckpt_path = tmp_path / "legacy_pickle.pt"
@@ -375,47 +375,34 @@ class TestCheckpointLoading:
             module = DAVFInferenceModule(DAVFInferenceConfig(checkpoint_path=str(ckpt_path)))
 
         assert module._checkpoint_loaded is False
-        # First attempt with weights_only=True fails, then auto-retry with
-        # weights_only=False also fails — both calls are expected.
-        assert mock_load.call_count == 2
+        # safe_torch_load calls torch.load once with weights_only=True, which
+        # raises UnpicklingError — the old unsafe fallback is no longer used.
+        assert mock_load.call_count == 1
 
         output = module(mock_mapper_output)
         assert output.davf_features.shape == (2, 128)
         assert torch.all(output.davf_features == 0.0)
 
     def test_legacy_pickle_checkpoint_requires_explicit_opt_in(self, tmp_path, mock_mapper_output):
-        """Trusted legacy checkpoints may opt in to pickle fallback."""
+        """Legacy pickle is rejected regardless of any opt-in — unsafe fallback removed by SC-01."""
         from src.models.davf_inference import DAVFInferenceModule, DAVFInferenceConfig
-        from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
 
         ckpt_path = tmp_path / "legacy_pickle.pt"
         ckpt_path.write_bytes(b"placeholder")
 
-        model = LatentDAVF(LatentDAVFConfig(latent_dim=10, hidden_dim=256, num_genes=5000))
-        checkpoint = {"model_state_dict": model.state_dict()}
-
-        with patch("src.models.davf_inference.torch.load") as mock_load, patch(
-            "src.models.davf_inference.logger.warning"
-        ) as mock_warning:
-            mock_load.side_effect = [pickle.UnpicklingError("legacy pickle"), checkpoint]
+        with patch("src.models.davf_inference.torch.load") as mock_load:
+            mock_load.side_effect = pickle.UnpicklingError("legacy pickle")
 
             module = DAVFInferenceModule(
-                DAVFInferenceConfig(
-                    checkpoint_path=str(ckpt_path),
-                    allow_unsafe_legacy_load=True,
-                )
+                DAVFInferenceConfig(checkpoint_path=str(ckpt_path))
             )
 
-        assert module._checkpoint_loaded is True
-        assert mock_load.call_count == 2
-        assert mock_load.call_args_list[0].kwargs["weights_only"] is True
-        assert mock_load.call_args_list[1].kwargs["weights_only"] is False
-        warning_message = mock_warning.call_args[0][0]
-        assert "unsafe" in warning_message
-        assert "Only use trusted checkpoints" in warning_message
+        assert module._checkpoint_loaded is False
+        assert mock_load.call_count == 1
 
         output = module(mock_mapper_output)
         assert output.davf_features.shape == (2, 128)
+        assert torch.all(output.davf_features == 0.0)
 
     def test_direct_state_dict_format(self, tmp_path, mock_mapper_output):
         """Handle checkpoint with direct state dict (no 'model_state_dict' key)."""

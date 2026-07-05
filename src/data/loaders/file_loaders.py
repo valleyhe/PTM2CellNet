@@ -4,7 +4,7 @@ FileLoaderMixin — CSV / FASTA / JSON 文件加载 + 示例数据生成。
 
 import json
 import os
-from typing import Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import pandas as pd
 from Bio import SeqIO
@@ -17,7 +17,16 @@ logger = setup_logger(__name__)
 
 
 class FileLoaderMixin:
-    """从文件读取数据的 mixin（CSV / FASTA / JSON / 示例数据 / 合并）。"""
+    """从文件读取数据的 mixin（CSV / FASTA / JSON / 示例数据 / 合并）。
+
+    The config and valid_amino_acids attributes are provided at runtime by
+    DataLoaderBase via multiple inheritance.  They are declared here as
+    TYPE_CHECKING-only stubs so mypy can see them.
+    """
+
+    if TYPE_CHECKING:
+        config: Dict[str, Any]
+        valid_amino_acids: "set"
 
     def load_from_csv(self, file_path: str) -> pd.DataFrame:
         """
@@ -58,7 +67,7 @@ class FileLoaderMixin:
                 else:
                     raise
             logger.info("加载完成，共 %d 条记录", len(df))
-            return df
+            return cast(pd.DataFrame, df)
 
         logger.info("从CSV加载数据: %s", file_path)
         df = pd.read_csv(file_path)

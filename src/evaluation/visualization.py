@@ -355,7 +355,7 @@ def plot_multiclass_roc(
     y_bin = label_binarize(y_true, classes=list(range(num_classes)))
 
     fig, ax = plt.subplots(figsize=figsize)
-    colors = plt.cm.Set1(np.linspace(0, 1, num_classes))
+    colors = plt.colormaps["Set1"](np.linspace(0, 1, num_classes))
 
     for i in range(num_classes):
         fpr, tpr, _ = roc_curve(y_bin[:, i], y_score[:, i])

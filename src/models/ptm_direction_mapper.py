@@ -12,7 +12,7 @@ Direction codes (from BiPerturbEncoder):
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Type
 
 import torch
 
@@ -28,6 +28,7 @@ except ImportError:
 
 
 # Exception types to catch when gene mapper makes network calls.
+_NetworkError: Type[Exception]  
 if _REQUESTS_AVAILABLE:
     _NetworkError = _requests.RequestException
 else:

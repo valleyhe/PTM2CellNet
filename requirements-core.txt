@@ -11,12 +11,12 @@
 # The Dockerfile installs only this core set for a lean production image.
 
 # Core data
-numpy>=1.21.0
+numpy>=1.24,<2
 pandas>=1.3.0
 scipy>=1.7.0
 
 # Deep learning
-torch>=1.10.0
+torch>=2.0,<3
 # Machine learning
 scikit-learn>=1.0.0
 torchmetrics>=0.11.0
@@ -60,3 +60,8 @@ safetensors>=0.3.0
 
 # sspa is required by src/analysis/pathway_integration.py but is declared in
 # requirements-analysis.txt. Install -r requirements-analysis.txt for KEGG/Reactome support.
+
+# Type stubs (for mypy static analysis)
+types-requests>=2.31
+types-PyYAML>=6.0
+pandas-stubs>=2.0

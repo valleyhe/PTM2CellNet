@@ -1,7 +1,10 @@
 """KEGG/Reactome pathway database integration (FEAT-02)."""
+import hmac
+import hashlib
 import logging
 import pickle
 import time
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -130,9 +133,23 @@ class PathwayDatabaseIntegration:
             logger.info("Pathway cache expired (TTL %ss): %s", CACHE_TTL_SECONDS, cache_file)
             return False
         try:
-            with open(cache_file, "rb") as f:
-                payload = safe_pickle_load(f)
-        except (pickle.UnpicklingError, EOFError, OSError) as e:
+            # Verify HMAC signature
+            sig_path = Path(f"{cache_file}.hmac")
+            if sig_path.exists():
+                with open(cache_file, "rb") as f:
+                    file_data = f.read()
+                with open(sig_path) as f:
+                    expected_mac = f.read().strip()
+                actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(actual_mac, expected_mac):
+                    raise ValueError(f"Cache integrity check failed for {cache_file}")
+                # Re-open for safe_pickle_load
+                with open(cache_file, "rb") as f:
+                    payload = safe_pickle_load(f)
+            else:
+                with open(cache_file, "rb") as f:
+                    payload = safe_pickle_load(f)
+        except (pickle.UnpicklingError, EOFError, OSError, ValueError) as e:
             logger.warning("Pathway cache unreadable, will rebuild: %s (%s)", cache_file, e)
             return False
         if not isinstance(payload, dict) or payload.get("version") != CACHE_VERSION:
@@ -150,6 +167,17 @@ class PathwayDatabaseIntegration:
         }
         with open(cache_file, "wb") as f:
             pickle.dump(payload, f)
+
+        # Write HMAC signature for integrity verification
+        try:
+            with open(cache_file, "rb") as f:
+                file_data = f.read()
+            mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+            sig_path = Path(f"{cache_file}.hmac")
+            with open(sig_path, "w") as sig_f:
+                sig_f.write(mac)
+        except OSError as e:
+            logger.warning("Failed to write cache integrity signature: %s", e)
 
     def load_kegg_pathways(
         self,
@@ -178,6 +206,16 @@ class PathwayDatabaseIntegration:
         if use_cache and self._cache_is_fresh(cache_file):
             logger.info("Loading KEGG pathways from cache: %s", cache_file)
             with open(cache_file, 'rb') as f:
+                # Verify HMAC signature
+                sig_path = Path(f"{cache_file}.hmac")
+                if sig_path.exists():
+                    file_data = f.read()
+                    with open(sig_path) as sf:
+                        expected_mac = sf.read().strip()
+                    actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                    if not hmac.compare_digest(actual_mac, expected_mac):
+                        raise ValueError(f"Cache integrity check failed for {cache_file}")
+                    f = BytesIO(file_data)
                 payload = safe_pickle_load(f)
             if isinstance(payload, dict):
                 self.kegg_pathways = payload["pathways"]

@@ -21,6 +21,84 @@ except ImportError:
         "Install sspa (pip install sspa) for KEGG/Reactome integration."
     )
 
+# ---------------------------------------------------------------------------
+# Built-in KEGG/Reactome pathway data (used as fallback when sspa is
+# unavailable and as the default baseline for all SignalingNetworkMapper
+# instances).
+# ---------------------------------------------------------------------------
+_BUILTIN_PATHWAY_DATA: Dict[str, Dict[str, Any]] = {
+    "MAPK_signaling": {
+        "description": "MAPK/ERK signaling pathway (built-in fallback)",
+        "key_kinases": ["MAPK1", "MAPK3", "MAP2K1", "MAP2K2", "RAF1", "BRAF"],
+        "key_substrates": ["ELK1", "MYC", "FOS", "JUN", "RSK", "MNK"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["ELK1", "MYC", "FOS", "JUN", "DUSP6", "SPRY2"],
+    },
+    "PI3K_AKT_signaling": {
+        "description": "PI3K/AKT/mTOR signaling pathway (built-in fallback)",
+        "key_kinases": ["PIK3CA", "AKT1", "AKT2", "MTOR", "PDK1"],
+        "key_substrates": ["FOXO1", "FOXO3", "GSK3B", "TSC2", "BAD", "CASP9"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["FOXO1", "FOXO3", "GSK3B", "RPS6KB1", "EIF4EBP1"],
+    },
+    "JAK_STAT_signaling": {
+        "description": "JAK/STAT signaling pathway (built-in fallback)",
+        "key_kinases": ["JAK1", "JAK2", "JAK3", "TYK2"],
+        "key_substrates": ["STAT1", "STAT2", "STAT3", "STAT4", "STAT5A", "STAT5B", "STAT6"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["STAT1", "STAT3", "SOCS1", "SOCS3", "IRF1", "MYC"],
+    },
+    "NF_kB_signaling": {
+        "description": "NF-kB signaling pathway (built-in fallback)",
+        "key_kinases": ["CHUK", "IKBKB", "IKBKG"],
+        "key_substrates": ["NFKBIA", "NFKB1", "RELA"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["NFKBIA", "TNF", "IL6", "IL1B", "CCL2", "BCL2"],
+    },
+    "Wnt_signaling": {
+        "description": "Wnt/beta-catenin signaling pathway (built-in fallback)",
+        "key_kinases": ["GSK3B", "CK1", "NLK"],
+        "key_substrates": ["CTNNB1", "AXIN1", "APC", "TCF7L2"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["CTNNB1", "MYC", "CCND1", "AXIN2", "LEF1", "TCF7"],
+    },
+    "TGF_beta_signaling": {
+        "description": "TGF-beta signaling pathway (built-in fallback)",
+        "key_kinases": ["TGFBR1", "TGFBR2", "ACVR1", "BMPR1A"],
+        "key_substrates": ["SMAD2", "SMAD3", "SMAD1", "SMAD5", "SMAD9"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["SMAD7", "SERPINE1", "CDKN1A", "CDKN2B", "SNAI1", "SNAI2"],
+    },
+    "p53_signaling": {
+        "description": "p53 signaling pathway (built-in fallback)",
+        "key_kinases": ["ATM", "ATR", "CHEK1", "CHEK2"],
+        "key_substrates": ["TP53", "MDM2", "CDKN1A"],
+        "ptm_types": ["phosphorylation", "acetylation"],
+        "output_genes": ["CDKN1A", "BAX", "BBC3", "GADD45A", "MDM2", "RRM2B"],
+    },
+    "Apoptosis_signaling": {
+        "description": "Apoptosis signaling pathway (built-in fallback)",
+        "key_kinases": ["CASP8", "CASP9", "CASP3"],
+        "key_substrates": ["BID", "PARP1", "LMNA", "DFFA"],
+        "ptm_types": ["phosphorylation", "cleavage"],
+        "output_genes": ["BCL2", "BAX", "CASP3", "CASP9", "XIAP", "BIRC5"],
+    },
+    "Cell_cycle_signaling": {
+        "description": "Cell cycle regulation pathway (built-in fallback)",
+        "key_kinases": ["CDK1", "CDK2", "CDK4", "CDK6", "PLK1", "AURKA"],
+        "key_substrates": ["RB1", "E2F1", "CDC25A", "WEE1"],
+        "ptm_types": ["phosphorylation"],
+        "output_genes": ["CCND1", "CCNE1", "CDKN1A", "CDKN1B", "E2F1", "MYC"],
+    },
+    "DNA_damage_response": {
+        "description": "DNA damage response pathway (built-in fallback)",
+        "key_kinases": ["ATM", "ATR", "DNAPK", "CHEK1", "CHEK2"],
+        "key_substrates": ["H2AX", "TP53", "BRCA1", "RAD51"],
+        "ptm_types": ["phosphorylation", "ubiquitination"],
+        "output_genes": ["TP53", "CDKN1A", "GADD45A", "BRCA1", "RAD51", "PCNA"],
+    },
+}
+
 # 下游基因表达变化受通路活性的影响因子（假设中等影响）。
 DOWNSTREAM_GENE_IMPACT_FACTOR = 0.5
 
@@ -153,7 +231,6 @@ class SignalingNetworkMapper:
         pathway_db_path: Optional[str] = None,
         organism: str = "hsa",
         organism_name: str = "Homo sapiens",
-        use_cache: bool = True,
     ):
         """
         初始化信号网络映射器
@@ -166,13 +243,15 @@ class SignalingNetworkMapper:
                 - 其它字符串: 视为缓存目录路径，尝试从缓存加载
             organism: KEGG 物种代码（默认 "hsa" 人类）
             organism_name: Reactome 物种名（默认 "Homo sapiens"）
-            use_cache: 是否优先使用缓存数据
         """
         self.pathway_db_path = pathway_db_path
         self.organism = organism
         self.organism_name = organism_name
-        self.use_cache = use_cache
         self.pathways = dict(self.SIGNALING_PATHWAYS)
+
+        # Always load built-in pathway data as baseline
+        for pw_name, pw_data in _BUILTIN_PATHWAY_DATA.items():
+            self.pathways[pw_name] = dict(pw_data)  # shallow copy
 
         # External pathway database integration (FEAT-02)
         if PATHWAY_INTEGRATION_AVAILABLE:
@@ -406,24 +485,75 @@ class SignalingNetworkMapper:
 
         return dict(gene_changes)
 
+    def _validate_builtin_pathways(self) -> Dict[str, Dict]:
+        """Validate built-in pathways for data integrity.
+
+        Performs a self-consistency check on all loaded pathways:
+        checks that required fields (key_kinases, key_substrates,
+        output_genes, ptm_types) are non-empty. This always works
+        without external dependencies.
+
+        Returns:
+            Validation report with source: "builtin" annotation.
+        """
+        validation_report = {}
+
+        for pathway_name, pathway_info in self.pathways.items():
+            issues = []
+            has_kinases = bool(pathway_info.get('key_kinases'))
+            has_substrates = bool(pathway_info.get('key_substrates'))
+            has_output = bool(pathway_info.get('output_genes'))
+            has_ptm_types = bool(pathway_info.get('ptm_types'))
+
+            if not has_kinases:
+                issues.append("no key_kinases")
+            if not has_substrates:
+                issues.append("no key_substrates")
+            if not has_output:
+                issues.append("no output_genes")
+            if not has_ptm_types:
+                issues.append("no ptm_types")
+
+            gene_count = (
+                len(pathway_info.get('key_kinases', [])) +
+                len(pathway_info.get('key_substrates', [])) +
+                len(pathway_info.get('output_genes', []))
+            )
+
+            validation_report[pathway_name] = {
+                'validated': len(issues) == 0,
+                'source': 'builtin',
+                'gene_count': gene_count,
+                'kinase_count': len(pathway_info.get('key_kinases', [])),
+                'substrate_count': len(pathway_info.get('key_substrates', [])),
+                'issues': issues,
+            }
+
+        return validation_report
+
     def validate_against_databases(
         self,
         min_coverage: float = 0.7,
-        use_cache: bool = True,
     ) -> Dict[str, Dict]:
         """
         Validate built-in pathways against KEGG/Reactome databases.
 
+        When sspa/rpy2 is unavailable, falls back to built-in
+        self-consistency validation via ``_validate_builtin_pathways``.
+
         Args:
             min_coverage: Minimum gene coverage for validation (0-1)
-            use_cache: Whether to use cached pathway data
 
         Returns:
             Validation report for each pathway
         """
         if self.pathway_integration is None:
-            logger.warning("Pathway integration not available, skipping validation")
-            return {}
+            logger.warning(
+                "Pathway integration not available; "
+                "using built-in self-consistency validation"
+            )
+            self._validation_report = self._validate_builtin_pathways()
+            return self._validation_report
 
         try:
             self._validation_report = self.pathway_integration.validate_builtin_pathways(
@@ -462,6 +592,13 @@ class SignalingNetworkMapper:
     def get_validation_summary(self) -> Dict:
         """Get summary of pathway validation results."""
         if self._validation_report is None:
+            if self.pathways:
+                return {
+                    'status': 'builtin_only',
+                    'total_pathways': len(self.pathways),
+                    'note': 'External KEGG/Reactome validation not available. '
+                            'Install sspa (pip install sspa) for full validation.',
+                }
             return {'status': 'not_validated'}
 
         total = len(self._validation_report)

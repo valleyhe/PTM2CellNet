@@ -128,7 +128,6 @@ def load_checkpoint(
     path: str,
     device: str = "cpu",
     strict: bool = True,
-    allow_unsafe_legacy: bool = False,
 ) -> CheckpointMetadata:
     """Load a checkpoint dictionary from disk.
 
@@ -136,7 +135,6 @@ def load_checkpoint(
         path: Checkpoint file path.
         device: Device to map tensors to.
         strict: If True, require 'config' and 'model_state_dict' keys.
-        allow_unsafe_legacy: If True, allow pickle-based fallback for trusted legacy checkpoints.
 
     Returns:
         Loaded checkpoint dictionary.
@@ -144,6 +142,9 @@ def load_checkpoint(
     Raises:
         FileNotFoundError: If the checkpoint file does not exist.
         ValueError: If strict=True and required keys are missing.
+        RuntimeError: If the checkpoint cannot be loaded with
+            ``weights_only=True``.  Use ``scripts/tools/migrate_legacy_checkpoint.py``
+            to convert legacy checkpoints.
     """
     ckpt_path = Path(path)
     if not ckpt_path.exists():
@@ -151,26 +152,13 @@ def load_checkpoint(
 
     try:
         ckpt = _load_checkpoint_payload(ckpt_path, device)
-    except pickle.UnpicklingError:
-        if not allow_unsafe_legacy:
-            raise
-        logger.warning(
-            "⚠️ SECURITY RISK: weights_only=True failed for %s; "
-            "retrying with weights_only=False. This allows arbitrary code "
-            "execution via pickle deserialization — only use with trusted "
-            "checkpoints (e.g. self-produced files). "
-            "Consider using allowed_classes= to whitelist required types instead.",
-            ckpt_path,
-        )
-        ckpt = cast(
-            CheckpointMetadata,
-            safe_torch_load(
-                ckpt_path,
-                map_location=device,
-                weights_only=False,
-                enforce_safe_only=False,
-            ),
-        )
+    except pickle.UnpicklingError as exc:
+        raise RuntimeError(
+            f"Legacy checkpoint {ckpt_path} cannot be loaded with "
+            f"weights_only=True. Run: python scripts/tools/"
+            f"migrate_legacy_checkpoint.py --input {ckpt_path} "
+            f"--output {ckpt_path}.safe to convert it."
+        ) from exc
     if not isinstance(ckpt, dict):
         raise ValueError("Checkpoint must be a dictionary")
 

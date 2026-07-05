@@ -83,7 +83,7 @@ def _write_hdf5_value(group: "h5py.Group", key: str, value: Hdf5Value) -> None:
     if isinstance(value, pd.DataFrame):
         dataframe_group = group.create_group(key)
         dataframe_group.attrs["item_type"] = "dataframe"
-        _create_string_dataset(dataframe_group, "__columns__", value.columns.astype(str).tolist())
+        _create_string_dataset(dataframe_group, "__columns__", np.asarray(value.columns.astype(str).tolist()))
         _write_hdf5_value(dataframe_group, "__index__", value.index.to_numpy())
         columns_group = dataframe_group.create_group("columns")
         for column in value.columns:
@@ -140,10 +140,10 @@ def _read_hdf5_value(node: Union["h5py.Dataset", "h5py.Group"]) -> Union[str, np
         raise TypeError(f"Unsupported HDF5 group type: {item_type!r}")
 
     columns = [str(column) for column in node["__columns__"].asstr()[()]]
-    index_values = _read_hdf5_value(node["__index__"])
+    index_values = cast(pd.Index, _read_hdf5_value(node["__index__"]))
     column_group = node["columns"]
     data = {column: _read_hdf5_value(column_group[column]) for column in columns}
-    return pd.DataFrame(data, index=pd.Index(index_values))
+    return pd.DataFrame(data, index=index_values)
 
 
 
@@ -164,16 +164,12 @@ def save_pickle(obj: object, file_path: str) -> None:
         pickle.dump(obj, f)
 
 
-def load_pickle(file_path: str, safe: bool = True) -> object:
+def load_pickle(file_path: str) -> object:
     """
     从pickle文件加载对象
 
     参数:
         file_path: pickle文件路径
-        safe: 是否使用安全反序列化（白名单模式）。默认为 ``True``，
-            仅允许已知安全类型（内置容器、NumPy/Torch/Pandas 等）。
-            若需要加载自定义类实例等不在白名单内的对象，可显式传入
-            ``safe=False`` 使用标准 ``pickle.load``——仅对可信文件使用。
 
     返回:
         加载的Python对象
@@ -183,14 +179,6 @@ def load_pickle(file_path: str, safe: bool = True) -> object:
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"文件不存在: {file_path}")
-
-    if not safe:
-        logger.warning(
-            "load_pickle(safe=False) 使用标准 pickle.load 加载 %s，"
-            "仅应用于可信文件以避免反序列化风险。", file_path,
-        )
-        with open(file_path, "rb") as f:
-            return pickle.load(f)
 
     with open(file_path, "rb") as f:
         return _SafeUnpickler(f).load()
@@ -227,14 +215,14 @@ def load_hdf5(file_path: str) -> Dict[str, Hdf5Value]:
 
     if h5py is None:
         _warn_hdf5_fallback()
-        return _load_pickle_archive(file_path)
+        return cast(Dict[str, Hdf5Value], _load_pickle_archive(file_path))
 
     try:
         with h5py.File(file_path, "r") as handle:
             return {key: _read_hdf5_value(handle[key]) for key in handle.keys()}
     except OSError:
         logger.warning("File is not a valid HDF5 archive; falling back to pickle loading")
-        return _load_pickle_archive(file_path)
+        return cast(Dict[str, Hdf5Value], _load_pickle_archive(file_path))
 
 
 def save_json(obj: Union[Dict[str, object], List[object]], file_path: str, indent: int = 2) -> None:
@@ -390,7 +378,7 @@ def load_dataframe(file_path: str) -> pd.DataFrame:
     # HDF5 分支：将 HDF5 接入主数据加载链路（路径后缀驱动）
     if file_path.lower().endswith((".h5", ".hdf5")):
         try:
-            return pd.read_hdf(file_path)
+            return cast(pd.DataFrame, pd.read_hdf(file_path))
         except (ImportError, ValueError, KeyError) as exc:
             # read_hdf 需要 pytables；若不可用或 key 不匹配，回退到 load_hdf5
             logger.warning(

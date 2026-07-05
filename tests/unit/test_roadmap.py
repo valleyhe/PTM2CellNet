@@ -6,18 +6,19 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from src.data.loaders.legacy_loaders import (
+    load_custom_ptm_database,
+    mass_spec_stream,
+)
+from src.models.pretrained_encoders import esm3_encoder
 from src.models.roadmap import (
     CANCELLED_FEATURES,
     DEFERRED_FEATURES,
     CancelledFeature,
     DeferredFeature,
     distributed_trainer,
-    esm3_encoder,
     get_cancelled_features,
     get_deferred_features,
-    launch_gui,
-    load_custom_ptm_database,
-    mass_spec_stream,
 )
 
 
@@ -158,9 +159,3 @@ class TestRoadmapHelpers:
         assert isinstance(trainer, FakeTrainer)
         assert trainer.model is model
         assert "falling back to plain Trainer" in caplog.text
-
-    def test_launch_gui_returns_false_because_gui_is_cancelled(self, caplog):
-        with caplog.at_level("WARNING"):
-            launched = launch_gui(title="PTM2CellNet")
-        assert launched is False
-        assert "no longer in PTM2CellNet scope" in caplog.text

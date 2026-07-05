@@ -2,7 +2,9 @@
 数据集基类和工具函数
 功能概述: 提供共享功能和工具，减少ESMTokenizedDataset和PTMDataset之间的重复代码
 """
+import dataclasses
 import json
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import pandas as pd
@@ -41,6 +43,128 @@ class DatasetStatistics(TypedDict, total=False):
     ptm_type_distribution: Dict[str, int]
 
 
+# ---------------------------------------------------------------------------
+# DatasetConfig — flat dataclass replacing the nested-dict config pattern.
+# Consumers that still pass dicts use from_dict() for backward compatibility.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DatasetConfig:
+    """Configuration for dataset construction.
+
+    All fields have sensible defaults so existing code that passes partial
+    dicts continues to work after converting via :meth:`from_dict`.
+    """
+
+    # Core
+    max_sequence_length: int = 1024
+    batch_size: int = 32
+    shuffle: bool = True
+    num_workers: int = 0
+    pin_memory: bool = False
+    drop_last: bool = True
+
+    # PTM
+    max_ptm_sites: int = 10
+    ptm_types: Optional[List[str]] = None
+    ptm_position_mode: str = "relative"  # "relative" | "absolute"
+    ptm_type_embed_dim: int = 32
+    use_ptm_attention: bool = True
+
+    # Feature
+    feature_type: str = "one_hot"  # "one_hot" | "kmers" | "physicochemical" | "combined"
+    kmer_size: int = 3
+    use_physicochemical: bool = False
+    use_feature_extractor: bool = False
+
+    # Label
+    label_column: str = "label"
+    num_classes: int = 2
+    task_type: str = "classification"  # "classification" | "regression" | "multitask"
+
+    # Augmentation — kept as a nested block so string presets (light/medium/heavy)
+    # continue to work without forcing every field onto the top level.
+    augmentation: Optional[Union[str, Dict[str, Any]]] = None
+    augment_prob: float = 0.0
+    max_truncate_ratio: float = 0.1
+    mask_prob: float = 0.0
+    random_swap_prob: float = 0.0
+
+    # Split
+    train_ratio: float = 0.7
+    val_ratio: float = 0.15
+    test_ratio: float = 0.15
+
+    # Tokenizer / Pretrained
+    tokenizer_name: Optional[str] = None
+    pretrained_model_name: Optional[str] = None
+
+    # DAVF
+    use_davf: bool = False
+    davf_feature_dim: int = 128
+    davf_checkpoint_path: Optional[str] = None
+
+    # Other
+    seed: int = 42
+    data_path: Optional[str] = None
+    cache_dir: Optional[str] = None
+
+    # Data section keys (previously config["data"])
+    valid_amino_acids: Optional[Union[str, List[str]]] = None
+    cell_states: Optional[List[str]] = None
+    label_to_idx: Optional[Dict[str, int]] = None
+    persistent_workers: bool = False
+    strict_load: bool = False
+    use_hdf5: bool = False
+
+    # Section containers for non-flattened subsections (FeatureExtractor etc.)
+    features: Optional[Dict[str, Any]] = None
+    data: Optional[Dict[str, Any]] = None
+    training: Optional[Dict[str, Any]] = None
+    paths: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def from_dict(cls, d: Optional[Dict[str, Any]] = None) -> "DatasetConfig":
+        """Create a DatasetConfig from a dict, for backward compatibility.
+
+        Handles three input shapes:
+
+        * ``None`` → returns ``cls()`` (all defaults).
+        * A flat dict with keys matching field names → used directly.
+        * A nested dict with ``data`` / ``features`` / ``augmentation`` /
+          ``training`` / ``paths`` sections → sections are unwrapped and
+          recognised fields are extracted.
+        """
+        if d is None:
+            return cls()
+
+        # Sentinel section keys that exist on the dataclass but should NOT
+        # short-circuit the nested-dict unwrapping below.
+        # NOTE: ``augmentation`` is intentionally omitted — it can carry a
+        # string preset (e.g. "medium") that must be set directly as a flat key.
+        _SECTION_KEYS = frozenset({"data", "features", "training", "paths"})
+
+        valid_keys: set = {f.name for f in dataclasses.fields(cls)}
+        kwargs: Dict[str, Any] = {}
+
+        # 1) Try flat keys first — skip sentinel section containers.
+        for k in list(d.keys()):
+            if k in valid_keys and k not in _SECTION_KEYS:
+                kwargs[k] = d[k]
+
+        # 2) If *no* flat keys matched, try nested sections
+        if not kwargs:
+            for section_key in _SECTION_KEYS:
+                section = d.get(section_key)
+                if isinstance(section, dict):
+                    for k, v in section.items():
+                        if k in valid_keys and k not in kwargs:
+                            kwargs[k] = v
+
+        return cls(**kwargs)
+
+
 class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
     """
     PTM数据集基类
@@ -50,10 +174,19 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
     def __init__(
         self,
         df: pd.DataFrame,
-        config: Optional[Dict[str, Union[str, int, float, List[Any], Dict[str, Any]]]] = None,
+        config: Optional[Union[Dict[str, Any], DatasetConfig]] = None,
     ):
         self.df = df.reset_index(drop=True)
-        self.config = config or {}
+
+        # Keep the original dict for callers (e.g. FeatureExtractor) that
+        # expect the nested-dict format.
+        self._raw_config: Dict[str, Any] = config if isinstance(config, dict) else {}
+
+        # Convert to typed dataclass for our own use.
+        if isinstance(config, DatasetConfig):
+            self.config = config
+        else:
+            self.config = DatasetConfig.from_dict(config)
 
         # 设置PTM类型映射
         self.ptm_types = self._get_ptm_types()
@@ -61,9 +194,8 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
 
         # 设置标签映射
         if "cell_state" in self.df.columns:
-            data_config = self.config.get("data", {})
-            configured_labels = data_config.get("cell_states") or []
-            configured_mapping = data_config.get("label_to_idx") or {}
+            configured_labels = self.config.cell_states or []
+            configured_mapping = self.config.label_to_idx or {}
             if configured_labels:
                 self.labels = [str(label) for label in configured_labels]
                 self.label_to_idx = {
@@ -78,13 +210,12 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             self.label_to_idx = {}
 
         # 接入 DatasetCache（将特征预计算结果接入缓存主链路）。
-        # 仅当 data.cache_dir 非空时实例化，避免无配置时产生目录副作用。
+        # 仅当 cache_dir 非空时实例化，避免无配置时产生目录副作用。
         self.dataset_cache = None
-        cache_dir = self.config.get("data", {}).get("cache_dir", "")
-        if cache_dir:
+        if self.config.cache_dir:
             try:
                 from .validation import DatasetCache
-                self.dataset_cache = DatasetCache(cache_dir)
+                self.dataset_cache = DatasetCache(self.config.cache_dir)
             except (ImportError, TypeError, ValueError) as exc:  # 缓存初始化失败不阻塞数据加载
                 logger.warning("DatasetCache 初始化失败 (%s)，将不使用缓存", exc)
 
@@ -97,7 +228,9 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             "ubiquitination",
             "sumoylation",
         ]
-        return cast(List[str], self.config.get("data", {}).get("ptm_types", default_ptm_types))
+        if self.config.ptm_types:
+            return self.config.ptm_types
+        return default_ptm_types
 
     def _encode_label(self, label: str) -> torch.Tensor:
         """编码标签字符串为整数tensor
@@ -233,7 +366,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
                 }
                 stats["ptm_type_distribution"] = self.get_ptm_type_distribution()
 
-        return stats
+        return cast(DatasetStatistics, stats)
 
     def print_statistics(self) -> None:
         """打印数据集统计信息"""

@@ -5,7 +5,7 @@ PyTorch数据集模块
 """
 
 import json
-from typing import Dict, List, Optional, Tuple, TypedDict, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 
 import pandas as pd
 import torch
@@ -18,8 +18,8 @@ from .aa_constants import (
     NON_STANDARD_AA_MAP,
 )
 from .augmentation import DAVFSiteAugmenter, PTMAugmenter, SequenceAugmenter, get_augmentation_config
+from .dataset_base import DatasetConfig, PTMDatasetBase, PTMSiteDict
 from .features import FeatureExtractor, DEFAULT_AMINO_ACIDS
-from .dataset_base import PTMDatasetBase
 
 logger = setup_logger(__name__)
 
@@ -29,15 +29,14 @@ logger = setup_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class _PtmSiteDict(TypedDict, total=False):
+class _PtmSiteDict(PTMSiteDict, total=False):
     """Shape of a single PTM site dictionary in data loading.
 
     ``position`` is always present at runtime but declared total=False so
     that partially-constructed dicts still type-check without casts.
     """
 
-    position: int
-    type: str
+    # Extra fields beyond PTMSiteDict
     residue: str
     confidence: float
     gene_name: str
@@ -86,14 +85,6 @@ class _AugmentationConfigSection(TypedDict, total=False):
     davf_noise_prob: float
 
 
-class _DatasetConfig(TypedDict, total=False):
-    """Top-level config dict accepted by PTMDataset / PTMPlainDataModule / ESMTokenizedDataset."""
-
-    data: _DataConfigSection
-    features: _FeaturesConfigSection
-    augmentation: _AugmentationConfigSection
-
-
 class PTMDataset(PTMDatasetBase):
     """
     PTM数据集类
@@ -104,7 +95,7 @@ class PTMDataset(PTMDatasetBase):
         self,
         df: pd.DataFrame,
         feature_extractor: Optional[FeatureExtractor] = None,
-        config: Optional[_DatasetConfig] = None,
+        config: Optional[Union[Dict[str, Any], DatasetConfig]] = None,
         return_sequence: bool = True,
         return_ptm: bool = True,
         return_label: bool = True,
@@ -127,11 +118,11 @@ class PTMDataset(PTMDatasetBase):
         super().__init__(df, config)
 
         # Pre-parse PTM sites JSON to avoid repeated json.loads in __getitem__
-        # 接入 DatasetCache：当 data.cache_dir 配置时，缓存预解析的 PTM 位点列表。
+        # 接入 DatasetCache：当 cache_dir 配置时，缓存预解析的 PTM 位点列表。
         self._parsed_ptm_sites: List[Optional[List[_PtmSiteDict]]] = []
         cache_key_config = {
             "ptm_types": self.ptm_types,
-            "max_sequence_length": self.config.get("data", {}).get("max_sequence_length", 1000),
+            "max_sequence_length": self.config.max_sequence_length,
         }
         cached_parsed = None
         if self.dataset_cache is not None and "ptm_sites" in self.df.columns:
@@ -164,18 +155,18 @@ class PTMDataset(PTMDatasetBase):
                     self.df, {"parse_ptm_sites": cache_key_config}, self._parsed_ptm_sites
                 )
 
-        self.feature_extractor = feature_extractor or FeatureExtractor(config)
+        self.feature_extractor = feature_extractor or FeatureExtractor(self._raw_config or {})
         self.return_sequence = return_sequence
         self.return_ptm = return_ptm
         self.return_label = return_label
         self.use_feature_extractor = bool(
-            use_feature_extractor or self.config.get("features", {}).get("use_feature_extractor", False)
+            use_feature_extractor or self.config.use_feature_extractor
         )
         self.training = training
-        self.use_davf = bool(self.config.get("data", {}).get("use_davf", False))
+        self.use_davf = self.config.use_davf
 
-        self.max_sequence_length = self.config.get("data", {}).get("max_sequence_length", 1000)
-        self.amino_acids = self.config.get("data", {}).get("valid_amino_acids", DEFAULT_AMINO_ACIDS)
+        self.max_sequence_length = self.config.max_sequence_length
+        self.amino_acids = self.config.valid_amino_acids or DEFAULT_AMINO_ACIDS
         # 序列索引从1开始，0保留给padding
         # 基于共享常量构建映射；若配置自定义字母表则覆盖
         if self.amino_acids == AMINO_ACIDS_STR:
@@ -198,7 +189,7 @@ class PTMDataset(PTMDatasetBase):
 
     def _initialize_augmenters_from_config(self) -> None:
         """按需从配置构建数据增强器。支持字符串预设（light/medium/heavy）或参数字典。"""
-        augmentation_config = self.config.get("augmentation")
+        augmentation_config = self.config.augmentation
         if not augmentation_config:
             return
 
@@ -223,7 +214,7 @@ class PTMDataset(PTMDatasetBase):
 
     def _build_davf_augmenter(self) -> Optional[DAVFSiteAugmenter]:
         """按配置构建 DAVF 位点协同增强器。"""
-        augmentation_config = self.config.get("augmentation")
+        augmentation_config = self.config.augmentation
         if not augmentation_config:
             return None
         if isinstance(augmentation_config, str):
@@ -367,17 +358,19 @@ class PTMDataset(PTMDatasetBase):
                 if feat_ptm_sites is None:
                     feat_ptm_sites = []
                 sample["ptm_features"] = torch.tensor(
-                    self.feature_extractor.extract_ptm_features_array(feat_ptm_sites, len(sequence)),
+                    self.feature_extractor.extract_ptm_features_array(
+                        cast("List[Any]", feat_ptm_sites), len(sequence)
+                    ),
                     dtype=torch.float32,
                 )
 
         if self.training:
             if "sequence" in sample and self.sequence_augmenter is not None:
-                sample["sequence"] = self.sequence_augmenter(sample["sequence"])
+                sample["sequence"] = self.sequence_augmenter(cast(torch.Tensor, sample["sequence"]))
             if "ptm_mask" in sample and "ptm_types" in sample and self.ptm_augmenter is not None:
                 sample["ptm_mask"], sample["ptm_types"] = self.ptm_augmenter(
-                    sample["ptm_mask"],
-                    sample["ptm_types"],
+                    cast(torch.Tensor, sample["ptm_mask"]),
+                    cast(torch.Tensor, sample["ptm_types"]),
                 )
             # DAVF 位点字段协同增强（仅 use_davf 且存在相关字段时）
             if (
@@ -386,14 +379,18 @@ class PTMDataset(PTMDatasetBase):
                 and "davf_type_names" in sample
                 and "davf_attention_mask" in sample
             ):
-                sample["davf_sites"], sample["davf_type_names"], sample[
-                    "davf_attention_mask"
-                ], sample["davf_gene_names"] = self.davf_augmenter(
-                    sample["davf_sites"],
-                    sample["davf_type_names"],
-                    sample["davf_attention_mask"],
-                    sample.get("davf_gene_names"),
+                _davf_result = self.davf_augmenter(
+                    cast(List[int], sample["davf_sites"]),
+                    cast(List[str], sample["davf_type_names"]),
+                    cast(List[int], sample["davf_attention_mask"]),
+                    cast(Optional[List[str]], sample.get("davf_gene_names")),
                     max_position=self.max_sequence_length,
+                )
+                sample["davf_sites"] = _davf_result[0]
+                sample["davf_type_names"] = _davf_result[1]
+                sample["davf_attention_mask"] = _davf_result[2]
+                sample["davf_gene_names"] = cast(
+                    "Union[List[int], List[str]]", _davf_result[3] or []
                 )
 
         if self.return_label and "cell_state" in row:
@@ -413,7 +410,7 @@ class PTMPlainDataModule:
         train_df: pd.DataFrame,
         val_df: Optional[pd.DataFrame] = None,
         test_df: Optional[pd.DataFrame] = None,
-        config: Optional[_DatasetConfig] = None,
+        config: Optional[Union[Dict[str, Any], DatasetConfig]] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         use_feature_extractor: bool = False,
@@ -432,14 +429,18 @@ class PTMPlainDataModule:
         self.train_df = train_df
         self.val_df = val_df
         self.test_df = test_df
-        self.config = config or {}
+        self._raw_config: Dict[str, Any] = config if isinstance(config, dict) else {}
+        if isinstance(config, DatasetConfig):
+            self.config = config
+        else:
+            self.config = DatasetConfig.from_dict(config)
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.use_feature_extractor = bool(
-            use_feature_extractor or self.config.get("features", {}).get("use_feature_extractor", False)
+            use_feature_extractor or self.config.use_feature_extractor
         )
 
-        self.feature_extractor = FeatureExtractor(self.config)
+        self.feature_extractor = FeatureExtractor(self._raw_config)
         self.train_dataset: Optional[PTMDataset] = None
         self.val_dataset: Optional[PTMDataset] = None
         self.test_dataset: Optional[PTMDataset] = None
@@ -501,8 +502,8 @@ class PTMPlainDataModule:
             raise ValueError("训练数据集未初始化")
 
         # 从配置读取优化参数
-        persistent_workers = self.config.get("data", {}).get("persistent_workers", False)
-        pin_memory = self.config.get("data", {}).get("pin_memory", False)
+        persistent_workers = self.config.persistent_workers
+        pin_memory = self.config.pin_memory
 
         return DataLoader(
             self.train_dataset,
@@ -519,14 +520,14 @@ class PTMPlainDataModule:
         if self.val_dataset is None:
             return None
 
-        pin_memory = self.config.get("data", {}).get("pin_memory", False)
+        pin_memory = self.config.pin_memory
 
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            persistent_workers=self.num_workers > 0 and self.config.get("data", {}).get("persistent_workers", False),
+            persistent_workers=self.num_workers > 0 and self.config.persistent_workers,
             pin_memory=pin_memory,
         )
 
@@ -535,14 +536,14 @@ class PTMPlainDataModule:
         if self.test_dataset is None:
             return None
 
-        pin_memory = self.config.get("data", {}).get("pin_memory", False)
+        pin_memory = self.config.pin_memory
 
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            persistent_workers=self.num_workers > 0 and self.config.get("data", {}).get("persistent_workers", False),
+            persistent_workers=self.num_workers > 0 and self.config.persistent_workers,
             pin_memory=pin_memory,
         )
 
@@ -566,7 +567,7 @@ class ESMTokenizedDataset(PTMDatasetBase):
         df: pd.DataFrame,
         tokenizer,
         max_length: int = 1024,
-        config: Optional[_DatasetConfig] = None,
+        config: Optional[Union[Dict[str, Any], DatasetConfig]] = None,
         training: bool = True,
         sequence_augmenter: Optional[SequenceAugmenter] = None,
         ptm_augmenter: Optional[PTMAugmenter] = None,
@@ -606,7 +607,7 @@ class ESMTokenizedDataset(PTMDatasetBase):
 
     def _initialize_augmenters_from_config(self) -> None:
         """按需从配置构建数据增强器（与 PTMDataset 一致）。"""
-        augmentation_config = self.config.get("augmentation")
+        augmentation_config = self.config.augmentation
         if not augmentation_config:
             return
 

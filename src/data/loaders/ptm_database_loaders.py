@@ -2,17 +2,54 @@
 PTMDatabaseLoaderMixin — PhosphoSitePlus / dbPTM / CPLM 数据库加载。
 """
 
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 import requests
 
 from ...utils.logging import setup_logger
 
+if TYPE_CHECKING:
+    from .base import DataLoaderBase  # noqa: F401
+
 logger = setup_logger(__name__)
 
 
 class PTMDatabaseLoaderMixin:
-    """PTM 数据库加载 mixin (PhosphoSitePlus / dbPTM / CPLM)。"""
+    """PTM 数据库加载 mixin (PhosphoSitePlus / dbPTM / CPLM)。
+
+    The attributes and private methods listed below are provided at runtime
+    by DataLoaderBase via multiple inheritance.  They are declared here as
+    TYPE_CHECKING-only stubs so that mypy can see them without requiring
+    the mixin to inherit from DataLoaderBase directly.
+    """
+
+    if TYPE_CHECKING:
+        data_raw_dir: str
+        strict_load: bool
+        config: Dict[str, Any]
+
+        def _download_if_url(self, path_or_url: str) -> str: ...
+        def _empty_or_raise(self, empty_df: pd.DataFrame, source: str) -> pd.DataFrame: ...
+        @staticmethod
+        def _empty_phosphositeplus_df() -> pd.DataFrame: ...
+        @staticmethod
+        def _empty_ptm_df() -> pd.DataFrame: ...
+        def _read_tabular_file(self, file_path: str, sep: Optional[str] = None) -> pd.DataFrame: ...
+        def _get_matching_column(self, df: pd.DataFrame, candidates: List[str]) -> Optional[str]: ...
+        def _build_ptm_dataframe(
+            self, df: pd.DataFrame,
+            accession_candidates: List[str],
+            position_candidates: List[str],
+            amino_acid_candidates: List[str],
+            source: str, ptm_type: str,
+        ) -> pd.DataFrame: ...
+        @staticmethod
+        def _normalize_column_name(column_name: str) -> str: ...
+        @staticmethod
+        def _extract_amino_acid_and_position(
+            value: object,
+        ) -> Tuple[Optional[str], Optional[int]]: ...
 
     def load_from_phosphositeplus(
         self,
@@ -93,7 +130,7 @@ class PTMDatabaseLoaderMixin:
             result = result.dropna(subset=["protein_accession", "position", "amino_acid"])
             result = result[result["protein_accession"] != ""].copy()
             result["position"] = result["position"].astype(int)
-            return result.reset_index(drop=True)
+            return cast(pd.DataFrame, result.reset_index(drop=True))
         except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
             logger.error("解析 PhosphoSitePlus 数据失败: %s", exc)
             return self._empty_or_raise(self._empty_phosphositeplus_df(), "PhosphoSitePlus")

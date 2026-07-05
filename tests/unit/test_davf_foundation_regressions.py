@@ -40,15 +40,16 @@ class TestDAVFCheckpointUtilsRegressions:
         assert checkpoint["config"] == {}
 
     def test_load_checkpoint_supports_phase10_bundled_legacy_checkpoint(self):
-        checkpoint = load_checkpoint(
-            "checkpoints/davf/model_a_finetuned/best_model.pt",
-            strict=False,
-            allow_unsafe_legacy=True,
+        """Legacy pickle checkpoints are rejected with a clear migration error."""
+        msg = (
+            r"Legacy checkpoint .* cannot be loaded with weights_only=True\. "
+            r"Run: python scripts/tools/migrate_legacy_checkpoint\.py"
         )
-
-        assert isinstance(checkpoint, dict)
-        assert "model_state_dict" in checkpoint
-        assert "config" in checkpoint
+        with pytest.raises(RuntimeError, match=msg):
+            load_checkpoint(
+                "checkpoints/davf/model_a_finetuned/best_model.pt",
+                strict=False,
+            )
 
     def test_load_checkpoint_does_not_unsafe_fallback_without_opt_in(self, tmp_path):
         checkpoint_path = tmp_path / "legacy.pt"
@@ -57,23 +58,23 @@ class TestDAVFCheckpointUtilsRegressions:
         with patch("src.models.davf_checkpoint_utils.torch.load") as mock_load:
             mock_load.side_effect = pickle.UnpicklingError("legacy pickle")
 
-            with pytest.raises(pickle.UnpicklingError):
+            with pytest.raises(RuntimeError):
                 load_checkpoint(str(checkpoint_path))
 
         assert mock_load.call_count == 1
 
-    def test_load_checkpoint_can_unsafe_fallback_with_opt_in(self, tmp_path):
+    def test_load_checkpoint_rejects_legacy_checkpoint_even_without_opt_in(self, tmp_path):
+        """Legacy checkpoints are rejected regardless of any opt-in — SC-01 removed unsafe fallback."""
         checkpoint_path = tmp_path / "legacy.pt"
         checkpoint_path.write_bytes(b"placeholder")
-        expected = {"model_state_dict": {}, "config": {}}
 
         with patch("src.models.davf_checkpoint_utils.torch.load") as mock_load:
-            mock_load.side_effect = [pickle.UnpicklingError("legacy pickle"), expected]
+            mock_load.side_effect = pickle.UnpicklingError("legacy pickle")
 
-            checkpoint = load_checkpoint(str(checkpoint_path), allow_unsafe_legacy=True)
+            with pytest.raises(RuntimeError):
+                load_checkpoint(str(checkpoint_path))
 
-        assert checkpoint == expected
-        assert mock_load.call_count == 2
+        assert mock_load.call_count == 1
 
     def test_load_checkpoint_rejects_nonexistent_file(self):
         with pytest.raises(FileNotFoundError):

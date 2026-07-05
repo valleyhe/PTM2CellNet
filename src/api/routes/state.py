@@ -117,8 +117,9 @@ def initialize_model(
     STATE.idx_to_label = dict(enumerate(cell_state_labels))
     STATE.device = model_device
     STATE.feature_extractor = FeatureExtractor(config or {})
-    STATE.max_sequence_length = (config or {}).get("data", {}).get("max_sequence_length", 1000)
-    ptm_types = (config or {}).get("data", {}).get("ptm_types", DEFAULT_PTM_TYPES)
+    data_cfg: Dict[str, Any] = (config or {}).get("data", {})
+    STATE.max_sequence_length = data_cfg.get("max_sequence_length", 1000)
+    ptm_types = data_cfg.get("ptm_types", DEFAULT_PTM_TYPES)
     STATE.ptm_type_to_idx = {ptm: i + 1 for i, ptm in enumerate(ptm_types)}
     STATE.model.to(STATE.device)
     STATE.model.eval()

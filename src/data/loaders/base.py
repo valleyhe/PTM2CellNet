@@ -5,7 +5,7 @@ DataLoaderBase — __init__ 以及被其它 mixin 共享的工具方法。
 import os
 import re
 import tempfile
-from typing import Any, Dict, List, Optional, Protocol, Tuple, Union, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, Union, cast, runtime_checkable
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -325,7 +325,7 @@ class DataLoaderBase:
         else:
             read_kwargs["sep"] = sep
 
-        return pd.read_csv(file_path, **read_kwargs)
+        return cast(pd.DataFrame, pd.read_csv(file_path, **cast(Any, read_kwargs)))
 
     def _build_ptm_dataframe(
         self,
@@ -355,6 +355,7 @@ class DataLoaderBase:
         if accession_col is None:
             raise ValueError("缺少蛋白登录号列")
 
+        positions: "pd.Series"
         if position_col is not None:
             positions = (
                 df[position_col]
@@ -391,4 +392,4 @@ class DataLoaderBase:
         result = result[result["protein_accession"] != ""].copy()
         result["position"] = result["position"].astype(int)
         result["amino_acid"] = result["amino_acid"].astype(str).str.upper()
-        return result.reset_index(drop=True)
+        return cast(pd.DataFrame, result.reset_index(drop=True))

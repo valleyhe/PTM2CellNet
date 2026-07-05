@@ -109,7 +109,7 @@ class AlphaFoldClient:
         x, y, z = 0.0, 0.0, 0.0
         n = len(sequence)
         plddt = 50.0
-        confidence = 0.5
+        confidence = 0.0
 
         for i, aa in enumerate(sequence):
             res_name = _AA_THREE_LETTER.get(aa.upper(), "UNK")

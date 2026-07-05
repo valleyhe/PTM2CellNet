@@ -1,10 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-CPTAC数据下载和处理脚本
+CPTAC数据下载和处理脚本 — EXPERIMENTAL (F-03, 30% complete)
+
+WARNING: Currently uses mock/synthetic data. Not suitable for production use.
+Set PTM2CELLNET_ALLOW_EXPERIMENTAL=1 to run for development/testing.
+
 功能: 下载CPTAC磷蛋白组数据用于验证PTM预测模型
 """
 
+import os
 import sys
 import argparse
 import logging
@@ -13,6 +18,18 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 import json
+
+_EXPERIMENTAL_GUARD = os.environ.get("PTM2CELLNET_ALLOW_EXPERIMENTAL", "").lower() in ("1", "true", "yes")
+if not _EXPERIMENTAL_GUARD:
+    raise RuntimeError(
+        "validate_cptac.py is an EXPERIMENTAL script (F-03 status: 30% complete). "
+        "It currently uses mock/synthetic data (np.random.seed(42)) and returns "
+        "'unknown' for all predictions. To use this script as-is for development "
+        "testing, set PTM2CELLNET_ALLOW_EXPERIMENTAL=1. "
+        "For production CPTAC validation, implement real PDC API integration "
+        "(https://pdc.cancer.gov) and replace the mock data generation. "
+        "See docs/项目代码现状系统性复核报告_2026-07-05_v11.md for details."
+    )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -271,6 +288,9 @@ class CPTACValidator:
         """
         验证预测结果
 
+        NOTE: This is EXPERIMENTAL — currently returns 'unknown' for all predictions.
+        This is expected behavior for the 30%-complete F-03 implementation.
+
         返回:
             验证结果字典
         """
@@ -360,6 +380,7 @@ def main():
     # 下载数据
     downloader = CPTACDataDownloader(args.output_dir)
 
+    logger.warning("EXPERIMENTAL: Using mock/synthetic data. Results are not scientifically valid.")
     phospho_data = downloader.download_phosphoproteomics(args.study)
     mutation_data = downloader.download_tcga_mutations(args.study)
 

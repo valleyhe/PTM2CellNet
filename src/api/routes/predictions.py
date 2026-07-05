@@ -430,6 +430,7 @@ def _build_prediction_response(
     }
     return PredictionResponse(
         cell_state=pred_label,
+        predicted_cell_state=pred_label,
         confidence=confidence,
         probabilities=prob_dict,
         pathway_impacts=pathway_impacts,

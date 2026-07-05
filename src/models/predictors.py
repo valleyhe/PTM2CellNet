@@ -26,8 +26,8 @@ class CellStatePredictor(nn.Module, ABC):
 
     @abstractmethod
     def forward(self, features: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # abstract method
-        raise NotImplementedError
+        """Predict cell state from encoded features."""
+        ...
 
 
 class ClassificationPredictor(CellStatePredictor):

@@ -276,7 +276,7 @@ class GenKIAdapter:
 
     def _adjacency_to_edge_index(self, adjacency) -> torch.Tensor:
         """Forward to GraphUtilities._adjacency_to_edge_index."""
-        return self._graph._adjacency_to_edge_index(adjacency)
+        return torch.from_numpy(self._graph._adjacency_to_edge_index(adjacency))
 
     def _score_from_dense_matrices(self, baseline_counts, baseline_network, perturbed_counts, perturbed_network) -> np.ndarray:
         """Forward to GraphUtilities._score_from_dense_matrices."""
@@ -289,7 +289,8 @@ class GenKIAdapter:
 
     def _extract_latent_vars(self, model, data) -> Dict[str, torch.Tensor]:
         """Forward to GraphUtilities._extract_latent_vars."""
-        return self._graph._extract_latent_vars(model, data)
+        z_mu, z_std = self._graph._extract_latent_vars(model, data)
+        return {"mu": torch.from_numpy(z_mu), "std": torch.from_numpy(z_std)}
 
     def _build_score_metadata(
         self,

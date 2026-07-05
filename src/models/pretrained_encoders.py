@@ -8,7 +8,8 @@ specialized PTM prediction and fine-tuning workflows, see
 ``scripts/tools/esm2_encoder.py``.
 """
 
-from typing import List, Optional, cast
+import os
+from typing import Any, List, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -667,3 +668,57 @@ class ProtT5Encoder(PretrainedEncoder):
             f"隐藏维度: {self.hidden_dim}，"
             f"参数量: {self.get_num_parameters() / 1e6:.1f}M"
         )
+
+
+# ---------------------------------------------------------------------------
+# Factory functions
+# ---------------------------------------------------------------------------
+
+
+def esm3_encoder(*args: Any, strict: bool = False, **kwargs: Any) -> ESM2Encoder:
+    """Return an ESM-3 encoder, falling back to ESM-2 if unavailable.
+
+    Args:
+        *args: Positional arguments forwarded to the encoder constructor.
+        strict: If True, raise RuntimeError when ESM-3 is unavailable instead
+            of falling back to ESM-2. Use in production to prevent silent
+            model substitution.  May also be enabled globally via the
+            ``PTM2CELLNET_STRICT_MODEL_ASSETS`` environment variable.
+        **kwargs: Keyword arguments forwarded to the encoder constructor.
+
+    Note: ESM-3 model weights may not be publicly available. When unavailable,
+    this function transparently falls back to ESM2Encoder with the same arguments
+    (unless ``strict=True`` or the environment variable is set).
+    """
+    # Also check global strict mode env var
+    _global_strict = os.environ.get("PTM2CELLNET_STRICT_MODEL_ASSETS", "").lower() in ("1", "true", "yes")
+    if _global_strict:
+        strict = True
+
+    # Dynamic lookup to support monkeypatch in tests and import-time availability
+    esm3_cls = globals().get("ESM3Encoder", None)
+    if esm3_cls is not None:
+        try:
+            return cast(ESM2Encoder, esm3_cls(*args, **kwargs))
+        except (OSError, ImportError, ValueError, RuntimeError) as exc:
+            logger.warning(
+                "ESM3Encoder instantiation failed (%s: %s). %s",
+                type(exc).__name__, exc,
+                "Strict mode forbids fallback." if strict else "Falling back to ESM2Encoder.",
+            )
+            if strict:
+                raise RuntimeError(
+                    "ESM3Encoder instantiation failed and strict=True forbids "
+                    f"fallback to ESM-2. Original error: {type(exc).__name__}: {exc}"
+                ) from exc
+
+    if strict:
+        raise RuntimeError(
+            "ESM3Encoder is not available and strict=True forbids fallback. "
+            "Ensure ESM-3 model weights and the required dependencies are installed, "
+            "or set strict=False to allow ESM-2 fallback."
+        )
+
+    # Fall back to ESM-2
+    logger.info("ESM3Encoder unavailable; using ESM2Encoder as fallback.")
+    return ESM2Encoder(*args, **kwargs)

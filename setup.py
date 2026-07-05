@@ -60,8 +60,8 @@ setup(
     description="蛋白质PTM与细胞状态预测系统",
     python_requires=">=3.10",
     install_requires=[
-        "torch>=2.0.0",
-        "numpy>=1.21.0",
+        "torch>=2.0,<3",
+        "numpy>=1.24,<2",
         "pandas>=1.3.0",
         "scikit-learn>=1.0",
         "scipy>=1.7.0",

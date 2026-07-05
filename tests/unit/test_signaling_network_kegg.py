@@ -94,7 +94,8 @@ class TestSignalingNetworkMapperBehavior:
 
     def test_default_construction(self):
         mapper = SignalingNetworkMapper()
-        assert len(mapper.pathways) == 12  # built-in count (MAPK/ERK, PI3K/AKT, JAK/STAT, Wnt, NF-kB, p53, TGF-beta, Hippo, Notch, mTOR, cAMP/PKA, PLC/PKC)
+        # 12 from SIGNALING_PATHWAYS + 10 from _BUILTIN_PATHWAY_DATA
+        assert len(mapper.pathways) == 22
         assert mapper.pathway_db_path is None
 
     def test_accepts_organism_kwargs(self):

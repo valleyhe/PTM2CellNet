@@ -1,6 +1,6 @@
 """Tests for src/models/external_tools.py — External bioinformatics tool integration.
 
-Tests AlphaFoldClient, BLASTClient, ClustalWClient, and PSIPREDClient
+Tests AlphaFoldClient, BLASTClient, ClustalWClient, and ChouFasmanClient
 with mocked requests/subprocess and fallback behavior verification.
 """
 
@@ -11,7 +11,7 @@ from src.models.external_tools import (
     AlphaFoldClient,
     BLASTClient,
     ClustalWClient,
-    PSIPREDClient,
+    ChouFasmanClient,
     _needleman_wunsch,
     _nw_score,
 )
@@ -258,32 +258,32 @@ class TestClustalWClient:
 
 
 # ---------------------------------------------------------------------------
-# PSIPREDClient tests
+# ChouFasmanClient tests
 # ---------------------------------------------------------------------------
 
-class TestPSIPREDClient:
-    """Tests for PSIPREDClient (Chou-Fasman built-in predictor)."""
+class TestChouFasmanClient:
+    """Tests for ChouFasmanClient (Chou-Fasman built-in predictor)."""
 
     def test_instantiation(self):
         """Client creates with default config."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         assert client.config == {}
 
     def test_check_available_always_true(self):
-        """PSIPREDClient is always available (built-in predictor)."""
-        client = PSIPREDClient()
+        """ChouFasmanClient is always available (built-in predictor)."""
+        client = ChouFasmanClient()
         assert client.check_available() is True
 
     def test_predict_secondary_structure_output_keys(self):
         """Prediction returns ss_prediction and confidence_scores."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         result = client.predict_secondary_structure("ACDEFGHIKL")
         assert "ss_prediction" in result
         assert "confidence_scores" in result
 
     def test_prediction_length_matches_sequence(self):
         """Prediction length equals input sequence length."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         seq = "ACDEFGHIKL"
         result = client.predict_secondary_structure(seq)
         assert len(result["ss_prediction"]) == len(seq)
@@ -291,28 +291,28 @@ class TestPSIPREDClient:
 
     def test_ss_prediction_valid_chars(self):
         """Secondary structure prediction contains only H, E, C."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         result = client.predict_secondary_structure("ACDEFGHIKLMNPQRSTVWY")
         valid_chars = {"H", "E", "C"}
         assert set(result["ss_prediction"]).issubset(valid_chars)
 
     def test_confidence_scores_in_range(self):
         """Confidence scores are in [0, 1]."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         result = client.predict_secondary_structure("ACDEFGHIKL")
         for score in result["confidence_scores"]:
             assert 0.0 <= score <= 1.0
 
     def test_empty_sequence(self):
         """Empty sequence returns empty prediction."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         result = client.predict_secondary_structure("")
         assert result["ss_prediction"] == ""
         assert result["confidence_scores"] == []
 
     def test_single_residue(self):
         """Single residue produces one-character prediction."""
-        client = PSIPREDClient()
+        client = ChouFasmanClient()
         result = client.predict_secondary_structure("A")
         assert len(result["ss_prediction"]) == 1
         assert len(result["confidence_scores"]) == 1

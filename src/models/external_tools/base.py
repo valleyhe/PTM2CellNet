@@ -19,10 +19,10 @@ try:
 
     REQUESTS_AVAILABLE = True
 except ImportError:
-    requests = None
-    RequestsConnectionError = None
-    RequestsTimeout = None
-    RequestsHTTPError = None
+    requests = None  # type: ignore[assignment]
+    RequestsConnectionError = None  # type: ignore[assignment, misc]
+    RequestsTimeout = None  # type: ignore[assignment, misc]
+    RequestsHTTPError = None  # type: ignore[assignment, misc]
     REQUESTS_AVAILABLE = False
     logger.info("requests library not installed; HTTP-based external tools will be unavailable.")
 

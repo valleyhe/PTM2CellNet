@@ -241,7 +241,7 @@ class VariantEffectWorkflow:
             return clean_accession.split(".")[0]
 
         url = "https://rest.uniprot.org/uniprotkb/search"
-        params = {
+        params: Dict[str, Union[str, int]] = {
             "query": f'xref:RefSeq:{clean_accession}',
             "fields": "accession",
             "format": "json",

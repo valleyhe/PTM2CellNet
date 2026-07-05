@@ -270,7 +270,7 @@ class SelectiveSSM(nn.Module):
         )  # -> [B, d_inner, L]
 
         # Convert back to our (B, L, D) layout
-        return y.permute(0, 2, 1).contiguous()
+        return cast(torch.Tensor, y.permute(0, 2, 1).contiguous())
 
     def _ssm_step_parallel(
         self,

@@ -283,7 +283,7 @@ class PerturbationExecutor:
         self,
         requests: List[GenePerturbationRequest],
         progress_callback=None,
-        parallel: bool = False,
+        parallel: bool = True,
     ) -> List[PerturbationResult]:
         """Run a batch of perturbation requests with shared reference data.
 
@@ -298,7 +298,7 @@ class PerturbationExecutor:
             progress_callback: Optional callable invoked after each request
                 with keyword arguments ``(completed=..., total=...)``.
             parallel: If True, use concurrent.futures for parallel execution.
-                Currently experimental — defaults to False (sequential).
+                Defaults to True.
                 When enabled, each request still shares the same reference
                 data but runs in a thread pool. VGAE cache access is
                 thread-safe due to GIL.
