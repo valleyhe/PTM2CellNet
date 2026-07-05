@@ -23,6 +23,25 @@ AA_TO_IDX: dict = {aa: i + 1 for i, aa in enumerate(AMINO_ACIDS)}
 PAD_IDX: int = 0
 AA_PAD_CHAR: str = "-"
 
+# 支持的PTM修饰类型（扩展列表）
+SUPPORTED_PTM_TYPES: tuple = (
+    "O-GlcNAcylation",
+    "S-nitrosylation",
+    "S-palmitoylation",
+    "N-myristoylation",
+    "S-prenylation",
+    "Disulfide bond",
+    "Citrullination",
+    "ADP-ribosylation",
+    "Lactylation",
+    "Crotonylation",
+    "Propionylation",
+    "Butyrylation",
+    "Formylation",
+    "Sulfation",
+    "Carbonylation",
+)
+
 # 非标准氨基酸字符映射表
 # U (selenocysteine) → C (cysteine, 生化性质最接近)
 # X (unknown) → A (alanine, 最常见氨基酸)

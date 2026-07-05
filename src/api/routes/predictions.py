@@ -605,7 +605,7 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
     if STATE.variant_workflow is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Variant prediction workflow not initialized",
+            detail="Variant prediction workflow not initialized. Initialize via /initialize first.",
         )
 
     start_time = time.time()

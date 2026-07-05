@@ -3,6 +3,7 @@
 功能概述: 从特征预测细胞状态（分类或回归）
 """
 
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -20,9 +21,10 @@ def _build_mlp(input_dim: int, hidden_dims: Optional[List[int]], dropout: float)
     return nn.Sequential(*layers), prev_dim
 
 
-class CellStatePredictor(nn.Module):
+class CellStatePredictor(nn.Module, ABC):
     """预测器基类"""
 
+    @abstractmethod
     def forward(self, features: torch.Tensor) -> Dict[str, torch.Tensor]:
         # abstract method
         raise NotImplementedError

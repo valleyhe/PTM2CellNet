@@ -8,7 +8,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
 
-import anndata as ad
+try:
+    import anndata as ad
+    ANNDATA_AVAILABLE = True
+except ImportError:
+    ad = None  # type: ignore[assignment]
+    ANNDATA_AVAILABLE = False
 import numpy as np
 import scipy.sparse as sp
 from typing_extensions import TypedDict
@@ -254,6 +259,11 @@ class ReferenceDataLoader:
         if self.adata_file is None or self.grn_file_dir is None:
             raise ValueError("genki_source backend requires adata_file and grn_file_dir")
 
+        if not ANNDATA_AVAILABLE:
+            raise ImportError(
+                "anndata is required for genki_source backend. "
+                "Install with: pip install -r requirements-analysis.txt"
+            )
         try:
             adata = ad.read_h5ad(self.adata_file)
         except (OSError, ValueError, KeyError) as exc:  # pragma: no cover - depends on file content

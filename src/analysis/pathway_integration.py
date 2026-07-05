@@ -155,6 +155,7 @@ class PathwayDatabaseIntegration:
         self,
         organism: str = "hsa",
         use_cache: bool = True,
+        force_refresh: bool = False,
     ) -> Dict[str, List[str]]:
         """
         Load KEGG pathways using sspa.
@@ -162,10 +163,15 @@ class PathwayDatabaseIntegration:
         Args:
             organism: KEGG organism code (hsa for human)
             use_cache: Whether to use cached data
+            force_refresh: If True, bypass cache and reload from source
 
         Returns:
             Dict mapping pathway ID to gene list
         """
+        if force_refresh:
+            use_cache = False
+            logger.info("Force refresh requested, bypassing cache")
+
         cache_file = self.cache_dir / f"kegg_{organism}_{CACHE_VERSION}.pkl"
 
         # Try cache first
@@ -198,6 +204,24 @@ class PathwayDatabaseIntegration:
                     logger.warning("Could not cache pathways: %s", e)
 
         except (ImportError, RuntimeError, OSError) as e:
+            # Try loading from local TSV/CSV cache file as network-independent fallback
+            local_cache = self.cache_dir / f"kegg_{organism}.tsv"
+            if local_cache.exists():
+                logger.warning(
+                    "sspa/network unavailable (%s). Loading KEGG pathways from local cache: %s",
+                    e, local_cache,
+                )
+                try:
+                    import pandas as pd
+                    df = pd.read_csv(local_cache, sep="\t")
+                    self.kegg_pathways = {
+                        str(row.get("pathway_id", f"hsa_{i}")): str(row.get("genes", "")).split(";")
+                        for i, row in df.iterrows()
+                    }
+                    self._kegg_loaded = True
+                    return self.kegg_pathways
+                except (OSError, ValueError) as cache_err:
+                    logger.error("Local KEGG cache also failed: %s", cache_err)
             logger.error("Failed to load KEGG pathways: %s", e)
             raise
 
@@ -207,6 +231,7 @@ class PathwayDatabaseIntegration:
         self,
         organism: str = "Homo sapiens",
         use_cache: bool = True,
+        force_refresh: bool = False,
     ) -> Dict[str, List[str]]:
         """
         Load Reactome pathways using sspa.
@@ -214,10 +239,15 @@ class PathwayDatabaseIntegration:
         Args:
             organism: Organism name ("Homo sapiens" for human)
             use_cache: Whether to use cached data
+            force_refresh: If True, bypass cache and reload from source
 
         Returns:
             Dict mapping pathway ID to gene list
         """
+        if force_refresh:
+            use_cache = False
+            logger.info("Force refresh requested, bypassing cache")
+
         cache_file = self.cache_dir / f"reactome_{organism.replace(' ', '_')}_{CACHE_VERSION}.pkl"
 
         # Try cache first
@@ -250,6 +280,24 @@ class PathwayDatabaseIntegration:
                     logger.warning("Could not cache pathways: %s", e)
 
         except (ImportError, RuntimeError, OSError) as e:
+            # Try loading from local TSV/CSV cache file as network-independent fallback
+            local_cache = self.cache_dir / f"reactome_{organism.replace(' ', '_')}.tsv"
+            if local_cache.exists():
+                logger.warning(
+                    "sspa/network unavailable (%s). Loading Reactome pathways from local cache: %s",
+                    e, local_cache,
+                )
+                try:
+                    import pandas as pd
+                    df = pd.read_csv(local_cache, sep="\t")
+                    self.reactome_pathways = {
+                        str(row.get("pathway_id", f"R-HSA-{i}")): str(row.get("genes", "")).split(";")
+                        for i, row in df.iterrows()
+                    }
+                    self._reactome_loaded = True
+                    return self.reactome_pathways
+                except (OSError, ValueError) as cache_err:
+                    logger.error("Local Reactome cache also failed: %s", cache_err)
             logger.error("Failed to load Reactome pathways: %s", e)
             raise
 
@@ -492,6 +540,26 @@ class PathwayDatabaseIntegration:
                             )
 
         return G
+
+    def load_builtin_pathways(self) -> Dict[str, List[str]]:
+        """Load built-in pathway definitions without requiring sspa.
+
+        Returns a dict of pathway names to gene lists using the
+        8 built-in pathway definitions. This always works regardless
+        of whether sspa is installed.
+
+        Returns:
+            Dict mapping pathway name to gene list.
+        """
+        builtin = {}
+        for name, info in self.BUILTIN_PATHWAYS.items():
+            genes = list(set(
+                info.get('key_kinases', []) + info.get('key_substrates', [])
+            ))
+            builtin[name] = genes
+        self.kegg_pathways.update(builtin)
+        self.reactome_pathways.update(builtin)
+        return builtin
 
     def clear_cache(self):
         """Clear all cached pathway data."""

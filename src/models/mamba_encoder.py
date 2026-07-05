@@ -10,6 +10,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, einsum
 
+from src.utils.logging import setup_logger
+
+logger = setup_logger(__name__)
+
 try:
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
     _HAS_MAMBA_SSM = True
@@ -163,6 +167,14 @@ class SelectiveSSM(nn.Module):
         # Path 1: Fused CUDA kernel via mamba_ssm
         if _HAS_MAMBA_SSM and x.is_cuda:
             return self._ssm_step_fused(x, delta, B, C)
+
+        # Fallback logging (one-time warning)
+        if not getattr(self, '_fallback_logged', False):
+            logger.info(
+                "Mamba fused kernel not available (mamba_ssm not installed or no CUDA). "
+                "Using sequential SSM implementation."
+            )
+            self._fallback_logged = True
 
         # Path 2: Vectorized parallel scan on GPU (more efficient)
         if x.is_cuda:

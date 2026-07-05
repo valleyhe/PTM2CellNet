@@ -161,7 +161,12 @@ def _ensure_dataframe(records: Any, *, columns: list[str] | None = None) -> pd.D
 
 
 def esm3_encoder(*args: Any, **kwargs: Any):
-    """V2-01: return an ESM-3 encoder. Falls back to ESM-2 if ESM3Encoder is unavailable."""
+    """V2-01: return an ESM-3 encoder. Falls back to ESM-2 if ESM3Encoder is unavailable.
+
+    Note: ESM-3 model weights may not be publicly available. When unavailable,
+    this function transparently falls back to ESM2Encoder with the same arguments.
+    Check ``src.models.pretrained_encoders.ESM3Encoder`` for the actual implementation.
+    """
     from . import pretrained_encoders
 
     esm3_cls = getattr(pretrained_encoders, "ESM3Encoder", None)
@@ -175,7 +180,21 @@ def esm3_encoder(*args: Any, **kwargs: Any):
 
 
 def mass_spec_stream(file_or_stream: Any, **kwargs: Any) -> pd.DataFrame:
-    """V2-02: parse tab-delimited mass-spec PTM records into a DataFrame."""
+    """V2-02: parse tab-delimited mass-spec PTM records into a DataFrame.
+
+    .. deprecated:: V2-02
+        This feature was cancelled on 2026-07-05. The function remains
+        functional for backward compatibility but should not be used in
+        new code. Use standard batch data loading instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "mass_spec_stream is deprecated (V2-02 cancelled on 2026-07-05). "
+        "Use standard batch data loading instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     frame = _ensure_dataframe(file_or_stream, columns=_MASS_SPEC_COLUMNS)
     missing = [column for column in _MASS_SPEC_COLUMNS if column not in frame.columns]
     if missing:
@@ -191,7 +210,21 @@ def mass_spec_stream(file_or_stream: Any, **kwargs: Any) -> pd.DataFrame:
 
 
 def load_custom_ptm_database(path_or_df: Any, **kwargs: Any) -> pd.DataFrame:
-    """V2-03: load a user-supplied PTM table into the standard schema."""
+    """V2-03: load a user-supplied PTM table into the standard schema.
+
+    .. deprecated:: V2-03
+        This feature was cancelled on 2026-07-05. The function remains
+        functional for backward compatibility but should not be used in
+        new code. Use standard data import paths instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "load_custom_ptm_database is deprecated (V2-03 cancelled on 2026-07-05). "
+        "Use standard data import paths instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if isinstance(path_or_df, pd.DataFrame):
         frame = path_or_df.copy()
     else:
@@ -266,7 +299,20 @@ def distributed_trainer(model: Any, datamodule: Any, **kwargs: Any):
 
 
 def launch_gui(**kwargs: Any):
-    """V2-05: retained compatibility shim for a cancelled GUI requirement."""
+    """V2-05: retained compatibility shim for a cancelled GUI requirement.
+
+    .. deprecated:: V2-05
+        GUI is no longer in PTM2CellNet scope (cancelled 2026-07-05).
+        This function always returns False.
+    """
+    import warnings
+
+    warnings.warn(
+        "launch_gui is deprecated (V2-05 cancelled on 2026-07-05). "
+        "GUI is no longer in PTM2CellNet scope.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     del kwargs
     logger.warning("GUI launch skipped: GUI is no longer in PTM2CellNet scope.")
     return False

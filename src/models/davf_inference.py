@@ -66,9 +66,15 @@ class DAVFInferenceConfig:
         num_steps: ODE integration steps (default 50)
         device: Device to use (auto-detect if None)
         allow_unsafe_legacy_load: Whether to allow pickle-based fallback for trusted legacy checkpoints
+        scvi_model_path: Path to scVI model (null = use fallback)
+        geneformer_path: Path to Geneformer model (null = use random embeddings)
+        gene_names_path: Path to gene names mapping (null = mapping unavailable)
     """
     state_space: str = "scvi_latent"
     checkpoint_path: str = "checkpoints/latent_davf_ibd_norman/best_model.pt"
+    scvi_model_path: Optional[str] = None
+    geneformer_path: Optional[str] = None
+    gene_names_path: Optional[str] = None
     feature_dim: int = 128
     hidden_dim: int = 256
     freeze: bool = True
@@ -80,7 +86,7 @@ class DAVFInferenceConfig:
     allow_unsafe_legacy_load: bool = False
 
     def __post_init__(self):
-        """Validate configuration parameters."""
+        """Validate configuration parameters and log warnings for null paths."""
         if self.state_space not in ("scvi_latent", "gene"):
             raise ValueError(
                 f"state_space must be 'scvi_latent' or 'gene', got '{self.state_space}'"
@@ -108,6 +114,20 @@ class DAVFInferenceConfig:
         if self.state_space == "gene" and self.gene_vocab_size <= 0:
             raise ValueError(
                 f"gene_vocab_size must be positive in gene mode, got {self.gene_vocab_size}"
+            )
+
+        # Warn about null paths used for full DAVF functionality
+        if self.scvi_model_path is None:
+            logger.warning(
+                "DAVF config: scvi_model_path is null. DAVF scVI branch will be unavailable."
+            )
+        if self.geneformer_path is None:
+            logger.warning(
+                "DAVF config: geneformer_path is null. DAVF Geneformer branch will use random embeddings."
+            )
+        if self.gene_names_path is None:
+            logger.warning(
+                "DAVF config: gene_names_path is null. Gene name mapping will be unavailable."
             )
 
 
@@ -466,3 +486,54 @@ class DAVFInferenceModule(nn.Module):
         davf_features = self.delta_projection(condition)
 
         return DAVFInferenceOutput(davf_features=davf_features)
+
+
+def migrate_legacy_checkpoint(
+    input_path: str,
+    output_path: str,
+    device: str = "cpu",
+) -> None:
+    """Migrate a legacy DAVF checkpoint to the safe loading format.
+
+    Loads a checkpoint using the legacy (unsafe) path, re-saves it
+    in a format compatible with ``safe_torch_load`` (weights_only=True).
+
+    Args:
+        input_path: Path to the legacy checkpoint file.
+        output_path: Path to write the migrated checkpoint.
+        device: Device to load the checkpoint on.
+
+    Raises:
+        FileNotFoundError: If input_path does not exist.
+        RuntimeError: If the checkpoint cannot be loaded.
+    """
+    import pickle
+
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {input_path}")
+
+    logger.info("Migrating legacy checkpoint: %s -> %s", input_path, output_path)
+
+    try:
+        checkpoint = safe_torch_load(
+            input_path,
+            map_location=device,
+            weights_only=False,
+            enforce_safe_only=False,
+        )
+    except (pickle.UnpicklingError, RuntimeError) as e:
+        raise RuntimeError(f"Failed to load legacy checkpoint: {e}") from e
+
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
+    elif isinstance(checkpoint, dict):
+        state_dict = checkpoint
+    else:
+        raise RuntimeError(f"Unexpected checkpoint format: {type(checkpoint)}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(state_dict, output_path)
+    logger.info("Migrated checkpoint saved to %s", output_path)

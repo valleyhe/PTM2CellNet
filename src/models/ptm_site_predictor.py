@@ -3,12 +3,15 @@ PTM位点预测模型
 功能: 基于序列窗口预测PTM位点
 """
 
+import logging
 from typing import Dict, Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .encoders import PooledCNNEncoder, PooledTransformerEncoder, PooledLSTMEncoder
+
+logger = logging.getLogger(__name__)
 
 
 class PTMSitePredictor(nn.Module):
@@ -32,6 +35,7 @@ class PTMSitePredictor(nn.Module):
         encoder_type: str = "cnn",
         window_size: int = 31,
         num_classes: int = 2,
+        num_labels: int = 1,
     ):
         """
         初始化模型
@@ -46,6 +50,7 @@ class PTMSitePredictor(nn.Module):
             encoder_type: 编码器类型 (cnn / transformer / lstm)
             window_size: 序列窗口大小
             num_classes: 分类数 (默认2: 正/负样本)
+            num_labels: 多标签数 (默认1: 单标签分类)
         """
         super().__init__()
 
@@ -54,6 +59,7 @@ class PTMSitePredictor(nn.Module):
         self.hidden_dim = hidden_dim
         self.encoder_type = encoder_type
         self.window_size = window_size
+        self.num_labels = num_labels
 
         # Embedding层
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=20)
@@ -81,16 +87,42 @@ class PTMSitePredictor(nn.Module):
                 num_layers=num_layers,
                 dropout=dropout,
             )
+        elif self.encoder_type == "esm2":
+            try:
+                from .pretrained_encoders import ESM2Encoder
+                self.encoder = ESM2Encoder(model_size="8M")
+                # ESM2Encoder output dim varies; project to hidden_dim
+                esm_dim = getattr(self.encoder, 'embed_dim', 320)
+                self.esm_proj = nn.Linear(esm_dim, hidden_dim)
+            except ImportError:
+                logger.warning(
+                    "ESM2 encoder not available (transformers not installed). "
+                    "Falling back to CNN encoder."
+                )
+                self.encoder = PooledCNNEncoder(
+                    embed_dim=embed_dim,
+                    hidden_dim=hidden_dim,
+                    num_layers=num_layers,
+                    dropout=dropout,
+                )
         else:
             raise ValueError(f"未知编码器类型: {encoder_type}")
 
         # 分类头
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, num_classes),
-        )
+        if num_labels > 1:
+            self.classifier = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim // 2, num_classes * num_labels),
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim // 2, num_classes),
+            )
 
         # 初始化权重
         self.apply(self._init_weights)
@@ -134,8 +166,20 @@ class PTMSitePredictor(nn.Module):
         # 编码
         encoded = self.encoder(x)  # (batch, hidden_dim)
 
+        if hasattr(self, 'esm_proj'):
+            encoded = self.esm_proj(encoded)
+
         # 分类
-        logits = self.classifier(encoded)  # (batch, num_classes)
+        logits = self.classifier(encoded)  # (batch, num_classes) or (batch, num_classes * num_labels)
+        if self.num_labels > 1:
+            # Reshape for multi-label: [B, num_labels, num_classes]
+            multi_logits = logits.view(-1, self.num_labels, self.num_classes)
+            multi_probs = torch.softmax(multi_logits, dim=-1)
+            return {
+                "logits": multi_logits,
+                "probs": multi_probs,
+                "predictions": multi_logits.argmax(dim=-1),
+            }
         probs = F.softmax(logits, dim=-1)
 
         return {

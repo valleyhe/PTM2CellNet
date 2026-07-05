@@ -5,6 +5,8 @@
 davf:
   state_space: "scvi_latent"
   checkpoint_path: "checkpoints/latent_davf_ibd_norman/best_model.pt"
+  # scvi_model_path, geneformer_path, and gene_names_path must be provided
+  # when use_davf=True. Leave as null to use built-in fallback behavior.
   scvi_model_path: null
   geneformer_path: null
   gene_names_path: null

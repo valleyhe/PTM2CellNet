@@ -315,21 +315,15 @@ class GenKIAdapter:
             perturbed_network=perturbed_network,
         )
 
-    def _edge_index_to_adjacency(self, edge_index: np.ndarray, num_nodes: int) -> Union[np.ndarray, sp.csr_matrix]:
+    def _edge_index_to_adjacency(self, edge_index, num_nodes) -> np.ndarray:
         """Forward to GraphUtilities._edge_index_to_adjacency."""
         return self._graph._edge_index_to_adjacency(edge_index, num_nodes)
 
-    def _adjacency_to_edge_index(self, adjacency: np.ndarray) -> np.ndarray:
+    def _adjacency_to_edge_index(self, adjacency) -> torch.Tensor:
         """Forward to GraphUtilities._adjacency_to_edge_index."""
         return self._graph._adjacency_to_edge_index(adjacency)
 
-    def _score_from_dense_matrices(
-        self,
-        baseline_counts: np.ndarray,
-        baseline_network: np.ndarray,
-        perturbed_counts: np.ndarray,
-        perturbed_network: np.ndarray,
-    ) -> np.ndarray:
+    def _score_from_dense_matrices(self, baseline_counts, baseline_network, perturbed_counts, perturbed_network) -> np.ndarray:
         """Forward to GraphUtilities._score_from_dense_matrices."""
         return self._graph._score_from_dense_matrices(
             baseline_counts=baseline_counts,
@@ -338,7 +332,7 @@ class GenKIAdapter:
             perturbed_network=perturbed_network,
         )
 
-    def _extract_latent_vars(self, model: _VGAEModelProtocol, data: _PyGDataProtocol) -> tuple[np.ndarray, np.ndarray]:
+    def _extract_latent_vars(self, model, data) -> Dict[str, torch.Tensor]:
         """Forward to GraphUtilities._extract_latent_vars."""
         return self._graph._extract_latent_vars(model, data)
 

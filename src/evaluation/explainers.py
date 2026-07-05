@@ -459,3 +459,21 @@ class TwoStageExplanationPipeline:
             render_two_stage_summary_markdown(results),
             encoding="utf-8",
         )
+
+    def aggregate_results_by_protein(
+        self,
+        results: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Aggregate explanation results by protein.
+
+        Groups the two-stage explanation results by protein_id and
+        computes summary statistics (mean, max delta_probability,
+        count of significant PTM sites per protein).
+
+        Args:
+            results: DataFrame from run() or run_batch().
+
+        Returns:
+            Aggregated DataFrame with one row per protein.
+        """
+        return aggregate_by_protein(results)

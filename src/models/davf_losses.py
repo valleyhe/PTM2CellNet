@@ -23,10 +23,11 @@ class DAVFLoss(nn.Module):
     - Magnitude Loss: 确保预测幅度与真实幅度匹配
     """
 
-    def __init__(self, mse_weight: float = 1.0, mag_weight: float = 0.3):
+    def __init__(self, mse_weight: float = 1.0, mag_weight: float = 0.3, adaptive_weights: bool = False):
         super().__init__()
         self.mse_weight = mse_weight
         self.mag_weight = mag_weight
+        self.adaptive_weights = adaptive_weights
 
     def forward(
         self,
@@ -47,18 +48,35 @@ class DAVFLoss(nn.Module):
         mse = F.mse_loss(v_t, u_t)
 
         # 2. Magnitude Loss (v2.0改进)
-        # 鼓励预测幅度的均值与真实幅度的均值匹配
         pred_mag = torch.abs(v_t).mean()
         true_mag = torch.abs(u_t).mean()
-        # 使用相对误差，避免除零
         mag_loss = torch.abs(pred_mag - true_mag) / (true_mag.detach() + 1e-8)
 
-        # 复合损失
-        total = self.mse_weight * mse + self.mag_weight * mag_loss
+        # 3. Direction consistency (sign agreement)
+        sign_agreement = (v_t * u_t).sum(dim=-1) / (
+            torch.norm(v_t, dim=-1) * torch.norm(u_t, dim=-1) + 1e-8
+        )
+        dir_loss = 1.0 - sign_agreement.mean()
+
+        # Adaptive weights: reduce mse_weight as training progresses
+        # (mag_loss and dir_loss become more important)
+        if self.adaptive_weights and hasattr(self, '_step_count'):
+            self._step_count += 1
+            decay = min(1.0, self._step_count / 10000.0)
+            effective_mse_weight = self.mse_weight * (1.0 - 0.3 * decay)
+            effective_mag_weight = self.mag_weight * (1.0 + 0.5 * decay)
+        else:
+            effective_mse_weight = self.mse_weight
+            effective_mag_weight = self.mag_weight
+            if not hasattr(self, '_step_count'):
+                self._step_count = 0
+
+        total = effective_mse_weight * mse + effective_mag_weight * mag_loss + 0.1 * dir_loss
 
         return {
             'mse': mse,
             'mag': mag_loss,
+            'dir': dir_loss,
             'total': total
         }
 

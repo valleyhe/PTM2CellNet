@@ -9,6 +9,7 @@ Lightning训练模块
     - AUPR指标（用于不平衡评估）
 """
 
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import random
@@ -449,6 +450,12 @@ class PTM2CellNetLightning(L.LightningModule):
                     "lion_pytorch 未安装，回退到 AdamW 优化器。"
                     "如需使用 Lion，请安装 mamba extra：pip install -e '.[mamba]'"
                 )
+                warnings.warn(
+                    "lion_pytorch not installed, falling back to AdamW optimizer. "
+                    "Install with: pip install lion-pytorch",
+                    UserWarning,
+                    stacklevel=2,
+                )
                 optimizer = torch.optim.AdamW(
                     self.parameters(),
                     lr=self.learning_rate,
@@ -482,6 +489,29 @@ class PTM2CellNetLightning(L.LightningModule):
 
         logger.info("创建优化器: %s, 学习率: %s", self.optimizer_name, self.learning_rate)
         return optimizer
+
+    @staticmethod
+    def configure_trainer(**trainer_kwargs: Any) -> L.Trainer:
+        """Create a Lightning Trainer with default TensorBoard logger.
+
+        Args:
+            **trainer_kwargs: Keyword arguments forwarded to ``L.Trainer``.
+
+        Returns:
+            A configured ``L.Trainer`` instance.
+        """
+        # Default logger configuration to avoid "no logger" warning
+        if "logger" not in trainer_kwargs:
+            try:
+                from lightning.pytorch.loggers import TensorBoardLogger
+
+                trainer_kwargs["logger"] = TensorBoardLogger(
+                    save_dir=trainer_kwargs.get("default_root_dir", "outputs/logs"),
+                    name="lightning_logs",
+                )
+            except ImportError:
+                pass
+        return L.Trainer(**trainer_kwargs)
 
     def _create_scheduler(
         self, optimizer: Optimizer

@@ -7,7 +7,12 @@ from pathlib import Path
 import sys
 from typing import Any, List, Optional, TYPE_CHECKING
 
-import anndata as ad
+try:
+    import anndata as ad
+    ANNDATA_AVAILABLE = True
+except ImportError:
+    ad = None  # type: ignore[assignment]
+    ANNDATA_AVAILABLE = False
 import numpy as np
 import scipy.sparse as sp
 import torch
@@ -175,7 +180,7 @@ class PerturbationExecutor:
             mode=mode,
         )
 
-    def run(self, request: GenePerturbationRequest) -> PerturbationResult:
+    def run(self, request: GenePerturbationRequest, progress_callback=None) -> PerturbationResult:
         """Execute a single perturbation request and return a scored result.
 
         Loads reference data, applies the perturbation mode (``hard_ko`` or
@@ -185,6 +190,8 @@ class PerturbationExecutor:
         Args:
             request: A :class:`GenePerturbationRequest` specifying the
                 target gene, mode, and magnitude.
+            progress_callback: Optional callable invoked during computation
+                with keyword arguments ``(gene_symbol=..., step=..., progress=...)``.
 
         Returns:
             A :class:`PerturbationResult` with distance score, ranked
@@ -226,6 +233,12 @@ class PerturbationExecutor:
         else:
             raise ValueError(f"Unsupported perturbation mode: {request.mode}")
 
+        if progress_callback is not None:
+            try:
+                progress_callback(gene_symbol=request.gene_symbol, step="scoring", progress=0.5)
+            except Exception:
+                pass  # Don't let callback errors break the pipeline
+
         if self.scoring_method == "latent_vgae":
             # Build a torch_geometric Data equivalent to the wild-type graph so
             # the latent VGAE scoring path used by the genki_source backend can
@@ -266,14 +279,27 @@ class PerturbationExecutor:
             metadata=metadata,
         )
 
-    def run_batch(self, requests: List[GenePerturbationRequest]) -> List[PerturbationResult]:
+    def run_batch(self, requests: List[GenePerturbationRequest], progress_callback=None) -> List[PerturbationResult]:
         """Run a batch of perturbation requests sequentially.
 
         Sequential execution keeps the reference data and any trained VGAE
         state consistent across requests. Future work can parallelize here
         once reference data loading is shared.
+
+        Args:
+            requests: List of perturbation requests to execute.
+            progress_callback: Optional callable invoked after each request
+                with keyword arguments ``(completed=..., total=...)``.
         """
-        return [self.run(request) for request in requests]
+        results: List[PerturbationResult] = []
+        for i, request in enumerate(requests):
+            results.append(self.run(request))
+            if progress_callback is not None:
+                try:
+                    progress_callback(completed=i + 1, total=len(requests))
+                except Exception:
+                    pass
+        return results
 
     def run_virtual_ko(
         self,
@@ -446,6 +472,11 @@ class PerturbationExecutor:
         # Import the dataLoader submodule relative to the now-registered package.
         module = importlib.import_module("GenKI.dataLoader")
         data_loader_cls = getattr(module, "DataLoader")
+        if not ANNDATA_AVAILABLE:
+            raise ImportError(
+                "anndata is required for genki_source backend. "
+                "Install with: pip install -r requirements-analysis.txt"
+            )
         adata = ad.read_h5ad(self.adata_file)
         return data_loader_cls(
             adata=adata,

@@ -18,6 +18,8 @@ import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
+_geneformer_is_fallback = False
+
 
 class GeneformerEmbeddingLoader:
     """
@@ -232,6 +234,8 @@ class GeneformerEmbeddingLoader:
 
     def _use_fallback(self):
         """Use random embeddings as fallback when Geneformer cannot be loaded."""
+        global _geneformer_is_fallback
+        _geneformer_is_fallback = True
         warnings.warn(
             "Geneformer could not be loaded. Using random embeddings. "
             "This is NOT suitable for production use.",
@@ -343,6 +347,11 @@ class GeneformerEmbeddingLoader:
 
 # Singleton instance for shared use across the project
 _geneformer_loader: Optional[GeneformerEmbeddingLoader] = None
+
+
+def is_fallback_mode() -> bool:
+    """Return True if the Geneformer loader is using random (non-production) embeddings."""
+    return _geneformer_is_fallback
 
 
 def get_geneformer_loader(

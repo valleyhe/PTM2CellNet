@@ -4,15 +4,17 @@
 """
 
 import math
+from abc import ABC, abstractmethod
 from typing import cast
 
 import torch
 from torch import nn
 
 
-class SequenceEncoder(nn.Module):
+class SequenceEncoder(nn.Module, ABC):
     """序列编码器基类"""
 
+    @abstractmethod
     def forward(self, sequences: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 

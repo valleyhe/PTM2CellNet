@@ -46,3 +46,17 @@ setuptools>=68.0,<81
 fastapi>=0.68.0
 uvicorn>=0.15.0
 pydantic>=1.10,<3
+# starlette is a FastAPI dependency; pin explicitly for reproducibility
+starlette>=0.20.0
+
+# joblib used by src/data/homology_splitter.py for parallel processing
+joblib>=1.2.0
+# safetensors used by src/utils/checkpoint_utils.py and src/data/validation.py
+safetensors>=0.3.0
+
+# anndata is required by src/integration/genki/ modules but is declared in
+# requirements-analysis.txt due to its heavyweight dependency chain (zarr, h5py, etc.).
+# Install -r requirements-analysis.txt when using GenKI/scVI features.
+
+# sspa is required by src/analysis/pathway_integration.py but is declared in
+# requirements-analysis.txt. Install -r requirements-analysis.txt for KEGG/Reactome support.

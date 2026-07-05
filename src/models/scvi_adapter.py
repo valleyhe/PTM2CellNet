@@ -78,6 +78,13 @@ def _check_scvi_available() -> bool:
 #: Runtime flag mirroring the ``SSPA_AVAILABLE`` pattern.
 SCVI_AVAILABLE: bool = _check_scvi_available()
 
+# Default checkpoint search paths (checked in order when no explicit path is given)
+_DEFAULT_SCVI_PATHS = [
+    "checkpoints/scvi_model",
+    "models/scvi_model",
+    Path(__file__).resolve().parents[2] / "checkpoints" / "scvi_model",
+]
+
 
 @dataclass
 class ScVIAdapterConfig:
@@ -178,6 +185,36 @@ class ScVIAdapter:
         return cls(model, config=cfg)
 
     @classmethod
+    def find_default_model(cls) -> Optional[str]:
+        """Search for a default scVI model checkpoint.
+
+        Checks common checkpoint directories and returns the first one found.
+        Returns None if no checkpoint is found.
+        """
+        for path_str in _DEFAULT_SCVI_PATHS:
+            path = Path(path_str)
+            if path.exists() and (path / "model.pt").exists():
+                logger.info("Found default scVI model at %s", path)
+                return str(path)
+        return None
+
+    @classmethod
+    def from_default_model(cls, config: Optional[ScVIAdapterConfig] = None) -> Optional["ScVIAdapter"]:
+        """Try to load a scVI model from default checkpoint paths.
+
+        Returns None if no default model is found (rather than raising).
+        """
+        model_path = cls.find_default_model()
+        if model_path is None:
+            logger.info("No default scVI model found in standard paths")
+            return None
+        try:
+            return cls.from_trained_model(model_path, config=config)
+        except (FileNotFoundError, ImportError, RuntimeError) as e:
+            logger.warning("Failed to load default scVI model from %s: %s", model_path, e)
+            return None
+
+    @classmethod
     def from_anndata(
         cls,
         adata: Any,
@@ -225,22 +262,22 @@ class ScVIAdapter:
     # ------------------------------------------------------------------
     # Encode / Decode (V22-02 core)
     # ------------------------------------------------------------------
-    def encode(self, adata: Any) -> np.ndarray:
-        """Map gene-space data to the scVI latent space (gene -> latent).
-
-        Args:
-            adata: ``anndata.AnnData`` (or anything accepted by scVI's
-                ``get_latent_representation``).
-
-        Returns:
-            ``np.ndarray`` of shape ``[B, n_latent]`` latent embeddings.
-        """
+    def encode(self, adata):
         if self.model is None:
             raise RuntimeError("ScVIAdapter has no model loaded; cannot encode.")
-        representation = self.model.get_latent_representation(
-            adata,
-            batch_key=self.config.batch_key,
-        )
+        # Validate adata format
+        if adata is None:
+            raise ValueError("adata must not be None for encoding")
+        if hasattr(adata, 'X') and hasattr(adata, 'n_vars'):
+            n_vars = adata.n_vars
+            expected = self.n_genes
+            if expected > 0 and n_vars != expected:
+                logger.warning(
+                    "adata has %d variables but model expects %d. "
+                    "Results may be incorrect.",
+                    n_vars, expected,
+                )
+        representation = self.model.get_latent_representation(adata, batch_key=self.config.batch_key)
         return np.asarray(representation)
 
     def decode(

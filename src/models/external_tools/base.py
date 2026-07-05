@@ -24,6 +24,7 @@ except ImportError:
     RequestsTimeout = None
     RequestsHTTPError = None
     REQUESTS_AVAILABLE = False
+    logger.info("requests library not installed; HTTP-based external tools will be unavailable.")
 
 try:
     from Bio.Blast import NCBIWWW, NCBIXML
@@ -33,6 +34,7 @@ except ImportError:
     NCBIWWW = None  # type: ignore[assignment]
     NCBIXML = None  # type: ignore[assignment]
     BIO_BLAST_AVAILABLE = False
+    logger.info("Bio.Blast not installed; BLAST web search will be unavailable.")
 
 try:
     from Bio.Align.Applications import ClustalwCommandline, ClustalOmegaCommandline
@@ -42,6 +44,7 @@ except ImportError:
     ClustalwCommandline = None
     ClustalOmegaCommandline = None
     BIO_CLUSTAL_APP_AVAILABLE = False
+    logger.info("Bio.Align.Applications not installed; ClustalW/ClustalOmega will be unavailable.")
 
 try:
     from Bio import Align
@@ -56,6 +59,7 @@ except ImportError:
     Seq = None  # type: ignore[misc, assignment]
     SeqRecord = None  # type: ignore[misc, assignment]
     BIO_ALIGN_AVAILABLE = False
+    logger.info("BioPython not installed; alignment and sequence tools will be unavailable.")
 
 # ---------------------------------------------------------------------------
 # Constants

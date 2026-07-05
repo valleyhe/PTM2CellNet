@@ -88,6 +88,140 @@ class MaskedPTMPrediction(nn.Module):
         }
 
 
+class PTMContrastiveLearning(nn.Module):
+    """Contrastive learning module for PTM representation pretraining.
+
+    Learns to distinguish PTM-augmented sequences from their unmodified
+    counterparts using a simple NT-Xent (normalized temperature-scaled
+    cross-entropy) loss. Positive pairs are (original, PTM-augmented)
+    views of the same sequence; negatives are all other samples in the batch.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int = 128,
+        projection_dim: int = 64,
+        temperature: float = 0.07,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.temperature = temperature
+
+        # Projection head: embed_dim -> projection_dim
+        self.projector = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, projection_dim),
+        )
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        anchor: torch.Tensor,
+        positive: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute contrastive loss between anchor and positive pairs.
+
+        Args:
+            anchor: [B, embed_dim] embeddings from original sequences.
+            positive: [B, embed_dim] embeddings from PTM-augmented sequences.
+
+        Returns:
+            Dictionary with 'contrastive_loss' and 'similarity' tensors.
+        """
+        # Project to lower-dimensional space
+        z_anchor = self.dropout(self.projector(anchor))
+        z_positive = self.dropout(self.projector(positive))
+
+        # L2 normalize
+        z_anchor = F.normalize(z_anchor, dim=-1)
+        z_positive = F.normalize(z_positive, dim=-1)
+
+        # Compute similarity matrix [2B, 2B]
+        z = torch.cat([z_anchor, z_positive], dim=0)  # [2B, proj_dim]
+        sim = torch.mm(z, z.t()) / self.temperature  # [2B, 2B]
+
+        # Mask out self-similarity
+        batch_size = anchor.shape[0]
+        mask = torch.eye(2 * batch_size, device=sim.device).bool()
+        sim.masked_fill_(mask, -1e9)
+
+        # Labels: for each anchor, the positive is at offset +batch_size
+        labels = torch.arange(batch_size, 2 * batch_size, device=sim.device)
+        labels = torch.cat([labels, torch.arange(0, batch_size, device=sim.device)])
+
+        loss = F.cross_entropy(sim, labels)
+        similarity = torch.sum(z_anchor * z_positive, dim=-1).mean()
+
+        return {
+            "contrastive_loss": loss,
+            "similarity": similarity,
+        }
+
+
+class PTMDenoisingAutoEncoder(nn.Module):
+    """Denoising autoencoder for PTM representations.
+
+    Corrupts input PTM features with noise and trains the model
+    to reconstruct the original (clean) features.
+    """
+
+    def __init__(
+        self,
+        num_ptm_types: int,
+        embed_dim: int = 128,
+        hidden_dim: int | None = None,
+        noise_factor: float = 0.1,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.num_ptm_types = num_ptm_types
+        self.noise_factor = noise_factor
+        hidden_dim = hidden_dim or embed_dim
+
+        self.encoder = nn.Sequential(
+            nn.Linear(num_ptm_types, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, num_ptm_types),
+        )
+
+    def add_noise(self, x: torch.Tensor) -> torch.Tensor:
+        """Add Gaussian noise to input features."""
+        noise = torch.randn_like(x) * self.noise_factor
+        return x + noise
+
+    def forward(
+        self,
+        ptm_features: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """Denoise PTM features.
+
+        Args:
+            ptm_features: [B, num_ptm_types] one-hot or multi-hot PTM features.
+
+        Returns:
+            Dictionary with 'reconstructed', 'encoded', 'denoising_loss'.
+        """
+        noisy = self.add_noise(ptm_features)
+        encoded = self.encoder(noisy)
+        reconstructed = self.decoder(encoded)
+
+        loss = F.mse_loss(reconstructed, ptm_features)
+
+        return {
+            "reconstructed": reconstructed,
+            "encoded": encoded,
+            "denoising_loss": loss,
+        }
+
+
 def _validate(
     model: MaskedPTMPrediction,
     dataloader: Iterable[Dict[str, torch.Tensor]],
@@ -354,5 +488,174 @@ def pretrain_masked_ptm(
 
         current_lr = optimizer.param_groups[0]["lr"]
         logger.info("Epoch %d/%d LR: %.6f", epoch + 1, epochs, current_lr)
+
+    return history
+
+
+def pretrain_combined(
+    model: MaskedPTMPrediction,
+    dataloader: Iterable[Dict[str, torch.Tensor]],
+    optimizer: torch.optim.Optimizer,
+    device: str | torch.device,
+    epochs: int = 10,
+    contrastive_weight: float = 0.3,
+    denoising_weight: float = 0.2,
+    masked_weight: float = 1.0,
+    checkpoint_dir: str | None = None,
+    use_amp: bool = False,
+    log_interval: int = 10,
+) -> List[Dict[str, float]]:
+    """Combined pretraining with masked prediction, contrastive learning, and denoising.
+
+    Runs all three pretraining objectives simultaneously with configurable weights.
+    This provides richer pretraining than masked prediction alone.
+
+    Parameters
+    ----------
+    contrastive_weight : float
+        Weight for the contrastive learning loss component.
+    denoising_weight : float
+        Weight for the denoising autoencoder loss component.
+    masked_weight : float
+        Weight for the masked PTM prediction loss component (primary objective).
+
+    Returns
+    -------
+    List[Dict[str, float]]
+        Per-epoch loss breakdown for each component.
+    """
+    model.to(device)
+
+    num_ptm_types = model.num_ptm_types
+    embed_dim = model.classifier.out_features if hasattr(model, 'classifier') else 128
+
+    contrastive_module = PTMContrastiveLearning(
+        embed_dim=embed_dim,
+    ).to(device)
+
+    denoising_module = PTMDenoisingAutoEncoder(
+        num_ptm_types=num_ptm_types,
+        embed_dim=embed_dim,
+    ).to(device)
+
+    if not logger.handlers:
+        logger.addHandler(logging.StreamHandler())
+
+    best_loss = float("inf")
+    if checkpoint_dir is not None:
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+    history: List[Dict[str, float]] = []
+
+    for epoch in range(epochs):
+        model.train()
+        contrastive_module.train()
+        denoising_module.train()
+
+        epoch_losses = {"masked": 0.0, "contrastive": 0.0, "denoising": 0.0, "total": 0.0}
+        steps = 0
+
+        for batch_idx, batch in enumerate(dataloader):
+            ptm_types = batch["ptm_types"].to(device)
+            ptm_positions = batch.get("ptm_positions")
+            if ptm_positions is None:
+                ptm_positions = torch.arange(ptm_types.size(1), device=device).unsqueeze(0).expand_as(ptm_types)
+            else:
+                ptm_positions = ptm_positions.to(device)
+
+            ptm_mask = batch.get("ptm_mask")
+            if ptm_mask is None:
+                ptm_mask = (ptm_types > 0).float()
+            else:
+                ptm_mask = ptm_mask.to(device)
+
+            optimizer.zero_grad()
+
+            # 1. Masked PTM prediction
+            masked_ptm_types, masked_positions = model.mask_inputs(ptm_types, ptm_mask)
+            if not masked_positions.any():
+                continue
+
+            outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
+            logits = outputs["logits"][masked_positions]
+            targets = ptm_types[masked_positions]
+            masked_loss = F.cross_entropy(logits, targets)
+
+            # 2. Contrastive learning (if batch size > 1)
+            contrastive_loss = torch.tensor(0.0, device=device)
+            if ptm_types.shape[0] > 1:
+                # Create positive pairs: original vs masked
+                original_emb = outputs["logits"].detach()
+                masked_emb = outputs["logits"]
+                # Normalize to embeddings for contrastive
+                anchor = F.adaptive_avg_pool1d(
+                    original_emb.unsqueeze(1), 1
+                ).squeeze(-1)
+                positive = F.adaptive_avg_pool1d(
+                    masked_emb.unsqueeze(1), 1
+                ).squeeze(-1)
+                if anchor.shape[-1] != contrastive_module.projector[0].in_features:
+                    # Project to matching dim
+                    min_dim = min(anchor.shape[-1], contrastive_module.projector[0].in_features)
+                    anchor_proj = torch.zeros(anchor.shape[0], contrastive_module.projector[0].in_features, device=device)
+                    positive_proj = torch.zeros_like(anchor_proj)
+                    anchor_proj[:, :min_dim] = anchor[:, :min_dim]
+                    positive_proj[:, :min_dim] = positive[:, :min_dim]
+                    c_out = contrastive_module(anchor_proj, positive_proj)
+                else:
+                    c_out = contrastive_module(anchor, positive)
+                contrastive_loss = c_out["contrastive_loss"]
+
+            # 3. Denoising autoencoder
+            # Convert PTM types to one-hot for denoising input
+            ptm_onehot = F.one_hot(ptm_types.clamp(0, num_ptm_types - 1), num_classes=num_ptm_types).float()
+            ptm_feature = ptm_onehot.mean(dim=1)  # [B, num_ptm_types]
+            d_out = denoising_module(ptm_feature)
+            denoising_loss = d_out["denoising_loss"]
+
+            # Combined loss
+            total_loss = (
+                masked_weight * masked_loss
+                + contrastive_weight * contrastive_loss
+                + denoising_weight * denoising_loss
+            )
+
+            total_loss.backward()
+            optimizer.step()
+
+            epoch_losses["masked"] += masked_loss.item()
+            epoch_losses["contrastive"] += contrastive_loss.item()
+            epoch_losses["denoising"] += denoising_loss.item()
+            epoch_losses["total"] += total_loss.item()
+            steps += 1
+
+            if (batch_idx + 1) % log_interval == 0:
+                logger.info(
+                    "Epoch %d/%d, Batch %d, Loss: %.4f (masked=%.4f, cl=%.4f, denoise=%.4f)",
+                    epoch + 1, epochs, batch_idx + 1, total_loss.item(),
+                    masked_loss.item(), contrastive_loss.item(), denoising_loss.item(),
+                )
+
+        for key in epoch_losses:
+            epoch_losses[key] /= max(steps, 1)
+        history.append(epoch_losses)
+
+        logger.info(
+            "Epoch %d/%d — total: %.4f (masked=%.4f, contrastive=%.4f, denoising=%.4f)",
+            epoch + 1, epochs,
+            epoch_losses["total"], epoch_losses["masked"],
+            epoch_losses["contrastive"], epoch_losses["denoising"],
+        )
+
+        # Save best model
+        if checkpoint_dir is not None and epoch_losses["total"] < best_loss:
+            best_loss = epoch_losses["total"]
+            ckpt_path = os.path.join(checkpoint_dir, "best_combined_model.pt")
+            torch.save({
+                "masked_model": model.state_dict(),
+                "contrastive_module": contrastive_module.state_dict(),
+                "denoising_module": denoising_module.state_dict(),
+            }, ckpt_path)
+            logger.info("Saved best combined model to %s", ckpt_path)
 
     return history

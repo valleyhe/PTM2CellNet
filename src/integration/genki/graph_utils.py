@@ -1,9 +1,10 @@
 """Dense/sparse graph conversion and shared scoring utilities."""
 
-from typing import Any, Union
+from typing import Any, Dict, Optional, Union
 
 import numpy as np
 import scipy.sparse as sp
+import torch
 
 
 class GraphUtilities:
@@ -101,9 +102,9 @@ class GraphUtilities:
     @staticmethod
     def _score_from_matrices(
         baseline_counts: np.ndarray,
-        baseline_network: Any,
+        baseline_network: Union[np.ndarray, "sp.spmatrix"],
         perturbed_counts: np.ndarray,
-        perturbed_network: Any,
+        perturbed_network: Union[np.ndarray, "sp.spmatrix"],
     ) -> np.ndarray:
         """Dispatch to the dense or sparse scoring implementation.
 
@@ -141,3 +142,87 @@ class GraphUtilities:
             z_mu = z_mu.flatten()
             z_std = z_std.flatten()
         return z_mu, z_std
+
+    @staticmethod
+    def sparsify_graph(
+        adjacency: Union[np.ndarray, "sp.spmatrix"],
+        threshold: float = 0.1,
+        method: str = "threshold",
+    ) -> Union[np.ndarray, "sp.spmatrix"]:
+        """Sparsify a graph by removing weak edges.
+
+        Args:
+            adjacency: Dense or sparse adjacency matrix.
+            threshold: Edge weight threshold for removal (default: 0.1).
+            method: Sparsification method ("threshold" or "topk").
+
+        Returns:
+            Sparsified adjacency matrix (same format as input).
+        """
+        import scipy.sparse as sp
+
+        if method == "threshold":
+            if sp.issparse(adjacency):
+                # Sparse: eliminate values below threshold
+                return adjacency.multiply(adjacency >= threshold)
+            else:
+                result = adjacency.copy()
+                result[result < threshold] = 0.0
+                return result
+        elif method == "topk":
+            # Keep only top-k edges per node
+            k = max(1, int(threshold * adjacency.shape[0])) if threshold < 1 else int(threshold)
+            if sp.issparse(adjacency):
+                adj_dense = adjacency.toarray()
+            else:
+                adj_dense = adjacency.copy()
+
+            result = np.zeros_like(adj_dense)
+            for i in range(adj_dense.shape[0]):
+                row = np.abs(adj_dense[i])
+                if row.sum() == 0:
+                    continue
+                top_indices = np.argsort(row)[-k:]
+                result[i, top_indices] = adj_dense[i, top_indices]
+            return result if not sp.issparse(adjacency) else sp.csr_matrix(result)
+        else:
+            raise ValueError(f"Unknown sparsification method: {method}")
+
+    @staticmethod
+    def summarize_graph(
+        edge_index: Optional[torch.Tensor] = None,
+        adjacency: Optional[np.ndarray] = None,
+    ) -> Dict[str, Any]:
+        """Compute summary statistics for a graph.
+
+        Args:
+            edge_index: [2, E] tensor of edge indices (optional).
+            adjacency: Dense adjacency matrix (optional).
+
+        Returns:
+            Dict with num_nodes, num_edges, density, avg_degree.
+        """
+        import scipy.sparse as sp
+
+        if adjacency is not None:
+            if sp.issparse(adjacency):
+                n = adjacency.shape[0]
+                e = adjacency.nnz
+            else:
+                n = adjacency.shape[0]
+                e = int(np.count_nonzero(adjacency))
+        elif edge_index is not None:
+            n = int(edge_index.max().item()) + 1 if edge_index.numel() > 0 else 0
+            e = edge_index.shape[1]
+        else:
+            return {"num_nodes": 0, "num_edges": 0, "density": 0.0, "avg_degree": 0.0}
+
+        density = e / (n * (n - 1)) if n > 1 else 0.0
+        avg_degree = 2 * e / n if n > 0 else 0.0
+
+        return {
+            "num_nodes": n,
+            "num_edges": e,
+            "density": float(density),
+            "avg_degree": float(avg_degree),
+        }

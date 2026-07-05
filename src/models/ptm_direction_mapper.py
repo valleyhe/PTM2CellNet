@@ -447,6 +447,52 @@ class PTMDirectionMapper:
             attention_mask=all_masks,
         )
 
+    def apply_pathway_contexts_from_mapper(self, pathway_mapper) -> None:
+        """Register pathway-context-aware direction overrides from a SignalingNetworkMapper.
+
+        Inspects the pathway mapper's pathway definitions and registers
+        context overrides for PTM types that have different effects in
+        specific pathway contexts (V22-03).
+
+        Args:
+            pathway_mapper: A SignalingNetworkMapper instance whose pathways
+                attribute contains pathway definitions with 'ptm_types' and
+                'description' fields.
+        """
+        if pathway_mapper is None:
+            return
+
+        pathways = getattr(pathway_mapper, 'pathways', {})
+        if not pathways:
+            return
+
+        # Context-aware overrides derived from pathway descriptions
+        context_keywords = {
+            'chromatin': ['methylation', 'acetylation'],
+            'histone': ['methylation', 'acetylation', 'ubiquitination'],
+            'dna damage': ['phosphorylation', 'ubiquitination', 'sumoylation'],
+            'nf-kb': ['ubiquitination', 'phosphorylation'],
+            'inflammation': ['ubiquitination', 'phosphorylation'],
+            'transcription': ['methylation', 'acetylation', 'sumoylation'],
+            'nuclear': ['sumoylation', 'methylation'],
+        }
+
+        registered = 0
+        for pathway_name, pathway_info in pathways.items():
+            description = pathway_info.get('description', '').lower()
+            pathway_keywords = [kw for kw in context_keywords if kw in description]
+
+            for keyword in pathway_keywords:
+                for ptm_type in context_keywords[keyword]:
+                    # Only register if not already present
+                    key = (ptm_type, keyword)
+                    if key not in PTM_PATHWAY_CONTEXT_OVERRIDES:
+                        register_pathway_context_override(ptm_type, keyword, DIRECTION_KD)
+                        registered += 1
+
+        if registered:
+            logger.info("Applied %d pathway context overrides from SignalingNetworkMapper", registered)
+
     # Convenience class-level accessors for the runtime registry (V22-05)
     @staticmethod
     def register_ptm_type(ptm_type: str, direction: int, overwrite: bool = False) -> None:
@@ -459,3 +505,37 @@ class PTMDirectionMapper:
     ) -> None:
         """Register a pathway-context-aware direction override (V22-03)."""
         register_pathway_context_override(ptm_type, pathway_keyword, direction)
+
+
+# --------------------------------------------------------------------------
+# V22-03 production integration: one-call entry point
+# --------------------------------------------------------------------------
+
+
+def register_pathway_contexts(signaling_mapper) -> int:
+    """Register pathway-context-aware direction overrides from a SignalingNetworkMapper.
+
+    This is the production entry point for V22-03 integration. Call this after
+    constructing a SignalingNetworkMapper to apply context-aware direction
+    overrides::
+
+        from src.models.signaling_network import SignalingNetworkMapper
+        from src.models.ptm_direction_mapper import register_pathway_contexts
+
+        snm = SignalingNetworkMapper()
+        count = register_pathway_contexts(snm)
+
+    Args:
+        signaling_mapper: A SignalingNetworkMapper instance.
+
+    Returns:
+        Number of new overrides registered.
+    """
+    temp_mapper = PTMDirectionMapper.__new__(PTMDirectionMapper)
+    temp_mapper.geneformer_loader = None
+    temp_mapper.gene_mapper = None
+    temp_mapper.max_targets = MAX_TARGETS
+    before = len(PTM_PATHWAY_CONTEXT_OVERRIDES)
+    temp_mapper.apply_pathway_contexts_from_mapper(signaling_mapper)
+    after = len(PTM_PATHWAY_CONTEXT_OVERRIDES)
+    return after - before

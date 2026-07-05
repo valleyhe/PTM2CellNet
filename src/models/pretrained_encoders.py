@@ -2,6 +2,10 @@
 预训练模型编码器模块
 功能概述: 封装ESM-2、ESM-3、ProtBERT等预训练模型，提供统一接口
 设计思路: 使用HuggingFace Transformers库，支持冻结/微调策略
+
+For extended ESM-2 models (ESM2PTMPredictor, ESM2FineTunedModel) used in
+specialized PTM prediction and fine-tuning workflows, see
+``scripts/tools/esm2_encoder.py``.
 """
 
 from typing import List, Optional, cast

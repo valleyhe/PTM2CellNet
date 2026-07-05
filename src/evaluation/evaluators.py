@@ -378,6 +378,8 @@ class Evaluator:
         return_predictions: bool = False,
         train_fn: Optional[Callable[..., None]] = None,
         train_fn_kwargs: Optional[Dict[str, object]] = None,
+        stratified: bool = False,
+        stratify_labels: Optional[Array] = None,
     ) -> CrossValidationResult:
         """K-fold cross-validation.
 
@@ -446,14 +448,39 @@ class Evaluator:
 
         # 1. Generate and optionally shuffle indices
         indices = np.arange(n_samples)
-        if shuffle:
-            rng = np.random.RandomState(seed)
-            rng.shuffle(indices)
 
-        # 2. Split into roughly equal chunks
-        fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=int)
-        fold_sizes[: n_samples % n_splits] += 1
-        fold_indices = np.split(indices, np.cumsum(fold_sizes)[:-1])
+        # 2. Determine split strategy
+        if stratified:
+            if stratify_labels is None:
+                raise ValueError(
+                    "stratify_labels must be provided when stratified=True"
+                )
+            try:
+                from sklearn.model_selection import StratifiedKFold
+                splitter = StratifiedKFold(
+                    n_splits=n_splits, shuffle=shuffle, random_state=seed if shuffle else None
+                )
+                fold_indices = [
+                    val_idx
+                    for _, val_idx in splitter.split(X=np.zeros(n_samples), y=stratify_labels)
+                ]
+            except ImportError:
+                logger.warning(
+                    "scikit-learn not available; falling back to non-stratified CV"
+                )
+                fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=int)
+                fold_sizes[: n_samples % n_splits] += 1
+                if shuffle:
+                    rng = np.random.RandomState(seed)
+                    rng.shuffle(indices)
+                fold_indices = np.split(indices, np.cumsum(fold_sizes)[:-1])
+        else:
+            if shuffle:
+                rng = np.random.RandomState(seed)
+                rng.shuffle(indices)
+            fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=int)
+            fold_sizes[: n_samples % n_splits] += 1
+            fold_indices = np.split(indices, np.cumsum(fold_sizes)[:-1])
 
         if train_fn is None:
             logger.warning(

@@ -327,3 +327,93 @@ def plot_attention_heatmap(
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close()
     logger.info("注意力热图已保存到: %s", save_path)
+
+
+def plot_multiclass_roc(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    class_names: Optional[List[str]] = None,
+    save_path: Optional[str] = None,
+    figsize: tuple = (10, 8),
+) -> None:
+    """Plot one-vs-rest ROC curves for multi-class classification.
+
+    Args:
+        y_true: [N] integer class labels.
+        y_score: [N, num_classes] probability matrix.
+        class_names: Optional display names for each class.
+        save_path: If provided, save figure to this path.
+        figsize: Figure size.
+    """
+    from sklearn.metrics import roc_curve, auc
+    from sklearn.preprocessing import label_binarize
+
+    num_classes = y_score.shape[1]
+    if class_names is None:
+        class_names = [f"Class {i}" for i in range(num_classes)]
+
+    y_bin = label_binarize(y_true, classes=list(range(num_classes)))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    colors = plt.cm.Set1(np.linspace(0, 1, num_classes))
+
+    for i in range(num_classes):
+        fpr, tpr, _ = roc_curve(y_bin[:, i], y_score[:, i])
+        roc_auc = auc(fpr, tpr)
+        ax.plot(fpr, tpr, color=colors[i], lw=2,
+                label=f"{class_names[i]} (AUC = {roc_auc:.3f})")
+
+    ax.plot([0, 1], [0, 1], "k--", lw=1)
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.set_title("Multi-class ROC Curves (One-vs-Rest)")
+    ax.legend(loc="lower right")
+    ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        logger.info("Multi-class ROC plot saved to %s", save_path)
+    plt.close(fig)
+
+
+def plot_calibration_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    n_bins: int = 10,
+    save_path: Optional[str] = None,
+    figsize: tuple = (8, 6),
+) -> None:
+    """Plot calibration curve (reliability diagram).
+
+    Args:
+        y_true: [N] binary true labels.
+        y_score: [N] predicted probabilities for the positive class.
+        n_bins: Number of bins for the calibration curve.
+        save_path: If provided, save figure to this path.
+        figsize: Figure size.
+    """
+    from sklearn.calibration import calibration_curve
+
+    fraction_positives, mean_predicted = calibration_curve(
+        y_true, y_score, n_bins=n_bins
+    )
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
+    ax.plot(mean_predicted, fraction_positives, "s-", label="Model")
+    ax.set_xlabel("Mean predicted probability")
+    ax.set_ylabel("Fraction of positives")
+    ax.set_title("Calibration Curve")
+    ax.legend(loc="lower right")
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        logger.info("Calibration curve saved to %s", save_path)
+    plt.close(fig)

@@ -17,6 +17,30 @@ from starlette.responses import Response as StarletteResponse
 from ..utils.logging import setup_logger
 from .middleware import _GpuMetrics, _RUNTIME_METRICS
 
+
+def _setup_health_endpoint(app: FastAPI) -> None:
+    """Add a detailed health check endpoint that probes component readiness."""
+
+    @app.get("/health/detailed", tags=["monitoring"])
+    async def health_detailed():
+        """Detailed health check with component-level status."""
+        from ..routes.state import STATE, VARIANT_WORKFLOW_AVAILABLE, SIGNALING_NETWORK_AVAILABLE
+
+        components = {
+            "model_loaded": STATE.model is not None,
+            "variant_workflow": STATE.variant_workflow is not None,
+            "pathway_mapper": STATE.pathway_mapper is not None,
+        }
+
+        overall = "healthy" if all(components.values()) else "degraded"
+
+        return {
+            "status": overall,
+            "components": components,
+            "variant_workflow_available": VARIANT_WORKFLOW_AVAILABLE,
+            "signaling_network_available": SIGNALING_NETWORK_AVAILABLE,
+        }
+
 logger = setup_logger(__name__)
 
 
@@ -152,3 +176,4 @@ def _setup_monitoring(app: FastAPI) -> None:
             }
     else:
         logger.info("Monitoring metrics endpoint disabled (metrics_enabled=false)")
+    _setup_health_endpoint(app)

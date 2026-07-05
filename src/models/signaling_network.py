@@ -4,7 +4,7 @@
 """
 
 import pandas as pd
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from collections import defaultdict
 from pathlib import Path
 import logging
@@ -14,6 +14,10 @@ try:
     PATHWAY_INTEGRATION_AVAILABLE = True
 except ImportError:
     PATHWAY_INTEGRATION_AVAILABLE = False
+    logger.warning(
+        "sspa library not installed. Using built-in pathway database only. "
+        "Install sspa (pip install sspa) for KEGG/Reactome integration."
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +89,34 @@ class SignalingNetworkMapper:
             'key_substrates': ['H2AX', 'BRCA1', 'BRCA2', 'RAD51'],
             'ptm_types': ['Phosphorylation', 'Ubiquitination', 'Sumoylation'],
             'output_genes': ['CDKN1A', 'GADD45A', 'BAX'],
+        },
+        'TGF-beta': {
+            'description': 'TGF-beta signaling pathway',
+            'key_kinases': ['TGFBR1', 'TGFBR2', 'SMAD2', 'SMAD3', 'SMAD4'],
+            'key_substrates': ['SERPINE1', 'CTGF', 'TGFB1'],
+            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
+            'output_genes': ['PAI1', 'JUN', 'CDKN1A'],
+        },
+        'Hippo': {
+            'description': 'Hippo signaling pathway',
+            'key_kinases': ['STK3', 'STK4', 'LATS1', 'LATS2'],
+            'key_substrates': ['YAP1', 'WWTR1', 'TEAD1'],
+            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
+            'output_genes': ['CTGF', 'CYR61', 'ANKRD1'],
+        },
+        'Notch': {
+            'description': 'Notch signaling pathway',
+            'key_kinases': ['NOTCH1', 'NOTCH2', 'ADAM17', 'PSEN1'],
+            'key_substrates': ['RBPJ', 'MAML1', 'HES1'],
+            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
+            'output_genes': ['HES1', 'HEY1', 'NRARP'],
+        },
+        'mTOR': {
+            'description': 'mTOR signaling pathway',
+            'key_kinases': ['MTOR', 'RICTOR', 'RPTOR', 'AKT1S1'],
+            'key_substrates': ['RPS6KB1', 'EIF4EBP1', 'ULK1'],
+            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
+            'output_genes': ['S6K', '4EBP1', 'HIF1A'],
         },
     }
 
@@ -201,7 +233,7 @@ class SignalingNetworkMapper:
         for name, loader_fn in loaders:
             try:
                 pw = loader_fn()
-            except (RuntimeError, ValueError, OSError) as e:
+            except (ImportError, RuntimeError, ValueError, OSError) as e:
                 logger.warning(
                     "加载 %s 通路失败: %s。%s 通路将仅使用内置数据。",
                     name, e, name,
@@ -227,6 +259,24 @@ class SignalingNetworkMapper:
             "从外部数据库加载完成：新增 %d 条通路（当前总数 %d）。",
             added, len(self.pathways),
         )
+
+    def get_missing_pathway_warning(self, pathway_names: List[str]) -> List[str]:
+        """Check which pathways are missing from the mapper.
+
+        Args:
+            pathway_names: List of pathway names to check.
+
+        Returns:
+            List of pathway names that are not available.
+        """
+        missing = [name for name in pathway_names if name not in self.pathways]
+        if missing:
+            logger.warning(
+                "Missing pathways: %s. Available: %s. "
+                "Install sspa for KEGG/Reactome integration.",
+                missing, list(self.pathways.keys()),
+            )
+        return missing
 
     def _build_protein_mapping(self) -> Dict[str, Set[str]]:
         """构建蛋白到通路的映射"""
