@@ -1,0 +1,57 @@
+# ESM-3 Open Small (1.4B) 预训练模型配置
+# 使用EvolutionaryScale ESM-3 open small模型作为序列编码器
+# 注意：ESM-3的hidden_dim固定为1536，不受配置影响
+
+model:
+  encoder_type: "esm3_small"
+  freeze_encoder: true
+  num_classes: 2
+  dropout: 0.1
+  pretrained_cache_dir: null
+
+training:
+  max_epochs: 30
+  batch_size: 4
+  learning_rate: 1.0e-5
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "cosine"
+  accelerator: "gpu"
+  devices: 1
+  precision: "bf16-mixed"
+  accumulate_grad_batches: 8
+  early_stopping:
+    enabled: true
+    patience: 5
+    monitor: "val_loss"
+    mode: "min"
+  checkpoint:
+    enabled: true
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "min"
+  logger:
+    type: "tensorboard"
+    save_dir: "outputs/logs"
+    name: "esm3_sm_open"
+
+data:
+  max_sequence_length: 1024
+  num_workers: 0
+  pin_memory: false
+  valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  ptm_types:
+    - "phosphorylation"
+    - "acetylation"
+    - "methylation"
+    - "ubiquitination"
+    - "sumoylation"
+    - "glycosylation"
+    - "palmitoylation"
+    - "nitrosylation"
+    - "hydroxylation"
+    - "adp-ribosylation"
+
+paths:
+  outputs_root: "outputs"
+  outputs_models: "outputs/models/esm3_sm_open"

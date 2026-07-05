@@ -83,6 +83,7 @@ def validate_model_config(config: Dict[str, Union[str, int, float, bool, List[An
     valid_encoders = [
         "cnn", "transformer", "lstm", "gru", "mamba",
         "esm2", "esm2_8m", "esm2_35m", "esm2_70m", "esm2_150m", "esm2_650m", "esm2_3b",
+        "esm3", "esm3_small", "esm3_sm_open",
         "protbert", "prott5"
     ]
     encoder_type = model_cfg.get("encoder_type", "").lower()

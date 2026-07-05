@@ -9,7 +9,7 @@ specialized PTM prediction and fine-tuning workflows, see
 """
 
 import os
-from typing import Any, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import torch
 import torch.nn as nn
@@ -360,34 +360,207 @@ class ESM2Encoder(PretrainedEncoder):
         return handler.encode_sequences(self, sequences)
 
 
-class ESM3Encoder(PretrainedEncoder):
+class ESM3Encoder(nn.Module):
     """
-    ESM-3编码器
-    支持ESM-3多模态蛋白质语言模型（序列、结构、功能）
-    支持LoRA参数高效微调
+    ESM-3编码器（使用EvolutionaryScale esm包）
+    封装ESM-3多模态蛋白质语言模型（序列、结构、功能）
+    
+    与ESM2Encoder不同，此类不继承PretrainedEncoder，因为ESM-3模型
+    使用完全不同的架构（几何注意力，多模态输入），需要esm包支持。
+    
+    支持从本地检查点加载或从HuggingFace自动下载。
     """
 
-    # ESM-3模型名称映射
+    # ESM-3模型名称映射（仅开放权重small版本可用）
     MODEL_NAMES = {
-        "small": "facebook/esm3_sm_2B",
-        "medium": "facebook/esm3_md_6B",
-        "large": "facebook/esm3_lg_12B",
+        "small": "esm3_sm_open_v1",
     }
+
+    # ESM-3 small开放权重的架构参数
+    _D_MODEL = 1536
+    _N_HEADS = 24
+    _V_HEADS = 256
+    _N_LAYERS = 48
+
+    def __init__(
+        self,
+        model_size: str = "small",
+        freeze: bool = False,
+        cache_dir: Optional[str] = None,
+        checkpoint_path: Optional[str] = None,
+        device: Optional[str] = None,
+    ):
+        """
+        初始化ESM-3编码器
+
+        参数:
+            model_size: 模型大小（仅支持"small"，大小写不敏感）
+            freeze: 是否冻结预训练权重
+            cache_dir: 模型缓存目录（暂未使用，保留兼容）
+            checkpoint_path: 本地检查点路径。若提供且文件存在则从本地加载；
+                           否则从HuggingFace自动下载
+            device: 运行设备（默认自动检测）
+        """
+        super().__init__()
+
+        # 标准化模型尺寸
+        model_size_normalized = self._normalize_model_size(model_size)
+        self.model_size = model_size_normalized
+
+        # 确定设备
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._device = device
+
+        # 加载模型
+        self.model = self._load_model(checkpoint_path, device)
+        self.hidden_dim = self._D_MODEL
+
+        # 创建tokenizer适配器（兼容HF tokenizer接口）
+        self.tokenizer = ESM3TokenizerAdapter(self.model.tokenizers)
+
+        # 冻结参数
+        self.freeze = freeze
+        if freeze:
+            self._freeze_parameters()
+
+        logger.info(
+            f"ESM-3 {model_size} 编码器初始化完成，"
+            f"隐藏维度: {self.hidden_dim}，"
+            f"参数量: {self.get_num_parameters() / 1e6:.1f}M，"
+            f"可训练参数: {self.get_num_parameters(trainable_only=True) / 1e6:.2f}M，"
+            f"设备: {device}，"
+            f"加载方式: {'本地检查点' if checkpoint_path else 'HuggingFace'}"
+        )
+
+    def _load_model(
+        self,
+        checkpoint_path: Optional[str],
+        device: Union[str, torch.device],
+    ) -> nn.Module:
+        """加载ESM-3模型，优先使用本地检查点"""
+        if checkpoint_path is not None and os.path.isfile(checkpoint_path):
+            return self._load_from_local(checkpoint_path, device)
+        return self._load_from_huggingface(device)
+
+    def _load_from_local(
+        self, path: str, device: Union[str, torch.device]
+    ) -> nn.Module:
+        """从本地检查点文件加载ESM-3模型"""
+        from esm.pretrained import (  # type: ignore[import]
+            ESM3,
+            ESM3_structure_encoder_v0,
+            ESM3_structure_decoder_v0,
+            ESM3_function_decoder_v0,
+            get_esm3_model_tokenizers,
+            ESM3_OPEN_SMALL,
+        )
+
+        logger.info(f"从本地检查点加载ESM-3模型: {path}")
+        with torch.device(device):
+            model = ESM3(
+                d_model=self._D_MODEL,
+                n_heads=self._N_HEADS,
+                v_heads=self._V_HEADS,
+                n_layers=self._N_LAYERS,
+                structure_encoder_fn=ESM3_structure_encoder_v0,
+                structure_decoder_fn=ESM3_structure_decoder_v0,
+                function_decoder_fn=ESM3_function_decoder_v0,
+                tokenizers=get_esm3_model_tokenizers(ESM3_OPEN_SMALL),
+            ).eval()
+
+        state_dict = torch.load(path, map_location=device, weights_only=True)
+        model.load_state_dict(state_dict, strict=False)
+        return model
+
+    def _load_from_huggingface(
+        self, device: Union[str, torch.device]
+    ) -> nn.Module:
+        """从HuggingFace加载ESM-3模型"""
+        from esm.pretrained import ESM3_sm_open_v0  # type: ignore[import]
+
+        logger.info("从HuggingFace加载ESM-3模型 (esm3_sm_open_v0)")
+        # ESM3_sm_open_v0 内部调用 data_root()/data/weights/esm3_sm_open_v1.pth
+        # 当本地已存在（包括我们的symlink）时不会重复下载
+        model = ESM3_sm_open_v0(device=device)
+        return model
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        structure_tokens: Optional[torch.Tensor] = None,
+        function_tokens: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        前向传播，支持ESM-3多模态输入
+
+        参数:
+            input_ids: [batch_size, seq_len] 序列token索引（ESM-3 sequence_tokens）
+            attention_mask: [batch_size, seq_len] 注意力掩码（当前未用于ESM-3，保留兼容）
+            structure_tokens: [batch_size, seq_len] 结构token（可选）
+            function_tokens: [batch_size, seq_len] 功能token（可选）
+
+        返回:
+            embeddings: [batch_size, seq_len, d_model] 序列表示
+        """
+        # ESM-3 forward使用纯关键字参数
+        forward_kwargs: Dict[str, Any] = {
+            "sequence_tokens": input_ids,
+        }
+
+        # 可选多模态输入
+        if structure_tokens is not None:
+            forward_kwargs["structure_tokens"] = structure_tokens
+        if function_tokens is not None:
+            forward_kwargs["function_tokens"] = function_tokens
+
+        # ESM-3前向传播，返回ESMOutput对象
+        output = self.model.forward(**forward_kwargs)
+
+        # 返回嵌入（embeddings字段存储最后一层隐藏状态）
+        embeddings = output.embeddings
+        return cast(torch.Tensor, embeddings)
+
+    def _freeze_parameters(self) -> None:
+        """冻结所有模型参数"""
+        for param in self.model.parameters():
+            param.requires_grad = False
+        logger.info(f"已冻结ESM-3模型参数")
+
+    def get_num_parameters(self, trainable_only: bool = False) -> int:
+        """获取模型参数数量"""
+        if trainable_only:
+            return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        return sum(p.numel() for p in self.model.parameters())
+
+    def tokenize(self, sequences: Any, max_length: int = 1024) -> dict:
+        """对蛋白质序列进行tokenize，返回input_ids和attention_mask"""
+        return self.tokenizer(
+            sequences,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        )
+
+    def encode_sequences(self, sequences: List[str]) -> torch.Tensor:
+        """编码蛋白质序列列表，支持长序列的滑动窗口处理。
+
+        参数:
+            sequences: 蛋白质序列字符串列表
+
+        返回:
+            embeddings: [batch_size, max_seq_len, hidden_dim] 每个残基的嵌入
+        """
+        from .long_sequence import SlidingWindowHandler
+
+        handler = SlidingWindowHandler(window_size=1022, overlap=100)
+        return handler.encode_sequences(self, sequences)
 
     @staticmethod
     def _normalize_model_size(model_size: str) -> str:
-        """
-        标准化模型尺寸字符串
-
-        参数:
-            model_size: 原始模型尺寸字符串（如"small", "SMALL", "Small"等）
-
-        返回:
-            标准化的模型尺寸（如"small"）
-
-        异常:
-            ValueError: 输入无效时抛出
-        """
+        """标准化模型尺寸字符串（大小写不敏感）"""
         if not isinstance(model_size, str):
             raise ValueError(f"模型尺寸必须是字符串，得到: {type(model_size).__name__}")
 
@@ -404,179 +577,6 @@ class ESM3Encoder(PretrainedEncoder):
             )
 
         return normalized
-
-    def __init__(
-        self,
-        model_size: str = "small",
-        freeze: bool = False,
-        cache_dir: Optional[str] = None,
-        use_lora: bool = False,
-        lora_r: int = 16,
-        lora_alpha: int = 32,
-        lora_dropout: float = 0.05,
-        num_steps: int = 1,
-    ):
-        """
-        初始化ESM-3编码器
-
-        参数:
-            model_size: 模型大小（"small", "medium", "large"，大小写不敏感）
-            freeze: 是否冻结预训练权重
-            cache_dir: 模型缓存目录
-            use_lora: 是否使用LoRA进行微调
-            lora_r: LoRA秩
-            lora_alpha: LoRA alpha参数
-            lora_dropout: LoRA dropout率
-            num_steps: ESM-3生成步数（用于多步推理模式）
-        """
-        # 标准化模型尺寸
-        model_size_normalized = self._normalize_model_size(model_size)
-
-        # 获取模型名称
-        model_name = self.MODEL_NAMES[model_size_normalized]
-
-        super().__init__(model_name, freeze=freeze, cache_dir=cache_dir)
-        from transformers import AutoTokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
-
-        self.model_size = model_size_normalized
-        self.use_lora = use_lora
-        self.num_steps = num_steps
-
-        # 应用LoRA（如果需要）
-        if use_lora:
-            self._apply_lora(lora_r, lora_alpha, lora_dropout)
-
-        logger.info(
-            f"ESM-3 {model_size} 编码器初始化完成，"
-            f"隐藏维度: {self.hidden_dim}，"
-            f"参数量: {self.get_num_parameters() / 1e6:.1f}M，"
-            f"可训练参数: {self.get_num_parameters(trainable_only=True) / 1e6:.2f}M，"
-            f"LoRA: {use_lora}，"
-            f"num_steps: {num_steps}"
-        )
-
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        structure_tokens: Optional[torch.Tensor] = None,
-        function_tokens: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """
-        前向传播，支持ESM-3多模态输入
-
-        参数:
-            input_ids: [batch_size, seq_len] 序列token索引
-            attention_mask: [batch_size, seq_len] 注意力掩码（可选）
-            structure_tokens: [batch_size, seq_len] 结构token（可选）
-            function_tokens: [batch_size, seq_len] 功能token（可选）
-
-        返回:
-            embeddings: [batch_size, seq_len, hidden_dim] 序列表示
-        """
-        forward_kwargs: dict = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "output_attentions": self.use_attention_output,
-        }
-
-        # ESM-3多模态: 传入结构和功能token（如果提供）
-        if structure_tokens is not None:
-            forward_kwargs["structure_tokens"] = structure_tokens
-        if function_tokens is not None:
-            forward_kwargs["function_tokens"] = function_tokens
-
-        outputs = self.model(**forward_kwargs)
-
-        # 返回最后一层隐藏状态
-        return cast(torch.Tensor, outputs.last_hidden_state)
-
-    def _apply_lora(self, r: int, alpha: int, dropout: float) -> None:
-        """
-        应用LoRA到模型
-
-        参数:
-            r: LoRA秩
-            alpha: LoRA alpha
-            dropout: LoRA dropout
-        """
-        try:
-            from ..training.peft_config import apply_lora_to_encoder, get_lora_config
-
-            lora_config = get_lora_config(
-                r=r,
-                lora_alpha=alpha,
-                lora_dropout=dropout,
-            )
-            apply_lora_to_encoder(self, lora_config)
-            logger.info(f"LoRA应用成功: r={r}, alpha={alpha}, dropout={dropout}")
-
-        except ImportError as e:
-            logger.error(f"应用LoRA失败，peft库可能未安装: {e}")
-            raise
-
-    def save_lora_adapters(self, save_path: str) -> None:
-        """
-        保存LoRA适配器权重
-
-        参数:
-            save_path: 保存路径
-        """
-        if not self.use_lora:
-            logger.warning("模型未使用LoRA，无需保存适配器")
-            return
-
-        try:
-            from ..training.peft_config import save_lora_adapters
-            save_lora_adapters(self.model, save_path)
-        except ImportError as e:
-            logger.error(f"保存LoRA适配器失败: {e}")
-            raise
-
-    def load_lora_adapters(self, load_path: str) -> None:
-        """
-        加载LoRA适配器权重
-
-        参数:
-            load_path: 适配器加载路径
-        """
-        if not self.use_lora:
-            logger.warning("模型未使用LoRA，无法加载适配器")
-            return
-
-        try:
-            from ..training.peft_config import load_lora_adapters
-            self.model = load_lora_adapters(self.model, load_path)
-            logger.info(f"LoRA适配器已从 {load_path} 加载")
-        except ImportError as e:
-            logger.error(f"加载LoRA适配器失败: {e}")
-            raise
-
-    def tokenize(self, sequences, max_length: int = 1024) -> dict:
-        """对蛋白质序列进行tokenize，返回input_ids和attention_mask"""
-        return cast(dict, self.tokenizer(
-            sequences,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-        ))
-
-    def encode_sequences(self, sequences: List[str]) -> torch.Tensor:
-        """
-        编码蛋白质序列列表，支持长序列(>1022)的滑动窗口处理。
-
-        参数:
-            sequences: 蛋白质序列字符串列表
-
-        返回:
-            embeddings: [batch_size, max_seq_len, hidden_dim] 每个残基的嵌入
-        """
-        from .long_sequence import SlidingWindowHandler
-
-        handler = SlidingWindowHandler(window_size=1022, overlap=100)
-        return handler.encode_sequences(self, sequences)
 
 
 class ProtBERTEncoder(PretrainedEncoder):
@@ -670,12 +670,126 @@ class ProtT5Encoder(PretrainedEncoder):
         )
 
 
+class ESM3TokenizerAdapter:
+    """
+    ESM-3 tokenizer适配器
+    
+    将ESM-3的TokenizerCollection接口适配为HuggingFace tokenizer兼容接口，
+    使得ESMTokenizedDataset等下游组件可以无缝使用ESM-3 tokenizer。
+    
+    ESM-3的序列tokenizer直接将每个氨基酸映射到一个token ID，不添加
+    <cls>/<eos>等特殊token。本适配器为保持与ESM-2数据集兼容，会在序列
+    首尾添加占位token（pad_token_id），使position mapping逻辑保持一致。
+    """
+
+    def __init__(self, tokenizers: Any):
+        """
+        初始化适配器
+
+        参数:
+            tokenizers: ESM-3模型中的TokenizerCollection实例
+        """
+        self._tokenizers = tokenizers
+        self._seq_tokenizer = tokenizers.sequence
+
+        # ESM-3 tokenizer属性
+        self.mask_token_id = int(self._seq_tokenizer.mask_token_id)
+        self.pad_token_id = int(self._seq_tokenizer.pad_token_id)
+        self.vocab_size = int(self._seq_tokenizer.vocab_size)
+
+        # 用于与ESM-2位置对齐的占位token ID
+        self.bos_token_id = self.pad_token_id
+        self.eos_token_id = self.pad_token_id
+        self.unk_token_id = self.mask_token_id
+
+        logger.debug(
+            f"ESM3TokenizerAdapter初始化: "
+            f"vocab_size={self.vocab_size}, "
+            f"mask_token_id={self.mask_token_id}, "
+            f"pad_token_id={self.pad_token_id}"
+        )
+
+    def __call__(
+        self,
+        sequences: Any,
+        return_tensors: str = "pt",
+        padding: bool = True,
+        truncation: bool = True,
+        max_length: int = 1024,
+    ) -> dict:
+        """
+        对序列进行tokenize，返回兼容HF格式的字典
+
+        参数:
+            sequences: 字符串或字符串列表
+            return_tensors: 返回格式（仅支持"pt"）
+            padding: 是否padding到等长
+            truncation: 是否截断超长序列
+            max_length: 最大长度（含占位token）
+
+        返回:
+            {"input_ids": Tensor, "attention_mask": Tensor}
+        """
+        if isinstance(sequences, str):
+            sequences = [sequences]
+
+        all_input_ids: List[List[int]] = []
+        all_attention_masks: List[List[int]] = []
+
+        for seq in sequences:
+            # 使用ESM-3 tokenizer编码序列
+            token_ids = self._seq_tokenizer.encode(seq)
+
+            # 截断（预留2个位置给BOS/EOS占位token）
+            if truncation and len(token_ids) > max_length - 2:
+                token_ids = token_ids[:max_length - 2]
+
+            # 添加BOS和EOS占位token（与ESM-2的<cls>/<eos>对齐）
+            token_ids = [self.bos_token_id] + token_ids + [self.eos_token_id]
+
+            all_input_ids.append(token_ids)
+            all_attention_masks.append([1] * len(token_ids))
+
+        # Padding到等长
+        if padding:
+            max_len = max(len(ids) for ids in all_input_ids)
+            if max_len > max_length:
+                max_len = max_length
+
+            padded_ids: List[List[int]] = []
+            padded_masks: List[List[int]] = []
+            for ids, mask in zip(all_input_ids, all_attention_masks):
+                if len(ids) > max_len:
+                    ids = ids[:max_len]
+                    mask = mask[:max_len]
+                pad_len = max_len - len(ids)
+                padded_ids.append(ids + [self.pad_token_id] * pad_len)
+                padded_masks.append(mask + [0] * pad_len)
+            all_input_ids = padded_ids
+            all_attention_masks = padded_masks
+
+        if return_tensors == "pt":
+            return {
+                "input_ids": torch.tensor(all_input_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(all_attention_masks, dtype=torch.long),
+            }
+
+        return {
+            "input_ids": all_input_ids,
+            "attention_mask": all_attention_masks,
+        }
+
+    def tokenize(self, text: str) -> List[str]:
+        """兼容HF tokenizer的tokenize方法（用于测试）"""
+        return [str(t) for t in self._seq_tokenizer.encode(text)]
+
+
 # ---------------------------------------------------------------------------
 # Factory functions
 # ---------------------------------------------------------------------------
 
 
-def esm3_encoder(*args: Any, strict: bool = False, **kwargs: Any) -> ESM2Encoder:
+def esm3_encoder(*args: Any, strict: bool = False, **kwargs: Any) -> nn.Module:
     """Return an ESM-3 encoder, falling back to ESM-2 if unavailable.
 
     Args:
@@ -699,7 +813,7 @@ def esm3_encoder(*args: Any, strict: bool = False, **kwargs: Any) -> ESM2Encoder
     esm3_cls = globals().get("ESM3Encoder", None)
     if esm3_cls is not None:
         try:
-            return cast(ESM2Encoder, esm3_cls(*args, **kwargs))
+            return cast(nn.Module, esm3_cls(*args, **kwargs))
         except (OSError, ImportError, ValueError, RuntimeError) as exc:
             logger.warning(
                 "ESM3Encoder instantiation failed (%s: %s). %s",

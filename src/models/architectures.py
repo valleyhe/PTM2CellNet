@@ -353,6 +353,22 @@ class PTM2CellNetBase(nn.Module):
             )
             logger.info(f"使用ESM-2 {model_size} 预训练编码器，隐藏维度: {enc.hidden_dim}")
             return enc, enc.hidden_dim
+        if encoder_type.startswith("esm3"):
+            from .pretrained_encoders import ESM3Encoder
+
+            model_size = "small"
+            if encoder_type not in {"esm3", "esm3_small", "esm3_sm_open"}:
+                model_size = encoder_type.split("_", 1)[1]
+            enc = ESM3Encoder(
+                model_size=model_size,
+                freeze=freeze_encoder,
+                cache_dir=pretrained_cache_dir,
+            )
+            logger.info(
+                f"使用ESM-3 {model_size} 预训练编码器，"
+                f"隐藏维度: {enc.hidden_dim}"
+            )
+            return enc, enc.hidden_dim
         if encoder_type == "protbert":
             from .pretrained_encoders import ProtBERTEncoder
 
