@@ -363,7 +363,12 @@ class GenKIAdapter:
 
     @_reference_cache.setter
     def _reference_cache(self, value: ReferenceData | None) -> None:
-        self._ref_loader._reference_cache = value  # type: ignore[assignment]
+        # The loader stores its own private ``_ReferenceData`` TypedDict
+        # (a structural subset of this adapter's public ``ReferenceData``).
+        # The assignment is a deliberate cross-boundary downcast; cast()
+        # expresses that intent to the type checker without ``type: ignore``
+        # (closes TD-L1).
+        self._ref_loader._reference_cache = cast("Any", value)
 
     def get_backend_info(self) -> BackendInfo:
         return cast(BackendInfo, self._ref_loader.get_backend_info())

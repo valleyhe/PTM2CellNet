@@ -95,12 +95,28 @@ async def ready_check():
     就绪检查
 
     返回:
-        服务就绪状态（初始化失败或模型未加载时 HTTP 503）
+        服务就绪状态（初始化失败、生产安全降级或模型未加载时 HTTP 503）
     """
     if STATE.initialization_failed:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="启动自动初始化失败，服务不可用",
+        )
+
+    # Production security degradation (TD-M3 / TD-M4). When the operator opted
+    # out of fail-fast but a security check still failed (e.g. no API key in
+    # production), mark the instance not-ready so orchestrators drain it.
+    from ..production_security import get_last_security_report
+
+    sec_report = get_last_security_report()
+    if sec_report is not None and sec_report.degraded:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "生产安全配置降级: " + "; ".join(sec_report.reasons)
+                if sec_report.reasons
+                else "生产安全配置降级"
+            ),
         )
 
     if STATE.model is None:

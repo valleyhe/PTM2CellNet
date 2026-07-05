@@ -32,6 +32,35 @@ PTM2CellNet 把依赖按能力分组（见 `setup.py` 的 `extras_require`）。
 | `pip install -e ".[mamba]"` | 仅补充原生 Mamba / Lion | `mamba-ssm` + `lion-pytorch` |
 | `pip install -e ".[all]"` | **全量能力** | 上述全部（不含 dev）。磁盘/网络充裕时使用。 |
 
+#### 拆分后的 `requirements-*.txt` 能力映射 (TD-M5)
+
+仓库根目录的依赖被拆分成多个文件，每个文件对应一组能力。下表说明每个
+文件提供什么、何时需要它，以及为什么某些“看起来应该都在 core”的包
+（如 `anndata` / `sspa` / `lion-pytorch`）实际上被放在了别的层。
+
+| 文件 | 提供的能力 | 何时需要 |
+|---|---|---|
+| `requirements-core.txt` | 最小核心：CNN/Transformer/LSTM 训练 + 推理 + FastAPI 服务（不含预训练 LM / Mamba / scVI / 通路分析） | 清洁 CPU 环境跑 E2E smoke、Docker 生产镜像 |
+| `requirements-pretrained.txt` | ESM-2 / ProtBERT / ProtT5 / ESM-3 编码器 + HuggingFace Transformers stack | 使用预训练蛋白质语言模型 |
+| `requirements-mamba.txt` | 原生 Mamba SSM fused kernel + `lion-pytorch`（Lion 优化器） | 在支持的 GPU 上启用 Mamba / Lion；缺失时回退到纯 PyTorch 与 AdamW |
+| `requirements-analysis.txt` | scVI / DAVF 基因空间 + KEGG/Reactome 通路分析；包含 `anndata` 与 `sspa` | GenKI / scVI / `pathway_integration` 工作流 |
+| `requirements-dev.txt` | pytest / ruff / mypy / pre-commit 等开发工具 | 本地开发与 CI |
+| `requirements-docs.txt` | Sphinx / MkDocs 等文档构建工具 | 构建文档站点 |
+| `requirements-lock.txt` | 完整锁定版本（含 above + transitive） | 复现特定历史构建 |
+| `requirements.txt` | 聚合 `core + pretrained` | 兼容旧脚本与 CI 的默认入口 |
+
+> **常见疑问**：
+> - **为什么 `anndata` 不在 `requirements.txt`？** 它由 `src/integration/genki/*`
+>   直接 `import`，但 `anndata` 拉入较重的 zarr/h5py 依赖链；只有启用 scVI/GenKI
+>   能力时才需要，因此声明在 `requirements-analysis.txt`。
+> - **为什么 `sspa` 不在 `requirements.txt`？** `src/analysis/pathway_integration.py`
+>   用 `try/except` 守护了导入，缺失只降级不崩溃；为避免污染核心镜像，放在
+>   `requirements-analysis.txt`。
+> - **`lion-pytorch` 真的被使用吗？** 是。`src/training/lightning_module.py`
+>   在 `optimizer_name == "lion"` 时 `from lion_pytorch import Lion`；它与 Mamba
+>   训练能力绑定，因此声明在 `requirements-mamba.txt`。
+
+
 > 💡 混合安装：可以同时选多个 extra，如 `pip install -e ".[api,lightning,pretrained]"`。
 
 **可选能力降级行为**：未安装某个 extra 时，对应能力会优雅降级而非崩溃——

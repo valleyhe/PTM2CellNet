@@ -9,7 +9,7 @@ PEFT/LoRA配置模块
     - get_trainable_parameters: 获取可训练参数统计
 """
 
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, cast
 
 import torch.nn as nn
 
@@ -49,7 +49,7 @@ def get_lora_config(
     lora_alpha: int = 32,
     lora_dropout: float = 0.05,
     target_modules: Optional[List[str]] = None,
-    bias: str = "none",
+    bias: Literal["none", "all", "lora_only"] = "none",
 ) -> Any:
     """
     创建LoRA配置
@@ -59,7 +59,7 @@ def get_lora_config(
         lora_alpha: LoRA缩放参数，默认32
         lora_dropout: LoRA dropout率，默认0.05
         target_modules: 目标模块列表，默认["query", "key", "value", "dense"]
-        bias: 偏置训练模式，默认"none"
+        bias: 偏置训练模式 ("none" / "all" / "lora_only")，默认"none"
 
     返回:
         LoraConfig实例

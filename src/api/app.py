@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..utils.logging import setup_logger
 from .autoinit import _try_auto_initialize
+from .production_security import configure_production_security
 from .middleware import (
     _DEFAULT_RATE_LIMIT_BURST,
     _DEFAULT_RATE_LIMIT_RPM,
@@ -51,14 +52,29 @@ def create_app(
         version=version,
     )
 
+    # Production security guards (TD-M3 / TD-M4). In production this refuses
+    # to start when PTM2CELLNET_API_KEY is unset or the download allowlist is
+    # blank, unless the operator explicitly opts out. No-op outside prod.
+    configure_production_security()
+
     @app.on_event("startup")
     async def _startup() -> None:
-        """Startup hook kept on ``on_event`` for FastAPI 0.68 compatibility."""
+        """Startup hook kept on ``on_event`` for FastAPI 0.68 compatibility.
+
+        F-08 migration note: FastAPI 0.93+ deprecates ``on_event`` in favour
+        of lifespan context handlers. We intentionally stay on ``on_event``
+        because the project's minimum declared FastAPI version is 0.68 (see
+        requirements-core.txt) and we want a single code path that works on
+        every supported version. When the minimum is bumped to >=0.93, both
+        hooks should be consolidated into an ``async contextmanager`` lifespan
+        and these ``on_event`` decorators removed.
+        """
         logger.info("PTM2CellNet API 启动")
         _try_auto_initialize()
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
+        """Shutdown hook — see F-08 migration note on ``_startup``."""
         logger.info("PTM2CellNet API 关闭")
 
     # Request body size limit — prevents DoS via oversized payloads.

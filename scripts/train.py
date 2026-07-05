@@ -249,7 +249,17 @@ def main():
         logger.info("从 checkpoint 恢复: %s", args.resume)
         # 显式 weights_only=False：checkpoint 非纯 state_dict（含 epoch/global_step
         # 等 Python 对象），需要反序列化完整对象。仅加载受信任的自产 checkpoint。
-        ckpt = torch.load(args.resume, map_location=trainer.device, weights_only=False)
+        # 通过 safe_torch_load 走，以便：(1) 复用统一的审计日志；(2) 让
+        # PTM2CELLNET_SAFE_LOAD_ONLY=1 仍能全局禁止不安全加载；(3) 收敛 v15 安全
+        # 复核 §6 中 "scripts/train.py 直接 torch.load" 的剩余风险点。
+        from src.utils.io import safe_torch_load
+
+        ckpt = safe_torch_load(
+            args.resume,
+            map_location=trainer.device,
+            weights_only=False,
+            enforce_safe_only=False,
+        )
 
         # 配置一致性校验: checkpoint 的 num_classes 必须与当前 config 一致，
         # 否则权重形状不匹配会静默失败或导致维度错误。
