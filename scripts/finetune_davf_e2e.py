@@ -122,6 +122,48 @@ def load_data(data_path: str, config: Optional[Dict[str, Any]] = None):
     return train_df, val_df, test_df
 
 
+def _davf_collate_fn(batch):
+    """Custom collate for DAVF finetuning with variable-length sequences.
+
+    PTMDataset returns variable-length tensors (sequence, ptm_mask, ptm_types)
+    and variable-length Python lists (davf_sites, davf_gene_names, davf_type_names,
+    davf_attention_mask). The default collate_fn cannot handle these, so we:
+    - Pad 1D tensors to the max length in the batch.
+    - Keep variable-length list fields as raw lists (outer list of per-sample lists).
+    - Stack scalar tensors normally.
+    """
+    import torch.utils.data._utils.collate as torch_collate
+
+    elem = batch[0]
+    out: Dict[str, Any] = {}
+    # Keys whose values are Python lists (variable length — keep as outer list)
+    _LIST_KEYS = {"davf_sites", "davf_gene_names", "davf_type_names", "davf_attention_mask"}
+    # Keys whose values are scalar tensors — stack normally
+    _SCALAR_KEYS = {"label", "sequence_length"}
+
+    for key in elem:
+        values = [d[key] for d in batch]
+        if key in _LIST_KEYS:
+            # Keep as outer list: [sample1_list, sample2_list, ...]
+            out[key] = values
+        elif key in _SCALAR_KEYS:
+            out[key] = torch.stack(values)
+        else:
+            # Tensor fields — pad 1D tensors to max length in batch
+            try:
+                out[key] = torch_collate.default_collate(values)
+            except (RuntimeError, TypeError):
+                # Variable-length 1D tensors: pad to max_len
+                max_len = max(v.shape[0] for v in values)
+                dtype = values[0].dtype
+                device = values[0].device
+                padded = torch.zeros(len(values), max_len, dtype=dtype, device=device)
+                for i, v in enumerate(values):
+                    padded[i, : v.shape[0]] = v
+                out[key] = padded
+    return out
+
+
 def create_dataloaders(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -140,9 +182,9 @@ def create_dataloaders(
     val_ds = PTMDataset(val_df, feature_extractor, dataset_config, training=False)
     test_ds = PTMDataset(test_df, feature_extractor, dataset_config, training=False)
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=_davf_collate_fn)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=_davf_collate_fn)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=_davf_collate_fn)
 
     logger.info("DataLoader: train=%d, val=%d, test=%d batches", len(train_loader), len(val_loader), len(test_loader))
     return train_loader, val_loader, test_loader

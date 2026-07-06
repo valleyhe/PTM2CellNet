@@ -59,12 +59,12 @@ def test_davf_e2e_real_subprocess_run(tmp_path):
 
     output_dir = tmp_path / "davf_real_out"
     cmd = [
-        sys.executable,
-        str(script),
-        "--checkpoint", ckpt,
-        "--data", csv,
-        "--output-dir", str(output_dir),
-    ] + (extra.split() if extra else [])
+            sys.executable,
+            str(script),
+            "--checkpoint", ckpt,
+            "--data", csv,
+            "--output", str(output_dir),
+        ] + (extra.split() if extra else [])
 
     start = time.time()
     outcome = "pass"

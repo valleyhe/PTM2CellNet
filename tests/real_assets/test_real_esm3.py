@@ -78,7 +78,7 @@ def test_esm3_real_forward_pass():
         sequences = [_INSULIN_A, _UBIQUITIN]
         with torch.no_grad():
             emb = encoder.encode_sequences(sequences)
-        shapes = tuple(tuple(s) for s in emb.shape)
+        shapes = tuple(emb.shape)
         # F-01 acceptance: real forward must return non-empty embeddings of
         # the expected rank and trailing dimension.
         assert emb.ndim == 3, f"expected (B, L, D) embedding, got shape {emb.shape}"

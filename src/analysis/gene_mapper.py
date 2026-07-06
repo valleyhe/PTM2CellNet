@@ -183,8 +183,9 @@ class GeneMapper:
             logger.debug(f"Mapped {gene_symbol} -> {uniprot_id}")
             return str(uniprot_id) if uniprot_id is not None else None
 
-        except (ConnectionError, TimeoutError, ValueError, KeyError) as e:
+        except (ConnectionError, TimeoutError, ValueError, KeyError, requests.RequestException) as e:
             logger.error(f"Error mapping gene {gene_symbol}: {e}")
+            self._gene_cache[gene_symbol] = None
             return None
 
     def map_genes_batch(
