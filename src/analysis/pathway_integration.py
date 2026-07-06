@@ -6,7 +6,7 @@ import pickle
 import time
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 from typing_extensions import TypedDict
@@ -205,17 +205,21 @@ class PathwayDatabaseIntegration:
         # Try cache first
         if use_cache and self._cache_is_fresh(cache_file):
             logger.info("Loading KEGG pathways from cache: %s", cache_file)
-            with open(cache_file, 'rb') as f:
+            with open(cache_file, 'rb') as raw_f:
                 # Verify HMAC signature
                 sig_path = Path(f"{cache_file}.hmac")
                 if sig_path.exists():
-                    file_data = f.read()
+                    file_data = raw_f.read()
                     with open(sig_path) as sf:
                         expected_mac = sf.read().strip()
                     actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
                     if not hmac.compare_digest(actual_mac, expected_mac):
                         raise ValueError(f"Cache integrity check failed for {cache_file}")
-                    f = BytesIO(file_data)
+                    # ``BytesIO`` gives ``safe_pickle_load`` a file-like that
+                    # owns the bytes without holding the on-disk fd open.
+                    f: Any = BytesIO(file_data)
+                else:
+                    f = raw_f
                 payload = safe_pickle_load(f)
             if isinstance(payload, dict):
                 self.kegg_pathways = payload["pathways"]
@@ -361,8 +365,8 @@ class PathwayDatabaseIntegration:
 
         for pathway_name, pathway_info in self.BUILTIN_PATHWAYS.items():
             builtin_genes = set(
-                pathway_info.get('key_kinases', []) +
-                pathway_info.get('key_substrates', [])
+                list(pathway_info.get('key_kinases', [])) +
+                list(pathway_info.get('key_substrates', []))
             )
 
             # Find best matching Reactome pathway
@@ -390,7 +394,7 @@ class PathwayDatabaseIntegration:
         self,
         pathway_name: str,
         builtin_genes: Set[str],
-    ) -> Dict:
+    ) -> PathwayMatchResult:
         """Find pathway with maximum gene overlap."""
         best_match: PathwayMatchResult = {
             'pathway_id': None,
@@ -502,8 +506,8 @@ class PathwayDatabaseIntegration:
         if pathway_id in self.BUILTIN_PATHWAYS:
             pathway_info = self.BUILTIN_PATHWAYS[pathway_id]
             genes = list(
-                pathway_info.get('key_kinases', []) +
-                pathway_info.get('key_substrates', [])
+                list(pathway_info.get('key_kinases', [])) +
+                list(pathway_info.get('key_substrates', []))
             )
             # Deduplicate while preserving order
             seen: Set[str] = set()
@@ -592,7 +596,8 @@ class PathwayDatabaseIntegration:
         builtin = {}
         for name, info in self.BUILTIN_PATHWAYS.items():
             genes = list(set(
-                info.get('key_kinases', []) + info.get('key_substrates', [])
+                list(info.get('key_kinases', [])) +
+                list(info.get('key_substrates', []))
             ))
             builtin[name] = genes
         self.kegg_pathways.update(builtin)

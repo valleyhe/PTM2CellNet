@@ -4,7 +4,7 @@ PTM位点预测模型
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,6 +12,17 @@ import torch.nn.functional as F
 from .encoders import PooledCNNEncoder, PooledTransformerEncoder, PooledLSTMEncoder
 
 logger = logging.getLogger(__name__)
+
+
+# Encoder instances are heterogeneous (CNN / Transformer / LSTM / ESM2). We
+# declare the attribute as a Union so mypy does not flag the per-branch
+# reassignment in __init__ as an incompatible-type assignment.
+_EncoderType = Union[
+    PooledCNNEncoder,
+    PooledTransformerEncoder,
+    PooledLSTMEncoder,
+    "Any",  # ESM2Encoder is imported lazily inside __init__
+]
 
 
 class PTMSitePredictor(nn.Module):
@@ -23,6 +34,10 @@ class PTMSitePredictor(nn.Module):
     2. 编码器 (CNN / Transformer / LSTM)
     3. 分类头
     """
+
+    # Declared at class level so the per-encoder-type reassignment in
+    # ``__init__`` (CNN → Transformer / LSTM / ESM2) is type-clean.
+    encoder: _EncoderType
 
     def __init__(
         self,

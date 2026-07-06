@@ -5,6 +5,7 @@ FastAPI应用模块
 """
 
 import os
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
@@ -26,6 +27,38 @@ from .monitoring import _setup_monitoring
 from .routes import router
 
 logger = setup_logger(__name__)
+
+
+def _build_lifespan():
+    """Return a FastAPI ``lifespan`` async context manager.
+
+    F-08 migration note (v17): the previous implementation used the now
+    deprecated ``@app.on_event("startup")`` / ``@app.on_event("shutdown")``
+    decorators. FastAPI has supported the Starlette ``lifespan`` ASGI
+    keyword since 0.54 (well below our declared minimum of 0.68), and
+    ``on_event`` was officially deprecated in FastAPI 0.93 in favour of
+    the lifespan context manager. We switch to ``lifespan`` now because:
+
+    * the installed FastAPI is ≥0.93 everywhere we test,
+    * ``on_event`` emits ``DeprecationWarning`` noise on modern FastAPI,
+    * a single lifespan keeps startup *and* shutdown logic together,
+      which is easier to reason about for the auto-init side effect.
+
+    The lifespan is intentionally minimal: it calls the same
+    ``_try_auto_initialize`` side effect as before on entry and logs on
+    exit. Anything more elaborate belongs in dedicated middleware so it
+    stays testable in isolation.
+    """
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):  # noqa: ARG001 - FastAPI contract
+        logger.info("PTM2CellNet API 启动")
+        _try_auto_initialize()
+        try:
+            yield
+        finally:
+            logger.info("PTM2CellNet API 关闭")
+
+    return _lifespan
 
 
 def create_app(
@@ -50,32 +83,13 @@ def create_app(
         title=title,
         description=description,
         version=version,
+        lifespan=_build_lifespan(),
     )
 
     # Production security guards (TD-M3 / TD-M4). In production this refuses
     # to start when PTM2CELLNET_API_KEY is unset or the download allowlist is
     # blank, unless the operator explicitly opts out. No-op outside prod.
     configure_production_security()
-
-    @app.on_event("startup")
-    async def _startup() -> None:
-        """Startup hook kept on ``on_event`` for FastAPI 0.68 compatibility.
-
-        F-08 migration note: FastAPI 0.93+ deprecates ``on_event`` in favour
-        of lifespan context handlers. We intentionally stay on ``on_event``
-        because the project's minimum declared FastAPI version is 0.68 (see
-        requirements-core.txt) and we want a single code path that works on
-        every supported version. When the minimum is bumped to >=0.93, both
-        hooks should be consolidated into an ``async contextmanager`` lifespan
-        and these ``on_event`` decorators removed.
-        """
-        logger.info("PTM2CellNet API 启动")
-        _try_auto_initialize()
-
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        """Shutdown hook — see F-08 migration note on ``_startup``."""
-        logger.info("PTM2CellNet API 关闭")
 
     # Request body size limit — prevents DoS via oversized payloads.
     max_body = int(os.environ.get("PTM2CELLNET_MAX_REQUEST_SIZE", _MAX_REQUEST_BODY_BYTES))

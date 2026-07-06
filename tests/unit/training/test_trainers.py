@@ -368,3 +368,54 @@ class TestTrainerErrors:
         loader = DataLoader(dataset, batch_size=2)
         with pytest.raises(TypeError, match="must be a dict"):
             trainer._train_epoch(loader)
+
+
+# ---------------------------------------------------------------------------
+# AMP version-compat helpers (v17 TD: deprecated torch.cuda.amp migration)
+# ---------------------------------------------------------------------------
+
+
+class TestAMPCompatHelpers:
+    """Pin the modern-API-first behaviour of the AMP helpers."""
+
+    def test_make_grad_scaler_returns_object_with_scale(self):
+        """``_make_grad_scaler`` must return something with a ``scale`` method.
+
+        We don't pin the concrete class (GradScaler / legacy) — only the
+        contract the trainer depends on (a ``.scale()`` method that takes a
+        loss tensor and returns a scaled tensor). A fresh GradScaler starts
+        with a non-unity dynamic scale (2**16 by default), so we only assert
+        the contract here, not the exact value.
+        """
+        import torch
+
+        from src.training.trainers import _make_grad_scaler
+
+        scaler = _make_grad_scaler()
+        assert scaler is not None
+        assert hasattr(scaler, "scale")
+        loss = torch.tensor(1.0, requires_grad=True)
+        scaled = scaler.scale(loss)
+        # Must be a positive finite float (scaled by the dynamic scale factor).
+        assert torch.isfinite(scaled)
+        assert float(scaled) > 0
+
+    def test_amp_autocast_returns_context_manager(self):
+        """``_amp_autocast`` must return an object usable as ``with ...:``."""
+        from src.training.trainers import _amp_autocast
+
+        cm = _amp_autocast()
+        # Must support the context-manager protocol.
+        assert hasattr(cm, "__enter__")
+        assert hasattr(cm, "__exit__")
+        with cm:
+            pass  # entering and exiting must not raise even without CUDA
+
+    def test_self_supervised_helpers_are_consistent(self):
+        """The duplicated helpers in self_supervised.py must behave the same."""
+        from src.training.self_supervised import _amp_autocast as ss_autocast
+        from src.training.trainers import _amp_autocast as tr_autocast
+
+        # Both must produce a usable context manager.
+        with ss_autocast(), tr_autocast():
+            pass

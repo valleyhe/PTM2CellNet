@@ -8,13 +8,21 @@ from torch import nn
 from ...data.features import DEFAULT_PTM_TYPES, FeatureExtractor
 from ...utils.logging import setup_logger
 
+# Optional integration classes. They are imported lazily because their
+# upstream modules have optional dependencies (sspa, torch) that may be
+# missing in lightweight deployments. We deliberately re-bind the module
+# level names to ``None`` in the except branch so callers can use a single
+# ``Optional[...]``-style guard (``if Foo is not None``).
+VariantEffectWorkflow: Any
+SignalingNetworkMapper: Any
+
 try:
     from ...analysis.variant_workflow import VariantEffectWorkflow
 
     VARIANT_WORKFLOW_AVAILABLE = True
-    VARIANT_WORKFLOW_IMPORT_ERROR = None
+    VARIANT_WORKFLOW_IMPORT_ERROR: Optional[Exception] = None
 except ImportError as exc:
-    VariantEffectWorkflow: Any = None
+    VariantEffectWorkflow = None
     VARIANT_WORKFLOW_AVAILABLE = False
     VARIANT_WORKFLOW_IMPORT_ERROR = exc
 
@@ -23,7 +31,7 @@ try:
 
     SIGNALING_NETWORK_AVAILABLE = True
 except ImportError:
-    SignalingNetworkMapper: Any = None
+    SignalingNetworkMapper = None
     SIGNALING_NETWORK_AVAILABLE = False
 
 logger = setup_logger(__name__)
@@ -117,9 +125,11 @@ def initialize_model(
     STATE.idx_to_label = dict(enumerate(cell_state_labels))
     STATE.device = model_device
     STATE.feature_extractor = FeatureExtractor(config or {})
-    data_cfg: Dict[str, Any] = (config or {}).get("data", {})
+    raw_data_cfg = (config or {}).get("data", {})
+    data_cfg: Dict[str, Any] = raw_data_cfg if isinstance(raw_data_cfg, dict) else {}
     STATE.max_sequence_length = data_cfg.get("max_sequence_length", 1000)
-    ptm_types = data_cfg.get("ptm_types", DEFAULT_PTM_TYPES)
+    raw_ptm_types = data_cfg.get("ptm_types", DEFAULT_PTM_TYPES)
+    ptm_types = raw_ptm_types if isinstance(raw_ptm_types, list) else list(DEFAULT_PTM_TYPES)
     STATE.ptm_type_to_idx = {ptm: i + 1 for i, ptm in enumerate(ptm_types)}
     STATE.model.to(STATE.device)
     STATE.model.eval()

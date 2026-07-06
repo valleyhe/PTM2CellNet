@@ -235,7 +235,11 @@ class PTM2CellNetBase(nn.Module):
             if task_type == "multitask":
                 raise ValueError("DAVF integration not supported with multitask mode")
 
-            davf_config_local = self.davf_config
+            # ``self.davf_config`` is Optional[Dict[str, Any]]; when DAVF is
+            # requested but no config was supplied, fall back to an empty dict
+            # so the ``.get(key, default)`` calls below all hit their defaults
+            # instead of crashing on ``None.get``.
+            davf_config_local: Dict[str, Any] = self.davf_config or {}
             davf_inference_config = DAVFInferenceConfig(
                 state_space=davf_config_local.get("state_space", "scvi_latent"),
                 checkpoint_path=davf_config_local.get(

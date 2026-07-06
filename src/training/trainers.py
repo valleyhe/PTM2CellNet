@@ -27,6 +27,42 @@ from .callbacks import Callback
 logger = setup_logger(__name__)
 
 
+def _make_grad_scaler() -> Any:
+    """Construct a CUDA AMP ``GradScaler`` using the modern API when available.
+
+    PyTorch deprecated ``torch.cuda.amp.GradScaler`` in favour of
+    ``torch.amp.GradScaler("cuda")`` (the new API takes a ``device`` string).
+    The new form landed in PyTorch 2.0+; we fall back to the legacy form on
+    older versions so the project keeps working on its full declared range.
+
+    We resolve the legacy class via ``getattr`` so that static type checkers
+    do not flag the deprecated attribute on installs where it still exists
+    but is hidden behind a deprecation shim.
+    """
+    if hasattr(torch.amp, "GradScaler"):
+        # Modern API (PyTorch >= 2.0). The string arg selects the device.
+        return torch.amp.GradScaler("cuda")
+    legacy = getattr(torch.cuda.amp, "GradScaler", None)
+    if legacy is None:  # pragma: no cover - very old torch
+        raise RuntimeError("torch.amp.GradScaler unavailable on this PyTorch")
+    return legacy()
+
+
+def _amp_autocast() -> Any:
+    """Return an autocast context manager for CUDA AMP (version-compat).
+
+    Mirrors :func:`_make_grad_scaler`: prefer the non-deprecated
+    ``torch.amp.autocast(device_type="cuda")`` (PyTorch >= 2.0) and fall back
+    to the legacy ``torch.cuda.amp.autocast()`` on older versions.
+    """
+    if hasattr(torch.amp, "autocast"):
+        return torch.amp.autocast(device_type="cuda")
+    legacy = getattr(torch.cuda.amp, "autocast", None)
+    if legacy is None:  # pragma: no cover - very old torch
+        raise RuntimeError("torch.amp.autocast unavailable on this PyTorch")
+    return legacy()
+
+
 class Trainer:
     """
     训练器类
@@ -96,10 +132,11 @@ class Trainer:
         self.gradient_accumulation_steps = gradient_accumulation_steps if gradient_accumulation_steps > 1 else self.training_config.get("gradient_accumulation_steps", 1)
         self.warmup_steps = warmup_steps if warmup_steps > 0 else self.training_config.get("warmup_steps", 0)
 
-        # AMP scaler
-        self.scaler: Optional[torch.cuda.amp.GradScaler] = None
+        # AMP scaler (uses the modern torch.amp API when available; see
+        # ``_make_grad_scaler`` for the version-compat shim).
+        self.scaler: Optional[Any] = None
         if self.use_amp and self.device == "cuda":
-            self.scaler = torch.cuda.amp.GradScaler()
+            self.scaler = _make_grad_scaler()
 
     def compile(
         self,
@@ -194,7 +231,7 @@ class Trainer:
             use_autocast = self.use_amp and self.device == "cuda"
 
             if use_autocast:
-                with torch.cuda.amp.autocast():
+                with _amp_autocast():
                     outputs = self.model(batch)
 
                     if isinstance(outputs, dict):

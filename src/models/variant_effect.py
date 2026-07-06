@@ -123,7 +123,11 @@ class VariantPTMEffectPredictor:
                     state_dict[k] = v
             model.load_state_dict(state_dict)
         else:
-            model.load_state_dict(checkpoint)
+            # ``checkpoint`` is the raw object returned by ``safe_torch_load``
+            # (typed as ``object``). When it is not a Lightning dict we assume
+            # it is already a state_dict mapping; cast to Mapping to satisfy mypy.
+            from typing import Mapping as _Mapping, cast as _cast
+            model.load_state_dict(_cast(_Mapping[str, Any], checkpoint))
 
         model.to(self.device)
         return model
@@ -203,7 +207,7 @@ class VariantPTMEffectPredictor:
         position: int,
         ref_aa: str,
         alt_aa: str,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         预测变异对PTM的影响
 

@@ -110,6 +110,11 @@ class SignalingNetworkMapper:
     将PTM变化映射到信号通路，预测下游效应
     """
 
+    # Optional[PathwayDatabaseIntegration] when sspa is installed, else None.
+    # Declared as Any because the type is only importable when the optional
+    # sspa dependency is present.
+    pathway_integration: Any
+
     # 主要信号通路定义
     SIGNALING_PATHWAYS = {
         'MAPK/ERK': {

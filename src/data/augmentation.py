@@ -74,7 +74,7 @@ class SequenceAugmenter:
 
     def _random_truncate(self, sequence: torch.Tensor) -> torch.Tensor:
         """随机截断序列头部或尾部"""
-        seq_len = (sequence != 0).sum().item()
+        seq_len = int((sequence != 0).sum().item())
         if seq_len <= 1:
             return sequence
 
@@ -90,7 +90,7 @@ class SequenceAugmenter:
         else:
             # 截断尾部
             result = sequence.clone()
-            result[int(seq_len-truncate_len):int(seq_len)] = 0
+            result[seq_len - truncate_len:seq_len] = 0
 
         return result
 
@@ -103,7 +103,7 @@ class SequenceAugmenter:
 
     def _random_swap(self, sequence: torch.Tensor) -> torch.Tensor:
         """随机交换相邻氨基酸"""
-        seq_len = (sequence != 0).sum().item()
+        seq_len = int((sequence != 0).sum().item())
         if seq_len < 2:
             return sequence
 
