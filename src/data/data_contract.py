@@ -123,6 +123,7 @@ def validate_data_contract(
     df: pd.DataFrame,
     *,
     require_all_rows_valid_ptm: bool = False,
+    require_recommended: bool = False,
 ) -> ContractReport:
     """Validate ``df`` against the real-data release contract.
 
@@ -132,6 +133,12 @@ def validate_data_contract(
             ``position`` falls outside ``[1, len(sequence)]`` is a hard failure.
             When False (default) such rows are reported as warnings so a mostly
             correct dataset can still be used after cleanup.
+        require_recommended: When True (real-data release gate, P2-1), missing
+            recommended provenance columns (protein_accession / gene_symbol /
+            source_db / evidence_level / split_group) are hard failures — the
+            dataset cannot be traced or leakage-audited without them. When
+            False (default) they are warnings, so synthetic/demo data or
+            legacy pipelines keep working.
 
     Returns:
         A report dict with ``ok``, ``hard_failures``, ``warnings``,
@@ -153,10 +160,17 @@ def validate_data_contract(
         )
     missing_recommended = [c for c in RECOMMENDED_COLUMNS if c not in df.columns]
     if missing_recommended:
-        warnings.append(
+        msg = (
             "缺少推荐 provenance 列: " + ", ".join(missing_recommended)
             + "（影响 dataset_hash/leakage 审计与发布门禁）。"
         )
+        if require_recommended:
+            hard_failures.append(
+                msg + " 真实数据必须可追溯：请重新运行 scripts/integrate_data_v2.py"
+                " 生成含 provenance 列的数据，或手工补齐后重试。"
+            )
+        else:
+            warnings.append(msg)
 
     invalid_ptm_rows = 0
     if not missing_required and len(df) > 0:

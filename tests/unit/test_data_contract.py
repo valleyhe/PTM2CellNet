@@ -88,6 +88,31 @@ class TestValidateDataContract:
         assert report["missing_recommended"]  # none of the recommended cols present
         assert any("provenance" in w for w in report["warnings"])
 
+    def test_recommended_columns_hard_when_required(self):
+        """P2-1: require_recommended=True 时缺 provenance 列升级为硬失败。"""
+        df = pd.DataFrame(_good_rows())
+        report = validate_data_contract(df, require_recommended=True)
+        assert report["ok"] is False
+        assert any("provenance" in f for f in report["hard_failures"])
+        # 错误信息必须给出可操作的修复指引
+        assert any("integrate_data_v2" in f for f in report["hard_failures"])
+
+    def test_recommended_columns_pass_when_present(self):
+        """P2-1: 数据含全部推荐列时，即使 require_recommended=True 也通过。"""
+        rows = _good_rows()
+        for r in rows:
+            r.update({
+                "protein_accession": "P12345",
+                "gene_symbol": "TP53",
+                "source_db": "epsd+cplm+dbptm",
+                "evidence_level": "database",
+                "split_group": "train",
+            })
+        df = pd.DataFrame(rows)
+        report = validate_data_contract(df, require_recommended=True)
+        assert report["ok"] is True
+        assert not report["missing_recommended"]
+
 
 # ---------------------------------------------------------------------------
 # Dataset profile

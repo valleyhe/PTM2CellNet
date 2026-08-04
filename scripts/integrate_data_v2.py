@@ -68,6 +68,40 @@ PTM_TYPE_MAP = {
 # ============================================================
 # 1. 加载序列
 # ============================================================
+
+
+def _load_gene_symbol_map():
+    """从本地 UniProt idmapping 构建 accession → gene_symbol 映射 (P2-1)。
+
+    读取 data/raw/uniprot/human_idmapping.gz（UniProt 官方三列格式：
+    accession<TAB>database<TAB>id），仅取 Gene_Name 行。文件缺失或解析
+    失败时返回空映射并打印提示——纯离线路径，不引入网络依赖。
+
+    返回:
+        Dict[str, str]: UniProt accession → 标准基因名。
+    """
+    import gzip
+
+    idmapping_path = os.path.join(RAW_DIR, "uniprot", "human_idmapping.gz")
+    if not os.path.exists(idmapping_path):
+        print("  ⚠️ 未找到本地 idmapping (data/raw/uniprot/human_idmapping.gz)，"
+              "gene_symbol 列将留空（不影响训练，但影响泄漏审计粒度）")
+        return {}
+
+    gene_map = {}
+    try:
+        with gzip.open(idmapping_path, "rt", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) == 3 and parts[1] == "Gene_Name":
+                    gene_map[parts[0]] = parts[2]
+    except OSError as exc:
+        print(f"  ⚠️ 解析 idmapping 失败: {exc}，gene_symbol 列将留空")
+        return {}
+    print(f"  ✅ 基因名映射加载: {len(gene_map):,} 个 accession")
+    return gene_map
+
+
 def load_local_sequences():
     """从本地文件加载序列 (UniProt 完整版 + CPLM)"""
     sequences = {}
@@ -350,12 +384,17 @@ def merge_sites(all_sites_dicts):
     return merged
 
 
-def build_dataset(sequences, ptm_sites, max_seq_len=1000):
-    """构建 (sequence, ptm_sites) 数据集, 支持异构体ID解析"""
+def build_dataset(sequences, ptm_sites, max_seq_len=1000, gene_symbol_map=None):
+    """构建 (sequence, ptm_sites) 数据集, 支持异构体ID解析
+
+    P2-1: 输出推荐 provenance 列 (protein_accession / gene_symbol /
+    source_db / evidence_level)，供数据契约与泄漏审计使用。
+    """
     records = []
     no_seq = 0
     too_short = 0
     isoform_resolved = 0
+    gene_map = gene_symbol_map or {}
 
     for uid, sites in ptm_sites.items():
         seq = sequences.get(uid)
@@ -393,6 +432,10 @@ def build_dataset(sequences, ptm_sites, max_seq_len=1000):
             "sequence": seq,
             "ptm_sites": ptm_json,
             "uniprot_id": uid,
+            "protein_accession": uid,
+            "gene_symbol": gene_map.get(uid, ""),
+            "source_db": "epsd+cplm+dbptm",
+            "evidence_level": "database",
             "seq_length": seq_len,
             "num_ptm_sites": len(sites),
             "cell_state": "unknown",
@@ -408,7 +451,7 @@ def build_dataset(sequences, ptm_sites, max_seq_len=1000):
 # ============================================================
 # 4. 整合已标记数据
 # ============================================================
-def integrate_labels(integrated_df):
+def integrate_labels(integrated_df, gene_symbol_map=None):
     """
     尝试将现有带标签数据整合到整合数据集中
     
@@ -426,6 +469,14 @@ def integrate_labels(integrated_df):
     # 直接保留为独立的已标记数据集
     pmads_clean = pmads[["id", "sequence", "ptm_sites", "cell_state"]].copy()
     pmads_clean["uniprot_id"] = pmads.get("protein", "unknown")
+    # P2-1: PMADS 的 protein 列即 UniProt accession；source 列即来源数据库。
+    pmads_clean["protein_accession"] = pmads.get("protein", "unknown").astype(str)
+    gene_map = gene_symbol_map or {}
+    pmads_clean["gene_symbol"] = pmads_clean["protein_accession"].map(
+        lambda acc: gene_map.get(acc, "")
+    )
+    pmads_clean["source_db"] = pmads.get("source", "pmads")
+    pmads_clean["evidence_level"] = "database"
     pmads_clean["seq_length"] = pmads_clean["sequence"].str.len()
     pmads_clean["num_ptm_sites"] = 1  # PMADS 每行一个PTM位点
 
@@ -530,7 +581,9 @@ def main():
 
     # 6. 构建数据集
     print(f"\n[6/7] 构建训练数据集...")
-    df = build_dataset(sequences, merged_sites, args.max_seq_len)
+    # P2-1: 加载本地基因名映射（离线），产出 provenance 列。
+    gene_symbol_map = _load_gene_symbol_map()
+    df = build_dataset(sequences, merged_sites, args.max_seq_len, gene_symbol_map)
 
     # 7. 保存
     print(f"\n[7/7] 保存数据...")
@@ -565,7 +618,7 @@ def main():
     # 整合标签数据
     print(f"\n{'='*60}")
     print(f"  整合已标记数据...")
-    labeled_df = integrate_labels(df)
+    labeled_df = integrate_labels(df, gene_symbol_map)
     if labeled_df is not None and len(labeled_df) > 0:
         labeled_path = output_path.replace(".csv", "_labeled.csv")
         labeled_df.to_csv(labeled_path, index=False, encoding="utf-8")

@@ -148,6 +148,11 @@ def main():
         # P1-3: 将预处理期空数据集等错误转为明确的退出码与可操作信息
         raise SystemExit(f"数据预处理失败: {exc}") from exc
 
+    # P2-1: 划分后写回 split_group 推荐列，使数据契约的泄漏审计可用
+    # （train/val/test 显式归属，与 homology 划分语义一致）。
+    for _split_name, _split_df in (("train", train_df), ("val", val_df), ("test", test_df)):
+        _split_df["split_group"] = _split_name
+
     logger.info("步骤 3: 创建数据模块")
     batch_size = config.get("training.batch_size", 32)
     num_workers = args.num_workers if args.num_workers is not None else config.get("data.num_workers", 0)
@@ -351,12 +356,16 @@ def main():
     from src.data.data_contract import profile_dataset, validate_data_contract
     from src.training.artifacts import write_artifact_manifest
 
-    contract_report = validate_data_contract(df)
+    # P2-1: 真实数据（非 demo）强制要求 provenance 列——没有它们无法做
+    # dataset_hash/leakage 审计与发布门禁；demo/synthetic 数据保持 warning。
+    # 契约硬失败不中止训练（工程上仍可迭代），但产物 manifest 标记不可发布。
+    contract_report = validate_data_contract(df, require_recommended=not is_demo_data)
     for w in contract_report.get("warnings", []):
         logger.warning("数据契约: %s", w)
-    if not contract_report["ok"] and not is_demo_data:
+    contract_violated = not contract_report["ok"] and not is_demo_data
+    if contract_violated:
         logger.warning(
-            "数据契约硬失败（将标记 deployable=False）：%s",
+            "数据契约硬失败（产物将标记 deployable=False）：%s",
             contract_report["hard_failures"],
         )
     dataset_profile = profile_dataset(df)
@@ -382,6 +391,9 @@ def main():
         metrics=_sanitize_nans(test_metrics) or None,
         dataset_profile=dataset_profile,
         release_thresholds=release_thresholds,
+        # P2-1: 契约硬失败（缺 provenance 列等）的真实数据模型不可发布，
+        # 显式覆盖 release gate 判定。
+        deployable=False if contract_violated else None,
         intended_use=(
             "Engineering pipeline validation only." if is_demo_data
             else "Cell-state prediction. Validate on held-out biological data."
