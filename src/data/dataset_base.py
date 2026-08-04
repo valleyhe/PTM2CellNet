@@ -12,21 +12,11 @@ import torch
 from torch.utils.data import Dataset
 from typing_extensions import TypedDict
 
+from .aa_constants import ALL_PTM_TYPES
+from .schemas import PTMSiteDict
 from ..utils.logging import setup_logger
 
 logger = setup_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# TypedDict definitions for structured dicts used in this module
-# ---------------------------------------------------------------------------
-
-class PTMSiteDict(TypedDict, total=False):
-    """Shape of a single PTM site dict used in dataset processing."""
-
-    position: int
-    type: str
-    amino_acid: Optional[str]
 
 
 class DatasetStatistics(TypedDict, total=False):
@@ -170,6 +160,9 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
     PTM数据集基类
     提供标签编码、PTM解析等通用功能
     """
+
+    # 所有规范PTM类型集合（由aa_constants单一定义）
+    ALL_PTM_TYPES = ALL_PTM_TYPES
 
     def __init__(
         self,

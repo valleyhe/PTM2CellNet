@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Iterable, List
+from typing import Dict, Iterable, List
 
 import torch
 import torch.nn.functional as F
@@ -13,30 +13,7 @@ from torch import nn
 
 logger = logging.getLogger(__name__)
 
-
-def _make_grad_scaler() -> Any:
-    """Construct a CUDA AMP ``GradScaler`` using the modern API when available.
-
-    PyTorch deprecated ``torch.cuda.amp.GradScaler`` in favour of
-    ``torch.amp.GradScaler("cuda")``. New form landed in PyTorch 2.0+; we
-    fall back to the legacy form on older versions.
-    """
-    if hasattr(torch.amp, "GradScaler"):
-        return torch.amp.GradScaler("cuda")
-    legacy = getattr(torch.cuda.amp, "GradScaler", None)
-    if legacy is None:  # pragma: no cover - very old torch
-        raise RuntimeError("torch.amp.GradScaler unavailable on this PyTorch")
-    return legacy()
-
-
-def _amp_autocast() -> Any:
-    """Return an autocast context manager for CUDA AMP (version-compat)."""
-    if hasattr(torch.amp, "autocast"):
-        return torch.amp.autocast(device_type="cuda")
-    legacy = getattr(torch.cuda.amp, "autocast", None)
-    if legacy is None:  # pragma: no cover - very old torch
-        raise RuntimeError("torch.amp.autocast unavailable on this PyTorch")
-    return legacy()
+from .amp_compat import make_grad_scaler, amp_autocast
 
 
 class MaskedPTMPrediction(nn.Module):
@@ -278,7 +255,7 @@ def _validate(
                 continue
 
             if use_amp:
-                with _amp_autocast():
+                with amp_autocast():
                     outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
                     logits = outputs["logits"][masked_positions]
                     targets = ptm_types[masked_positions]
@@ -376,7 +353,7 @@ def pretrain_masked_ptm(
             )
 
     use_amp = use_amp and torch.cuda.is_available()
-    scaler = _make_grad_scaler() if use_amp else None
+    scaler = make_grad_scaler() if use_amp else None
 
     cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
     plateau_scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None = None
@@ -429,7 +406,7 @@ def pretrain_masked_ptm(
                 continue
 
             if use_amp:
-                with _amp_autocast():
+                with amp_autocast():
                     outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
                     logits = outputs["logits"][masked_positions]
                     targets = ptm_types[masked_positions]

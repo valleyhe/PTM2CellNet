@@ -23,44 +23,9 @@ except ImportError:
 from ..utils.logging import setup_logger
 from .optimizers import configure_optimizer
 from .callbacks import Callback
+from .amp_compat import make_grad_scaler, amp_autocast
 
 logger = setup_logger(__name__)
-
-
-def _make_grad_scaler() -> Any:
-    """Construct a CUDA AMP ``GradScaler`` using the modern API when available.
-
-    PyTorch deprecated ``torch.cuda.amp.GradScaler`` in favour of
-    ``torch.amp.GradScaler("cuda")`` (the new API takes a ``device`` string).
-    The new form landed in PyTorch 2.0+; we fall back to the legacy form on
-    older versions so the project keeps working on its full declared range.
-
-    We resolve the legacy class via ``getattr`` so that static type checkers
-    do not flag the deprecated attribute on installs where it still exists
-    but is hidden behind a deprecation shim.
-    """
-    if hasattr(torch.amp, "GradScaler"):
-        # Modern API (PyTorch >= 2.0). The string arg selects the device.
-        return torch.amp.GradScaler("cuda")
-    legacy = getattr(torch.cuda.amp, "GradScaler", None)
-    if legacy is None:  # pragma: no cover - very old torch
-        raise RuntimeError("torch.amp.GradScaler unavailable on this PyTorch")
-    return legacy()
-
-
-def _amp_autocast() -> Any:
-    """Return an autocast context manager for CUDA AMP (version-compat).
-
-    Mirrors :func:`_make_grad_scaler`: prefer the non-deprecated
-    ``torch.amp.autocast(device_type="cuda")`` (PyTorch >= 2.0) and fall back
-    to the legacy ``torch.cuda.amp.autocast()`` on older versions.
-    """
-    if hasattr(torch.amp, "autocast"):
-        return torch.amp.autocast(device_type="cuda")
-    legacy = getattr(torch.cuda.amp, "autocast", None)
-    if legacy is None:  # pragma: no cover - very old torch
-        raise RuntimeError("torch.amp.autocast unavailable on this PyTorch")
-    return legacy()
 
 
 class Trainer:
@@ -136,7 +101,7 @@ class Trainer:
         # ``_make_grad_scaler`` for the version-compat shim).
         self.scaler: Optional[Any] = None
         if self.use_amp and self.device == "cuda":
-            self.scaler = _make_grad_scaler()
+            self.scaler = make_grad_scaler()
 
     def compile(
         self,
@@ -231,7 +196,7 @@ class Trainer:
             use_autocast = self.use_amp and self.device == "cuda"
 
             if use_autocast:
-                with _amp_autocast():
+                with amp_autocast():
                     outputs = self.model(batch)
 
                     if isinstance(outputs, dict):

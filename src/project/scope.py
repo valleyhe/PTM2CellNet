@@ -109,12 +109,18 @@ COMPLETED_FEATURES: list[str] = [
 
 
 def get_deferred_features() -> list[DeferredFeature]:
-    """Return metadata for all deferred v1.0 roadmap features."""
+    """Return metadata for all deferred v1.0 roadmap features.
+
+    Returns a shallow copy so callers can't mutate the registry.
+    """
     return list(DEFERRED_FEATURES)
 
 
 def get_cancelled_features() -> list[CancelledFeature]:
-    """Return metadata for features explicitly removed from project scope."""
+    """Return metadata for features explicitly removed from project scope.
+
+    Returns a shallow copy so callers can't mutate the registry.
+    """
     return list(CANCELLED_FEATURES)
 
 

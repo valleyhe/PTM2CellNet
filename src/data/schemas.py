@@ -12,7 +12,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 class PTMSiteDict(TypedDict, total=False):
-    """Shape of a PTM site dict for serialization / deserialization."""
+    """Shape of a PTM site dict for serialization / deserialization.
+
+    This is the single canonical source for PTM site TypedDict typing.
+    Other modules (validation.py, dataset_base.py) must import from here
+    rather than redefining their own copy.
+    """
 
     position: int
     type: str
@@ -154,6 +159,7 @@ def validate_protein_data(data: Dict[str, Union[str, int, List[PTMSiteDict]]]) -
 
 __all__ = [
     "PTMSite",
+    "PTMSiteDict",
     "ProteinData",
     "PTMRecord",
     "CellStateLabel",

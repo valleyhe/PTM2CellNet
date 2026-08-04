@@ -389,9 +389,9 @@ class TestAMPCompatHelpers:
         """
         import torch
 
-        from src.training.trainers import _make_grad_scaler
+        from src.training.amp_compat import make_grad_scaler
 
-        scaler = _make_grad_scaler()
+        scaler = make_grad_scaler()
         assert scaler is not None
         assert hasattr(scaler, "scale")
         loss = torch.tensor(1.0, requires_grad=True)
@@ -402,9 +402,9 @@ class TestAMPCompatHelpers:
 
     def test_amp_autocast_returns_context_manager(self):
         """``_amp_autocast`` must return an object usable as ``with ...:``."""
-        from src.training.trainers import _amp_autocast
+        from src.training.amp_compat import amp_autocast
 
-        cm = _amp_autocast()
+        cm = amp_autocast()
         # Must support the context-manager protocol.
         assert hasattr(cm, "__enter__")
         assert hasattr(cm, "__exit__")
@@ -413,9 +413,7 @@ class TestAMPCompatHelpers:
 
     def test_self_supervised_helpers_are_consistent(self):
         """The duplicated helpers in self_supervised.py must behave the same."""
-        from src.training.self_supervised import _amp_autocast as ss_autocast
-        from src.training.trainers import _amp_autocast as tr_autocast
+        from src.training.amp_compat import amp_autocast
 
-        # Both must produce a usable context manager.
-        with ss_autocast(), tr_autocast():
+        with amp_autocast():
             pass

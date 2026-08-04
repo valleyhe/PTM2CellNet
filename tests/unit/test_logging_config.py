@@ -1,6 +1,7 @@
 """Unit tests for src/training/logging_config.py (CONF-02)."""
 
 import os
+import tempfile
 
 import pytest
 
@@ -123,7 +124,7 @@ class TestTrainingScriptsAlwaysPassLogger:
         """configure_trainer() injects a TensorBoardLogger when none is passed."""
         from src.training.lightning_module import PTM2CellNetLightning
 
-        kwargs: dict = {"default_root_dir": "/tmp/ptm2cellnet_f07_test", "max_epochs": 1}
+        kwargs: dict = {"default_root_dir": tempfile.mkdtemp(prefix="ptm2cellnet_f07_test_"), "max_epochs": 1}
         # Don't actually instantiate the Trainer (heavy); just verify the
         # kwargs dict gets a logger key injected by the static helper logic.
         # Replicate the helper's check by calling it with a stubbed L.Trainer.

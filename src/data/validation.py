@@ -9,12 +9,13 @@ import json
 import pickle
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import pandas as pd
 import torch
 from typing_extensions import TypedDict
 
+from .schemas import PTMSiteDict
 from ..utils.io import safe_pickle_load
 from ..utils.logging import setup_logger
 
@@ -30,22 +31,6 @@ except ImportError:
     pass
 
 logger = setup_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# TypedDict definitions for structured dicts used in this module
-# ---------------------------------------------------------------------------
-
-class PTMSiteDict(TypedDict, total=False):
-    """Shape of a single PTM site dictionary.
-
-    ``position`` and ``type`` are required in practice but marked optional
-    here because the validator itself checks for their presence.
-    """
-
-    position: int
-    type: str
-    amino_acid: str
 
 
 class CacheConfig(TypedDict, total=False):
@@ -103,7 +88,8 @@ class DataValidator:
     def validate_ptm_site(
         self,
         site: PTMSiteDict,
-        seq_length: Optional[int] = None
+        seq_length: Optional[int] = None,
+        valid_ptm_types: Optional[Set[str]] = None,
     ) -> Tuple[bool, str]:
         """
         验证单个PTM位点
@@ -111,6 +97,7 @@ class DataValidator:
         参数:
             site: PTM位点字典
             seq_length: 序列长度
+            valid_ptm_types: 可选的PTM类型白名单集合（规范小写形式）
 
         返回:
             (是否有效, 错误信息)
@@ -133,6 +120,16 @@ class DataValidator:
 
         if "type" not in site:
             return False, "PTM位点缺少type字段"
+
+        ptm_type = site["type"]
+        if not isinstance(ptm_type, str) or not ptm_type.strip():
+            return False, "PTM位点type必须是非空字符串"
+
+        if valid_ptm_types is not None:
+            from src.data.aa_constants import normalize_ptm_type
+            normalized = normalize_ptm_type(ptm_type)
+            if normalized not in valid_ptm_types:
+                return False, f"不支持的PTM类型: '{ptm_type}' (标准化后: '{normalized}')"
 
         return True, ""
 

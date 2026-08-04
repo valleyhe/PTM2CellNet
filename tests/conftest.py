@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 os.environ.setdefault("JUPYTER_PLATFORM_DIRS", "1")
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -14,3 +16,14 @@ def pytest_addoption(parser):
         parser.addoption("--timeout", action="store", default=None)
     except ValueError:
         pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _seed_random():
+    """Set fixed random seeds for reproducible tests."""
+    import random
+    import torch
+    import numpy as np
+    torch.manual_seed(42)
+    np.random.seed(42)
+    random.seed(42)
