@@ -1,24 +1,85 @@
 # PTM2CellNet 文档归档
 
-本目录包含 PTM2CellNet 项目的历史文档归档。所有文件均为历史快照，内容可能已过时。
+本目录存放 PTM2CellNet 项目的历史文档与过期检测报告。所有文件均为历史快照，
+**内容可能已过时**，仅供追溯与审计使用，不应作为开发依据。
 
-## 当前活跃文档
+归档日期：2026-07-03 ~ 2026-07-11（随系统性复核轮次分批归档）
 
-- **最新系统复核报告**: `../项目代码现状系统性复核报告_2026-07-05_v14.md`
+## 归档原因与分类规则
+
+| 类别 | 归档原因 |
+|------|----------|
+| `systematic_review_reports/` | 系统性代码复核报告的历史版本（v6–v19）。每轮复核产生新版本后，旧版本即过期；保留全部版本以追踪评估口径演进 |
+| `status_and_audit_reports/` | E2E 就绪性分析、代码审计、深度复核、测试/静态检查报告等一次性快照报告，结论已被后续复核取代 |
+| `plans_and_designs/` | 已执行完毕或已被取代的设计文档、实施计划、模块交付物清单（2026-03 ~ 2026-05 期间产出） |
+| `experiment_reports/` | 早期实验报告、基准测试、调优与验证报告，对应代码已演进，数据不再代表当前状态 |
+| `technical_analysis/` | 一次性技术深度分析、方案比较、临时笔记（.rst/.txt） |
+| `superpowers/` | 旧版 superpowers 工作流产物（plans/specs），对应功能已合并至当前架构 |
+
+## 目录内容清单
+
+### systematic_review_reports/（v6–v19，共 19 份）
+
+| 版本 | 文件 | 归档原因 |
+|------|------|----------|
+| v6–v13 | `项目代码现状系统性复核报告_2026-07-05_v{6..13}.md` | 被 v14 取代 |
+| v14 | `项目代码现状系统性复核报告_2026-07-05_v14.md` | 被 v15 取代 |
+| v15 | `项目代码现状系统性复核报告_2026-07-05_v15.md` | 被 v16 取代 |
+| v16–v18 | `项目代码现状系统性复核报告_2026-07-06_v{16..18}.md` | 分别被 v17/v18/v19 取代 |
+| v19 | `项目代码现状系统性复核报告_2026-07-06_v19.md` | **最新版**，当前状态权威来源（mypy 清零、1521 unit + 67 integration + 42 E2E 通过） |
+
+> 注意：v6–v13 头部 banner 的"最新版本"链接已修正为指向同目录 v14；
+> 其余正文内部链接为历史快照原文，可能指向旧路径，属预期现象。
+
+### status_and_audit_reports/（26 份）
+
+- `E2E训练和推理就绪性分析报告.md`、`E2E训练和推理就绪性复核报告_2026_07_01.md`、`E2E训练和推理当前代码复核_2026_07_01.md`、`E2E训练和推理当前代码现状复核_2026_07_02.md`、`e2e_status_analysis_2026-07-05.md`、`e2e_status_report_2026_06_30.md`、`e2e_training_inference_current_status_2026_07_01.md`
+- `code_status_comprehensive_review_2026_06_30.md`、`code_status_e2e_analysis_report.md`、`code_status_systematic_review_report.md`
+- `深度代码现状复核报告.md`、`深度代码现状复核报告_v2.md`、`深度代码现状复核报告_v3.md`、`项目深度复核报告_2026-06-28.md`
+- `项目代码现状系统性复核报告_2026-07-03.md`、`项目代码现状系统性复核报告_2026-07-03_v2.md`
+- `项目进度与代码现状复核报告_2026-07-02.md`、`项目进度与代码现状复核报告_20260702.md`
+- `项目计划文档.md`
+- `数据质量评估报告.md`、`集成测试报告.md`、`静态代码检查报告.md`
+
+归档原因：均为单次快照结论，已被 v19 系统性复核取代。
+
+### plans_and_designs/（31 份）
+
+2026-03-08 ~ 2026-05-03 期间的设计文档、实施计划与模块交付物清单
+（`2026-03-*`、`2026-05-03-davf-integration-*`、`模块一~六交付物清单.md`、
+`代码修改与测试方案.md`、`执行总结报告.md` 等）。
+归档原因：对应设计与计划已全部执行完毕，功能已合入当前架构。
+
+### experiment_reports/（17 项）
+
+早期训练/基准/调优/验证报告（`第一阶段完成报告.md`、`GPU训练修复报告.md`、
+`Mamba验证报告.md`、`超参数调优*`、`benchmark_report.md`、`performance_benchmark.md`、
+`可解释性分析报告.md`、`消融实验报告.md`、`数据统计报告.md`、`gpu_benchmark_report.md`
+（原 `reports/`，2026-03-31）、`coverage_report/`（原 `reports/`，2026-03-31） 等）。
+归档原因：数据对应旧代码版本，不再代表当前模型性能。
+
+### technical_analysis/（9 份）
+
+`PTM2CellNet-深度技术分析文档.md`、`PTM2CellNet技术深度分析报告.md`、
+`2026-03-15-GenKI源码与PTM2CellNet整合分析.md`、`PTM和序列信息融合方案比较.txt`、
+`branch.rst`、`config.rst`、`fixtures.rst`、`parametrize.rst`、`sklearn_tips.rst`、`test.txt`。
+归档原因：一次性分析/临时笔记。
+
+### superpowers/（2 份）
+
+`plans/2026-03-13-ptm2cellnet-fusion-type.md`、`specs/2026-03-13-ptm2cellnet-fusion-type-design.md`。
+归档原因：旧版 superpowers 工作流产物，fusion-type 功能已实现并合入当前架构。
+
+## 当前活跃文档（不在本目录）
+
+- **最新系统性复核报告**: [`docs/archive/systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md`](systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)
 - **项目状态总览**: `../CURRENT_STATUS.md`
+- **项目/技术/文件说明文档**: `../PTM2CellNet_项目文档.md`、`../PTM2CellNet_技术文档.md`、`../PTM2CellNet_文件说明.md`
 - **用户指南**: `../guides/`
-- **API 文档**: `../api/`
-
-## 归档子目录
-
-| 目录 | 内容 |
-|------|------|
-| `systematic_review_reports/` | v1-v13 系统复核报告（历史版本） |
-| `status_and_audit_reports/` | E2E 状态报告、代码审计报告 |
-| `plans_and_designs/` | 历史设计文档、实施计划、技术规范 |
-| `experiment_reports/` | 实验报告、基准测试、验证报告 |
-| `technical_analysis/` | 技术深度分析报告 |
+- **API 文档（Sphinx 源）**: `../api/`（由 `generate_api_docs.sh` 生成）
 
 ## 注意
 
-归档文档中提到的已取消功能（实时质谱流、自定义 PTM 数据库、GUI、API key 扩展）不应作为新开发的目标。
+1. 归档文档中提到的已取消功能（实时质谱流、自定义 PTM 数据库、GUI、API key 扩展）不应作为新开发目标。
+2. 归档文件内部链接为原始快照，可能指向已移动路径；以各分类目录内文件的相对位置为准。
+3. 新增过期文档时，请保持本 README 的清单同步更新。
