@@ -173,6 +173,41 @@ class TestAutoInitLifespan:
         with TestClient(create_app()):
             assert STATE.model is None, "model loaded despite having no label source"
 
+    def test_auto_init_discovers_sibling_config_without_env(self, tmp_path, monkeypatch):
+        """P1-1: CHECKPOINT only (no PTM2CELLNET_CONFIG) must discover the sibling
+        <name>.config.yaml instead of defaulting to configs/production.yaml (which
+        lacks model.encoder_type and fails architecture validation)."""
+        cell_states = ["growth", "arrest", "death"]
+        ckpt = _train_tiny_artifact(tmp_path, cell_states)
+        monkeypatch.setenv("PTM2CELLNET_CHECKPOINT", str(ckpt))
+        monkeypatch.delenv("PTM2CELLNET_CONFIG", raising=False)
+        monkeypatch.delenv("PTM2CELLNET_CELL_STATES", raising=False)
+
+        with TestClient(create_app()) as client:
+            assert STATE.model is not None, (
+                "model must auto-load via sibling config discovery"
+            )
+            assert STATE.cell_states == cell_states
+            r = client.post("/api/v1/predict", json={"sequence": "ACDEFGHIK", "ptm_sites": []})
+            assert r.status_code == 200, r.text
+            assert set(r.json()["probabilities"].keys()) == set(cell_states)
+
+    def test_auto_init_reports_missing_config_without_env(self, tmp_path, monkeypatch, caplog):
+        """P1-1: CHECKPOINT set but no config anywhere -> clear failure log and no
+        model load (must NOT silently fall back to configs/production.yaml)."""
+        cell_states = ["a", "b"]
+        ckpt = _train_tiny_artifact(tmp_path, cell_states)
+        # Remove the sibling config so discovery finds nothing.
+        (tmp_path / "best_model.config.yaml").unlink()
+        monkeypatch.setenv("PTM2CELLNET_CHECKPOINT", str(ckpt))
+        monkeypatch.delenv("PTM2CELLNET_CONFIG", raising=False)
+        monkeypatch.delenv("PTM2CELLNET_CELL_STATES", raising=False)
+
+        with caplog.at_level("ERROR", logger="src.api.autoinit"):
+            with TestClient(create_app()):
+                assert STATE.model is None, "model must not load without any config"
+        assert any("未设置 PTM2CELLNET_CONFIG" in rec.message for rec in caplog.records)
+
     def test_auto_init_fails_on_label_count_mismatch(self, tmp_path, monkeypatch):
         """config cell_states count != num_classes must abort auto-init."""
         cell_states = ["a", "b", "c"]

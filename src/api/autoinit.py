@@ -12,7 +12,7 @@ from typing import Any, List, Optional, Tuple, TypedDict, cast
 import torch
 import yaml
 
-from ..utils.checkpoint_utils import extract_model_state_dict
+from ..utils.checkpoint_utils import extract_model_state_dict, sibling_config_path
 from ..utils.io import safe_torch_load
 from ..utils.logging import setup_logger
 from .routes.state import (
@@ -213,7 +213,12 @@ def _try_auto_initialize() -> None:
     if not checkpoint_path:
         checkpoint_path = ""
 
-    config_path = os.environ.get("PTM2CELLNET_CONFIG", "configs/production.yaml")
+    # P1-1: 配置解析优先级 = 显式 PTM2CELLNET_CONFIG > checkpoint sibling config >
+    # 明确报错。旧实现默认回落 configs/production.yaml——该文件是部署配置，
+    # model 段只有 path/device/batch_size/max_sequence_length，缺少 encoder_type
+    # 等架构字段，必然触发 PTM2CellNet.from_config 的架构校验失败
+    # (architectures.py:577 -> model_utils.py:80)。
+    config_path = os.environ.get("PTM2CELLNET_CONFIG", "")
     env_cell_states = os.environ.get("PTM2CELLNET_CELL_STATES")
 
     if not checkpoint_path:
@@ -222,6 +227,28 @@ def _try_auto_initialize() -> None:
 
     if not Path(checkpoint_path).exists():
         logger.warning("Checkpoint not found at %s — API starts without model.", checkpoint_path)
+        return
+
+    if not config_path:
+        # 与 resolve_inference_config (checkpoint_utils.py:202) 的 sibling-优先
+        # 语义对齐：训练产物 best_model.config.yaml 自带模型架构字段，是唯一
+        # 保证与 checkpoint 匹配的配置来源。
+        sibling = sibling_config_path(checkpoint_path)
+        if sibling.exists():
+            config_path = str(sibling)
+            logger.info("PTM2CELLNET_CONFIG 未设置，使用 checkpoint 配套配置 %s", config_path)
+    if not config_path:
+        logger.error(
+            "自动初始化中止：未设置 PTM2CELLNET_CONFIG 且 checkpoint %s 同目录无 "
+            "%s。请设置 PTM2CELLNET_CONFIG 指向训练该 checkpoint 时的 config。",
+            checkpoint_path, sibling_config_path(checkpoint_path),
+        )
+        return
+    if not Path(config_path).exists():
+        logger.error(
+            "自动初始化中止：PTM2CELLNET_CONFIG=%s 不存在。请指向训练该 checkpoint "
+            "时的 config 文件。", config_path,
+        )
         return
 
     try:
