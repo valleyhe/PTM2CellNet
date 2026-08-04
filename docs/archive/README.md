@@ -31,8 +31,12 @@
 > 注意：v6–v13 头部 banner 的"最新版本"链接已修正为指向同目录 v14；
 > 其余正文内部链接为历史快照原文，可能指向旧路径，属预期现象。
 
-### status_and_audit_reports/（26 份）
+### status_and_audit_reports/（27 份）
 
+- `E2E训练和推理能力评估报告_2026-08-04.md`（2026-08-04 归档）：P0–P2
+  修复**前**的状态快照（P1-1/P2-1 问题描述）；修复后现状以
+  `../问题修复与系统性复核报告_2026-08-04.md` 与
+  `../E2E训练和推理能力评估报告_2026-08-04_v2.md` 为准
 - `E2E训练和推理就绪性分析报告.md`、`E2E训练和推理就绪性复核报告_2026_07_01.md`、`E2E训练和推理当前代码复核_2026_07_01.md`、`E2E训练和推理当前代码现状复核_2026_07_02.md`、`e2e_status_analysis_2026-07-05.md`、`e2e_status_report_2026_06_30.md`、`e2e_training_inference_current_status_2026_07_01.md`
 - `code_status_comprehensive_review_2026_06_30.md`、`code_status_e2e_analysis_report.md`、`code_status_systematic_review_report.md`
 - `深度代码现状复核报告.md`、`深度代码现状复核报告_v2.md`、`深度代码现状复核报告_v3.md`、`项目深度复核报告_2026-06-28.md`
@@ -41,7 +45,7 @@
 - `项目计划文档.md`
 - `数据质量评估报告.md`、`集成测试报告.md`、`静态代码检查报告.md`
 
-归档原因：均为单次快照结论，已被 v19 系统性复核取代。
+归档原因：均为单次快照结论，已被 v19 系统性复核与 2026-08-04 修复复核取代。
 
 ### plans_and_designs/（31 份）
 
@@ -73,6 +77,7 @@
 ## 当前活跃文档（不在本目录）
 
 - **最新系统性复核报告**: [`docs/archive/systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md`](systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)
+- **最新修复与状态权威**: `../问题修复与系统性复核报告_2026-08-04.md`、`../E2E训练和推理能力评估报告_2026-08-04_v2.md`
 - **项目状态总览**: `../CURRENT_STATUS.md`
 - **项目/技术/文件说明文档**: `../PTM2CellNet_项目文档.md`、`../PTM2CellNet_技术文档.md`、`../PTM2CellNet_文件说明.md`
 - **用户指南**: `../guides/`
