@@ -1,8 +1,9 @@
 """Tests for API route handlers in src/api/routes/.
 
 Covers model_info, predictions, and state routes using FastAPI TestClient
-with mocked model initialization. Tests that need actual model weights
-are marked with pytest.mark.skipif.
+with mocked model initialization. TestEndToEndPrediction additionally
+exercises the full chain with a real in-test model (no mock, no external
+weights required).
 """
 
 import pytest
@@ -453,16 +454,63 @@ class TestVariantPredictRoute:
 
 
 # ---------------------------------------------------------------------------
-# Tests requiring actual model weights (skipped by default)
+# End-to-end prediction with a real (in-test) model — replaces the former
+# "TestWithRealWeights" placeholder whose body was `pass` and which was
+# permanently skipped via a hard-coded has_real_weights=False flag.
 # ---------------------------------------------------------------------------
 
-has_real_weights = False  # Flip to True when weights are available
+class TestEndToEndPrediction:
+    """Full predict chain: real nn.Module -> initialize_model -> route -> JSON.
 
+    Uses a real model instance (no mock), so the assertions reflect actual
+    route/model behavior: label set, probability normalization, PTM-site
+    parsing, and batch responses.
+    """
 
-@pytest.mark.skipif(not has_real_weights, reason="Requires actual model weights")
-class TestWithRealWeights:
-    """Integration-level tests that need a real checkpoint."""
+    def test_single_predict_returns_normalized_probs(self, app_client):
+        resp = app_client.post(
+            "/api/v1/predict",
+            json={
+                "sequence": "ACDEFGHIKLMNPQRSTVWY",
+                "ptm_sites": [
+                    {"position": 5, "type": "phosphorylation", "amino_acid": "F"}
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "probabilities" in data
+        probs = data["probabilities"]
+        # 概率分布键必须与初始化标签一致（避免标签语义错位）
+        assert set(probs.keys()) == set(STATE.cell_states)
+        total = sum(probs.values())
+        assert abs(total - 1.0) < 1e-5
 
-    def test_predict_with_production_model(self):
-        """End-to-end prediction with a production checkpoint."""
-        pass  # Placeholder for real integration test
+    def test_single_predict_with_ptm_sites(self, app_client):
+        resp = app_client.post(
+            "/api/v1/predict",
+            json={
+                "sequence": "ACDEFGHIKLMNPQRSTVWY",
+                "ptm_sites": [
+                    {"position": 5, "type": "phosphorylation", "amino_acid": "F"}
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["cell_state"] in STATE.cell_states
+
+    def test_batch_predict_returns_one_row_per_input(self, app_client):
+        resp = app_client.post(
+            "/api/v1/batch_predict",
+            json={
+                "samples": [
+                    {"sequence": "ACDEFGHIKLMNPQRSTVWY", "ptm_sites": []},
+                    {"sequence": "M" * 40, "ptm_sites": []},
+                ]
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["sample_count"] == 2
+        assert len(data["predictions"]) == 2
+        assert data["predictions"][0]["cell_state"] in STATE.cell_states
