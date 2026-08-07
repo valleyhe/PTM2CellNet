@@ -313,6 +313,10 @@ class PTMDirectionMapper:
         Returns:
             (gene_id, valid_flag): gene ID (0 if unknown) and validity flag (1 or 0)
         """
+        # Empty/whitespace gene name: mask out immediately, never hit the network
+        if not gene_name or not gene_name.strip():
+            return 0, 0
+
         # Check if directly in Geneformer vocabulary
         gene_to_idx = getattr(self.geneformer_loader, '_gene_to_idx', {})
 

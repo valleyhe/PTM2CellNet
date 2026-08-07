@@ -26,8 +26,11 @@
 !.coveragerc
 !.pylintrc
 !API_DOCUMENTATION.md
+!project_analysis_*.md
 !CHANGELOG.md
 !LICENSE
+!archive/
+!archive/**
 
 # ==================== Python bytecode (within whitelisted dirs) ====================
 __pycache__/
@@ -39,3 +42,5 @@ __pycache__/
 .coverage.*
 htmlcov/
 .tox/
+!archive/**/.coverage
+!archive/**/.coverage.*

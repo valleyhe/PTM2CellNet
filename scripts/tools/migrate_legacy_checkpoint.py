@@ -35,6 +35,23 @@ logging.basicConfig(
 logger = logging.getLogger("migrate_legacy_checkpoint")
 
 
+def _install_pathlib_local_shim() -> None:
+    """Python 版本兼容 shim（2026-08-04 实测修复）。
+
+    旧 checkpoint 由较新 Python 版本（其 pathlib 实现含 ``pathlib._local``
+    子模块）pickle，在 Python 3.12 上反序列化会报
+    ``No module named 'pathlib._local'; 'pathlib' is not a package``。
+    此处将真实 pathlib 模块注册为 ``pathlib._local``，使 pickle 的
+    ``find_class`` 能解析到 ``PosixPath`` 等符号。
+    """
+    import pathlib as _pathlib
+    import sys as _sys
+
+    if not hasattr(_pathlib, "_local"):
+        _sys.modules.setdefault("pathlib._local", _pathlib)
+        logger.info("pathlib._local shim installed (Python %s)", _sys.version.split()[0])
+
+
 def migrate_checkpoint(input_path: str, output_path: str, device: str = "cpu") -> None:
     """Load a legacy checkpoint and re-save only the safe tensor state dict.
 
@@ -69,6 +86,7 @@ def migrate_checkpoint(input_path: str, output_path: str, device: str = "cpu") -
         # permitted ONLY in this one-off migration script.  Do NOT copy
         # this pattern elsewhere.
         # ═══════════════════════════════════════════════════════════════
+        _install_pathlib_local_shim()
         checkpoint: Any = torch.load(
             str(inp),
             map_location=device,

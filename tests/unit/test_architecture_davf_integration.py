@@ -13,6 +13,23 @@ from src.api.schemas import PTMSite
 from src.models.architectures import PTM2CellNet
 
 
+@pytest.fixture(autouse=True)
+def _offline_gene_resolution(monkeypatch):
+    """Neutralize UniProt network calls so tests are deterministic & offline.
+
+    ``PTMDirectionMapper._resolve_gene_id`` falls back to a live UniProt
+    ``GeneMapper`` lookup whenever a gene symbol (e.g. ``"TP53"``) is absent
+    from the integer-indexed Geneformer vocabulary. In CI / offline runs that
+    lookup hangs on network timeouts. These tests only assert output *shapes*,
+    so masking the gene out (returning ``(0, 0)``) is equivalent and keeps the
+    suite green without network access.
+    """
+    import src.analysis.gene_mapper as _gm
+
+    monkeypatch.setattr(_gm.GeneMapper, "map_gene_to_uniprot", lambda self, gene, **kw: None)
+    monkeypatch.setattr(_gm, "map_gene_to_uniprot", lambda gene, **kw: None)
+
+
 def make_batch(batch_size: int = 2, seq_len: int = 32, device: torch.device | str = "cpu") -> dict:
     device = torch.device(device)
     return {
@@ -162,15 +179,138 @@ class TestDAVFArchitectureIntegration:
         output = model(batch)
         assert output["logits"].shape == (2, 4)
 
-    def test_davf_with_multitask_raises(self):
-        with pytest.raises(ValueError, match="DAVF integration not supported with multitask mode"):
-            PTM2CellNet(
-                encoder_type="transformer",
-                embed_dim=128,
-                use_davf=True,
-                task_type="multitask",
-                multitask_configs=[{"name": "task1", "type": "classification", "num_classes": 2}],
-            )
+    def test_davf_with_multitask_builds(self):
+        model = PTM2CellNet(
+            encoder_type="transformer",
+            embed_dim=128,
+            use_davf=True,
+            task_type="multitask",
+            multitask_configs=[
+                {"name": "cell_state", "type": "classification", "num_classes": 4},
+                {"name": "ptm_site", "type": "classification", "num_classes": 5},
+            ],
+        )
+
+        assert model.use_davf is True
+        assert model.davf_module is not None
+        assert model.davf_feature_dim == 128
+        assert model.predictor.get_task_names() == ["cell_state", "ptm_site"]
+        # 任务头消费拼接后的 [序列+PTM ; DAVF] 联合表示
+        assert model.predictor.input_dim == 128 + 128
+
+    def test_davf_with_multitask_forward(self):
+        model = PTM2CellNet(
+            encoder_type="transformer",
+            embed_dim=128,
+            use_davf=True,
+            task_type="multitask",
+            multitask_configs=[
+                {"name": "cell_state", "type": "classification", "num_classes": 4},
+                {"name": "ptm_site", "type": "classification", "num_classes": 5},
+            ],
+        )
+
+        batch = make_batch()
+        davf_sites, davf_gene_names = make_davf_inputs()
+        batch["davf_sites"] = davf_sites
+        batch["davf_gene_names"] = davf_gene_names
+
+        output = model(batch)
+        assert output["cell_state"]["logits"].shape == (2, 4)
+        assert output["cell_state"]["probabilities"].shape == (2, 4)
+        assert output["ptm_site"]["logits"].shape == (2, 5)
+
+    def test_davf_with_multitask_zero_features(self):
+        model = PTM2CellNet(
+            encoder_type="transformer",
+            embed_dim=128,
+            use_davf=True,
+            task_type="multitask",
+            multitask_configs=[
+                {"name": "cell_state", "type": "classification", "num_classes": 4},
+            ],
+        )
+
+        # 无 davf_sites / 无 checkpoint：DAVF 分支回退为零特征，前向仍应可用
+        output = model(make_batch())
+        assert output["cell_state"]["logits"].shape == (2, 4)
+
+    def test_davf_multitask_gradient_flows_into_projection(self):
+        """Joint multitask+DAVF mode: gradient reaches the trainable DAVF
+        projection head (the rest of DAVF stays frozen by default).
+
+        Mirrors the two-stage training contract (Section 3.5 of the methods):
+        stage 1 keeps the DAVF backbone frozen and only the projection head +
+        prediction heads train, so the projection must receive gradient while
+        the DAVF encoder parameters must not.
+
+        Uses ``state_space="gene"`` so the branch is active without requiring
+        a pretrained checkpoint file (``_checkpoint_loaded=True``).
+        """
+        model = PTM2CellNet(
+            encoder_type="transformer",
+            embed_dim=128,
+            use_davf=True,
+            task_type="multitask",
+            multitask_configs=[
+                {"name": "cell_state", "type": "classification", "num_classes": 4},
+                {"name": "ptm_site", "type": "classification", "num_classes": 5},
+            ],
+            davf_config={
+                "state_space": "gene",
+                "feature_dim": 64,
+                "hidden_dim": 128,
+                "freeze": True,
+            },
+        )
+        assert model.davf_module is not None
+        assert model.davf_module._checkpoint_loaded is True
+
+        # DAVF backbone frozen by default; projection head always trainable.
+        davf_encoder_frozen = all(
+            not p.requires_grad for p in model.davf_module.gene_encoder.parameters()
+        )
+        projection_trainable = any(
+            p.requires_grad for p in model.davf_module.delta_projection.parameters()
+        )
+        assert davf_encoder_frozen, "DAVF encoder must be frozen by default (stage 1)"
+        assert projection_trainable, "DeltaProjection must remain trainable"
+
+        batch = make_batch()
+        davf_sites, davf_gene_names = make_davf_inputs()
+        batch["davf_sites"] = davf_sites
+        batch["davf_gene_names"] = davf_gene_names
+
+        output = model(batch)
+        loss = output["cell_state"]["logits"].sum() + output["ptm_site"]["logits"].sum()
+        loss.backward()
+
+        # The trainable projection head must receive gradient in joint mode.
+        proj_grad = model.davf_module.delta_projection.net[0].weight.grad
+        assert proj_grad is not None, "gradient must flow into DAVF projection"
+        assert torch.isfinite(proj_grad).all()
+        assert float(proj_grad.abs().sum()) > 0
+
+
+    def test_from_config_with_multitask_and_davf(self):
+        config = {
+            "model": {
+                "encoder_type": "transformer",
+                "hidden_dim": 128,
+                "task_type": "multitask",
+                "use_davf": True,
+                "multitask_configs": [
+                    {"name": "cell_state", "type": "classification", "num_classes": 4},
+                ],
+            },
+            "data": {},
+        }
+        model = PTM2CellNet.from_config(config)
+
+        assert model.use_davf is True
+        assert model.predictor.get_task_names() == ["cell_state"]
+        output = model(make_batch())
+        assert output["cell_state"]["logits"].shape == (2, 4)
 
     def test_from_config_with_davf(self):
         config = make_config(

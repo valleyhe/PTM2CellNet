@@ -148,6 +148,7 @@ class PTM2CellNetBase(nn.Module):
         freeze_encoder: bool = False,
         pretrained_cache_dir: Optional[str] = None,
         ptm_fusion_type: str = "attention",
+        use_ptm_module: bool = True,
         task_type: str = "classification",
         pool_type: str = "mean",
         multitask_configs: Optional[list] = None,
@@ -196,16 +197,20 @@ class PTM2CellNetBase(nn.Module):
             self.embed_dim = effective_embed_dim
         self.encoder = encoder
 
-        # PTM 模块
-        self.ptm_module = PTMModule(
-            num_ptm_types=num_ptm_types,
-            embed_dim=self.embed_dim,
-            max_position=max_seq_len,
-            num_attention_heads=max(1, num_heads),
-            num_layers=max(1, num_layers),
-            dropout=dropout,
-            fusion_type=ptm_fusion_type,
-        )
+        # PTM 模块（use_ptm_module=False 时跳过，用于"仅序列"消融 S0）
+        self.use_ptm_module = use_ptm_module
+        if use_ptm_module:
+            self.ptm_module = PTMModule(
+                num_ptm_types=num_ptm_types,
+                embed_dim=self.embed_dim,
+                max_position=max_seq_len,
+                num_attention_heads=max(1, num_heads),
+                num_layers=max(1, num_layers),
+                dropout=dropout,
+                fusion_type=ptm_fusion_type,
+            )
+        else:
+            self.ptm_module = None
 
         # 池化层
         self.pooling = create_pooling_layer(
@@ -232,9 +237,6 @@ class PTM2CellNetBase(nn.Module):
         self.davf_feature_dim: int = 0
 
         if use_davf:
-            if task_type == "multitask":
-                raise ValueError("DAVF integration not supported with multitask mode")
-
             # ``self.davf_config`` is Optional[Dict[str, Any]]; when DAVF is
             # requested but no config was supplied, fall back to an empty dict
             # so the ``.get(key, default)`` calls below all hit their defaults
@@ -259,14 +261,16 @@ class PTM2CellNetBase(nn.Module):
             self.ptm_mapper = PTMDirectionMapper()
             self.davf_feature_dim = davf_inference_config.feature_dim
 
-            # 用扩展后的输入维度重建 predictor（D-04）
+            # 用扩展后的输入维度重建 predictor（D-04）。
+            # 多任务模式同样支持 DAVF 分支：任务头消费拼接后的
+            # [序列+PTM表示 ; DAVF特征] 联合表示。
             combined_input_dim = self.embed_dim + self.davf_feature_dim
             self.predictor = self._build_predictor(
                 task_type=task_type,
                 input_dim=combined_input_dim,
                 num_classes=num_classes,
                 dropout=dropout,
-                multitask_configs=None,
+                multitask_configs=multitask_configs,
                 override_hidden_base=combined_input_dim,
             )
 
@@ -483,7 +487,10 @@ class PTM2CellNetBase(nn.Module):
             torch.arange(seq_len, device=device).unsqueeze(0).repeat(batch_size, 1),
         )
 
-        fused = self.ptm_module(seq_emb, ptm_types, ptm_positions, ptm_mask)
+        if self.use_ptm_module:
+            fused = self.ptm_module(seq_emb, ptm_types, ptm_positions, ptm_mask)
+        else:
+            fused = seq_emb  # S0 消融：不使用 PTM 模块
 
         # 池化
         if isinstance(self.pooling, nn.Module):
@@ -596,6 +603,7 @@ class PTM2CellNetBase(nn.Module):
         freeze_encoder = _pick("freeze_encoder", False)
         pretrained_cache_dir = _pick("pretrained_cache_dir", None)
         ptm_fusion_type = _pick("ptm_fusion_type", "attention")
+        use_ptm_module = _pick("use_ptm_module", True)
         task_type = _pick("task_type", "classification")
         pool_type = _pick("pool_type", "mean")
         multitask_configs = _pick("multitask_configs", None)
@@ -634,6 +642,7 @@ class PTM2CellNetBase(nn.Module):
             "freeze_encoder": freeze_encoder,
             "pretrained_cache_dir": pretrained_cache_dir,
             "ptm_fusion_type": ptm_fusion_type,
+            "use_ptm_module": use_ptm_module,
             "task_type": task_type,
             "pool_type": pool_type,
             "multitask_configs": multitask_configs,

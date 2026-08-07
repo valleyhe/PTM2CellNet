@@ -52,7 +52,11 @@ curl -X POST http://localhost:8000/api/v1/predict \
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `MODEL_PATH` | 模型权重路径 | `outputs/models/best_model.pt` |
+| `PTM2CELLNET_CHECKPOINT` | 模型权重路径（`MODEL_PATH` 仅作兼容别名） | `outputs/models/best_model.pt` |
+| `PTM2CELLNET_CONFIG` | 模型配置路径；未设置时可从 checkpoint sibling config 发现 | — |
+| `PTM2CELLNET_API_PREFIX` | API 路由前缀 | `/api/v1` |
+| `PTM2CELLNET_API_KEY` | 生产环境 API key；未设置时不启用兼容认证中间件 | — |
+| `PTM2CELLNET_RATE_LIMIT_RPM` | 每进程每分钟请求上限；`0` 表示关闭 | `600` |
 | `HF_ENDPOINT` | Hugging Face镜像 | `https://hf-mirror.com` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 

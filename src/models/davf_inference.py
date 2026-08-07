@@ -41,6 +41,7 @@ import torch
 import torch.nn as nn
 
 from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
+from src.models.legacy_davf import LegacyLatentDAVF
 from src.models.ptm_direction_mapper import PTMDirectionMapperOutput
 from src.utils.io import safe_torch_load
 
@@ -275,7 +276,7 @@ class DAVFInferenceModule(nn.Module):
                 num_genes=config.num_genes,
                 hidden_dim=config.hidden_dim,
             )
-            self.latent_davf = LatentDAVF(latent_config)
+            self.latent_davf: LatentDAVF | LegacyLatentDAVF = LatentDAVF(latent_config)
         elif config.state_space == "gene":
             # Create GeneMLEPEncoder for gene-space inference (no ODE)
             self.gene_encoder = GeneMLEPEncoder(
@@ -381,6 +382,30 @@ class DAVFInferenceModule(nn.Module):
                 raise ValueError(
                     f"Checkpoint must be a dictionary, got {type(checkpoint)}"
                 )
+
+            # Legacy-architecture checkpoints (pre-2026, ``delta_mlp`` block):
+            # current LatentDAVF cannot load them; reconstruct via the compat layer.
+            if LegacyLatentDAVF.is_legacy_state_dict(state_dict):
+                # 注意：_load_checkpoint 在 ``self.to(self.device)`` 之后调用，
+                # 新构建的 legacy 模块需显式移动到运行时设备。
+                legacy = LegacyLatentDAVF().to(self.device)
+                incompatible = legacy.load_state_dict(state_dict, strict=False)
+                expected_keys = set(legacy.state_dict().keys())
+                loaded_keys = set(state_dict.keys()) & expected_keys
+                if not loaded_keys:
+                    raise RuntimeError(
+                        "State dict incompatible: no recognized LegacyLatentDAVF "
+                        "parameter keys found"
+                    )
+                self.latent_davf = legacy
+                self._checkpoint_loaded = True
+                logger.info(
+                    "Loaded legacy DAVF checkpoint via LegacyLatentDAVF "
+                    "(loaded=%s, matched_keys=%d, missing_keys=%d, unexpected_keys=%d)",
+                    self._checkpoint_loaded, len(loaded_keys),
+                    len(incompatible.missing_keys), len(incompatible.unexpected_keys),
+                )
+                return
 
             # Load with strict=False to allow partial matches (new params, etc.)
             # Note: strict=False allows missing/extra keys, but size mismatches still raise
