@@ -1,0 +1,33 @@
+# Opt-in cross-scale model contract.  The smoke configuration uses precomputed
+# embeddings in tests; it does not download Ankh39/ESM-2/ProtT5 weights.
+cross_scale:
+  model_version: cross-scale-v1
+  protein_dim: 16
+  signal_input_dim: 16
+  signal_hidden_dim: 16
+  signal_output_dim: 16
+  cell_gene_feature_dim: 8
+  cell_hidden_dim: 16
+  num_cell_genes: 12
+  num_cell_states: 3
+  num_ptm_types: 4
+  max_position: 64
+  signal_layers: 2
+  propagation_alpha: 0.85
+  max_sensitivity_nodes: 2048
+  dropout: 0.0
+  plm_backbone_dims:
+    ankh39: 11
+    esm2: 13
+    prott5: 17
+  plm_model_names:
+    ankh39: ElnaggarLab/ankh-base
+    esm2: facebook/esm2_t6_8M_UR50D
+    prott5: Rostlab/prot_t5_xl_uniref50
+  required_backbones: [ankh39, esm2, prott5]
+  freeze_plm_backbones: true
+  allow_plm_fallback: false
+  allow_graph_approximation: false
+  require_signal_gene_map: true
+  data_manifest: data/manifests/datasets.yaml
+  signal_graph_version: fixture-v1

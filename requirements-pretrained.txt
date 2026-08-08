@@ -10,6 +10,7 @@
 -r requirements-core.txt
 
 transformers>=4.20.0
+sentencepiece>=0.2.0
 peft>=0.8.0
 einops>=0.6.0
 # Lightning is required for the pretrained/Lightning training entrypoints.

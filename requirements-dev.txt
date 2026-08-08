@@ -1,0 +1,18 @@
+# Development & type-checking dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Test runner and coverage gate
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-timeout>=2.1.0
+
+# Type stubs for mypy (required for mypy src to pass)
+types-requests>=2.28.0
+types-PyYAML>=6.0.0
+types-setuptools>=65.0.0
+
+# Linting & formatting
+ruff>=0.1.0
+
+# Type checking
+mypy>=1.0.0

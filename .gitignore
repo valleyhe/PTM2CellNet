@@ -13,6 +13,13 @@
 !requirements-pretrained.txt
 !requirements-mamba.txt
 !requirements-analysis.txt
+!requirements-dev.txt
+!.github/
+/.github/*
+!.github/workflows/
+/.github/workflows/*
+!.github/workflows/ci.yml
+!.github/workflows/full-test.yml
 !scripts/
 !src/
 !tests/
@@ -31,6 +38,10 @@
 !LICENSE
 !archive/
 !archive/**
+!data/
+data/*
+!data/manifests/
+!data/manifests/**
 
 # ==================== Python bytecode (within whitelisted dirs) ====================
 __pycache__/

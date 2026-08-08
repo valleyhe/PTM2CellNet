@@ -417,3 +417,24 @@ class TestAMPCompatHelpers:
 
         with amp_autocast():
             pass
+
+    def test_amp_helpers_fall_back_to_legacy_api(self, monkeypatch):
+        """Older supported PyTorch releases use ``torch.cuda.amp`` factories."""
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+
+        import torch
+
+        from src.training.amp_compat import amp_autocast, make_grad_scaler
+
+        scaler = object()
+        monkeypatch.setattr(torch, "amp", SimpleNamespace())
+        monkeypatch.setattr(
+            torch.cuda,
+            "amp",
+            SimpleNamespace(GradScaler=lambda: scaler, autocast=lambda: nullcontext("legacy")),
+        )
+
+        assert make_grad_scaler() is scaler
+        with amp_autocast() as value:
+            assert value == "legacy"

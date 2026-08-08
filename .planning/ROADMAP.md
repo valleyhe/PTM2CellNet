@@ -5,6 +5,7 @@
 - ✅ **v1.0 Core Architecture & Testing** — Phases 1-6 (shipped 2026-04-04)
 - ✅ **v2.0 DAVF Integration** — Phases 10-14 (shipped 2026-05-03)
 - ✅ **v2.1 Technical Debt & Test Stabilization** — Phases 15-17 (complete 2026-07-06)
+- ✅ **v2.2 Cross-Scale Scientific Closure & Reproducible Baseline** — Phases 18-20 (complete 2026-08-08)
 
 ## Scope Update (2026-07-05)
 
@@ -99,10 +100,63 @@ Plans:
 - [x] 17-01: Fix gitignore whitelist and add Lightning logger config (CONF-01, CONF-02)
 - [x] 17-02: Final verification — full test pass (TEST-04, criteria revised)
 
+### ✅ v2.2 Cross-Scale Scientific Closure & Reproducible Baseline (Complete 2026-08-08)
+
+**Goal**: close the PTM→signal graph→cell-state scale gap and establish a
+reproducible data inventory plus PMADS Ridge reference pipeline.
+
+- [x] **Phase 18: Data Manifest & PMADS Ridge Baseline** — versioned source inventory, schema/quality checks, deterministic Ridge artifacts (DATA-01, DATA-02, BASE-01, BASE-02)
+- [x] **Phase 19: Cross-Scale Scientific Model** — MultiPLM fusion, CIGNN sensitivity bridge, cell-state decoder and opt-in composition (MODEL-01..MODEL-04)
+- [x] **Phase 20: Verification & Technical Summary** — integration/performance gates, maintenance workflow and dated report (BASE-03, VERIFY-01, VERIFY-02)
+
+### Phase 18: Data Manifest & PMADS Ridge Baseline
+**Goal**: Freeze a versioned data inventory and produce an offline-reproducible PMADS Ridge reference artifact.
+**Depends on**: Phase 17
+**Requirements**: DATA-01, DATA-02, BASE-01, BASE-02
+**Status**: ✅ Complete (2026-08-08)
+**Success Criteria** (what must be TRUE):
+  1. `data/manifests/datasets.yaml` lists all required PTM, perturbation and signaling graph sources with source/access/license/format/schema/quality metadata.
+  2. Manifest validation catches malformed entries, missing required snapshots and SHA-256 drift without treating controlled null paths as fake data.
+  3. `scripts/baseline_pmads_ridge.py` runs on a real or user-supplied PMADS-compatible file with deterministic split, leakage-safe features, metrics and a self-describing artifact.
+  4. Unit and CLI tests prove the manifest and baseline contracts offline.
+**Plans**: 1 plan (complete)
+
+Plans:
+- [x] 18-01-PLAN.md — Data manifest, PMADS Ridge baseline, CLI and tests
+
+### Phase 19: Cross-Scale Scientific Model
+**Goal**: Implement an opt-in differentiable protein/PTM → typed signal graph → perturbed cell-state model.
+**Depends on**: Phase 18
+**Requirements**: MODEL-01, MODEL-02, MODEL-03, MODEL-04
+**Status**: ✅ Complete (2026-08-08)
+**Success Criteria** (what must be TRUE):
+  1. MultiPLMEncoder fuses Ankh39/ESM-2/ProtT5 contracts and reports missing weights/fallbacks explicitly.
+  2. CIGNNSignalBridge consumes explicit edges/types and computes the exact sensitivity matrix with differentiable message passing.
+  3. CellGraphCompassHead returns masked delta-expression and cell-state outputs with a stable combined loss.
+  4. CrossScalePTM2CellNet supports config/checkpoint round-trip and emits model/data/graph provenance without altering PTM2CellNetBase defaults.
+**Plans**: 1 plan (complete)
+
+Plans:
+- [x] 19-01-PLAN.md — Cross-scale scientific model components and integration tests
+
+### Phase 20: Verification & Technical Summary
+**Goal**: Execute the TD-01/TD-02 verification gates, measure resource use and publish the traceable technical summary.
+**Depends on**: Phase 19
+**Requirements**: BASE-03, VERIFY-01, VERIFY-02
+**Status**: ✅ Complete (2026-08-08)
+**Success Criteria** (what must be TRUE):
+  1. Data refresh and baseline maintenance steps are documented and executable.
+  2. Targeted tests, lint/type/compile checks and a CPU benchmark produce captured quantitative evidence.
+  3. The dated technical summary reports environment, parameters, flow, metrics, anomalies, scientific interpretation, limitations and reproduction commands.
+**Plans**: 1 plan (complete)
+
+Plans:
+- [x] 20-01-PLAN.md — Verification, performance benchmark and technical summary
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 15 → 16 → 17
+Phases execute in numeric order: 15 → 16 → 17 → 18 → 19 → 20
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -120,7 +174,10 @@ Phases execute in numeric order: 15 → 16 → 17
 | 15. Test & Dependency Fixes | v2.1 | 2/2 | Complete | 2026-05-04 |
 | 16. Code Health & Consolidation | v2.1 | 3/3 | Complete | 2026-07-06 |
 | 17. Configuration & Final Verification | v2.1 | 2/2 | Complete | 2026-07-06 |
+| 18. Data Manifest & PMADS Ridge Baseline | v2.2 | 1/1 | Complete | 2026-08-08 |
+| 19. Cross-Scale Scientific Model | v2.2 | 1/1 | Complete | 2026-08-08 |
+| 20. Verification & Technical Summary | v2.2 | 1/1 | Complete | 2026-08-08 |
 
 ---
 *Created: 2026-03-30*
-*Updated: 2026-07-06 — Phase 15/16/17 marked Complete; TEST-04 criteria revised to current test scope; Phase 16/17 acceptance wording reconciled with implementation*
+*Updated: 2026-08-08 — v2.2 Phase 18/19/20 completed for TD-01 and TD-02*

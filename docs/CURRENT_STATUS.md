@@ -1,24 +1,29 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-08-08（系统性代码/需求复核与归档完成后）**
+**Last updated: 2026-08-08（覆盖率治理与 E2E 现状复核完成后）**
 
-当前权威结论是根目录的
-[`project_analysis_20260808.md`](../project_analysis_20260808.md)。本文件只保留
-可快速核对的状态摘要；2026-08-04 的修复与 E2E 报告已经作为历史快照归档到
+当前权威分析是
+[`E2E训练与推理现状分析_2026-08-08.md`](E2E训练与推理现状分析_2026-08-08.md)，
+R-01～R-03 的组件修复结论见
+[`r01_r03_systematic_repair_report_20260808.md`](r01_r03_systematic_repair_report_20260808.md)。
+修复前综合分析和 2026-08-04 报告均已作为历史快照归档到
 [`archive/20260808/`](../archive/20260808/)。
 
 ## Quick Reference
 
 - **验证环境**：Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；本次未启用真实资产/外部网络验收门禁。
-- **测试基线**：`tests/unit` **1558 passed, 4 skipped**；`tests/integration` **67 passed, 1 skipped**；`tests/e2e` **42 passed**；`tests/real_assets` **8 skipped**（共 1680 项默认/门禁测试记录）。
-- **静态质量**：`python -m ruff check src scripts tests` 通过；`python -m mypy src --show-error-codes` 在 **124 个源文件中 0 errors**；`python -m compileall -q src scripts tests` 通过。
-- **当前实现**：核心离线训练/推理/API 链路可运行；DAVF 支持缺失 checkpoint 的显式零特征降级和旧 checkpoint 兼容加载；`use_ptm_module=false` 支持仅序列消融。
-- **需求差距**：原始需求中的 Ankh39 三模型融合、CIGNN/PPI 因果桥、Cell-Graph-Compass 解码器和多项指定数据源尚未实现；详见综合报告第 4 节。
+- **测试基线**：核心 coverage 套件 **1785 passed, 5 skipped，branch coverage 75.00%**；其余 E2E/CI/real-assets 套件 **54 passed, 8 skipped**，合计 **1839 passed, 13 skipped**。
+- **静态质量**：`python -m ruff check src scripts tests` 通过；`python -m mypy src --show-error-codes` 在 **128 个源文件中 0 errors**；`python -m compileall -q src scripts tests` 通过。
+- **当前实现**：标准模型离线训练/推理/API 工程链路可运行；跨尺度模型已完成组件和 synthetic batch 契约，但没有训练/预测 CLI 或 API 接入。
+- **R-01～R-03 状态**：已提供 opt-in `MultiPLMEncoder`、`PTMTokenAdapter`、`CIGNNSignalBridge`/敏感度矩阵和 `CellGraphCompassHead` 工程契约；真实 pLM 权重、真实信号图与生物学验收仍未验证，详见修复报告。
+- **剩余需求差距**：真实扰动训练、受控数据/图/pLM release、跨尺度 checkpoint artifact 与部署链路仍未闭环；不能把工程 fixture 结果当作科学结论。
+- **覆盖率门禁**：默认 CI 使用 branch coverage，`fail_under=74`；下一轮优先补 `self_supervised`、初始化路由、数据验证和训练回调。
 - **范围裁剪**：实时质谱流、自定义 PTM 数据库、GUI、API key 功能扩展已取消；兼容代码可保留，不得重新列为 roadmap 目标。
 
 ## 文档入口
 
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)
+- [E2E 训练与推理现状分析](E2E训练与推理现状分析_2026-08-08.md)、[测试覆盖率治理](TEST_COVERAGE.md)
 - [真实资产验收](guides/real_assets_acceptance.md)
 - [归档清单](../archive/20260808/MANIFEST.md)
 - [历史系统性复核 v19](archive/systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)

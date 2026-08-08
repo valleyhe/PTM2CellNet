@@ -4,7 +4,9 @@
 原始需求快照和未纳入 Git 的旧 coverage 产物。归档只改变路径，不修改原始内容。
 
 - 详细元数据、原始路径、版本信息和 SHA-256：[`MANIFEST.md`](MANIFEST.md)
-- 当前综合报告：[`../../project_analysis_20260808.md`](../../project_analysis_20260808.md)
+- 当前综合报告：[`../../docs/E2E训练与推理现状分析_2026-08-08.md`](../../docs/E2E训练与推理现状分析_2026-08-08.md)
+- 本次新增分类：修复前综合分析位于 `reports/`，数据指南旧快照位于 `docs/`，
+  2026-04-11 数据检测报告位于 `detection_artifacts/data_reports/`。
 - 原始需求文档为二进制 `.docx`，保留其原始文件名和摘要中的 Python/Torch 版本。
 
 归档文件是审计证据，不应直接作为当前开发规范、接口契约或发布质量结论。
