@@ -12,7 +12,7 @@ R-01～R-03 的组件修复结论见
 ## Quick Reference
 
 - **验证环境**：Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；本次未启用真实资产/外部网络验收门禁。
-- **测试基线**：核心 coverage 套件 **1785 passed, 5 skipped，branch coverage 75.00%**；其余 E2E/CI/real-assets 套件 **54 passed, 8 skipped**，合计 **1839 passed, 13 skipped**。
+- **测试基线**：核心 coverage 套件 **1787 passed, 5 skipped，branch coverage 75.02%**；其余 E2E/CI/real-assets 套件 **54 passed, 8 skipped**，合计 **1841 passed, 13 skipped**。
 - **静态质量**：`python -m ruff check src scripts tests` 通过；`python -m mypy src --show-error-codes` 在 **128 个源文件中 0 errors**；`python -m compileall -q src scripts tests` 通过。
 - **当前实现**：标准模型离线训练/推理/API 工程链路可运行；跨尺度模型已完成组件和 synthetic batch 契约，但没有训练/预测 CLI 或 API 接入。
 - **R-01～R-03 状态**：已提供 opt-in `MultiPLMEncoder`、`PTMTokenAdapter`、`CIGNNSignalBridge`/敏感度矩阵和 `CellGraphCompassHead` 工程契约；真实 pLM 权重、真实信号图与生物学验收仍未验证，详见修复报告。

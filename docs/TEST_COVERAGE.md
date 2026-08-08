@@ -38,7 +38,7 @@ python -m pytest tests/unit tests/integration tests/test_*.py \
 
 ## 2026-08-08 基线与剩余缺口
 
-当前可重复核心套件结果为 **1785 passed、5 skipped，综合 branch coverage 75.00%**；
+当前可重复核心套件结果为 **1787 passed、5 skipped，综合 branch coverage 75.02%**；
 门禁设置为 74%，用于吸收 Python/可选依赖造成的小幅路径差异。独立 E2E/CI/real-assets
 套件结果为 **54 passed、8 skipped**，其中真实资产未启用的 skip 属预期行为。
 
