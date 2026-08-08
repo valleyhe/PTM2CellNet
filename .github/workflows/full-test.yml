@@ -1,0 +1,41 @@
+name: Full Test Suite
+
+on:
+  workflow_dispatch:
+
+jobs:
+  full-test:
+    name: All Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install full dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-timeout pytest-cov
+
+      - name: Run all tests (skip GPU)
+        env:
+          HF_ENDPOINT: https://hf-mirror.com
+          TRANSFORMERS_CACHE: /tmp/hf_cache
+        run: >-
+          pytest -m "not slow and not gpu"
+          --timeout=300
+          --cov=src
+          --cov-branch
+          --cov-report=term-missing:skip-covered
+          --cov-report=xml
+          --cov-fail-under=74
+
+      - name: Run mypy
+        run: |
+          pip install mypy
+          mypy src/

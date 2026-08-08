@@ -100,6 +100,28 @@ class TestNonStandardAaMap:
         assert aac.NON_STANDARD_AA_MAP["U"] == "C"
 
 
+class TestPtmTypeNormalization:
+    """PTM aliases must normalize without losing unknown future types."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (" Phosphorylation ", "phosphorylation"),
+            ("S-phosphorylation", "phosphorylation"),
+            ("disulfide-bond", "disulfidebond"),
+            ("ADP ribosylation", "adpribosylation"),
+            ("Future-PTM", "future-ptm"),
+            ("", ""),
+        ],
+    )
+    def test_normalize_ptm_type_alias_and_fallback_paths(self, raw, expected):
+        assert aac.normalize_ptm_type(raw) == expected
+
+
+def test_all_ptm_types_are_exactly_the_alias_targets():
+    assert aac.ALL_PTM_TYPES == set(aac.PTM_TYPE_ALIASES.values())
+
+
 class TestImmutability:
     """常量不可变性测试"""
 

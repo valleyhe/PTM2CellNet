@@ -13,7 +13,15 @@ checkpoint_utils 单元测试
 import pytest
 import torch
 
-from src.utils.checkpoint_utils import extract_model_state_dict
+from src.utils import checkpoint_utils
+from src.utils.checkpoint_utils import (
+    diagnose_load_result,
+    diagnose_state_dict_mismatch,
+    extract_model_state_dict,
+    load_checkpoint_with_config,
+    resolve_inference_config,
+    sibling_config_path,
+)
 from src.utils.io import load_model
 
 
@@ -169,3 +177,98 @@ class TestLoadModel:
         sd_after = fresh.state_dict()
         for k in sd_before:
             assert torch.allclose(sd_before[k], sd_after[k]), f"回环权重不一致: {k}"
+
+
+def test_checkpoint_diagnostics_and_sibling_path_are_deterministic(tmp_path):
+    path = tmp_path / "model.ckpt"
+
+    assert sibling_config_path(path) == tmp_path / "model.config.yaml"
+    assert diagnose_load_result(["a"], ["b", "c"], str(path)) == {
+        "missing_keys": ["a"],
+        "unexpected_keys": ["b", "c"],
+        "missing_keys_count": 1,
+        "unexpected_keys_count": 2,
+        "checkpoint_path": str(path),
+    }
+    mismatch = diagnose_state_dict_mismatch(
+        {"shared": torch.zeros(1), "missing": torch.zeros(1)},
+        {"shared": torch.zeros(1), "extra": torch.zeros(1)},
+    )
+    assert mismatch == {"missing_keys": ["missing"], "unexpected_keys": ["extra"]}
+
+
+def test_load_checkpoint_requires_existing_checkpoint(tmp_path):
+    with pytest.raises(FileNotFoundError, match="模型文件不存在"):
+        load_checkpoint_with_config(tmp_path / "missing.pt")
+
+
+def test_load_checkpoint_prefers_explicit_config_and_passes_map_location(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "model.pt"
+    checkpoint.touch()
+    sibling = tmp_path / "model.config.yaml"
+    sibling.write_text("source: sibling\n", encoding="utf-8")
+    explicit = tmp_path / "explicit.yaml"
+    explicit.write_text("source: explicit\n", encoding="utf-8")
+    calls = {}
+
+    def fake_load(path, map_location=None):
+        calls["load"] = (path, map_location)
+        return {"weight": torch.ones(1)}
+
+    monkeypatch.setattr(checkpoint_utils, "safe_torch_load", fake_load)
+
+    state, config = load_checkpoint_with_config(checkpoint, explicit, map_location="cpu")
+
+    assert state["weight"].item() == 1
+    assert config is not None and config.get("source") == "explicit"
+    assert calls["load"] == (str(checkpoint), "cpu")
+
+
+def test_load_checkpoint_falls_back_to_sibling_or_none(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "model.pt"
+    checkpoint.touch()
+    sibling = tmp_path / "model.config.yaml"
+    sibling.write_text("source: sibling\n", encoding="utf-8")
+    monkeypatch.setattr(checkpoint_utils, "safe_torch_load", lambda *args, **kwargs: {})
+
+    _, sibling_config = load_checkpoint_with_config(checkpoint, tmp_path / "missing.yaml")
+    assert sibling_config is not None and sibling_config.get("source") == "sibling"
+
+    sibling.unlink()
+    _, no_config = load_checkpoint_with_config(checkpoint)
+    assert no_config is None
+
+
+def test_load_checkpoint_tolerates_config_parse_failure(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "model.pt"
+    checkpoint.touch()
+    config = tmp_path / "config.yaml"
+    config.touch()
+    monkeypatch.setattr(checkpoint_utils, "safe_torch_load", lambda *args, **kwargs: {})
+    monkeypatch.setattr(checkpoint_utils.Config, "from_yaml", classmethod(lambda cls, path: (_ for _ in ()).throw(ValueError("bad config"))))
+
+    _, loaded_config = load_checkpoint_with_config(checkpoint, config)
+
+    assert loaded_config is None
+
+
+def test_resolve_inference_config_prefers_sibling_then_explicit(tmp_path):
+    checkpoint = tmp_path / "model.pt"
+    checkpoint.touch()
+    sibling = tmp_path / "model.config.yaml"
+    sibling.write_text("source: sibling\n", encoding="utf-8")
+    explicit = tmp_path / "explicit.yaml"
+    explicit.write_text("source: explicit\n", encoding="utf-8")
+
+    config, source = resolve_inference_config(checkpoint, explicit)
+    assert config.get("source") == "sibling"
+    assert source == str(sibling)
+
+    sibling.unlink()
+    config, source = resolve_inference_config(checkpoint, explicit)
+    assert config.get("source") == "explicit"
+    assert source == str(explicit)
+
+    explicit.unlink()
+    with pytest.raises(FileNotFoundError, match="无法确定推理配置"):
+        resolve_inference_config(checkpoint, explicit)

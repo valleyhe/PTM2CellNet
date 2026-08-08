@@ -52,22 +52,33 @@ class FileLoaderMixin:
         if use_hdf5 or file_path.lower().endswith((".h5", ".hdf5")):
             logger.info("从HDF5加载数据: %s", file_path)
             try:
-                df = pd.read_hdf(file_path)
+                loaded = pd.read_hdf(file_path)
+                if not isinstance(loaded, pd.DataFrame):
+                    raise TypeError(
+                        "HDF5 table must contain a pandas DataFrame, "
+                        f"got {type(loaded).__name__}"
+                    )
+                df = loaded
             except (ImportError, ValueError, KeyError) as exc:
                 # read_hdf 需要 pytables；若不可用或 key 不匹配，回退到 src.utils.io.load_hdf5
                 logger.warning(
                     "pd.read_hdf 失败 (%s)，尝试使用 src.utils.io.load_hdf5 回退", exc,
                 )
-                from ..utils.io import load_hdf5
+                # FileLoaderMixin lives in ``src.data.loaders``; the shared
+                # HDF5 helper lives in ``src.utils`` (three-dot relative import).
+                from ...utils.io import load_hdf5
                 data = load_hdf5(file_path)
                 if isinstance(data, pd.DataFrame):
                     df = data
                 elif isinstance(data, dict) and len(data) == 1:
-                    df = next(iter(data.values()))
+                    candidate = next(iter(data.values()))
+                    if not isinstance(candidate, pd.DataFrame):
+                        raise
+                    df = candidate
                 else:
                     raise
             logger.info("加载完成，共 %d 条记录", len(df))
-            return cast(pd.DataFrame, df)
+            return df
 
         logger.info("从CSV加载数据: %s", file_path)
         df = pd.read_csv(file_path)

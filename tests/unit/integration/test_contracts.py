@@ -1,4 +1,10 @@
-from src.integration.contracts import CandidateRecord, GenePerturbationRequest, PerturbationResult
+from src.integration.contracts import (
+    BatchPerturbationRequest,
+    BatchPerturbationResult,
+    CandidateRecord,
+    GenePerturbationRequest,
+    PerturbationResult,
+)
 
 
 def test_candidate_record_creation_and_fields() -> None:
@@ -143,3 +149,62 @@ def test_contract_field_types_are_correct() -> None:
     )
     assert isinstance(result.ranked_genes, list)
     assert isinstance(result.metadata, dict)
+
+
+def test_candidate_record_validate_reports_all_invalid_fields() -> None:
+    record = CandidateRecord("", "", "p", 0, "state", -0.1, 1.1, 0.0)
+
+    assert record.validate() == [
+        "sample_id must not be empty",
+        "protein_id must not be empty",
+        "ptm_position must be >= 1",
+        "baseline_probability must be in [0, 1]",
+        "perturbed_probability must be in [0, 1]",
+    ]
+
+
+def test_gene_request_validate_accepts_modes_and_reports_invalid_values() -> None:
+    valid = GenePerturbationRequest("TP53", "P1", "p", 1, 0.5, "soft_ptm")
+    invalid = GenePerturbationRequest("", "P1", "p", 0, 0.0, "delete")
+
+    assert valid.validate() == []
+    assert invalid.validate() == [
+        "gene_symbol must not be empty",
+        "mode must be 'hard_ko' or 'soft_ptm', got 'delete'",
+        "magnitude must be positive",
+        "source_ptm_position must be >= 1",
+    ]
+
+
+def test_perturbation_result_validate_requires_gene_and_ranking() -> None:
+    assert PerturbationResult("TP53", "hard_ko", 0.2, ["BAX"]).validate() == []
+    assert PerturbationResult("", "hard_ko", 0.2, []).validate() == [
+        "gene_symbol must not be empty",
+        "ranked_genes must not be empty",
+    ]
+
+
+def test_batch_request_validation_handles_empty_nested_and_fail_fast() -> None:
+    invalid = GenePerturbationRequest("", "P1", "p", 0, 0.0, "bad")
+    another_invalid = GenePerturbationRequest("", "P2", "p", 1, 1.0, "hard_ko")
+
+    assert BatchPerturbationRequest([]).validate() == ["requests must not be empty"]
+    all_issues = BatchPerturbationRequest([invalid, another_invalid]).validate()
+    assert any(issue.startswith("requests[0]:") for issue in all_issues)
+    assert any(issue.startswith("requests[1]:") for issue in all_issues)
+
+    fail_fast = BatchPerturbationRequest([invalid, another_invalid], fail_fast=True).validate()
+    assert fail_fast
+    assert all(issue.startswith("requests[0]:") for issue in fail_fast)
+
+
+def test_batch_result_validation_prefixes_nested_result_index() -> None:
+    valid = PerturbationResult("TP53", "hard_ko", 0.2, ["BAX"])
+    invalid = PerturbationResult("", "hard_ko", 0.1, [])
+
+    result = BatchPerturbationResult([valid, invalid], failed_requests=["G2"], total_time_ms=1.5)
+
+    assert result.validate() == [
+        "results[1]: gene_symbol must not be empty",
+        "results[1]: ranked_genes must not be empty",
+    ]

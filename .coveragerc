@@ -7,6 +7,8 @@ omit =
     src/models/roadmap.py
 
 [report]
+precision = 2
+fail_under = 74
 exclude_lines =
     pragma: no cover
     raise NotImplementedError
