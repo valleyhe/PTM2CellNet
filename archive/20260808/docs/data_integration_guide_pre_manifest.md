@@ -3,9 +3,6 @@
 ## 概述
 
 本指南介绍如何使用PTM2CellNet数据整合脚本，将多个公开PTM数据库整合为统一的训练数据格式。
-数据源状态、访问条件、本地快照路径和 SHA-256 以
-[`data/manifests/datasets.yaml`](../../data/manifests/datasets.yaml) 为准；本页中的行数只描述
-当前本地处理快照，不是外部数据库的固定规模。
 
 ## 数据源
 
@@ -32,7 +29,7 @@ python scripts/integrate_data_v2.py --max-seq-len 1000 --fetch-api
 
 整合完成后，会在 `data/processed/` 目录生成：
 
-- `ptm_integrated_human.csv` — 80,508条整合数据
+- `ptm_integrated_human.csv` — 24,195条整合数据
 - `ptm_integrated_human_labeled.csv` — 112,012条已标记数据
 
 ### 3. 数据格式
@@ -99,10 +96,9 @@ S3,ACDEFGHIK,[],quiescence
 
 ## 常见问题
 
-### Q: 整合记录数与本页不同怎么办？
+### Q: 整合后只有24K条记录，是否太少了？
 
-A: 数据量取决于输入 release、完整序列覆盖率、去重和过滤策略。先运行 manifest 校验并记录
-本次 preprocessing version；不要把历史报告中的固定行数作为质量判据。如果需要提高覆盖：
+A: 这是因为只有同时有**完整序列**和**PTM位点**的蛋白才会被纳入。如果需要更多数据：
 
 1. 从UniProt API获取更多序列 (`--fetch-api`)
 2. 下载更多公开数据 (PhosphoSitePlus等)

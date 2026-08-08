@@ -6,6 +6,6 @@
 请以以下当前资料为准：
 
 - [`CURRENT_STATUS.md`](CURRENT_STATUS.md)
-- [`../project_analysis_20260808.md`](../project_analysis_20260808.md)
+- [`E2E训练与推理现状分析_2026-08-08.md`](E2E训练与推理现状分析_2026-08-08.md)
 - [`guides/`](guides/)
 - 根目录 `AGENTS.md` 的“实际代码现状映射”（如本地存在）
