@@ -41,7 +41,9 @@ def parse_args():
         "--resume",
         type=str,
         default=None,
-        help="checkpoint 路径用于断点续训（恢复模型权重与 epoch 计数）",
+        help="完整训练状态 checkpoint 路径（checkpoint_best.pt / checkpoint_last.pt）"
+        "用于精确断点续训（恢复模型权重、epoch、optimizer/scheduler/scaler/RNG）。"
+        "也兼容旧版 best_model.pt（仅恢复权重与 epoch）。",
     )
     parser.add_argument(
         "--num-workers",
@@ -232,12 +234,19 @@ def main():
     )
 
     checkpoint_callback = ModelCheckpoint(
-        filepath=os.path.join(args.output, "models", "best_model.pt"),
+        filepath=os.path.join(args.output, "models", "checkpoint_best.pt"),
         monitor="val_loss",
         mode="min",
         save_best_only=True,
         save_last=True,
     )
+    # P1-01: 挂载 optimizer/scheduler 到 checkpoint 回调，使保存的 checkpoint
+    # 携带精确续训所需的优化器状态（momentum/Adam 步数）与调度器状态（当前 LR）。
+    # checkpoint_best.pt / checkpoint_last.pt 为完整训练状态（供 --resume）；
+    # best_model.pt 由训练结束后导出的裸 state_dict（供推理）——两套产物分离，
+    # 避免完整状态中的 numpy RNG 等对象破坏 weights_only 推理加载契约。
+    checkpoint_callback.optimizer = optimizer
+    checkpoint_callback.scheduler = scheduler
     early_stop_callback = EarlyStopping(
         monitor="val_loss",
         mode="min",
@@ -292,14 +301,63 @@ def main():
 
         ckpt_epoch = ckpt.get("epoch", None)
         if ckpt_epoch is not None:
-            trainer.epoch = int(ckpt_epoch)
+            # ModelCheckpoint records the epoch that has just completed.  The
+            # Trainer loop treats ``trainer.epoch`` as the next epoch to run,
+            # matching CrossScaleTrainer.load_checkpoint(), so resume must
+            # advance by one instead of replaying the saved epoch.
+            trainer.epoch = int(ckpt_epoch) + 1
             trainer.global_step = int(ckpt.get("global_step", 0))
-            logger.info("恢复 epoch=%d, global_step=%d", trainer.epoch, trainer.global_step)
-        # train.py 的 ModelCheckpoint 未持久化 optimizer/scheduler 状态，
-        # 因此 optimizer/scheduler 从当前配置重新初始化（lr 重新预热）。
-        logger.warning(
-            "注意: optimizer/scheduler 状态未在 checkpoint 中保存，将使用当前配置重新初始化。"
-        )
+            logger.info(
+                "恢复完成 epoch=%d，下一轮起始 epoch=%d，global_step=%d",
+                int(ckpt_epoch),
+                trainer.epoch,
+                trainer.global_step,
+            )
+
+        # P1-01: 精确续训——恢复 optimizer/scheduler/scaler/RNG 状态。
+        # 旧 checkpoint（仅模型权重）仍受支持：缺少的状态字段保持重新初始化，
+        # 并显式警告该续训不等价于连续训练。
+        _restored_any = False
+        opt_state = ckpt.get("optimizer_state_dict")
+        if opt_state is not None and optimizer is not None:
+            try:
+                optimizer.load_state_dict(opt_state)
+                _restored_any = True
+                logger.info("已恢复 optimizer 状态（momentum/Adam 步数等）")
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.warning("optimizer 状态恢复失败（结构不兼容，将重新初始化）: %s", exc)
+        sched_state = ckpt.get("scheduler_state_dict")
+        if sched_state is not None and scheduler is not None:
+            try:
+                scheduler.load_state_dict(sched_state)
+                _restored_any = True
+                logger.info("已恢复 scheduler 状态（当前 LR/步数）")
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.warning("scheduler 状态恢复失败（结构不兼容，将重新初始化）: %s", exc)
+        scaler_state = ckpt.get("scaler_state_dict")
+        if scaler_state is not None and trainer.scaler is not None:
+            try:
+                trainer.scaler.load_state_dict(scaler_state)
+                _restored_any = True
+                logger.info("已恢复 AMP scaler 状态")
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.warning("AMP scaler 状态恢复失败（将重新初始化）: %s", exc)
+        rng_state = ckpt.get("rng_state")
+        if isinstance(rng_state, dict):
+            from src.training.callbacks import _restore_rng_state
+
+            try:
+                _restore_rng_state(rng_state)
+                _restored_any = True
+                logger.info("已恢复 python/numpy/torch RNG 状态")
+            except (TypeError, ValueError) as exc:
+                logger.warning("RNG 状态恢复失败（将使用当前种子继续）: %s", exc)
+        if not _restored_any:
+            logger.warning(
+                "注意: checkpoint 未包含 optimizer/scheduler/scaler/RNG 状态"
+                "（旧版 checkpoint 或纯 state_dict），将使用当前配置重新初始化——"
+                "该续训不等价于连续训练，仅恢复模型权重与 epoch 计数。"
+            )
 
     logger.info("步骤 6: 开始训练")
     trainer.fit(
@@ -332,6 +390,37 @@ def main():
     )
     trained_config.save(os.path.join(args.output, "models", "best_model.config.yaml"))
     trained_config.save(os.path.join(args.output, "models", "best_model_last.config.yaml"))
+
+    # P1-01: 导出推理 artifact（裸 state_dict），与 train_lightning.py /
+    # train_pretrained.py 保持一致：best_model.pt 可被 predict.py / API 以
+    # weights_only 安全加载；完整训练状态保留在 checkpoint_best.pt。
+    # 训练循环结束时 model 可能停留在最后一个 epoch，必须先恢复
+    # checkpoint_best.pt，避免名为 best_model 的发布 artifact 实际包含最后一轮权重。
+    from src.utils.io import save_model
+    from src.utils.io import safe_torch_load
+
+    best_checkpoint_path = os.path.join(args.output, "models", "checkpoint_best.pt")
+    if not os.path.isfile(best_checkpoint_path):
+        raise SystemExit(
+            f"训练未生成最佳 checkpoint: {best_checkpoint_path}。"
+            "无法安全导出 best_model.pt。"
+        )
+    best_checkpoint = safe_torch_load(
+        best_checkpoint_path,
+        map_location=trainer.device,
+        weights_only=False,
+        enforce_safe_only=False,
+    )
+    best_state_dict = best_checkpoint.get("model_state_dict")
+    if not isinstance(best_state_dict, dict):
+        raise SystemExit(
+            f"最佳 checkpoint 缺少有效 model_state_dict: {best_checkpoint_path}"
+        )
+    model.load_state_dict(best_state_dict, strict=True)
+    logger.info("已恢复最佳 checkpoint 权重用于推理 artifact: %s", best_checkpoint_path)
+
+    save_model(model, os.path.join(args.output, "models", "best_model.pt"))
+    logger.info("已导出推理 artifact: %s", os.path.join(args.output, "models", "best_model.pt"))
 
     logger.info("步骤 8: 评估模型")
     evaluator = Evaluator(model, config=config.to_dict(), task_type="classification")

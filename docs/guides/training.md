@@ -89,6 +89,10 @@ training:
 ## 断点续训
 
 ```bash
-# 从检查点恢复
-python scripts/train.py --resume outputs/models/last_checkpoint.pt
+# 从完整训练状态恢复（会恢复 model/optimizer/scheduler/scaler/RNG）
+python scripts/train.py --resume outputs/models/checkpoint_best.pt
 ```
+
+`checkpoint_best.pt` 和 `checkpoint_best_last.pt` 是完整训练状态；
+`best_model.pt` 是从最佳 checkpoint 导出的裸 `state_dict`，供 `predict.py`/API
+推理使用。旧版仅含权重的 checkpoint 仍可加载，但不等价于精确续训。

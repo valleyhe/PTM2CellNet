@@ -14,6 +14,7 @@ services**.
 | ESM-3 production load (F-01) | "Mock load works" — but the 2.7GB download, cache hit, and real forward pass are unverified | Forward pass on real `esm3_sm_open_v1` weights is exercised and recorded |
 | DAVF E2E finetune (F-02) | Script parses with AST; optimizer is mocked | The script runs as a real subprocess against a real checkpoint + CSV |
 | External services (F-05) | UniProt/KEGG/Reactome have fallbacks | The non-fallback path is asserted when the network is genuinely available |
+| Cross-scale pLM/graph release | Synthetic embeddings and graph fixtures only | Local pLM completeness plus versioned graph/perturbation snapshots are checked before training |
 
 ## How to run them
 
@@ -34,6 +35,27 @@ PTM2CELLNET_RUN_REAL_ASSET_TESTS=1 \
   PTM2CELLNET_DAVF_CSV=/path/to/sites.csv \
   pytest tests/real_assets/test_real_davf_e2e.py -v
 ```
+
+The cross-scale path has a separate offline release gate. The pLM check only
+proves that the local Hugging Face directories are structurally complete; it
+does not prove a real forward pass or biological validity:
+
+```bash
+python scripts/validate_plm_assets.py \
+  --asset-root data/weights/plm \
+  --required-backbone ankh39 \
+  --required-backbone esm2 \
+  --required-backbone prott5
+
+python scripts/validate_data_manifest.py \
+  --manifest data/manifests/datasets.yaml \
+  --profile cross_scale_training --check-files --verify-hashes
+```
+
+The second command is expected to fail in a checkout without the nine
+authorized perturbation/signaling snapshots. Do not replace those snapshots
+with fixtures and do not interpret a synthetic `train_cross_scale.py` run as a
+real-assets or scientific acceptance result.
 
 When the gate env var is unset, every test in `tests/real_assets/` reports
 **SKIPPED** with a reason string — so a green default CI run is never mistaken

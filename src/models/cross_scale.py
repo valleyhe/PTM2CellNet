@@ -34,6 +34,7 @@ from torch.nn.parameter import UninitializedParameter
 from torch.nn import functional as F
 
 from .ptm_modules import PTMTokenAdapter
+from .plm_assets import PLMAssetError, inspect_plm_asset, require_local_plm_assets
 from ..utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -552,6 +553,14 @@ class MultiPLMEncoder(nn.Module):
         selected_name = model_name or self.configured_model_names.get(normalized) or self.DEFAULT_MODEL_NAMES.get(normalized)
         if not selected_name:
             raise CrossScaleContractError(f"no default model name for backbone: {name}")
+        selected_path = Path(selected_name).expanduser()
+        if selected_path.exists():
+            asset_report = inspect_plm_asset(selected_path)
+            if not asset_report["ok"]:
+                raise CrossScaleContractError(
+                    f"local {normalized} asset is incomplete: " + "; ".join(asset_report["errors"])
+                )
+            selected_name = asset_report["path"]
         try:
             from transformers import AutoConfig, AutoModel, AutoTokenizer
 
@@ -656,6 +665,29 @@ class MultiPLMEncoder(nn.Module):
                 freeze=freeze,
             )
         return loaded
+
+    def load_local_pretrained_backbones(
+        self,
+        asset_root: str,
+        *,
+        model_dirs: Optional[Mapping[str, str]] = None,
+        freeze: Optional[bool] = None,
+    ) -> Dict[str, nn.Module]:
+        """Validate and load all required backbones from one offline asset root."""
+
+        try:
+            model_names = require_local_plm_assets(
+                asset_root,
+                model_dirs=model_dirs,
+                required_backbones=self.required_backbones,
+            )
+        except PLMAssetError as exc:
+            raise CrossScaleContractError(str(exc)) from exc
+        return self.load_pretrained_backbones(
+            model_names=model_names,
+            local_files_only=True,
+            freeze=freeze,
+        )
 
     @staticmethod
     def _special_token_mask(tokenizer: Any, input_ids: Tensor) -> Tensor:

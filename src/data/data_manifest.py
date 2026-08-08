@@ -109,6 +109,7 @@ def validate_manifest(
     check_files: bool = False,
     verify_hashes: bool = False,
     strict_warnings: bool = False,
+    profile: Optional[str] = None,
 ) -> ValidationReport:
     """Validate manifest structure and, optionally, local snapshots.
 
@@ -116,6 +117,15 @@ def validate_manifest(
     marked ``required: true``.  Controlled/planned entries are expected to have
     no local path.  ``verify_hashes`` requires a non-null ``sha256`` for every
     existing snapshot and reports drift as an error.
+
+    ``profile`` activates a named asset profile declared under the manifest's
+    top-level ``profiles`` key (P1-04).  When a profile is active, every
+    dataset listed in its ``required_datasets`` is treated as mandatory for
+    that release: missing dataset, null snapshot path, absent file (with
+    ``check_files``) or missing/mismatched hash (with ``verify_hashes``)
+    all become hard errors — regardless of the per-file ``required`` flag.
+    An unknown profile name is itself an error, so typos fail fast instead of
+    silently validating nothing.
     """
 
     errors: List[str] = []
@@ -132,8 +142,51 @@ def validate_manifest(
     else:
         datasets = datasets_raw
 
+    # --- P1-04: profile activation -----------------------------------------
+    profiles_raw = manifest.get("profiles")
+    profile_spec: Optional[Mapping[str, Any]] = None
+    profile_required_ids: set = set()
+    if profile is not None:
+        if not isinstance(profiles_raw, Mapping):
+            errors.append(
+                f"manifest has no profiles declared; cannot activate profile {profile!r}"
+            )
+        else:
+            profile_spec = profiles_raw.get(profile)
+            if not isinstance(profile_spec, Mapping):
+                errors.append(
+                    f"profile {profile!r} is not declared in manifest.profiles; "
+                    f"available: {sorted(str(k) for k in profiles_raw.keys())}"
+                )
+            else:
+                required_ids = profile_spec.get("required_datasets")
+                if not isinstance(required_ids, list) or not all(
+                    isinstance(item, str) for item in required_ids
+                ):
+                    errors.append(
+                        f"profile {profile!r}.required_datasets must be a non-empty list of dataset ids"
+                    )
+                else:
+                    profile_required_ids = set(required_ids)
+                optional_ids = profile_spec.get("optional_datasets", [])
+                if not isinstance(optional_ids, list) or not all(
+                    isinstance(item, str) for item in optional_ids
+                ):
+                    errors.append(
+                        f"profile {profile!r}.optional_datasets must be a list of dataset ids"
+                    )
+                else:
+                    overlap = profile_required_ids.intersection(optional_ids)
+                    if overlap:
+                        errors.append(
+                            f"profile {profile!r} lists the same dataset as required and optional: "
+                            f"{sorted(overlap)}"
+                        )
+    # -----------------------------------------------------------------------
+
     seen_ids = set()
     dataset_reports: List[Dict[str, Any]] = []
+    datasets_by_id: Dict[str, Mapping[str, Any]] = {}
     for index, raw_dataset in enumerate(datasets):
         context = f"datasets[{index}]"
         dataset = _as_mapping(raw_dataset, context, errors)
@@ -151,6 +204,7 @@ def validate_manifest(
         elif dataset_id in seen_ids:
             errors.append(f"duplicate dataset id: {dataset_id}")
         seen_ids.add(dataset_id)
+        datasets_by_id[dataset_id] = dataset
 
         status = dataset.get("status")
         if status not in VALID_STATUSES:
@@ -184,10 +238,13 @@ def validate_manifest(
                 errors.append(f"{context}.quality_requirements.checks must be a list")
 
         file_report: List[Dict[str, Any]] = []
+        # P1-04: profile 激活时，required dataset 的每个文件按 required 语义强制，
+        # 无论 manifest 中的 per-file required 标志如何。
+        profile_forced = dataset_id in profile_required_ids
         for file_index, file_entry in enumerate(_iter_files(dataset)):
             file_context = f"{context}.files[{file_index}]"
             relative_path = file_entry.get("path")
-            required = bool(file_entry.get("required", False))
+            required = bool(file_entry.get("required", False)) or profile_forced
             entry_report: Dict[str, Any] = {
                 "path": relative_path,
                 "required": required,
@@ -196,6 +253,13 @@ def validate_manifest(
             if relative_path in (None, ""):
                 if required and check_files:
                     errors.append(f"{file_context} is required but has no path")
+                    entry_report["status"] = "missing_path"
+                elif profile_forced:
+                    # P1-04: profile 激活时要求本地快照路径存在——无路径即失败，
+                    # 不依赖 --check-files（这是"资产齐备"的机器可判定条件）。
+                    errors.append(
+                        f"{file_context} is required by profile {profile!r} but has no registered path"
+                    )
                     entry_report["status"] = "missing_path"
                 else:
                     entry_report["status"] = "not_available"
@@ -246,10 +310,18 @@ def validate_manifest(
             }
         )
 
+    # P1-04: profile 引用的 dataset 必须真实存在，避免"无声空校验"。
+    if profile is not None:
+        unknown_ids = sorted(profile_required_ids - seen_ids)
+        if unknown_ids:
+            errors.append(
+                f"profile {profile!r} references unknown dataset ids: {unknown_ids}"
+            )
+
     if strict_warnings and warnings:
         errors.extend(f"warning promoted to error: {warning}" for warning in warnings)
 
-    return {
+    report: ValidationReport = {
         "ok": not errors,
         "errors": errors,
         "warnings": warnings,
@@ -257,6 +329,10 @@ def validate_manifest(
         "dataset_reports": dataset_reports,
         "manifest_digest": manifest_digest(manifest),
     }
+    if profile is not None:
+        report["profile"] = profile
+        report["profile_required_datasets"] = sorted(profile_required_ids)
+    return report
 
 
 def load_manifest(
@@ -265,8 +341,13 @@ def load_manifest(
     check_files: bool = False,
     verify_hashes: bool = False,
     strict_warnings: bool = False,
+    profile: Optional[str] = None,
 ) -> Manifest:
-    """Load and structurally validate a YAML manifest."""
+    """Load and structurally validate a YAML manifest.
+
+    ``profile`` activates the named asset profile (see :func:`validate_manifest`);
+    when the profile's required assets are missing, loading fails fast.
+    """
 
     manifest_path = Path(path)
     if not manifest_path.is_file():
@@ -284,6 +365,7 @@ def load_manifest(
         check_files=check_files,
         verify_hashes=verify_hashes,
         strict_warnings=strict_warnings,
+        profile=profile,
     )
     if not report["ok"]:
         raise DataManifestError(

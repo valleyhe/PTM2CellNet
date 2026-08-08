@@ -38,22 +38,25 @@ python -m pytest tests/unit tests/integration tests/test_*.py \
 
 ## 2026-08-08 基线与剩余缺口
 
-当前可重复核心套件结果为 **1787 passed、5 skipped，综合 branch coverage 75.02%**；
-门禁设置为 74%，用于吸收 Python/可选依赖造成的小幅路径差异。独立 E2E/CI/real-assets
-套件结果为 **54 passed、8 skipped**，其中真实资产未启用的 skip 属预期行为。
+当前可重复核心套件结果为 **1843 passed、5 skipped，综合 branch coverage 75.63%**；
+门禁设置为 74%，用于吸收 Python/可选依赖造成的小幅路径差异。完整 `pytest -q`
+结果为 **1897 passed、13 skipped、28 warnings**，其中真实资产未启用的 skip 属预期行为。
 
 本轮重点模块覆盖率：
 
 | 模块 | 覆盖率 |
 |---|---:|
-| `src/data/data_manifest.py` | 97.99% |
+| `src/data/data_manifest.py` | 96.36% |
+| `src/data/cross_scale_dataset.py` | 77.81% |
+| `src/training/cross_scale_trainer.py` | 82.57% |
 | `src/data/loaders/file_loaders.py` | 94.97% |
 | `src/integration/contracts.py` | 95.83% |
 | `src/integration/ptm_gene_mapper.py` | 96.67% |
 | `src/utils/checkpoint_utils.py` | 95.54% |
 
 下一轮 ratchet 应优先补核心且低覆盖的 `training/self_supervised.py`（31.62%）、
-`api/routes/initialize.py`（47.88%）、`data/validation.py`（53.65%）和
-`training/callbacks.py`（53.71%）。`scvi_adapter.py`、`latent_davf.py`、GenKI 与
+`api/routes/initialize.py`（47.88%）和 `data/validation.py`（53.65%）。本轮
+`training/callbacks.py` 已提升至 97.30%；
+`models/plm_assets.py`（66.42%）和跨尺度推理错误路径仍需补测。`scvi_adapter.py`、`latent_davf.py`、GenKI 与
 外部工具路径依赖可选运行时或真实资产，应在对应分层套件中提升，不能通过排除文件
 或宽泛 `pragma: no cover` 提高总数。

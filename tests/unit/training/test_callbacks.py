@@ -3,6 +3,8 @@
 使用mock隔离文件系统和模型依赖
 """
 
+import random
+
 import torch
 from unittest.mock import MagicMock
 
@@ -11,6 +13,9 @@ from src.training.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
     TensorBoardCallback,
+    LearningRateMonitor,
+    _capture_rng_state,
+    _restore_rng_state,
 )
 
 try:
@@ -427,3 +432,308 @@ class TestCallbackIntegration:
         assert early_stop.should_stop is True
         assert (tmp_path / "best.pt").exists()
         assert (tmp_path / "best_last.pt").exists()
+
+
+class TestRngState:
+    """RNG 状态捕获/恢复测试（P1-01 精确续训）"""
+
+    def test_capture_contains_all_rngs(self):
+        state = _capture_rng_state()
+        assert "python" in state
+        assert "numpy" in state
+        assert "torch_cpu" in state
+        assert "torch_cuda" in state
+        assert isinstance(state["torch_cpu"], torch.Tensor)
+
+    def test_roundtrip_preserves_draws(self):
+        import random
+
+        import numpy as np
+
+        # 推进 RNG 后再捕获，验证恢复后序列一致
+        random.random()
+        np.random.rand()
+        torch.rand(3)
+        state = _capture_rng_state()
+
+        first_py = random.random()
+        first_np = np.random.rand()
+        first_t = torch.rand(2)
+
+        _restore_rng_state(state)
+        assert random.random() == first_py
+        assert np.random.rand() == first_np
+        assert torch.equal(torch.rand(2), first_t)
+
+    def test_restore_ignores_missing_keys(self):
+        # 旧 checkpoint 可能只有部分键，恢复不应报错
+        _restore_rng_state({"python": random.getstate()})
+        _restore_rng_state({})
+        _restore_rng_state({"torch_cpu": torch.get_rng_state()})
+
+
+class TestModelCheckpointFullState:
+    """ModelCheckpoint 完整训练状态测试（P1-01）"""
+
+    def test_build_checkpoint_includes_rng(self):
+        ckpt = ModelCheckpoint("x.pt")
+        payload = ckpt._build_checkpoint(MockModel(), epoch=3)
+        assert "rng_state" in payload
+        assert payload["epoch"] == 3
+        assert "param" in payload["model_state_dict"]
+
+    def test_build_checkpoint_includes_optimizer_and_scheduler(self):
+        model = torch.nn.Linear(4, 2)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+        ckpt = ModelCheckpoint("x.pt")
+        ckpt.optimizer = optimizer
+        ckpt.scheduler = scheduler
+
+        payload = ckpt._build_checkpoint(model, epoch=1)
+        assert "optimizer_state_dict" in payload
+        assert "scheduler_state_dict" in payload
+        assert payload["optimizer_state_dict"]["param_groups"][0]["lr"] == 0.1
+
+    def test_build_checkpoint_includes_scaler_from_trainer(self):
+        class FakeScaler:
+            def state_dict(self):
+                return {"scale": 1.0}
+
+        class FakeTrainer:
+            scaler = FakeScaler()
+
+        ckpt = ModelCheckpoint("x.pt")
+        payload = ckpt._build_checkpoint(MockModel(), epoch=0, trainer=FakeTrainer())
+        assert payload["scaler_state_dict"] == {"scale": 1.0}
+
+    def test_build_checkpoint_scaler_none_is_safe(self):
+        class FakeTrainer:
+            scaler = None
+
+        ckpt = ModelCheckpoint("x.pt")
+        payload = ckpt._build_checkpoint(MockModel(), epoch=0, trainer=FakeTrainer())
+        assert "scaler_state_dict" not in payload
+
+    def test_saved_checkpoint_roundtrip_via_epoch_end(self, tmp_path):
+        import torch.nn as nn
+
+        filepath = str(tmp_path / "best.pt")
+        ckpt = ModelCheckpoint(filepath, monitor="val_loss", mode="min", verbose=0)
+        model = nn.Linear(4, 2)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        ckpt.optimizer = optimizer
+
+        class RealTrainer:
+            def __init__(self):
+                self.model = model
+                self.scaler = None
+
+        ckpt.on_epoch_end(RealTrainer(), epoch=2, logs={"val_loss": 0.3})
+
+        loaded = torch.load(filepath, weights_only=False)
+        assert loaded["epoch"] == 2
+        assert "optimizer_state_dict" in loaded
+        assert "rng_state" in loaded
+        # 恢复 optimizer 后 param_groups 结构一致
+        restored_opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+        restored_opt.load_state_dict(loaded["optimizer_state_dict"])
+        assert restored_opt.param_groups[0]["lr"] == 1e-3
+
+
+class TestModelCheckpointTopK:
+    """top-k 检查点管理测试（P1-03 覆盖率补充）"""
+
+    def test_top_k_keeps_best_and_removes_worst(self, tmp_path):
+        filepath = str(tmp_path / "model.pt")
+        ckpt = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=False, save_top_k=2, verbose=0,
+        )
+        trainer = MockTrainer()
+        for epoch, loss in enumerate([0.5, 0.3, 0.7, 0.4]):
+            ckpt.on_epoch_end(trainer, epoch=epoch, logs={"val_loss": loss})
+        files = sorted(p.name for p in tmp_path.iterdir())
+        # 保留最优 2 个：loss 0.3 (epoch1) 与 0.4 (epoch3)
+        assert files == ["model_epoch0001.pt", "model_epoch0003.pt"], files
+
+    def test_top_k_max_mode_keeps_highest(self, tmp_path):
+        filepath = str(tmp_path / "model.pt")
+        ckpt = ModelCheckpoint(
+            filepath, monitor="val_acc", mode="max",
+            save_best_only=False, save_top_k=1, verbose=0,
+        )
+        trainer = MockTrainer()
+        for epoch, acc in enumerate([0.5, 0.9, 0.7]):
+            ckpt.on_epoch_end(trainer, epoch=epoch, logs={"val_acc": acc})
+        files = sorted(p.name for p in tmp_path.iterdir())
+        assert files == ["model_epoch0001.pt"], files
+
+    def test_top_k_zero_keeps_all(self, tmp_path):
+        filepath = str(tmp_path / "model.pt")
+        ckpt = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=False, save_top_k=0, verbose=0,
+        )
+        trainer = MockTrainer()
+        for epoch in range(3):
+            ckpt.on_epoch_end(trainer, epoch=epoch, logs={"val_loss": 0.5 - epoch * 0.1})
+        assert len(list(tmp_path.iterdir())) == 3
+
+    def test_top_k_cleanup_verbose_logs(self, tmp_path, caplog):
+        import logging
+
+        filepath = str(tmp_path / "model.pt")
+        ckpt = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=False, save_top_k=1, verbose=1,
+        )
+        trainer = MockTrainer()
+        with caplog.at_level(logging.INFO, logger="src.training.callbacks"):
+            ckpt.on_epoch_end(trainer, 0, {"val_loss": 0.5})
+            ckpt.on_epoch_end(trainer, 1, {"val_loss": 0.4})
+        assert "移除检查点" in caplog.text
+
+
+class TestLearningRateMonitor:
+    """学习率监控回调测试（P1-03 覆盖率补充）"""
+
+    def test_invalid_interval_rejected(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="logging_interval"):
+            LearningRateMonitor(logging_interval="step")
+
+    def test_epoch_and_batch_recording(self):
+        from src.training.callbacks import LearningRateMonitor
+
+        class Trainer:
+            optimizer = type("Opt", (), {"param_groups": [{"lr": 0.001}]})()
+
+        lrm = LearningRateMonitor(logging_interval="batch")
+        trainer = Trainer()
+        lrm.on_train_start(trainer)
+        lrm.on_epoch_end(trainer, epoch=0, logs={})
+        lrm.on_batch_end(trainer, batch_idx=0, logs={})
+        lrm.on_batch_end(trainer, batch_idx=1, logs={})
+        assert lrm.lrs["epoch"] == [0.001]
+        assert lrm.lrs["batch"] == [0.001, 0.001]
+
+    def test_batch_recording_skipped_for_epoch_interval(self):
+        from src.training.callbacks import LearningRateMonitor
+
+        class Trainer:
+            optimizer = type("Opt", (), {"param_groups": [{"lr": 0.001}]})()
+
+        lrm = LearningRateMonitor(logging_interval="epoch")
+        lrm.on_train_start(Trainer())
+        lrm.on_batch_end(Trainer(), 0, {})
+        assert lrm.lrs["batch"] == []
+
+
+class TestTensorBoardLifecycle:
+    """TensorBoard 生命周期测试（P1-03 覆盖率补充）"""
+
+    def test_train_start_creates_writer_and_end_closes(self, tmp_path):
+        callback = TensorBoardCallback(log_dir=str(tmp_path / "runs"))
+        callback.on_train_start(MockTrainer())
+        assert callback._writer is not None
+        callback.on_epoch_end(MockTrainer(), 0, {"train_loss": 0.5})
+        callback.on_train_end(MockTrainer())
+        assert callback._writer is None
+
+
+class TestProgressBarCallback:
+    """进度条回调测试（P1-03 覆盖率补充）"""
+
+    def test_verbose_zero_is_noop(self, tmp_path):
+        from src.training.callbacks import ProgressBarCallback
+
+        pbar = ProgressBarCallback(verbose=0)
+        trainer = MockTrainer()
+        pbar.on_train_start(trainer)
+        pbar.on_epoch_start(trainer, 0)
+        pbar.on_batch_end(trainer, 0, {"loss": 0.5})
+        pbar.on_epoch_end(trainer, 0, {"train_loss": 0.5})
+        pbar.on_train_end(trainer)
+        assert pbar.epoch_pbar is None
+        assert pbar.batch_pbar is None
+
+    def test_logger_fallback_path(self, tmp_path, caplog):
+        """tqdm 不可用时回退到 logger 输出"""
+        import logging
+
+        import src.training.callbacks as cb
+        from src.training.callbacks import ProgressBarCallback
+
+        orig = cb._HAS_TQDM
+        cb._HAS_TQDM = False
+        try:
+            pbar = ProgressBarCallback(verbose=1)
+            trainer = MockTrainer()
+            with caplog.at_level(logging.INFO, logger="src.training.callbacks"):
+                pbar.on_train_start(trainer)
+                pbar.on_epoch_start(trainer, 0)
+                pbar.on_batch_end(trainer, 0, {"loss": 0.5})
+                pbar.on_epoch_end(trainer, 0, {"train_loss": 0.5, "val_loss": 0.4})
+                pbar.on_train_end(trainer)
+            assert "Training started" in caplog.text
+            assert "Epoch 0 started" in caplog.text
+            assert "Epoch 0 ended" in caplog.text
+            assert "Training ended" in caplog.text
+        finally:
+            cb._HAS_TQDM = orig
+
+
+class TestProgressBarTqdmPath:
+    """进度条 tqdm 真实路径测试（P1-03 覆盖率补充）"""
+
+    def test_tqdm_full_lifecycle(self):
+        import src.training.callbacks as cb
+        from src.training.callbacks import ProgressBarCallback
+
+        if not cb._HAS_TQDM:  # pragma: no cover - 环境无 tqdm 时跳过
+            import pytest
+
+            pytest.skip("tqdm not installed")
+
+        pbar = ProgressBarCallback(verbose=1)
+        trainer = MockTrainer()
+        pbar.on_train_start(trainer)
+        assert pbar.epoch_pbar is not None
+        pbar.on_epoch_start(trainer, 0)
+        assert pbar.batch_pbar is not None
+        pbar.on_batch_end(trainer, 0, {"loss": 0.5})
+        pbar.on_epoch_end(trainer, 0, {"train_loss": 0.5, "val_loss": 0.4})
+        assert pbar.batch_pbar is None
+        pbar.on_epoch_end(trainer, 1, {"train_loss": 0.4})
+        pbar.on_train_end(trainer)
+        assert pbar.epoch_pbar is None
+
+    def test_tensorboard_missing_warning(self, caplog):
+        """tensorboard 不可用时初始化应记录警告"""
+        import logging
+
+        import src.training.callbacks as cb
+
+        orig = cb._HAS_TENSORBOARD
+        cb._HAS_TENSORBOARD = False
+        try:
+            with caplog.at_level(logging.WARNING, logger="src.training.callbacks"):
+                TensorBoardCallback(log_dir="runs")
+            assert "tensorboard 不可用" in caplog.text
+        finally:
+            cb._HAS_TENSORBOARD = orig
+
+    def test_tensorboard_train_start_skipped_without_tb(self):
+        """tensorboard 不可用时 on_train_start 不初始化 writer"""
+        import src.training.callbacks as cb
+
+        orig = cb._HAS_TENSORBOARD
+        cb._HAS_TENSORBOARD = False
+        try:
+            callback = TensorBoardCallback(log_dir="runs")
+            callback.on_train_start(MockTrainer())
+            assert callback._writer is None
+        finally:
+            cb._HAS_TENSORBOARD = orig

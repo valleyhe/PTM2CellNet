@@ -438,3 +438,151 @@ class TestAMPCompatHelpers:
         assert make_grad_scaler() is scaler
         with amp_autocast() as value:
             assert value == "legacy"
+
+
+class TestExactResume:
+    """精确续训测试（P1-01）：start_epoch 与 epoch 恢复"""
+
+    def test_fit_starts_from_trainer_epoch(self, mock_model, dict_loader):
+        """设置 trainer.epoch 后 fit 应从该 epoch 继续，而不是从 0 重训"""
+        trainer = Trainer(mock_model, device="cpu")
+        trainer.compile()
+        trainer.epoch = 2
+        trainer.fit(dict_loader, max_epochs=4)
+        # 从 epoch 2 训练到 4：callback 收到的首个 epoch 应为 2
+        assert trainer.epoch == 3  # range(2,4) 最后一个为 3
+        assert len(trainer.train_losses) == 2  # 只训练 2 个 epoch
+
+    def test_fit_start_epoch_override(self, mock_model, dict_loader):
+        """显式 start_epoch 覆盖 trainer.epoch"""
+        trainer = Trainer(mock_model, device="cpu")
+        trainer.compile()
+        trainer.epoch = 5
+        trainer.fit(dict_loader, max_epochs=7, start_epoch=0)
+        assert len(trainer.train_losses) == 7
+
+    def test_fit_invalid_start_epoch_clamped(self, mock_model, dict_loader):
+        """负 start_epoch 被钳制为 0"""
+        trainer = Trainer(mock_model, device="cpu")
+        trainer.compile()
+        trainer.fit(dict_loader, max_epochs=2, start_epoch=-3)
+        assert len(trainer.train_losses) == 2
+
+    def test_checkpoint_with_optimizer_roundtrip(self, mock_model, dict_loader, tmp_path):
+        """checkpoint 保存 optimizer 状态，恢复后 optimizer 步数一致"""
+        from src.training.callbacks import ModelCheckpoint
+
+        torch.manual_seed(0)
+        model = MockModel(num_classes=4)
+        trainer = Trainer(model, device="cpu")
+        trainer.compile(loss_fn=torch.nn.CrossEntropyLoss())
+        trainer.fit(dict_loader, max_epochs=1)
+
+        filepath = str(tmp_path / "ckpt.pt")
+        ckpt_cb = ModelCheckpoint(filepath, monitor="val_loss", verbose=0)
+        ckpt_cb.optimizer = trainer.optimizer
+        ckpt_cb.scheduler = trainer.scheduler
+        # 直接保存当前状态（epoch=1）
+        ckpt_cb._save_checkpoint(filepath, model, epoch=1, trainer=trainer)
+
+        loaded = torch.load(filepath, weights_only=False)
+        assert "optimizer_state_dict" in loaded
+        assert "rng_state" in loaded
+        # scheduler 仅在配置了调度器时存在；此测试配置未指定调度器
+        assert ("scheduler_state_dict" in loaded) == (trainer.scheduler is not None)
+
+        # 恢复：新模型 + 新优化器，加载 optimizer 状态后 param_groups 一致
+        model2 = MockModel(num_classes=4)
+        trainer2 = Trainer(model2, device="cpu")
+        trainer2.compile(loss_fn=torch.nn.CrossEntropyLoss())
+        model2.load_state_dict(loaded["model_state_dict"])
+        trainer2.optimizer.load_state_dict(loaded["optimizer_state_dict"])
+        if trainer2.scheduler is not None and loaded.get("scheduler_state_dict") is not None:
+            trainer2.scheduler.load_state_dict(loaded["scheduler_state_dict"])
+        assert trainer2.optimizer.param_groups[0]["lr"] == trainer.optimizer.param_groups[0]["lr"]
+
+
+class TestExactResumeEquivalence:
+    """中断续训 vs 连续训练等价性（P1-01 精确续训核心验收）"""
+
+    def test_interrupted_resume_matches_continuous(self, dict_loader, tmp_path):
+        """先训练 1 epoch 保存完整状态，恢复后训练到 2 epoch，
+        与连续训练 2 epoch 的最终权重/损失一致（容差内）。"""
+        from src.training.callbacks import ModelCheckpoint
+
+        torch.manual_seed(7)
+        torch_seed_state = torch.get_rng_state()
+
+        def _fresh_model():
+            # 重建相同初始权重
+            torch.manual_seed(7)
+            return MockModel(num_classes=4)
+
+        def _train_continuous():
+            model = _fresh_model()
+            trainer = Trainer(model, device="cpu")
+            trainer.compile(loss_fn=torch.nn.CrossEntropyLoss())
+            trainer.fit(dict_loader, max_epochs=2)
+            return trainer
+
+        def _train_interrupted():
+            torch.manual_seed(7)
+            model = _fresh_model()
+            trainer = Trainer(model, device="cpu")
+            trainer.compile(loss_fn=torch.nn.CrossEntropyLoss())
+            trainer.fit(dict_loader, max_epochs=1)
+            first_loss = trainer.train_losses[0]
+
+            filepath = str(tmp_path / "ckpt.pt")
+            ckpt_cb = ModelCheckpoint(filepath, monitor="val_loss", verbose=0)
+            ckpt_cb.optimizer = trainer.optimizer
+            ckpt_cb.scheduler = trainer.scheduler
+            ckpt_cb._save_checkpoint(filepath, model, epoch=1, trainer=trainer)
+
+            # 模拟新进程：重建模型/优化器，加载完整状态后继续训练
+            torch.manual_seed(99)  # 故意用不同种子，验证状态恢复而非种子生效
+            resumed_model = _fresh_model()
+            resumed = Trainer(resumed_model, device="cpu")
+            resumed.compile(loss_fn=torch.nn.CrossEntropyLoss())
+
+            loaded = torch.load(filepath, weights_only=False)
+            resumed_model.load_state_dict(loaded["model_state_dict"])
+            resumed.epoch = int(loaded["epoch"])
+            resumed.global_step = int(loaded.get("global_step", 0))
+            resumed.optimizer.load_state_dict(loaded["optimizer_state_dict"])
+            if resumed.scheduler is not None and loaded.get("scheduler_state_dict") is not None:
+                resumed.scheduler.load_state_dict(loaded["scheduler_state_dict"])
+            from src.training.callbacks import _restore_rng_state
+            if isinstance(loaded.get("rng_state"), dict):
+                _restore_rng_state(loaded["rng_state"])
+
+            resumed.fit(dict_loader, max_epochs=2)
+            return resumed, first_loss
+
+        continuous = _train_continuous()
+        interrupted, interrupted_first_trainer_loss = _train_interrupted()
+
+        # 最终模型权重逐键一致
+        for key in continuous.model.state_dict():
+            assert torch.allclose(
+                interrupted.model.state_dict()[key],
+                continuous.model.state_dict()[key],
+                atol=1e-6,
+            ), f"权重不一致: {key}"
+        # 训练损失序列一致：中断前 1 epoch + 恢复后 1 epoch == 连续 2 epoch
+        # （中断/恢复分属两个 trainer 实例，需拼接后再比较）
+        assert len(interrupted.train_losses) == 1, "恢复段应只训练 1 个 epoch"
+        assert len(continuous.train_losses) == 2
+        assert abs(interrupted_first_trainer_loss - continuous.train_losses[0]) < 1e-5
+        assert abs(interrupted.train_losses[0] - continuous.train_losses[1]) < 1e-5
+        # optimizer 状态一致（如 Adam 步数）
+        a_state = interrupted.optimizer.state_dict()["state"]
+        b_state = continuous.optimizer.state_dict()["state"]
+        assert set(a_state.keys()) == set(b_state.keys())
+        for key in a_state:
+            for sub_key, a_val in a_state[key].items():
+                b_val = b_state[key][sub_key]
+                if isinstance(a_val, torch.Tensor):
+                    assert torch.allclose(a_val, b_val, atol=1e-6), f"optimizer {key}.{sub_key} 不一致"
+                else:
+                    assert a_val == b_val, f"optimizer {key}.{sub_key} 不一致"

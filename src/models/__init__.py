@@ -84,6 +84,13 @@ from .cross_scale import (
     CrossScalePTM2CellNet,
     CrossScaleModel,
 )
+from .plm_assets import (
+    DEFAULT_LOCAL_PLM_DIRS,
+    PLMAssetError,
+    inspect_plm_asset,
+    resolve_local_plm_assets,
+    require_local_plm_assets,
+)
 
 __all__ = [
     # Encoders
@@ -161,4 +168,9 @@ __all__ = [
     "CellGraphCompassHead",
     "CrossScalePTM2CellNet",
     "CrossScaleModel",
+    "DEFAULT_LOCAL_PLM_DIRS",
+    "PLMAssetError",
+    "inspect_plm_asset",
+    "resolve_local_plm_assets",
+    "require_local_plm_assets",
 ]

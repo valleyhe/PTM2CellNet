@@ -16,6 +16,42 @@ canonical_contract:
   - split_group
   position_semantics: 1-based residue positions
   checksum: sha256
+# P1-04: 研究 profile 激活清单。profile 中 required_datasets 缺失、路径为空、
+# 哈希漂移或 schema 不合格时，`validate_data_manifest.py --profile <name> --strict`
+# 必须 fail-fast（见 docs/E2E训练与推理现状分析_2026-08-08.md 阶段 A）。
+profiles:
+  standard_training:
+    description: Standard PTM2CellNet training release (sequence + PTM supervision)
+    required_datasets:
+    - pmads
+    optional_datasets:
+    - uniprotkb
+    - phosphositeplus
+    - dbptm
+    - cplm
+  cross_scale_training:
+    description: Cross-scale training release (perturbation targets + signaling graphs)
+    required_datasets:
+    - pmads
+    - scperturb
+    - norman_adamson
+    - replogle
+    - scgenescope
+    - kinase_substrate
+    - string
+    - bioplex
+    - regnetwork
+    optional_datasets: []
+  cross_scale_inference:
+    description: Cross-scale inference release (graphs + gene vocabularies only)
+    required_datasets:
+    - scgenescope
+    - kinase_substrate
+    - string
+    - bioplex
+    - regnetwork
+    optional_datasets:
+    - pmads
 datasets:
 - id: uniprotkb
   name: UniProtKB human protein sequences

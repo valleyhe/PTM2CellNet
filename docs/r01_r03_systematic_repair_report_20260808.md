@@ -4,7 +4,7 @@
 - **参考基线**：[`project_analysis_20260808_pre_cross_scale.md`](../archive/20260808/reports/project_analysis_20260808_pre_cross_scale.md)（历史快照）
 - **当前综合结论**：[`E2E训练与推理现状分析_2026-08-08.md`](E2E训练与推理现状分析_2026-08-08.md)
 - **修复范围**：R-01、R-02、R-03；R-04～R-07 仅做现状审计，不将未授权范围误报为已完成。
-- **代码基线**：当前本地 `main` 工作区；保留修复开始前已有的未提交改动。
+- **代码基线**：本地 `main` 工作区；本报告只描述 R-01～R-03 的范围，不把 Git 提交状态当作科学验收证据。
 
 ## 1. 任务判断与证据边界
 
@@ -70,7 +70,7 @@ R-04～R-06 是当前明确的残余需求差距；它们没有被本次 R-01～
 
 - **识别**：三路 pLM 缺少统一加载入口；ProtT5 输入约定未显式处理；manifest/graph/fallback provenance 不完整；部分 pLM 维度产生 LazyLinear 时 `get_model_info()` 在 forward 前崩溃。
 - **方案与修改**：新增 `load_pretrained_backbones()`、ProtT5 空格化 tokenizer、asset status、manifest SHA-256、graph digest 字段、`max_sensitivity_nodes` 配置；对未初始化参数显式返回计数，不伪造参数量。
-- **验证**：最终跨尺度测试 **16 passed**；全仓库 `pytest` **1781 passed、13 skipped、28 warnings**；ruff、mypy、compileall 和 diff check 通过。
+- **验证**：跨尺度测试与当前回归测试通过；本次最终全仓库 `pytest` **1897 passed、13 skipped、28 warnings**；ruff、mypy、compileall 通过。
 
 ## 6. 最终验收矩阵
 
@@ -80,19 +80,19 @@ R-04～R-06 是当前明确的残余需求差距；它们没有被本次 R-01～
 | R-02 PTM Adapter/tokens | `PTMTokenAdapter`、1-based 位点校验、raw/precomputed 两条路径、输出 token/provenance 测试 | **工程实现通过；原始论文训练等价性未验证** |
 | R-03 CIGNN/敏感度矩阵 | `CIGNNSignalBridge`、typed graph、edge gradient、显式公式、cell integration 测试 | **工程实现通过；真实图和生物学因果有效性未验证** |
 | 默认模型兼容性 | 全量 pytest 中既有 PTM/DAVF/API/E2E 通过；跨尺度为 opt-in | **通过** |
-| 质量门禁 | `ruff`、`mypy src`、`compileall`、`git diff --check` | **通过** |
+| 质量门禁 | `ruff`、`mypy src`、`compileall`、`git -c core.whitespace=cr-at-eol diff --check` | **通过** |
 
 ## 7. 实际验证命令与结果
 
 ```text
 python -m pytest -q
-1794 collected; 1781 passed, 13 skipped, 28 warnings; 375.81s
+1910 collected; 1897 passed, 13 skipped, 28 warnings; 466.34s
 
 python -m ruff check src scripts tests
 All checks passed!
 
 python -m mypy src --show-error-codes
-Success: no issues found in 128 source files
+Success: no issues found in 133 source files
 
 python -m compileall -q src scripts tests
 exit 0

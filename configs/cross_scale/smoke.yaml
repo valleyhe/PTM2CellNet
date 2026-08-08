@@ -21,9 +21,9 @@ cross_scale:
     esm2: 13
     prott5: 17
   plm_model_names:
-    ankh39: ElnaggarLab/ankh-base
-    esm2: facebook/esm2_t6_8M_UR50D
-    prott5: Rostlab/prot_t5_xl_uniref50
+    ankh39: data/weights/plm/ankh-base
+    esm2: data/weights/plm/esm2_t30_150M_UR50D
+    prott5: data/weights/plm/prot_t5_xl_half_uniref50-enc
   required_backbones: [ankh39, esm2, prott5]
   freeze_plm_backbones: true
   allow_plm_fallback: false
@@ -31,3 +31,25 @@ cross_scale:
   require_signal_gene_map: true
   data_manifest: data/manifests/datasets.yaml
   signal_graph_version: fixture-v1
+  plm_asset_root: data/weights/plm
+  plm_local_dirs:
+    ankh39: ankh-base
+    esm2: esm2_t30_150M_UR50D
+    prott5: prot_t5_xl_half_uniref50-enc
+
+training:
+  batch_size: 4
+  num_workers: 0
+  max_epochs: 2
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  gradient_clip_norm: 1.0
+  accumulation_steps: 1
+  mixed_precision: false
+  device: cpu
+  lr_factor: 0.5
+  lr_patience: 2
+  early_stopping_patience: 5
+
+labels:
+  cell_states: [state_0, state_1, state_2]

@@ -360,6 +360,7 @@ class Trainer:
         train_loader_or_datamodule: Union[DataLoader[Dict[str, torch.Tensor]], Any],
         val_loader: Optional[DataLoader[Dict[str, torch.Tensor]]] = None,
         max_epochs: Optional[int] = None,
+        start_epoch: Optional[int] = None,
     ) -> None:
         """
         训练模型
@@ -372,6 +373,9 @@ class Trainer:
             train_loader_or_datamodule: 训练数据加载器或LightningDataModule实例
             val_loader: 验证数据加载器（仅在DataLoader方式下使用）
             max_epochs: 最大训练轮数
+            start_epoch: 起始 epoch（断点续训时传入已完成的 epoch 数，
+                训练将精确从 ``start_epoch`` 继续到 ``max_epochs``，而不是从头重训；
+                默认 None 时使用 ``self.epoch``，使 ``trainer.epoch = N`` 后直接 fit 即续训）
         """
         # 检测是否为LightningDataModule
         if self._is_datamodule(train_loader_or_datamodule):
@@ -386,16 +390,20 @@ class Trainer:
             max_epochs = self.training_config.get("max_epochs", 100)
         if not isinstance(max_epochs, int):
             max_epochs = 100
+        if start_epoch is None:
+            start_epoch = self.epoch
+        if not isinstance(start_epoch, int) or start_epoch < 0:
+            start_epoch = 0
         epochs = max_epochs
 
-        logger.info("开始训练，最大轮数: %d", epochs)
+        logger.info("开始训练，最大轮数: %d，起始 epoch: %d", epochs, start_epoch)
 
         for callback in self.callbacks:
             callback.on_train_start(self)
 
         early_stop = False
 
-        for epoch in range(epochs):
+        for epoch in range(start_epoch, epochs):
             self.epoch = epoch
 
             for callback in self.callbacks:

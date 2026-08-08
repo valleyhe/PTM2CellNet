@@ -95,3 +95,86 @@ def test_update_manifest_preserves_distinct_snapshot_entries(tmp_path):
     pmads = next(item for item in payload["datasets"] if item["id"] == "pmads")
     registered_paths = {entry["path"] for entry in pmads["files"]}
     assert {str(first_snapshot.resolve()), str(second_snapshot.resolve())}.issubset(registered_paths)
+
+
+def test_validate_manifest_cli_profile_standard_training_passes():
+    """--profile standard_training 应通过（pmads 有本地快照）"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_data_manifest.py",
+            "--profile",
+            "standard_training",
+            "--check-files",
+            "--verify-hashes",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads(completed.stdout)
+    assert report["ok"] is True
+    assert report["profile"] == "standard_training"
+    assert "pmads" in report["profile_required_datasets"]
+
+
+def test_validate_manifest_cli_profile_cross_scale_fails_fast():
+    """--profile cross_scale_training 在关键图资产缺失时应 fail-fast"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_data_manifest.py",
+            "--profile",
+            "cross_scale_training",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    report = json.loads(completed.stdout)
+    assert report["ok"] is False
+    assert any("required by profile" in error for error in report["errors"])
+
+
+def test_validate_manifest_cli_unknown_profile_fails():
+    """未知 profile 名必须显式失败"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_data_manifest.py",
+            "--profile",
+            "not_a_profile",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    report = json.loads(completed.stdout)
+    assert report["ok"] is False
+    assert any("is not declared" in error for error in report["errors"])
+
+
+def test_validate_manifest_cli_without_profile_keeps_legacy_pass():
+    """不带 --profile 时默认校验仍通过（向后兼容）"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_data_manifest.py",
+            "--check-files",
+            "--strict",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads(completed.stdout)
+    assert report["ok"] is True
+    assert "profile" not in report

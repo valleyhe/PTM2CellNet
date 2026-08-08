@@ -5,8 +5,10 @@
 """
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+import random
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+import numpy as np
 import torch
 
 from src.utils.logging import setup_logger
@@ -49,6 +51,36 @@ class Callback(LightningCallback):
     def on_batch_end(self, _trainer, _batch_idx: int, _logs: Dict) -> None:
         """每个batch结束时调用"""
         return None
+
+
+def _capture_rng_state() -> Dict[str, Any]:
+    """Capture python/numpy/torch RNG state for exact-resume checkpoints.
+
+    Mirrors the semantics used by ``CrossScaleTrainer`` so both standard and
+    cross-scale trainers serialize the same RNG contract.
+    """
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch_cpu": torch.get_rng_state(),
+        "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+    }
+
+
+def _restore_rng_state(state: Mapping[str, Any]) -> None:
+    """Restore a state previously captured by :func:`_capture_rng_state`."""
+    python_state = state.get("python")
+    if python_state is not None:
+        random.setstate(python_state)
+    numpy_state = state.get("numpy")
+    if numpy_state is not None:
+        np.random.set_state(numpy_state)
+    cpu_state = state.get("torch_cpu")
+    if isinstance(cpu_state, torch.Tensor):
+        torch.set_rng_state(cpu_state.cpu())
+    cuda_states = state.get("torch_cuda")
+    if torch.cuda.is_available() and isinstance(cuda_states, list) and cuda_states:
+        torch.cuda.set_rng_state_all(cuda_states)
 
 
 class ModelCheckpoint(Callback):
@@ -111,22 +143,31 @@ class ModelCheckpoint(Callback):
         if dir_path:
             os.makedirs(dir_path, exist_ok=True)
 
-    def _build_checkpoint(self, model, epoch: int) -> Dict:
-        """构建完整检查点字典"""
+    def _build_checkpoint(self, model, epoch: int, trainer: Optional[Any] = None) -> Dict:
+        """构建完整检查点字典
+
+        包含模型权重、epoch、optimizer/scheduler（若已挂载）、AMP scaler
+        与 RNG 状态（python/numpy/torch），使 ``--resume`` 成为精确续训。
+        """
         checkpoint: Dict = {
             "model_state_dict": model.state_dict(),
             "epoch": epoch,
+            "rng_state": _capture_rng_state(),
         }
         if self.optimizer is not None:
             checkpoint["optimizer_state_dict"] = self.optimizer.state_dict()
         if self.scheduler is not None:
             checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
+        if trainer is not None:
+            scaler = getattr(trainer, "scaler", None)
+            if scaler is not None and hasattr(scaler, "state_dict"):
+                checkpoint["scaler_state_dict"] = scaler.state_dict()
         return checkpoint
 
-    def _save_checkpoint(self, filepath: str, model, epoch: int) -> None:
+    def _save_checkpoint(self, filepath: str, model, epoch: int, trainer: Optional[Any] = None) -> None:
         """保存检查点到指定路径"""
         self._ensure_dir(filepath)
-        checkpoint = self._build_checkpoint(model, epoch)
+        checkpoint = self._build_checkpoint(model, epoch, trainer)
         torch.save(checkpoint, filepath)
 
     def _get_last_filepath(self) -> str:
@@ -170,7 +211,7 @@ class ModelCheckpoint(Callback):
         # Save last checkpoint (every epoch)
         if self.save_last:
             last_filepath = self._get_last_filepath()
-            self._save_checkpoint(last_filepath, trainer.model, epoch)
+            self._save_checkpoint(last_filepath, trainer.model, epoch, trainer)
             if self.verbose > 0:
                 logger.info("保存最新模型到 %s", last_filepath)
 
@@ -178,7 +219,7 @@ class ModelCheckpoint(Callback):
             if self.is_better(current_value, self.best_value):
                 self.best_value = current_value
                 self.epochs_since_improvement = 0
-                self._save_checkpoint(self.filepath, trainer.model, epoch)
+                self._save_checkpoint(self.filepath, trainer.model, epoch, trainer)
                 if self.verbose > 0:
                     logger.info(
                         "保存最佳模型到 %s (epoch %d, %s=%.4f)",
@@ -194,7 +235,7 @@ class ModelCheckpoint(Callback):
             # Generate epoch-specific filepath
             base, ext = os.path.splitext(self.filepath)
             epoch_filepath = f"{base}_epoch{epoch:04d}{ext}"
-            self._save_checkpoint(epoch_filepath, trainer.model, epoch)
+            self._save_checkpoint(epoch_filepath, trainer.model, epoch, trainer)
 
             # Track in top-k list
             self._top_k_checkpoints.append((current_value, epoch_filepath))

@@ -257,3 +257,114 @@ def test_get_dataset_returns_copy_and_rejects_unknown_id():
     assert manifest["datasets"][0]["name"] == "Fixture"
     with pytest.raises(KeyError, match="missing"):
         get_dataset(manifest, "missing")
+
+
+class TestProfileActivation:
+    """P1-04: manifest profile 激活校验"""
+
+    def _profile_manifest(self, *, files=None, profile_required=("pmads",)):
+        dataset = {
+            "id": "pmads",
+            "name": "PMADS",
+            "category": "ptm_supervision",
+            "status": "local",
+            "source": {"provider": "tests", "access": "local", "license": "internal"},
+            "formats": ["csv"],
+            "canonical_schema": {"required_columns": ["sequence"]},
+            "quality_requirements": {"checks": ["non_empty"]},
+        }
+        if files is not None:
+            dataset["files"] = files
+        return {
+            "manifest_version": "1.0.0",
+            "project": "test",
+            "datasets": [dataset],
+            "profiles": {
+                "standard_training": {
+                    "description": "test",
+                    "required_datasets": list(profile_required),
+                    "optional_datasets": [],
+                }
+            },
+        }
+
+    def test_profile_required_dataset_missing_path_fails_without_check_files(self):
+        """profile required dataset 无本地路径时必须失败（即使未指定 --check-files）"""
+        manifest = self._profile_manifest(files=[{"path": None, "required": False}])
+        report = validate_manifest(manifest, profile="standard_training")
+        assert report["ok"] is False
+        assert any("required by profile" in e for e in report["errors"])
+
+    def test_profile_required_dataset_with_path_passes(self, tmp_path):
+        """profile required dataset 有本地路径且文件存在时通过"""
+        import hashlib
+
+        snapshot = tmp_path / "snap.csv"
+        snapshot.write_text("sequence\nACDE\n", encoding="utf-8")
+        real_hash = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+        manifest = self._profile_manifest(
+            files=[{"path": snapshot.name, "required": False, "sha256": real_hash}]
+        )
+        report = validate_manifest(
+            manifest,
+            root_dir=tmp_path,
+            check_files=True,
+            verify_hashes=True,
+            profile="standard_training",
+        )
+        assert report["ok"] is True
+        assert report["profile_required_datasets"] == ["pmads"]
+
+    def test_profile_hash_drift_fails(self, tmp_path):
+        """profile required dataset 哈希漂移时必须失败"""
+        snapshot = tmp_path / "snap.csv"
+        snapshot.write_text("sequence\nACDE\n", encoding="utf-8")
+        manifest = self._profile_manifest(
+            files=[{"path": snapshot.name, "required": False, "sha256": "1" * 64}]
+        )
+        report = validate_manifest(
+            manifest,
+            root_dir=tmp_path,
+            check_files=True,
+            verify_hashes=True,
+            profile="standard_training",
+        )
+        assert report["ok"] is False
+        assert any("SHA-256 mismatch" in e for e in report["errors"])
+
+    def test_unknown_profile_is_error(self):
+        """未知 profile 名必须显式失败（避免无声空校验）"""
+        report = validate_manifest(self._profile_manifest(), profile="nope")
+        assert report["ok"] is False
+        assert any("is not declared" in e for e in report["errors"])
+
+    def test_profile_reference_to_unknown_dataset_is_error(self):
+        """profile 引用不存在的 dataset id 必须失败"""
+        manifest = self._profile_manifest(profile_required=("missing_dataset",))
+        report = validate_manifest(manifest, profile="standard_training")
+        assert report["ok"] is False
+        assert any("unknown dataset ids" in e for e in report["errors"])
+
+    def test_profile_required_optional_overlap_is_error(self):
+        """同一 dataset 同时出现在 required 与 optional 必须失败"""
+        manifest = self._profile_manifest()
+        manifest["profiles"]["standard_training"]["optional_datasets"] = ["pmads"]
+        report = validate_manifest(manifest, profile="standard_training")
+        assert report["ok"] is False
+        assert any("required and optional" in e for e in report["errors"])
+
+    def test_project_manifest_profiles_declared(self):
+        """项目 manifest 必须声明文档阶段 A 的三个研究 profile"""
+        manifest = load_manifest(MANIFEST)
+        profiles = manifest.get("profiles", {})
+        assert {"standard_training", "cross_scale_training", "cross_scale_inference"}.issubset(
+            profiles.keys()
+        )
+        assert "pmads" in profiles["standard_training"]["required_datasets"]
+
+    def test_profile_unset_keeps_legacy_behavior(self):
+        """未指定 profile 时行为不变（无路径不报错）"""
+        manifest = self._profile_manifest(files=[{"path": None, "required": False}])
+        report = validate_manifest(manifest)
+        assert report["ok"] is True
+        assert "profile" not in report

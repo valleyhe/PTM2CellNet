@@ -24,6 +24,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check-files", action="store_true", help="check registered local snapshot paths")
     parser.add_argument("--verify-hashes", action="store_true", help="require and verify SHA-256 for present files")
     parser.add_argument("--strict", action="store_true", help="treat warnings as validation errors")
+    parser.add_argument(
+        "--profile",
+        type=str,
+        default=None,
+        help=(
+            "activate a named asset profile declared under manifest.profiles "
+            "(e.g. standard_training, cross_scale_training, cross_scale_inference). "
+            "Required datasets in the profile are enforced as mandatory: missing "
+            "path, absent file (with --check-files) or hash drift (with --verify-hashes) "
+            "become hard errors regardless of per-file required flags."
+        ),
+    )
     return parser
 
 
@@ -41,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         check_files=args.check_files,
         verify_hashes=args.verify_hashes,
         strict_warnings=args.strict,
+        profile=args.profile,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["ok"] else 2

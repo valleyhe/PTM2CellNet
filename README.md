@@ -66,6 +66,29 @@ curl -X POST http://localhost:8000/api/v1/predict \
     -d '{"sequence": "ACDEFGHIKLMNPQRSTVWY"}'
 ```
 
+### 6. 跨尺度离线 smoke（需要版本化 NPZ 数据）
+
+跨尺度模型是 opt-in 路径，训练和批量推理共用
+`ptm2cellnet.cross-scale.npz.v1` 数据契约；它不替换标准模型/API。先用
+`docs/guides/real_assets_acceptance.md` 中的 pLM 与 manifest 门禁确认资产，再运行：
+
+```bash
+python scripts/train_cross_scale.py \
+    --config configs/cross_scale/smoke.yaml \
+    --train-data /path/to/train.npz \
+    --val-data /path/to/val.npz \
+    --test-data /path/to/test.npz \
+    --output outputs/cross_scale_smoke
+
+python scripts/predict_cross_scale.py \
+    --artifact outputs/cross_scale_smoke \
+    --data /path/to/test.npz \
+    --output outputs/cross_scale_smoke/predictions.npz
+```
+
+仓库中的跨尺度测试使用 synthetic fixtures，仅证明工程契约、checkpoint
+round-trip 和批量输出可运行，不代表真实扰动数据或生物学效果已验收。
+
 ### 运行全部测试
 
 ```bash
