@@ -12,6 +12,7 @@ from setuptools import setup, find_packages
 extras_require = {
     "pretrained": [
         "transformers>=4.30.0",
+        "sentencepiece>=0.2.0",
         "fair-esm>=2.0.0",
         "tokenizers>=0.13.0",
     ],
@@ -36,6 +37,7 @@ extras_require = {
     ],
     "all": [
         "transformers>=4.30.0",
+        "sentencepiece>=0.2.0",
         "fair-esm>=2.0.0",
         "tokenizers>=0.13.0",
         "mamba-ssm>=2.0.0",

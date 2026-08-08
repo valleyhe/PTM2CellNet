@@ -22,6 +22,13 @@ from .validation import (
     validate_and_report,
     collate_sequences,
 )
+from .data_manifest import (
+    DataManifestError,
+    load_manifest,
+    validate_manifest,
+    sha256_file,
+    manifest_digest,
+)
 
 __all__ = [
     "DataLoader",
@@ -42,4 +49,9 @@ __all__ = [
     "validate_and_report",
     "collate_sequences",
     "PTMLightningDataModule",
+    "DataManifestError",
+    "load_manifest",
+    "validate_manifest",
+    "sha256_file",
+    "manifest_digest",
 ]

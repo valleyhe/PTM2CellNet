@@ -30,13 +30,58 @@
 - [x] **CONF-02**: Add default Logger configuration for Lightning Trainer. **Completed.** `src/training/logging_config.py` provides `configure_default_logger()`; `PTM2CellNetLightning.create_trainer()` (`src/training/lightning_module.py:495`) auto-instantiates a `TensorBoardLogger` when none is supplied.
 - [x] **CONF-03**: Clarify KEGG/Reactome loading stubs. **Completed.** `src/models/signaling_network.py:271-283` no longer raises `NotImplementedError`; on failure it logs a warning and falls back to a built-in pathway set.
 
-## v2.2 Requirements (Deferred)
+## v2.2 Requirements (Current)
 
-- **V22-01**: DAVF 端到端微调
-- **V22-02**: scVI decode 集成
-- **V22-03**: 通路知识库上下文相关映射
-- **V22-04**: 文档完善
-- **V22-05**: 更多PTM类型支持
+### Reproducible data and baseline (DATA/BASE)
+
+- [x] **DATA-01**: The repository provides a versioned YAML data manifest that enumerates every required PTM, single-cell perturbation and signaling-graph source, its access/license status, source reference, expected format, canonical fields and quality gates; unavailable or controlled assets are represented explicitly rather than fabricated. **Completed 2026-08-08.**
+- [x] **DATA-02**: A manifest loader/validator and update/check workflow validates identifiers, schema, local file presence and optional SHA-256 snapshots, and returns actionable failures for stale or incomplete entries. **Completed 2026-08-08.**
+- [x] **BASE-01**: A PMADS-compatible normalizer and Ridge regression baseline use deterministic feature extraction, a fixed seed/split with optional protein grouping, leakage-safe preprocessing, and classification/regression metrics. **Completed 2026-08-08.**
+- [x] **BASE-02**: `scripts/baseline_pmads_ridge.py` produces a self-describing model artifact, metrics/prediction tables and provenance linking the input dataset, manifest, split policy, code revision and runtime parameters; a smoke fixture runs offline. **Completed 2026-08-08.**
+- [x] **BASE-03**: The project documents and tests a standard data refresh and baseline maintenance workflow, including checksum refresh, quality review, split regeneration and artifact comparison. **Completed 2026-08-08.**
+
+### Cross-scale scientific model (MODEL)
+
+- [x] **MODEL-01**: An opt-in `MultiPLMEncoder` provides a common contract for Ankh39, ESM-2 and ProtT5 representations, projection/fusion, precomputed embeddings and explicit missing-weight/fallback provenance without changing the default single-scale model. **Completed 2026-08-08.**
+- [x] **MODEL-02**: `CIGNNSignalBridge` consumes an explicit typed PPI/kinase-substrate graph, performs differentiable message passing and exposes the sensitivity matrix `S=(1-alpha)(I-alpha G')^-1`; missing graph edges must fail loudly unless an explicit research-only approximation flag is supplied. **Completed 2026-08-08.**
+- [x] **MODEL-03**: `CellGraphCompassHead` decodes signal features into a delta-expression spectrum and perturbed cell-state logits, supports gene masks and graph edges, and exposes a numerically stable multi-task loss and metrics. **Completed 2026-08-08.**
+- [x] **MODEL-04**: An opt-in cross-scale model composes protein/PTM conditioning, graph propagation and cell decoding, supports checkpoint round-trip/configuration, and emits model/data/graph/fallback provenance. **Completed 2026-08-08.**
+
+### Verification and reporting (VERIFY)
+
+- [x] **VERIFY-01**: Unit, integration and performance checks cover dimensions, gradients, deterministic splitting, quality failures, checkpoint round-trip, sensitivity-matrix invariants and CPU latency/resource measurements. **Completed 2026-08-08.**
+- [x] **VERIFY-02**: A dated Markdown technical summary reports environment, parameters, execution flow, resource use, quantitative metrics, anomalies/resolutions, scientific interpretation, limitations and exact reproduction commands. **Completed 2026-08-08.**
+
+## v2.2 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DATA-01 | Phase 18 | Complete |
+| DATA-02 | Phase 18 | Complete |
+| BASE-01 | Phase 18 | Complete |
+| BASE-02 | Phase 18 | Complete |
+| BASE-03 | Phase 20 | Complete |
+| MODEL-01 | Phase 19 | Complete |
+| MODEL-02 | Phase 19 | Complete |
+| MODEL-03 | Phase 19 | Complete |
+| MODEL-04 | Phase 19 | Complete |
+| VERIFY-01 | Phase 20 | Complete |
+| VERIFY-02 | Phase 20 | Complete |
+
+## v2.2 Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Downloading or redistributing restricted databases | Access and licensing must be confirmed by the data owner; the repository records manifests and local-import contracts only. |
+| Claiming the original Ankh39/Cell-Graph-Compass papers were exactly reproduced | The repository implements an explicitly versioned, testable equivalent contract; scientific equivalence requires the original weights/data and separate validation. |
+| Replacing the default PTM2CellNet/DAVF serving path | TD-01 is opt-in until real assets and biological acceptance tests exist. |
+| Real-time mass-spec streaming, custom PTM database, GUI, API-key expansion | These remain cancelled project scope. |
+
+## v2.2 Completion Evidence
+
+Completion evidence is recorded in the phase verification files, executed test
+results, baseline smoke output and dated technical summary; real-asset skips and
+the boundary between engineering fixtures and biological evidence are explicit.
 
 ## Cancelled Requirements
 
@@ -99,4 +144,4 @@ always the literal original wording:
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-07-06 — Phase 15/16/17 marked Complete after v15 systematic review; TEST-04 criteria revised to current test scope*
+*Last updated: 2026-08-08 — v2.2 DATA/BASE/MODEL/VERIFY requirements completed with phase verification and technical summary*

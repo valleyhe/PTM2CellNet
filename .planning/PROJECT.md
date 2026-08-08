@@ -113,23 +113,24 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 | Multitask unsupported w/ DAVF | 显式拒绝，约束明确 | ✓ Good |
 | Freeze DAVF first | 训练DeltaProjection+Predictor后再fine-tune DAVF | ✓ Good |
 
-## Current Milestone: v2.1 Technical Debt & Test Stabilization
+## Current Milestone: v2.2 Cross-Scale Scientific Closure & Reproducible Baseline
 
-**Goal:** Fix all failing tests,补齐缺失依赖, clean up orphaned code, improve error handling — return codebase to healthy state.
+**Goal:** Close the PTM→signal graph→cell-state scientific scale gap and establish a versioned data inventory plus a reproducible PMADS Ridge baseline.
 
 **Target features:**
-- Fix 14 failing tests (peft_config mock targets, Lightning API, pathway_integration)
-- Add missing dependencies to requirements.txt (anndata, sspa)
-- Fix evaluation/__init__.py silent ImportError swallowing
-- Consolidate 7 orphaned root-level scripts into src/scripts
-- Fix .gitignore whitelist missing critical files
-- Add default Logger config for Lightning Trainer
-- Decide fate of duplicate root files (signaling_network.py, pathway_knowledge_base.py)
-- Clarify KEGG/Reactome loading stubs
+- Versioned data manifest covering the required PTM, perturbation, single-cell and graph sources, formats, licenses/access status and quality gates;
+- deterministic PMADS normalization, fixed split, Ridge baseline, metrics and artifact provenance;
+- opt-in MultiPLMEncoder, CIGNNSignalBridge with sensitivity matrix, and CellGraphCompass-style delta-expression/state decoder;
+- integration, gradient/checkpoint, data-quality and CPU performance verification with a dated technical report.
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
+**v2.2 boundary (2026-08-08):** the new model is opt-in and does not change the
+default ``PTM2CellNetBase`` prediction contract. Missing pretrained weights,
+graph files or controlled datasets must be explicit in provenance; no synthetic
+fallback is accepted as evidence of biological validity.
+
 ---
-*Last updated: 2026-07-05 after cancelling real-time mass-spec streaming, custom PTM database, GUI, and API-key expansion*
+*Last updated: 2026-08-08 after starting v2.2 TD-01/TD-02 implementation*

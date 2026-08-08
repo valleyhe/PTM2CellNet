@@ -8,7 +8,7 @@ from .encoders import (
     GRUEncoder,
     PositionalEncoding,
 )
-from .ptm_modules import PTMEmbedding, PTMAttention, PTMModule, GatedPTMFusion
+from .ptm_modules import PTMEmbedding, PTMTokenAdapter, PTMAttention, PTMModule, GatedPTMFusion
 from .predictors import (
     CellStatePredictor,
     ClassificationPredictor,
@@ -71,6 +71,20 @@ from .external_tools import (
 # The module imports cleanly even when scvi-tools is absent (SCVI_AVAILABLE flag).
 from .scvi_adapter import ScVIAdapter, ScVIAdapterConfig, SCVI_AVAILABLE
 
+# Opt-in cross-scale scientific model (TD-01).  This module is independent of
+# the default PTM2CellNetBase path and requires explicit graph/data contracts.
+from .cross_scale import (
+    CrossScaleContractError,
+    CrossScaleConfig,
+    MultiPLMEncoder,
+    normalized_adjacency,
+    compute_sensitivity_matrix,
+    CIGNNSignalBridge,
+    CellGraphCompassHead,
+    CrossScalePTM2CellNet,
+    CrossScaleModel,
+)
+
 __all__ = [
     # Encoders
     "SequenceEncoder",
@@ -81,6 +95,7 @@ __all__ = [
     "PositionalEncoding",
     # PTM Modules
     "PTMEmbedding",
+    "PTMTokenAdapter",
     "PTMAttention",
     "PTMModule",
     "GatedPTMFusion",
@@ -136,4 +151,14 @@ __all__ = [
     "ScVIAdapter",
     "ScVIAdapterConfig",
     "SCVI_AVAILABLE",
+    # Cross-scale scientific model (opt-in)
+    "CrossScaleContractError",
+    "CrossScaleConfig",
+    "MultiPLMEncoder",
+    "normalized_adjacency",
+    "compute_sensitivity_matrix",
+    "CIGNNSignalBridge",
+    "CellGraphCompassHead",
+    "CrossScalePTM2CellNet",
+    "CrossScaleModel",
 ]

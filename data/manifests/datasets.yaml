@@ -1,0 +1,615 @@
+manifest_version: 1.0.0
+schema_version: ptm2cellnet.data-manifest.v1
+project: PTM2CellNet
+generated_at: '2026-08-08'
+owner: PTM2CellNet data working group
+canonical_contract:
+  required_columns:
+  - sequence
+  - ptm_sites
+  - cell_state
+  provenance_columns:
+  - protein_accession
+  - gene_symbol
+  - source_db
+  - evidence_level
+  - split_group
+  position_semantics: 1-based residue positions
+  checksum: sha256
+datasets:
+- id: uniprotkb
+  name: UniProtKB human protein sequences
+  category: protein_sequence
+  status: implemented
+  source:
+    provider: UniProt Consortium
+    homepage: https://www.uniprot.org/
+    reference: UniProtKB REST/API or reviewed local FASTA release
+    access: public_api_or_user_snapshot
+    license: UniProt license and release terms must be recorded for each snapshot
+  formats:
+  - fasta
+  - json
+  - tsv
+  loader: src.data.loaders.uniprot_loader.UniProtLoaderMixin
+  files:
+  - path: null
+    format: fasta
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - sequence
+    optional_columns:
+    - gene_symbol
+    - organism
+    - length
+    - release
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - unique_accession
+    - standard_amino_acids
+    - non_empty_sequence
+    - release_recorded
+  preprocessing:
+    version: 1.0.0
+    entrypoint: src.data.loaders.uniprot_loader
+- id: phosphositeplus
+  name: PhosphoSitePlus PTM annotations
+  category: ptm_annotation
+  status: implemented
+  source:
+    provider: PhosphoSitePlus
+    homepage: https://www.phosphosite.org/
+    reference: Site-specific PTM export supplied by the data owner
+    access: controlled_user_download
+    license: PhosphoSitePlus terms; do not redistribute raw export
+  formats:
+  - tsv
+  - txt
+  - gzipped_tsv
+  loader: src.data.loaders.ptm_database_loaders.PTMDatabaseLoaderMixin.load_from_phosphositeplus
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - position
+    - amino_acid
+    - ptm_type
+    optional_columns:
+    - gene
+    - confidence
+    - organism
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - accession_present
+    - one_based_position
+    - residue_matches_sequence
+    - organism_filtered
+  preprocessing:
+    version: 1.0.0
+    entrypoint: src.data.loaders.ptm_database_loaders
+- id: dbptm
+  name: dbPTM PTM annotations
+  category: ptm_annotation
+  status: implemented
+  source:
+    provider: dbPTM
+    homepage: https://biomics.lab.nycu.edu.tw/dbPTM/
+    reference: dbPTM release and download page
+    access: public_download
+    license: Record the release terms accompanying the downloaded snapshot
+  formats:
+  - csv
+  - tsv
+  - txt
+  loader: src.data.loaders.ptm_database_loaders.PTMDatabaseLoaderMixin.load_from_dbptm
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - position
+    - amino_acid
+    - ptm_type
+    optional_columns:
+    - evidence
+    - source_record
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - accession_present
+    - one_based_position
+    - valid_residue
+    - duplicate_rate_reported
+  preprocessing:
+    version: 1.0.0
+    entrypoint: src.data.loaders.ptm_database_loaders
+- id: cplm
+  name: CPLM lysine/cysteine modification annotations
+  category: ptm_annotation
+  status: implemented
+  source:
+    provider: CPLM
+    homepage: https://biomics.lab.nycu.edu.tw/CPLM/
+    reference: CPLM tabular release
+    access: public_download
+    license: Record release terms for each snapshot
+  formats:
+  - tsv
+  - txt
+  loader: src.data.loaders.ptm_database_loaders.PTMDatabaseLoaderMixin.load_from_cplm
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - position
+    - amino_acid
+    - ptm_type
+    optional_columns:
+    - evidence
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - accession_present
+    - one_based_position
+    - valid_residue
+  preprocessing:
+    version: 1.0.0
+    entrypoint: src.data.loaders.ptm_database_loaders
+- id: ptmatlas
+  name: PTMAtlas
+  category: ptm_annotation
+  status: controlled
+  source:
+    provider: PTMAtlas consortium
+    homepage: https://www.ptmatlas.org/
+    reference: PTMAtlas release selected by the data owner
+    access: controlled_user_snapshot
+    license: Verify database terms before use or redistribution
+  formats:
+  - tsv
+  - csv
+  - mzidentml
+  loader: null
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - position
+    - ptm_type
+    optional_columns:
+    - peptide
+    - localization_probability
+    - experiment_id
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - release_recorded
+    - accession_present
+    - localization_threshold_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_import_contract_only
+- id: proteometools_prospect
+  name: ProteomeTools / PROSPECT PTM evidence
+  category: ptm_experiment
+  status: controlled
+  source:
+    provider: ProteomeTools and PROSPECT projects
+    homepage: https://www.proteometools.org/
+    reference: Project release and associated peptide/PTM evidence
+    access: public_or_controlled_release
+    license: Confirm dataset-specific terms
+  formats:
+  - mzml
+  - mzidentml
+  - tsv
+  - parquet
+  loader: null
+  files:
+  - path: null
+    format: mzidentml
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - modified_peptide
+    - position
+    - ptm_type
+    optional_columns:
+    - spectrum_id
+    - localization_probability
+    - intensity
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - release_recorded
+    - peptide_parseable
+    - localization_threshold_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_import_contract_only
+- id: pmads
+  name: PMADS PTM-disease associations and CPTAC PTM intensity
+  category: ptm_supervision
+  status: local
+  source:
+    provider: PMADS/CPTAC source releases
+    homepage: null
+    reference: Local PMADS package plus CPTAC PTM intensity export
+    access: user_provided_local_files
+    license: Verify PMADS/CPTAC terms for each release
+  formats:
+  - csv
+  - tsv
+  - txt
+  loader: scripts/process_pmads_data.py
+  files:
+  - path: data/ptmdb/CPTAC_PTM_intensity.csv
+    format: csv
+    required: false
+    sha256: b64c3fa3a7493b2bedce05a9fa11b983e2ab585f435eb721202079459a927b2c
+    bytes: 8149441
+    recorded_at: '2026-08-08'
+  - path: data/ptmdb/PTMD_data_in_pmads.txt
+    format: tsv
+    required: false
+    sha256: 5bb28deb7c559312663a1df58ef6bcce781decab88715b6fa3241b58fd8c7df2
+    bytes: 3064389
+    recorded_at: '2026-08-08'
+  canonical_schema:
+    required_columns:
+    - sequence
+    - ptm_sites
+    - target
+    optional_columns:
+    - protein_accession
+    - gene_symbol
+    - source_db
+    - evidence_level
+    - split_group
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - non_empty_sequence
+    - valid_ptm_positions
+    - target_present
+    - protein_group_leakage_audited
+  preprocessing:
+    version: 1.0.0
+    entrypoint: scripts/baseline_pmads_ridge.py
+- id: scperturb
+  name: scPerturb single-cell perturbation compendium
+  category: single_cell_perturbation
+  status: controlled
+  source:
+    provider: scPerturb data consortium
+    homepage: https://scperturb.org/
+    reference: Dataset release and perturbation metadata
+    access: public_or_user_snapshot
+    license: Record per-study license and release
+  formats:
+  - h5ad
+  - mtx
+  - csv
+  - tsv
+  loader: null
+  files:
+  - path: null
+    format: h5ad
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - gene_id
+    - perturbation_id
+    - cell_state
+    optional_columns:
+    - cell_type
+    - donor
+    - batch
+    - expression_matrix
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - gene_ids_unique
+    - perturbation_metadata_present
+    - batch_recorded
+    - counts_or_normalization_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_import_contract_only
+- id: norman_adamson
+  name: Norman/Adamson CRISPR perturbation datasets
+  category: single_cell_perturbation
+  status: controlled
+  source:
+    provider: published single-cell perturbation studies
+    homepage: https://www.ncbi.nlm.nih.gov/geo/
+    reference: Study accession and processed matrix selected by the data owner
+    access: public_study_snapshot
+    license: Follow GEO/study-specific terms
+  formats:
+  - h5ad
+  - mtx
+  - csv
+  - tsv
+  loader: null
+  files:
+  - path: null
+    format: h5ad
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - gene_id
+    - perturbation_id
+    - cell_state
+    optional_columns:
+    - cell_type
+    - donor
+    - batch
+    - study_accession
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - study_accession_recorded
+    - perturbation_labels_present
+    - batch_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_import_contract_only
+- id: replogle
+  name: Replogle Perturb-seq datasets
+  category: single_cell_perturbation
+  status: controlled
+  source:
+    provider: published Perturb-seq study
+    homepage: https://www.ncbi.nlm.nih.gov/geo/
+    reference: Study accession and processed matrix selected by the data owner
+    access: public_study_snapshot
+    license: Follow study-specific terms
+  formats:
+  - h5ad
+  - mtx
+  - csv
+  - tsv
+  loader: null
+  files:
+  - path: null
+    format: h5ad
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - gene_id
+    - perturbation_id
+    - cell_state
+    optional_columns:
+    - cell_type
+    - donor
+    - batch
+    - study_accession
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - study_accession_recorded
+    - perturbation_labels_present
+    - batch_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_import_contract_only
+- id: scgenescope
+  name: scGeneScope reference cell-state representation
+  category: single_cell_reference
+  status: controlled
+  source:
+    provider: scGeneScope project
+    homepage: null
+    reference: Reference release and gene/state vocabulary selected by the data owner
+    access: user_provided_local_snapshot
+    license: Verify project-specific terms
+  formats:
+  - h5ad
+  - csv
+  - tsv
+  - json
+  loader: null
+  files:
+  - path: null
+    format: h5ad
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - gene_id
+    - cell_state
+    optional_columns:
+    - cell_type
+    - reference_batch
+    - embedding
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - gene_vocabulary_versioned
+    - cell_state_vocabulary_versioned
+    - normalization_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_import_contract_only
+- id: kinase_substrate
+  name: Kinase-substrate signaling edges
+  category: signaling_graph
+  status: controlled
+  source:
+    provider: PhosphoSitePlus or user-selected kinase-substrate release
+    homepage: https://www.phosphosite.org/
+    reference: Release, species, evidence policy and kinase-substrate extraction recipe
+    access: controlled_user_snapshot
+    license: Record source-specific terms before redistribution
+  formats:
+  - tsv
+  - csv
+  - parquet
+  loader: null
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - source_gene
+    - target_gene
+    - edge_type
+    optional_columns:
+    - score
+    - evidence
+    - species
+    - release
+    - source_site
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - species_recorded
+    - release_recorded
+    - gene_ids_mapped
+    - edge_type_vocab_versioned
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_graph_import_contract_only
+- id: string
+  name: STRING protein-protein interaction network
+  category: signaling_graph
+  status: controlled
+  source:
+    provider: STRING database
+    homepage: https://string-db.org/
+    reference: STRING release, species and confidence threshold
+    access: public_download
+    license: STRING terms and citation required
+  formats:
+  - tsv
+  - tsv_gz
+  - txt
+  loader: src.analysis.pathway_integration
+  files:
+  - path: null
+    format: tsv_gz
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - source_gene
+    - target_gene
+    - score
+    optional_columns:
+    - evidence_type
+    - species
+    - release
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - species_recorded
+    - release_recorded
+    - score_threshold_recorded
+    - gene_ids_mapped
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_graph_import_contract_only
+- id: bioplex
+  name: BioPlex interaction network
+  category: signaling_graph
+  status: controlled
+  source:
+    provider: BioPlex project
+    homepage: https://bioplex.hms.harvard.edu/
+    reference: BioPlex release and assay-specific interaction table
+    access: public_download
+    license: BioPlex terms and citation required
+  formats:
+  - tsv
+  - csv
+  - parquet
+  loader: null
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - source_gene
+    - target_gene
+    optional_columns:
+    - confidence
+    - assay
+    - release
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - release_recorded
+    - gene_ids_mapped
+    - confidence_policy_recorded
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_graph_import_contract_only
+- id: regnetwork
+  name: RegNetwork transcriptional regulatory network
+  category: signaling_graph
+  status: controlled
+  source:
+    provider: RegNetwork
+    homepage: https://regnetworkweb.org/
+    reference: RegNetwork release and organism-specific regulatory edges
+    access: public_or_user_snapshot
+    license: Record release and redistribution terms
+  formats:
+  - txt
+  - tsv
+  - csv
+  loader: null
+  files:
+  - path: null
+    format: tsv
+    required: false
+    sha256: null
+  canonical_schema:
+    required_columns:
+    - source_gene
+    - target_gene
+    - relation
+    optional_columns:
+    - organism
+    - evidence
+    - release
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - organism_recorded
+    - release_recorded
+    - gene_ids_mapped
+    - relation_vocab_versioned
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_graph_import_contract_only
