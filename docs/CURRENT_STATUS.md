@@ -9,7 +9,7 @@ R-01～R-03 的组件修复结论见
 标准训练修复的 v2 记录见
 [`E2E训练与推理代码修复报告_2026-08-08_v2.md`](E2E训练与推理代码修复报告_2026-08-08_v2.md)。
 修复前综合分析和 2026-08-04 报告均已作为历史快照归档到
-[`archive/20260808/`](../archive/20260808/)。
+[`archive/20260808/`](https://github.com/valleyhe/PTM2CellNET/tree/main/archive/20260808)。
 
 ## Quick Reference
 
@@ -27,8 +27,8 @@ R-01～R-03 的组件修复结论见
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)
 - [E2E 训练与推理现状分析](E2E训练与推理现状分析_2026-08-08.md)、[测试覆盖率治理](TEST_COVERAGE.md)
 - [真实资产验收](guides/real_assets_acceptance.md)
-- [归档清单](../archive/20260808/MANIFEST.md)
-- [历史系统性复核 v19](archive/systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)
+- [归档清单](https://github.com/valleyhe/PTM2CellNET/blob/main/archive/20260808/MANIFEST.md)
+- [历史系统性复核 v19](https://github.com/valleyhe/PTM2CellNET/blob/main/archive/systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)
 
 ## 解释测试结果时的边界
 

@@ -53,5 +53,6 @@ __pycache__/
 .coverage.*
 htmlcov/
 .tox/
+docs/_build/
 !archive/**/.coverage
 !archive/**/.coverage.*
