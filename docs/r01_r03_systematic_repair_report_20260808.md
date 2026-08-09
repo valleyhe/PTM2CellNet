@@ -1,7 +1,7 @@
 # R-01～R-03 系统性修复与复核报告
 
 - **报告日期**：2026-08-08
-- **参考基线**：[`project_analysis_20260808_pre_cross_scale.md`](../archive/20260808/reports/project_analysis_20260808_pre_cross_scale.md)（历史快照）
+- **参考基线**：[`project_analysis_20260808_pre_cross_scale.md`](https://github.com/valleyhe/PTM2CellNET/blob/main/archive/20260808/reports/project_analysis_20260808_pre_cross_scale.md)（历史快照）
 - **当前综合结论**：[`E2E训练与推理现状分析_2026-08-08.md`](E2E训练与推理现状分析_2026-08-08.md)
 - **修复范围**：R-01、R-02、R-03；R-04～R-07 仅做现状审计，不将未授权范围误报为已完成。
 - **代码基线**：本地 `main` 工作区；本报告只描述 R-01～R-03 的范围，不把 Git 提交状态当作科学验收证据。

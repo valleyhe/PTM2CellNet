@@ -37,7 +37,7 @@ python scripts/integrate_data_v2.py --max-seq-len 1000 --fetch-api
 
 ### 3. 数据格式
 
-```csv
+```text
 id,sequence,ptm_sites,uniprot_id,seq_length,num_ptm_sites,cell_state
 PTM_O00115,MVAMAAGPSG...,"[{""position"":20,""type"":""phosphorylation""}]",O00115,360,10,unknown
 ```
@@ -56,7 +56,7 @@ PTM_O00115,MVAMAAGPSG...,"[{""position"":20,""type"":""phosphorylation""}]",O001
 
 **最小可用训练 CSV 示例**（仅必填列）：
 
-```csv
+```text
 sequence,cell_state
 ACDEFGHIKLMNPQRSTVWY,proliferation
 ACDEFGHIKLMNPQRSTVWYG,apoptosis
@@ -65,7 +65,7 @@ MKTAYIAKQRQ,quiescence
 
 **带 PTM 位点的训练 CSV 示例**：
 
-```csv
+```text
 id,sequence,ptm_sites,cell_state
 S1,MVAMAAGPSG,"[{""position"":20,""type"":""phosphorylation""}]",proliferation
 S2,MKTA...,"[{""position"":5,""type"":""ubiquitination""},{""position"":12,""type"":""acetylation""}]",apoptosis

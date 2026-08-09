@@ -35,9 +35,28 @@ perturbations at single-cell resolution.
 
 .. toctree::
    :maxdepth: 1
+   :caption: Status and Reports
+
+   CURRENT_STATUS
+   DATA_UPDATE_WORKFLOW
+   E2E训练与推理代码修复报告_2026-08-08
+   E2E训练与推理代码修复报告_2026-08-08_v2
+   E2E训练与推理现状分析_2026-08-08
+   E2E训练和推理能力评估报告_2026-08-04_v2
+   PTM2CellNet_技术文档
+   PTM2CellNet_文件说明
+   PTM2CellNet_项目文档
+   TEST_COVERAGE
+   guides/real_assets_acceptance
+   r01_r03_systematic_repair_report_20260808
+   td01_td02_technical_summary_20260808
+   问题修复与系统性复核报告_2026-08-04
+
+.. toctree::
+   :maxdepth: 1
    :caption: Contributing
 
-   CONTRIBUTING <https://github.com/HG-Lab/PTM2CellNet/blob/main/CONTRIBUTING.md>
+   CONTRIBUTING <https://github.com/valleyhe/PTM2CellNET/blob/main/CONTRIBUTING.md>
 
 
 Indices and tables
