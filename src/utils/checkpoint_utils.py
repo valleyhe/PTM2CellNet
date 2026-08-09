@@ -207,7 +207,7 @@ def resolve_inference_config(
 
     解析顺序（与报告策略一致：sibling config 优先）：
         1. checkpoint 同目录的 ``<name>.config.yaml`` 存在 -> 使用它。
-        2. 否则回退到 ``config_path``（调用方显式传入或 argparse 默认值）。
+        2. 否则回退到 ``config_path`` （调用方显式传入或 argparse 默认值）。
 
     返回 ``(config, source)``，其中 ``source`` 描述配置来源（路径），
     便于日志输出。

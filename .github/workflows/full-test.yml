@@ -2,6 +2,18 @@ name: Full Test Suite
 
 on:
   workflow_dispatch:
+  schedule:
+    # TD-M04: 完整测试（1910 项）耗时较长，按 nightly 自动运行；
+    # 也可在 PR 手动触发（workflow_dispatch）做全量回归。
+    - cron: "30 2 * * *"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/**"
 
 jobs:
   full-test:
@@ -21,6 +33,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-timeout pytest-cov
+
+      - name: Verify dependency consistency (pip check)
+        # TD-M05: 全量环境存在已知取舍（scgpt 要求 scvi-tools<1.0，与
+        # scvi-tools>=1.2.0 冲突；ssh-unit 要求 torchaudio>=2.5）。此步骤
+        # 仅报告不阻断，避免 CI 因可选包约束互相冲突而持续红色。
+        run: |
+          python -m pip check || echo "KNOWN_DEPENDENCY_CONFLICTS=1" >> $GITHUB_ENV
 
       - name: Run all tests (skip GPU)
         env:

@@ -26,12 +26,9 @@ def configure_optimizer(
 
     参数:
         model: PyTorch模型
-        config: 配置字典，包含以下可选键:
-            - optimizer: 优化器类型，可选 "adam", "adamw", "sgd"
-            - learning_rate: 学习率
-            - weight_decay: 权重衰减
-            - scheduler: 调度器类型，可选 "cosine", "plateau", "step"
-            - scheduler_params: 调度器参数字典
+        config: 配置字典，包含以下可选键: optimizer（"adam"/"adamw"/"sgd"）、
+        learning_rate、weight_decay、scheduler（"cosine"/"plateau"/"step"）
+        与 scheduler_params（调度器参数字典）。
 
     返回:
         (optimizer, scheduler)元组

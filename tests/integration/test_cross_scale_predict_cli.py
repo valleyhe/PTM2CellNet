@@ -24,6 +24,7 @@ def _write(path, samples, *, targets=True):
         "signal_edge_index": np.array([[0, 1], [1, 2]], dtype="int64"),
         "signal_gene_map": np.ones((3, 4), dtype="float32"),
         "cell_edge_index": np.array([[0, 1, 2], [1, 2, 3]], dtype="int64"),
+        "cell_edge_weight": np.array([0.5, 1.0, 0.8], dtype="float32"),
         "sample_id": np.array([f"sample-{index}" for index in range(samples)]),
     }
     if targets:

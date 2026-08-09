@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0,<81", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+# High-signal rules that should fail CI
+select = [
+    "F821",   # undefined-name — real bugs
+    "F401",   # unused-import — dead code
+    "B",      # flake8-bugbear — common bugs
+    "B905",   # zip-without-explicit-strict — potential bugs
+]
+
+# Don't enforce style rules yet — focus on correctness
+ignore = [
+    "E501",   # line too long
+    "E402",   # module import not at top
+    "W",      # whitespace warnings
+    "UP",     # upgrade suggestions
+    "I",      # import ordering
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # __init__.py re-exports are intentional
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = "src.models.architectures"
+disable_error_code = ["arg-type", "assignment", "dict-item", "operator", "return-value"]
+
+[[tool.mypy.overrides]]
+module = "src.api.routes.predictions"
+disable_error_code = ["arg-type", "assignment", "dict-item", "return-value"]

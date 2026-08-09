@@ -23,6 +23,7 @@ def _write(path, samples):
         signal_edge_index=np.array([[0, 1], [1, 2]], dtype="int64"),
         signal_gene_map=np.ones((length, genes), dtype="float32"),
         cell_edge_index=np.array([[0, 1, 2], [1, 2, 3]], dtype="int64"),
+        cell_edge_weight=np.array([0.5, 1.0, 0.8], dtype="float32"),
         delta_expression=rng.normal(size=(samples, genes)).astype("float32"),
         cell_state=np.arange(samples, dtype="int64") % 2,
     )

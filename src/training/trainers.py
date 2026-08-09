@@ -373,9 +373,9 @@ class Trainer:
             train_loader_or_datamodule: 训练数据加载器或LightningDataModule实例
             val_loader: 验证数据加载器（仅在DataLoader方式下使用）
             max_epochs: 最大训练轮数
-            start_epoch: 起始 epoch（断点续训时传入已完成的 epoch 数，
-                训练将精确从 ``start_epoch`` 继续到 ``max_epochs``，而不是从头重训；
-                默认 None 时使用 ``self.epoch``，使 ``trainer.epoch = N`` 后直接 fit 即续训）
+            start_epoch: 起始 epoch（断点续训时传入已完成的 epoch 数，训练将精确从
+            ``start_epoch`` 继续到 ``max_epochs``，而不是从头重训；默认 None 时
+            使用 ``self.epoch``，使 ``trainer.epoch = N`` 后直接 fit 即续训）
         """
         # 检测是否为LightningDataModule
         if self._is_datamodule(train_loader_or_datamodule):

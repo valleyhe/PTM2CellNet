@@ -5,6 +5,7 @@
 
 import random
 
+import pytest
 import torch
 from unittest.mock import MagicMock
 
@@ -737,3 +738,192 @@ class TestProgressBarTqdmPath:
             assert callback._writer is None
         finally:
             cb._HAS_TENSORBOARD = orig
+
+
+class TestCallbackStateDict:
+    """TD-M01: callback state_dict/load_state_dict 精确续训契约"""
+
+    def test_checkpoint_state_roundtrip(self, tmp_path):
+        """ModelCheckpoint 状态可保存并恢复（best/top-k/未改善计数）"""
+        filepath = str(tmp_path / "model.pt")
+        source = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=True, verbose=0,
+        )
+        trainer = MockTrainer()
+        for epoch, loss in enumerate([0.5, 0.3, 0.7]):
+            source.on_epoch_end(trainer, epoch=epoch, logs={"val_loss": loss})
+        assert source.best_value == 0.3
+        assert source.epochs_since_improvement == 1
+
+        target = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=True, verbose=0,
+        )
+        target.load_state_dict(source.state_dict())
+        assert target.best_value == 0.3
+        assert target.epochs_since_improvement == 1
+
+    def test_checkpoint_state_top_k_roundtrip(self, tmp_path):
+        """top-k 模式恢复 top_k_checkpoints 列表"""
+        filepath = str(tmp_path / "model.pt")
+        source = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=False, save_top_k=2, verbose=0,
+        )
+        trainer = MockTrainer()
+        for epoch, loss in enumerate([0.5, 0.3, 0.7]):
+            source.on_epoch_end(trainer, epoch=epoch, logs={"val_loss": loss})
+        assert len(source._top_k_checkpoints) == 2
+
+        target = ModelCheckpoint(
+            filepath, monitor="val_loss", mode="min",
+            save_best_only=False, save_top_k=2, verbose=0,
+        )
+        target.load_state_dict(source.state_dict())
+        assert target._top_k_checkpoints == source._top_k_checkpoints
+
+    def test_checkpoint_state_mismatch_rejected(self):
+        """monitor/mode 不一致时拒绝恢复"""
+        source = ModelCheckpoint("x.pt", monitor="val_loss", mode="min")
+        source.on_epoch_end(MockTrainer(), 0, {"val_loss": 0.5})
+        target = ModelCheckpoint("x.pt", monitor="val_acc", mode="max")
+        with pytest.raises(ValueError, match="不一致"):
+            target.load_state_dict(source.state_dict())
+
+    def test_top_k_restore_resorts_by_mode(self, tmp_path):
+        """恢复后 top-k 按当前 mode 重新排序（防御数据漂移）"""
+        state = {
+            "monitor": "val_acc",
+            "mode": "max",
+            "best_value": 0.9,
+            "epochs_since_improvement": 2,
+            "top_k_checkpoints": [[0.5, "a.pt"], [0.9, "b.pt"], [0.7, "c.pt"]],
+        }
+        target = ModelCheckpoint(str(tmp_path / "m.pt"), monitor="val_acc", mode="max")
+        target.load_state_dict(state)
+        assert target.best_value == 0.9
+        assert target.epochs_since_improvement == 2
+        assert target._top_k_checkpoints[0] == (0.9, "b.pt")
+
+    def test_early_stopping_state_roundtrip(self):
+        """EarlyStopping 状态可保存并恢复（wait/stopped_epoch/should_stop）"""
+        source = EarlyStopping(monitor="val_loss", mode="min", patience=2, verbose=0)
+        source.on_epoch_end(MockTrainer(), 0, {"val_loss": 0.5})
+        source.on_epoch_end(MockTrainer(), 1, {"val_loss": 0.6})
+        assert source.wait == 1
+
+        target = EarlyStopping(monitor="val_loss", mode="min", patience=2, verbose=0)
+        target.load_state_dict(source.state_dict())
+        assert target.best_value == 0.5
+        assert target.wait == 1
+        assert target._state_restored is True
+
+    def test_early_stopping_state_mismatch_rejected(self):
+        """patience/min_delta 不一致时拒绝恢复"""
+        source = EarlyStopping(monitor="val_loss", patience=2, verbose=0)
+        source.on_epoch_end(MockTrainer(), 0, {"val_loss": 0.5})
+        source.on_epoch_end(MockTrainer(), 1, {"val_loss": 0.6})
+        target = EarlyStopping(monitor="val_loss", patience=5, verbose=0)
+        with pytest.raises(ValueError, match="不一致"):
+            target.load_state_dict(source.state_dict())
+
+    def test_early_stopping_resume_preserves_wait_after_train_start(self):
+        """resume 恢复后 on_train_start 不重置 wait（精确续训）"""
+        source = EarlyStopping(monitor="val_loss", patience=2, verbose=0)
+        source.on_epoch_end(MockTrainer(), 0, {"val_loss": 0.5})
+        source.on_epoch_end(MockTrainer(), 1, {"val_loss": 0.6})
+        resumed = EarlyStopping(monitor="val_loss", patience=2, verbose=0)
+        resumed.load_state_dict(source.state_dict())
+        resumed.on_train_start(MockTrainer())
+        assert resumed.wait == 1
+        assert resumed.best_value == 0.5
+        # 标志被消费：下一次 fit 重新走重置路径
+        resumed.on_train_start(MockTrainer())
+        assert resumed.wait == 0
+
+    def test_fresh_early_stopping_still_resets_on_train_start(self):
+        """未恢复状态时 on_train_start 仍重置（回归守卫）"""
+        early_stop = EarlyStopping(monitor="val_loss", patience=2, verbose=0)
+        early_stop.on_epoch_end(MockTrainer(), 0, {"val_loss": 0.5})
+        early_stop.on_epoch_end(MockTrainer(), 1, {"val_loss": 0.6})
+        assert early_stop.wait == 1
+        early_stop.on_train_start(MockTrainer())
+        assert early_stop.wait == 0
+        assert early_stop.should_stop is False
+
+    def test_build_checkpoint_collects_callback_states(self, tmp_path):
+        """_build_checkpoint 收集 trainer.callbacks 中 stateful 回调状态"""
+        filepath = str(tmp_path / "best.pt")
+        ckpt_cb = ModelCheckpoint(filepath, monitor="val_loss", mode="min", verbose=0)
+        stop_cb = EarlyStopping(monitor="val_loss", patience=3, verbose=0)
+        stop_cb.on_epoch_end(MockTrainer(), 0, {"val_loss": 0.5})
+        stop_cb.on_epoch_end(MockTrainer(), 1, {"val_loss": 0.6})
+
+        class FakeTrainer:
+            callbacks = [ckpt_cb, stop_cb]
+
+        payload = ckpt_cb._build_checkpoint(MockModel(), epoch=2, trainer=FakeTrainer())
+        states = payload["callback_states"]
+        assert "ModelCheckpoint" in states
+        assert "EarlyStopping" in states
+        assert states["EarlyStopping"]["wait"] == 1
+        assert states["EarlyStopping"]["best_value"] == 0.5
+
+    def test_build_checkpoint_preserves_global_step(self, tmp_path):
+        """完整 checkpoint 应保存 global_step，避免 resume 重置优化步数"""
+        ckpt_cb = ModelCheckpoint(str(tmp_path / "best.pt"), verbose=0)
+
+        class FakeTrainer:
+            callbacks = [ckpt_cb]
+            global_step = 17
+
+        payload = ckpt_cb._build_checkpoint(MockModel(), epoch=2, trainer=FakeTrainer())
+        assert payload["global_step"] == 17
+
+    def test_save_last_contains_updated_callback_state(self, tmp_path):
+        """checkpoint_last 应记录当前 epoch 更新后的 best 状态"""
+        filepath = str(tmp_path / "best.pt")
+        callback = ModelCheckpoint(
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=True,
+            save_last=True,
+            verbose=0,
+        )
+        trainer = MockTrainer()
+        trainer.global_step = 3
+        trainer.callbacks = [callback]
+        callback.on_epoch_end(trainer, epoch=0, logs={"val_loss": 0.25})
+        last = torch.load(
+            tmp_path / "best_last.pt", map_location="cpu", weights_only=False
+        )
+        assert last["global_step"] == 3
+        assert last["callback_states"]["ModelCheckpoint"]["best_value"] == 0.25
+
+    def test_build_checkpoint_skips_stateless_callbacks(self, tmp_path):
+        """无 state_dict 的 callback（日志/进度条）不进入 callback_states"""
+        ckpt_cb = ModelCheckpoint(str(tmp_path / "best.pt"), verbose=0)
+        stateless = Callback()
+
+        class FakeTrainer:
+            callbacks = [ckpt_cb, stateless]
+
+        payload = ckpt_cb._build_checkpoint(MockModel(), epoch=0, trainer=FakeTrainer())
+        assert set(payload["callback_states"].keys()) == {"ModelCheckpoint"}
+
+    def test_duplicate_class_names_get_indexed_keys(self):
+        """同类 callback 多次出现时 key 追加序号，保存/恢复一致"""
+        from src.training.callbacks import collect_callback_states
+
+        first = EarlyStopping(monitor="val_loss", verbose=0)
+        second = EarlyStopping(monitor="val_acc", mode="max", verbose=0)
+        states = collect_callback_states([first, second])
+        assert set(states.keys()) == {"EarlyStopping", "EarlyStopping_2"}
+
+    def test_collect_callback_states_none_is_empty(self):
+        from src.training.callbacks import collect_callback_states
+
+        assert collect_callback_states(None) == {}
+        assert collect_callback_states([]) == {}

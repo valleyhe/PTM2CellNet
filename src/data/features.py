@@ -364,7 +364,7 @@ class FeatureExtractor:
 
         根据 ``structural_source`` 配置选择来源：
 
-        - ``chou_fasman``（默认，离线）：经验性 Chou-Fasman propensity 表近似
+        - ``chou_fasman`` （默认，离线）：经验性 Chou-Fasman propensity 表近似
           helix/sheet/coil 倾向。
         - ``alphafold``：调用 ``src/models/external_tools.py`` 的
           :class:`AlphaFoldClient.predict_structure` 获取 pLDDT/二级结构，

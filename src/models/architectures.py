@@ -655,11 +655,12 @@ class PTM2CellNetBase(nn.Module):
 class PTM2CellNetLarge(PTM2CellNetBase):
     """PTM2CellNetLarge — scaled-up variant of PTM2CellNet.
 
-    Same architecture as PTM2CellNet but with larger defaults:
-      embed_dim=256, num_layers=4, num_heads=8, hidden_dim=embed_dim*4
-    (for the recurrent encoders). All construction/forward/from_config logic
-    lives on :class:`PTM2CellNetBase`; this subclass only fixes the defaults
-    and reads the ``model.large`` config override block.
+    Same architecture as PTM2CellNet but with larger defaults
+    (``embed_dim=256``, ``num_layers=4``, ``num_heads=8``,
+    ``hidden_dim=embed_dim*4`` for the recurrent encoders). All
+    construction/forward/from_config logic lives on
+    :class:`PTM2CellNetBase`; this subclass only fixes the defaults and reads
+    the ``model.large`` config override block.
     """
 
     VARIANT = "large"

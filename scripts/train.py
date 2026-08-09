@@ -352,6 +352,27 @@ def main():
                 logger.info("已恢复 python/numpy/torch RNG 状态")
             except (TypeError, ValueError) as exc:
                 logger.warning("RNG 状态恢复失败（将使用当前种子继续）: %s", exc)
+        # TD-M01: 恢复 stateful callback（ModelCheckpoint/EarlyStopping）的
+        # best/wait/top-k 状态，使 resume 后 early stopping 与 best 语义连续。
+        # 旧 checkpoint 无 callback_states 字段时跳过，保持缺省状态。
+        callback_states = ckpt.get("callback_states")
+        if isinstance(callback_states, dict) and callback_states:
+            from src.training.callbacks import _callback_state_keys
+
+            restored_callbacks = 0
+            for index, key in _callback_state_keys(trainer.callbacks).items():
+                load_fn = getattr(trainer.callbacks[index], "load_state_dict", None)
+                state = callback_states.get(key)
+                if not callable(load_fn) or state is None:
+                    continue
+                try:
+                    load_fn(state)
+                    restored_callbacks += 1
+                    logger.info("已恢复 callback 状态: %s", key)
+                except (ValueError, KeyError, TypeError) as exc:
+                    logger.warning("callback %s 状态恢复失败（将重新初始化）: %s", key, exc)
+            if restored_callbacks:
+                _restored_any = True
         if not _restored_any:
             logger.warning(
                 "注意: checkpoint 未包含 optimizer/scheduler/scaler/RNG 状态"
@@ -401,10 +422,23 @@ def main():
 
     best_checkpoint_path = os.path.join(args.output, "models", "checkpoint_best.pt")
     if not os.path.isfile(best_checkpoint_path):
-        raise SystemExit(
-            f"训练未生成最佳 checkpoint: {best_checkpoint_path}。"
-            "无法安全导出 best_model.pt。"
-        )
+        # TD-M01（2026-08-09）: --resume 后 val_loss 未再改善时，
+        # checkpoint_best.pt 保持 resume 前的旧状态或不存在于新输出目录。
+        # 此时回退到本次训练最后保存的 checkpoint_best_last.pt，保证推理
+        # artifact 仍可导出，同时保留告警以便审计。
+        last_checkpoint_path = os.path.join(args.output, "models", "checkpoint_best_last.pt")
+        if os.path.isfile(last_checkpoint_path):
+            logger.warning(
+                "checkpoint_best.pt 不存在（resume 后指标未改善），"
+                "改用 checkpoint_best_last.pt 导出推理 artifact: %s",
+                last_checkpoint_path,
+            )
+            best_checkpoint_path = last_checkpoint_path
+        else:
+            raise SystemExit(
+                f"训练未生成最佳 checkpoint: {best_checkpoint_path}。"
+                "无法安全导出 best_model.pt。"
+            )
     best_checkpoint = safe_torch_load(
         best_checkpoint_path,
         map_location=trainer.device,

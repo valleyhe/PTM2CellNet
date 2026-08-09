@@ -27,7 +27,7 @@ def validate_sequence(
     参数:
         sequence: 蛋白质序列字符串
         max_length: 最大允许长度，None表示使用模块默认上限
-            ``MAX_SEQUENCE_LENGTH``（当前 2048）。显式传入 ``0`` 可禁用长度检查。
+        ``MAX_SEQUENCE_LENGTH`` （当前 2048）。显式传入 ``0`` 可禁用长度检查。
 
     返回:
         (是否有效, 错误信息)元组

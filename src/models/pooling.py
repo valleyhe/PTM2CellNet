@@ -261,7 +261,7 @@ def create_pooling_layer(
     参数:
         pool_type: 池化类型，"mean", "attention", "multihead_attention", "weighted_mean"
         hidden_dim: 特征维度
-        **kwargs: 额外的参数
+        **kwargs**：额外的参数
 
     返回:
         池化层实例
