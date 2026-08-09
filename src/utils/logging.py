@@ -80,7 +80,7 @@ def setup_logger(
         level: 日志级别，默认为INFO
         log_to_console: 是否输出到控制台，默认为True
         log_format: 自定义日志格式。可为标准 formatter 字符串，或预设名称
-            ``"text"``（默认）/``"json"``（单行 JSON，对接 production.yaml）。
+        ``"text"`` （默认）或 ``"json"`` （单行 JSON，对接 production.yaml）。
 
     返回:
         配置好的logger实例

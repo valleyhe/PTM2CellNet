@@ -27,6 +27,7 @@ _STATIC_INPUT_KEYS = (
     "signal_edge_type",
     "signal_gene_map",
     "cell_edge_index",
+    "cell_edge_weight",
 )
 _OPTIONAL_SAMPLE_INPUT_KEYS = (
     "protein_attention_mask",
@@ -145,6 +146,24 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
         ):
             errors.append("cell_edge_index 含越界节点")
 
+        # TD-M02（2026-08-09）: 模型 forward 会读取可选的 cell_edge_weight
+        # （见 src/models/cross_scale.py cell_head 的 cell_edge_weight 参数），
+        # 此前 NPZ schema 未承载该数组，导致带权细胞图数据静默丢失。现在：
+        # - 存在时要求 shape 与 cell_edge_index 边数一致、有限浮点且非负，
+        #   在构造阶段 fail-fast，而不是等模型运行时报错；
+        # - 缺省时保持兼容（模型回退为全 1 权重，旧 NPZ 无需迁移）。
+        cell_edge_weight = self._arrays.get("cell_edge_weight")
+        if cell_edge_weight is not None:
+            if cell_edge_weight.ndim != 1 or cell_edge_weight.shape[0] != cell_edge_index.shape[1]:
+                errors.append(
+                    f"cell_edge_weight 必须为 [{cell_edge_index.shape[1]}]（与 "
+                    f"cell_edge_index 边数一致），实际 shape={cell_edge_weight.shape}"
+                )
+            elif not np.issubdtype(cell_edge_weight.dtype, np.floating) or not np.isfinite(cell_edge_weight).all():
+                errors.append("cell_edge_weight 必须是有限浮点数组")
+            elif (cell_edge_weight < 0).any():
+                errors.append("cell_edge_weight 必须非负")
+
         for key in _OPTIONAL_SAMPLE_INPUT_KEYS:
             optional_value = self._arrays.get(key)
             if optional_value is not None and (
@@ -218,6 +237,7 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
                 name: int(self._arrays[f"{name}_embeddings"].shape[-1])
                 for name in self.backbone_names
             },
+            "has_cell_edge_weight": "cell_edge_weight" in self._arrays,
             "targets_present": self.require_targets,
         }
 

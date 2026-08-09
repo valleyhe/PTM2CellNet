@@ -8,5 +8,8 @@
 -r requirements-core.txt
 
 mamba-ssm>=2.0.0
+# causal-conv1d 是 mamba-ssm 的 CUDA 依赖；PyPI 轮子对部分 CUDA 版本不可用，
+# 必要时从源码构建（TD-M05/TD-M09 已知取舍）。
+causal-conv1d>=1.4.0
 lion-pytorch>=0.0.7
 einops>=0.6.0

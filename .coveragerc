@@ -9,9 +9,10 @@ omit =
 [report]
 precision = 2
 fail_under = 74
+# TD-M06（2026-08-09）: 移除原先全局排除的 ``pass`` 与 ``except ImportError``
+# ——它们可能掩盖真实业务分支（如异常回退路径）。仅保留明确无业务语义的
+# 排除：pragma 显式声明、NotImplementedError 抽象占位、CLI 入口守卫。
 exclude_lines =
     pragma: no cover
     raise NotImplementedError
     if __name__ == .__main__.:
-    except ImportError
-    pass

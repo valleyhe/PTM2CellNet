@@ -120,8 +120,10 @@ def test_train_resume_continues_from_saved_epoch(tmp_path):
     assert "已恢复 scheduler 状态" in second.stdout, second.stdout
     assert "下一轮起始 epoch=1" in second.stdout, second.stdout
 
+    # TD-M01: resume 后 best_value 恢复，val_loss 未改善时 checkpoint_best.pt
+    # 不被覆盖；以 checkpoint_best_last.pt（每 epoch 保存）验证 epoch 推进。
     final_ckpt = torch.load(
-        output / "models" / "checkpoint_best.pt", map_location="cpu", weights_only=False
+        output / "models" / "checkpoint_best_last.pt", map_location="cpu", weights_only=False
     )
     # resume 后训练的 epoch 从 first_epoch 继续，总 epoch 数 = 3（0,1,2）
     assert final_ckpt["epoch"] >= first_epoch + 1
@@ -176,3 +178,68 @@ def test_train_resume_legacy_best_model_still_works(tmp_path):
     )
     assert second.returncode == 0, second.stderr
     assert "已恢复 optimizer 状态" in second.stdout
+
+
+def test_train_checkpoint_contains_callback_states_and_resume_restores(tmp_path):
+    """TD-M01: checkpoint 序列化 callback 状态，resume 后恢复（早停语义连续）。"""
+    output = tmp_path / "out"
+    first = _run_train(tmp_path, output, extra=["--epochs", "1"])
+    assert first.returncode == 0, first.stderr
+
+    ckpt = torch.load(
+        output / "models" / "checkpoint_best.pt", map_location="cpu", weights_only=False
+    )
+    assert "callback_states" in ckpt, "checkpoint 必须包含 callback_states"
+    assert "ModelCheckpoint" in ckpt["callback_states"]
+    assert "EarlyStopping" in ckpt["callback_states"]
+    mc_state = ckpt["callback_states"]["ModelCheckpoint"]
+    assert mc_state["monitor"] == "val_loss" and mc_state["mode"] == "min"
+    es_state = ckpt["callback_states"]["EarlyStopping"]
+    assert es_state["monitor"] == "val_loss" and es_state["mode"] == "min"
+
+    second = _run_train(
+        tmp_path,
+        output,
+        extra=["--epochs", "2", "--resume", str(output / "models" / "checkpoint_best.pt")],
+    )
+    assert second.returncode == 0, second.stderr
+    assert "已恢复 callback 状态: ModelCheckpoint" in second.stdout, second.stdout
+    assert "已恢复 callback 状态: EarlyStopping" in second.stdout, second.stdout
+    assert "已恢复 optimizer 状态" in second.stdout, second.stdout
+
+
+def test_train_resume_callback_state_mismatch_warns_but_continues(tmp_path):
+    """TD-M01: callback 状态与配置不一致时告警并继续（兼容缺省路径）。"""
+    output = tmp_path / "out"
+    first = _run_train(tmp_path, output, extra=["--epochs", "1"])
+    assert first.returncode == 0, first.stderr
+
+    # 修改 config 使 patience 变化，触发 EarlyStopping 状态校验失败
+    config_path = _write_smoke_config(tmp_path)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["training"]["early_stopping_patience"] = 999
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    second = subprocess.run(
+        [
+            sys.executable,
+            "scripts/train.py",
+            "--config",
+            str(config_path),
+            "--output",
+            str(tmp_path / "out2"),
+            "--seed",
+            "42",
+            "--epochs",
+            "2",
+            "--resume",
+            str(output / "models" / "checkpoint_best.pt"),
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=600,
+    )
+    assert second.returncode == 0, second.stderr
+    assert "EarlyStopping 状态恢复失败" in second.stdout, second.stdout

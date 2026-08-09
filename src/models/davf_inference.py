@@ -52,11 +52,10 @@ logger = logging.getLogger(__name__)
 class DAVFInferenceConfig:
     """Configuration for DAVFInferenceModule.
 
-    Attributes:
-        state_space: ``"scvi_latent"`` (default) or ``"gene"``.
-            - ``"scvi_latent"``: ODE-based LatentDAVF in scVI latent space.
-            - ``"gene"``: Simple MLP encoder operating directly on gene-space
-              inputs (no ODE, no scVI).
+Attributes:
+        state_space: ``"scvi_latent"`` （默认，ODE-based LatentDAVF in scVI
+            latent space）或 ``"gene"`` （Simple MLP encoder，直接处理
+            gene-space 输入，无 ODE、无 scVI）。
         checkpoint_path: Path to model checkpoint file
         feature_dim: Output feature dimension (default 128)
         hidden_dim: BiPerturbEncoder / GeneMLEPEncoder hidden dimension (default 256)

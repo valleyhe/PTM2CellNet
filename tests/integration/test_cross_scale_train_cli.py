@@ -26,6 +26,7 @@ def _write(path, samples):
         signal_edge_index=np.array([[0, 1], [1, 2]], dtype="int64"),
         signal_gene_map=np.ones((3, 4), dtype="float32"),
         cell_edge_index=np.array([[0, 1, 2], [1, 2, 3]], dtype="int64"),
+        cell_edge_weight=np.array([0.5, 1.0, 0.8], dtype="float32"),
         delta_expression=rng.normal(size=(samples, 4)).astype("float32"),
         cell_state=np.arange(samples, dtype="int64") % 2,
     )
@@ -88,3 +89,6 @@ def test_train_cross_scale_cli_exports_self_describing_artifact(tmp_path):
     manifest = json.loads((output / "artifact_manifest.json").read_text(encoding="utf-8"))
     assert manifest["data_contracts"]["train"]["sha256"]
     assert manifest["label_vocabulary"] == ["resting", "active"]
+    # TD-M02: NPZ 携带的 cell_edge_weight 必须出现在数据契约中
+    assert manifest["data_contracts"]["train"]["has_cell_edge_weight"] is True
+    assert manifest["data_contracts"]["val"]["has_cell_edge_weight"] is True

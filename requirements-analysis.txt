@@ -19,6 +19,14 @@ hgvs==1.5.7
 uniprot-id-mapper==1.1.5
 UniProtMapper>=0.1
 
+# TD-M05（2026-08-09）: scgpt 0.2.4 要求 scvi-tools<1.0，与上方
+# scvi-tools>=1.2.0 冲突。项目代码不直接 import scgpt（davf.py 通过统一的
+# EmbeddingLoaderBase 可选加载 Geneformer/scGPT 嵌入），因此本文件不声明
+# scgpt；如需 scGPT 嵌入，请使用独立环境：
+#     pip install "scvi-tools>=0.16,<1.0" scgpt==0.2.4
+# 并将该环境用于 GenKI/DAVF 分析。全量混装 scgpt + scvi-tools>=1.2 会导致
+# ``pip check`` 冲突，属已知取舍。
+
 # GenKI 图扰动后端（src/integration/genki/perturbation.py 通过 importlib 延迟导入
 # torch_geometric.data.Data；缺失时该 source backend 跳过，但应在此声明）。
 torch-geometric>=2.3.0

@@ -6,7 +6,7 @@
 
 import os
 import random
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -83,6 +83,46 @@ def _restore_rng_state(state: Mapping[str, Any]) -> None:
         torch.cuda.set_rng_state_all(cuda_states)
 
 
+def _callback_state_keys(callbacks: Optional[Sequence[Any]]) -> Dict[int, str]:
+    """为有 ``state_dict()`` 的 callback 生成稳定的 checkpoint key。
+
+    同一类名出现多次时追加序号（``ModelCheckpoint``、``ModelCheckpoint_2``），
+    保存与恢复两侧必须使用同一映射。
+    """
+    keys: Dict[int, str] = {}
+    seen: Dict[str, int] = {}
+    if callbacks is None:
+        return keys
+    for index, callback in enumerate(callbacks):
+        if not callable(getattr(callback, "state_dict", None)):
+            continue
+        name = type(callback).__name__
+        seen[name] = seen.get(name, 0) + 1
+        keys[index] = f"{name}_{seen[name]}" if seen[name] > 1 else name
+    return keys
+
+
+def collect_callback_states(callbacks: Optional[Sequence[Any]]) -> Dict[str, Any]:
+    """收集 stateful callback 的状态，用于写入 checkpoint（TD-M01）。
+
+    只有实现了 ``state_dict()`` 的 callback 会进入 ``callback_states``；
+    无状态的 callback（日志/进度条等）被跳过。
+    """
+    if callbacks is None:
+        return {}
+    states: Dict[str, Any] = {}
+    for index, key in _callback_state_keys(callbacks).items():
+        callback = callbacks[index]
+        state_fn = getattr(callback, "state_dict", None)
+        if callable(state_fn):
+            state = state_fn()
+            # 跳过空状态（如 Lightning 基类默认返回 {} 的无状态回调），
+            # 避免无意义地占用 checkpoint 空间。
+            if state:
+                states[key] = state
+    return states
+
+
 class ModelCheckpoint(Callback):
     """
     模型检查点回调
@@ -137,6 +177,41 @@ class ModelCheckpoint(Callback):
         self.optimizer = None
         self.scheduler = None
 
+    def state_dict(self) -> Dict[str, Any]:
+        """返回可序列化的 callback 状态（best 语义与 top-k 记录）。
+
+        TD-M01（2026-08-09 修复）: 使 ``--resume`` 能恢复 early stopping / best
+        语义，而不是只恢复权重/优化器/RNG 后重新从空状态计数。
+        """
+        return {
+            "monitor": self.monitor,
+            "mode": self.mode,
+            "best_value": self.best_value,
+            "epochs_since_improvement": self.epochs_since_improvement,
+            "top_k_checkpoints": [[float(value), path] for value, path in self._top_k_checkpoints],
+        }
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        """恢复 callback 状态；monitor/mode 与构造参数不一致时拒绝恢复。
+
+        旧 checkpoint 无此字段时调用方应跳过，保持缺省状态（与
+        optimizer/scheduler 的缺省路径一致）。
+        """
+        if state.get("monitor") != self.monitor or state.get("mode") != self.mode:
+            raise ValueError(
+                f"ModelCheckpoint 状态与当前配置不一致: "
+                f"checkpoint monitor={state.get('monitor')!r} mode={state.get('mode')!r}, "
+                f"当前 monitor={self.monitor!r} mode={self.mode!r}"
+            )
+        self.best_value = float(state.get("best_value", self.best_value))
+        self.epochs_since_improvement = int(state.get("epochs_since_improvement", 0))
+        raw_top_k = state.get("top_k_checkpoints", [])
+        self._top_k_checkpoints = [
+            (float(value), str(path)) for value, path in raw_top_k
+        ]
+        # 恢复后按当前 mode 重新排序，防御旧数据未排序或模式漂移。
+        self._top_k_checkpoints.sort(key=lambda x: x[0], reverse=(self.mode == "max"))
+
     def _ensure_dir(self, filepath: str) -> None:
         """确保文件所在目录存在"""
         dir_path = os.path.dirname(filepath)
@@ -146,12 +221,14 @@ class ModelCheckpoint(Callback):
     def _build_checkpoint(self, model, epoch: int, trainer: Optional[Any] = None) -> Dict:
         """构建完整检查点字典
 
-        包含模型权重、epoch、optimizer/scheduler（若已挂载）、AMP scaler
-        与 RNG 状态（python/numpy/torch），使 ``--resume`` 成为精确续训。
+        包含模型权重、epoch、optimizer/scheduler（若已挂载）、AMP scaler、
+        RNG 状态（python/numpy/torch）与 stateful callback 状态，使
+        ``--resume`` 成为精确续训（TD-M01）。
         """
         checkpoint: Dict = {
             "model_state_dict": model.state_dict(),
             "epoch": epoch,
+            "global_step": int(getattr(trainer, "global_step", 0)) if trainer is not None else 0,
             "rng_state": _capture_rng_state(),
         }
         if self.optimizer is not None:
@@ -162,6 +239,9 @@ class ModelCheckpoint(Callback):
             scaler = getattr(trainer, "scaler", None)
             if scaler is not None and hasattr(scaler, "state_dict"):
                 checkpoint["scaler_state_dict"] = scaler.state_dict()
+            callback_states = collect_callback_states(getattr(trainer, "callbacks", None))
+            if callback_states:
+                checkpoint["callback_states"] = callback_states
         return checkpoint
 
     def _save_checkpoint(self, filepath: str, model, epoch: int, trainer: Optional[Any] = None) -> None:
@@ -208,13 +288,6 @@ class ModelCheckpoint(Callback):
 
         current_value = logs[self.monitor]
 
-        # Save last checkpoint (every epoch)
-        if self.save_last:
-            last_filepath = self._get_last_filepath()
-            self._save_checkpoint(last_filepath, trainer.model, epoch, trainer)
-            if self.verbose > 0:
-                logger.info("保存最新模型到 %s", last_filepath)
-
         if self.save_best_only:
             if self.is_better(current_value, self.best_value):
                 self.best_value = current_value
@@ -253,6 +326,14 @@ class ModelCheckpoint(Callback):
                     self.monitor,
                     current_value,
                 )
+
+        # Save last checkpoint after updating best/top-k state so resume from
+        # the latest checkpoint sees the same callback state as this epoch.
+        if self.save_last:
+            last_filepath = self._get_last_filepath()
+            self._save_checkpoint(last_filepath, trainer.model, epoch, trainer)
+            if self.verbose > 0:
+                logger.info("保存最新模型到 %s", last_filepath)
 
 
 class EarlyStopping(Callback):
@@ -296,9 +377,49 @@ class EarlyStopping(Callback):
         self.wait = 0
         self.stopped_epoch = 0
         self.should_stop = False
+        # TD-M01: 由 load_state_dict 置位，on_train_start 消费后保留恢复的
+        # wait/best 状态（精确续训）；未恢复时保持“训练开始时重置”语义。
+        self._state_restored = False
+
+    def state_dict(self) -> Dict[str, Any]:
+        """返回可序列化的早停状态（TD-M01）。"""
+        return {
+            "monitor": self.monitor,
+            "mode": self.mode,
+            "patience": self.patience,
+            "min_delta": self.min_delta,
+            "best_value": self.best_value,
+            "wait": self.wait,
+            "stopped_epoch": self.stopped_epoch,
+            "should_stop": self.should_stop,
+        }
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        """恢复早停状态；monitor/mode/patience/min_delta 不一致时拒绝恢复。"""
+        if (
+            state.get("monitor") != self.monitor
+            or state.get("mode") != self.mode
+            or state.get("patience") != self.patience
+            or state.get("min_delta") != self.min_delta
+        ):
+            raise ValueError(
+                "EarlyStopping 状态与当前配置不一致: "
+                f"checkpoint monitor={state.get('monitor')!r} mode={state.get('mode')!r} "
+                f"patience={state.get('patience')!r} min_delta={state.get('min_delta')!r}, "
+                f"当前 monitor={self.monitor!r} mode={self.mode!r} "
+                f"patience={self.patience!r} min_delta={self.min_delta!r}"
+            )
+        self.best_value = float(state.get("best_value", self.best_value))
+        self.wait = int(state.get("wait", 0))
+        self.stopped_epoch = int(state.get("stopped_epoch", 0))
+        self.should_stop = bool(state.get("should_stop", False))
+        self._state_restored = True
 
     def on_train_start(self, _trainer: Any) -> None:
-        """训练开始时重置状态"""
+        """训练开始时重置状态；已通过 load_state_dict 恢复时保留恢复值。"""
+        if self._state_restored:
+            self._state_restored = False
+            return
         self.wait = 0
         self.stopped_epoch = 0
         self.should_stop = False
