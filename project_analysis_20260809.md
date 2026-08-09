@@ -75,7 +75,7 @@
 | [`docs/r01_r03_systematic_repair_report_20260808.md`](docs/r01_r03_systematic_repair_report_20260808.md) | R-01～R-03 工程契约与剩余科学边界 | 组件级补充证据 |
 | [`data/manifests/datasets.yaml`](data/manifests/datasets.yaml) | 数据 profile、路径、哈希和 loader 声明 | 机器可执行输入契约 |
 | `src/`、`scripts/`、`tests/`、`.github/workflows/` | 实现、调用链、测试和 CI | 以实际代码和命令结果为准 |
-| Git history、remote 和分支状态 | 版本、合并前提和审计追踪 | 本次未执行远程 push |
+| Git history、remote 和分支状态 | 版本、合并前提和审计追踪 | 已执行 fetch、主分支合并和最终 push；未改写远程历史 |
 
 ### 2.3 证据边界与假设
 
@@ -118,9 +118,9 @@
 | 远程基线 | `origin/main` = `771d263`（本地已 fetch；远程未领先） |
 | ahead/behind（合并前） | `origin/main...main = 0 62`，即远程 0 ahead、本地 62 ahead |
 | 工作区 | 开始本轮修改前 clean；随后 23 个已追踪文件修改，最终合并后 clean |
-| 远程写入 | 未执行 push |
+| 远程写入 | 合并前尚未 push；最终收尾已将 `main` 推送到 `origin/main` |
 
-`git fetch --prune origin` 同时清除了已不存在的 `origin/master` 远程追踪引用；因此合并前远程没有领先提交。代码修复在 `audit/20260809-finalize` 分支提交后以 `--no-ff` 合并回本地 `main`，没有执行远程 push。
+`git fetch --prune origin` 同时清除了已不存在的 `origin/master` 远程追踪引用；因此合并前远程没有领先提交。代码修复在 `audit/20260809-finalize` 分支提交后以 `--no-ff` 合并回本地 `main`；文档同步提交完成后，已将当时的 `main` HEAD 推送到 `origin/main`，未执行强制推送。
 
 ### 4.2 本次已完成的可提交修改
 
@@ -147,6 +147,8 @@
 | 前序 `main` 合并提交 | `3087d633364d8739f5598ecd9d583402400794ff` — `merge: project code and documentation audit` |
 | 本轮修复分支提交 | `df540a548949a718231c0aa8c97d0e8192f622e7` — `fix: close checkpoint and build quality debt` |
 | 最终 `main` 合并提交 | `ab0685f2f1d8b730fc002d360f00973183f3108a` — `merge: finalize audit remediation and build configuration` |
+| 文档审计同步提交 | `366e691ce0a0317e736effd735b2ddb22444220f` — `docs: finalize audit report and status records` |
+| 远端 `main` 推送结果 | 推送时 `origin/main` 已更新为 `366e691ce0a0317e736effd735b2ddb22444220f`；随后仅补充本段发布记录 |
 | 本轮合并父提交 | `f2084fa5b07957374391ad6a567d065255bd72a7` + `df540a548949a718231c0aa8c97d0e8192f622e7` |
 
 ## 5. 需求基线与文档归档审计
