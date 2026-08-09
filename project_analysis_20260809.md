@@ -132,13 +132,13 @@
 
 ### 4.3 合并后版本记录
 
-本报告首次提交和合并提交将在审计分支提交后由 Git 产生；为避免伪造 hash，本节在第一次提交时保留待回填项，并在合并后追加最终值：
+审计分支和合并均已完成；以下 hash 来自合并完成后的实际 Git 记录：
 
 | 项目 | 值 |
 |---|---|
-| 审计分支提交 | 待提交后回填 |
-| `main` 合并提交 | 待执行无冲突 `git merge --no-ff` 后回填 |
-| 最终 metadata 提交 | 待合并 hash 写回报告后回填 |
+| 审计分支提交 | `d0c78a1b4b7f27f39d321e79ac52be87369674cc` — `docs: audit project status and archive review` |
+| `main` 合并提交 | `3087d633364d8739f5598ecd9d583402400794ff` — `merge: project code and documentation audit` |
+| 合并父提交 | `c28f2a670885fb8ae314ec4569e30bfee6657a74` + `d0c78a1b4b7f27f39d321e79ac52be87369674cc` |
 
 ## 5. 需求基线与文档归档审计
 
