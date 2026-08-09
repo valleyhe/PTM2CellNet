@@ -1,8 +1,9 @@
 # PTM2CellNet 项目代码与文档综合分析报告
 
 > 审计日期：2026-08-09（Asia/Shanghai）
-> 审计基线：`c28f2a670885fb8ae314ec4569e30bfee6657a74`
-> 审计分支：`audit/20260809-project-analysis`
+> 远程审计基线：`origin/main` = `771d2632bb589901b331273182e850c44de97da2`
+> 本轮处理前本地 `main`：`f2084fa5b07957374391ad6a567d065255bd72a7`
+> 本轮代码合并提交（`main`）：`ab0685f2f1d8b730fc002d360f00973183f3108a`
 > 报告性质：代码、需求/设计文档、测试、数据清单、依赖、构建和版本控制的综合审计
 
 ## 目录
@@ -24,14 +25,16 @@
 
 ### 1.1 总体结论
 
-当前项目的标准 PTM2CellNet 训练、推理、artifact 和 FastAPI 工程链路可运行；本次实际全量回归为 **1897 passed、13 skipped、28 warnings**，核心覆盖率门禁为 **75.63%**，高于 `74%`。跨尺度链路已经具备模型、版本化 NPZ schema、独立训练/推理 CLI、checkpoint 和 provenance，但仍是合成/离线工程路径，不能宣称真实数据训练、科学验收或标准 API 服务能力。
+当前项目的标准 PTM2CellNet 训练、推理、artifact 和 FastAPI 工程链路可运行；本次实际全量回归为 **1920 passed、13 skipped、28 warnings**，核心覆盖率门禁为 **75.27%**，高于 `74%`。跨尺度链路已经具备模型、版本化 NPZ schema、独立训练/推理 CLI、checkpoint 和 provenance，但仍是合成/离线工程路径，不能宣称真实数据训练、科学验收或标准 API 服务能力。
+
+本轮已完成并合并的工程修复包括：callback best/wait/top-k 与 `global_step` checkpoint 状态、`cell_edge_weight` NPZ 契约和回归测试、coverage 排除收紧、full-test nightly/PR 触发、Sphinx strict 文档构建，以及将 `pyproject.toml` 纳入 Git 并修正 wheel build backend。
 
 最重要的未闭环项是：
 
 1. `cross_scale_training` profile 需要的 9 个数据集只有 PMADS 本地文件，另外 8 个受控输入无路径，真实链路按设计 fail-fast；证据见 [`data/manifests/datasets.yaml:22-54`](data/manifests/datasets.yaml#L22-L54) 和本次 manifest 命令结果。
 2. API 初始化路由固定构建标准 `PTM2CellNet`，没有跨尺度 model type、artifact adapter、原始序列/NPZ 输入转换和资源限制；证据见 [`src/api/routes/initialize.py:213-264`](src/api/routes/initialize.py#L213-L264) 和最新 E2E 报告 I-06/P0-02。
-3. 标准 callback 的 best/wait/top-k 状态没有序列化到 checkpoint；权重、优化器、scheduler、scaler 和 RNG 可以恢复，但 early stopping 历史不连续；证据见 [`src/training/callbacks.py:146-165`](src/training/callbacks.py#L146-L165)、[`src/training/callbacks.py:289-304`](src/training/callbacks.py#L289-L304)。
-4. 本次相对 2026-08-08 权威状态新增或重新确认的质量问题包括：Sphinx 严格构建仍有 40 个源码 docstring/第三方导入警告、`pip check` 有两个环境依赖冲突、完整测试 workflow 仅手动触发、覆盖率排除规则过宽、跨尺度 NPZ schema 未承载模型已支持的 `cell_edge_weight`。
+3. 真实科学验收仍未闭环：缺少受控快照、固定指标阈值、标签/graph release、baseline 和验收附件；不能用 synthetic fixture 代替真实证据。
+4. 当前剩余工程风险包括 `pip check` 的两个可选依赖冲突、低覆盖异常/恢复分支、跨尺度 API/raw-sequence 入口缺失和多 worker 限流的进程级边界；本轮已关闭 callback、NPZ `cell_edge_weight`、Sphinx strict、full-test 触发和 wheel backend 技术债。
 
 ### 1.2 归档结论
 
@@ -60,7 +63,7 @@
 5. 需求转接口和缺失业务流程设计；
 6. 版本控制、归档和审计记录处理。
 
-本次只实现了审计范围内的低风险文档/构建维护（Sphinx 路径、归档排除、失效链接、模块索引和生成物忽略规则），没有擅自实现需求中尚未确认的跨尺度 API、真实数据 loader 或科学模型功能。
+本次除审计外，按证据明确且不需要外部产品/数据决策的技术债实施了低风险工程修复（checkpoint 恢复、NPZ 契约、coverage/CI、Sphinx 和 wheel 构建配置）；没有擅自实现需求中仍缺少外部输入的跨尺度 API、真实数据 loader 或科学模型验收功能。
 
 ### 2.2 使用的输入
 
@@ -68,7 +71,7 @@
 |---|---|---|
 | 工作区 `AGENTS.md` 的“实际代码现状映射” | 模块布局和已取消范围 | 工作区文件未被 Git 追踪；代码和第 0 节映射优先 |
 | [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) | 当前环境、测试、覆盖率和发布边界 | 2026-08-08 更新 |
-| [`docs/E2E训练与推理现状分析_2026-08-08.md`](docs/E2E训练与推理现状分析_2026-08-08.md) | 最新需求差距、P0/P1/P2 和实施计划 | 本次主要需求/状态基线 |
+| [`docs/E2E训练与推理现状分析_2026-08-08.md`](docs/E2E训练与推理现状分析_2026-08-08.md) | 2026-08-08 需求差距、P0/P1/P2 和实施计划 | 历史快照；当前状态以本报告和 `CURRENT_STATUS.md` 为准 |
 | [`docs/r01_r03_systematic_repair_report_20260808.md`](docs/r01_r03_systematic_repair_report_20260808.md) | R-01～R-03 工程契约与剩余科学边界 | 组件级补充证据 |
 | [`data/manifests/datasets.yaml`](data/manifests/datasets.yaml) | 数据 profile、路径、哈希和 loader 声明 | 机器可执行输入契约 |
 | `src/`、`scripts/`、`tests/`、`.github/workflows/` | 实现、调用链、测试和 CI | 以实际代码和命令结果为准 |
@@ -84,7 +87,7 @@
 
 ### 3.1 检查方法
 
-1. 用 CodeGraph 检查符号、调用链和模块结构；索引状态为 335 files、6879 nodes、7833 edges，健康状态正常。
+1. 用 CodeGraph 检查符号、调用链和模块结构；最终索引状态为 336 files、6921 nodes、7761 edges，健康状态正常。
 2. 对具体文件使用行号读取，确认需求文字、配置、异常路径和接口参数。
 3. 执行全量测试、核心覆盖率门禁、ruff、mypy、compileall、manifest、pLM asset、Sphinx 和 `pip check`。
 4. 审查 Git 分支、远程同步关系、历史归档目录和活动入口页；不删除未明确授权的历史内容。
@@ -106,18 +109,18 @@
 
 ### 4.1 合并前基线
 
-本次在开始修改前执行了 `git status --short --branch`、`git fetch --prune origin`、`git branch -avv` 和 `git rev-list --left-right --count origin/main...main`：
+本次在开始修改前和合并前均执行了 `git fetch --prune origin`，并用 `git status --short --branch`、`git branch -avv` 和 `git rev-list --left-right --count origin/main...main` 核验：
 
 | 项目 | 合并前记录 |
 |---|---|
 | 本地分支 | `main` |
-| 本地 HEAD | `c28f2a670885fb8ae314ec4569e30bfee6657a74` — `feat: complete cross-scale E2E pipeline and audit artifacts` |
+| 本轮处理前本地 HEAD | `f2084fa5b07957374391ad6a567d065255bd72a7` — `docs: record audit merge provenance` |
 | 远程基线 | `origin/main` = `771d263`（本地已 fetch；远程未领先） |
-| ahead/behind | `origin/main...main = 0 59`，即远程 0 ahead、本地 59 ahead |
-| 工作区 | 代码修改前 clean；Sphinx 产生的 `docs/_build/` 后已加入忽略规则 |
+| ahead/behind（合并前） | `origin/main...main = 0 62`，即远程 0 ahead、本地 62 ahead |
+| 工作区 | 开始本轮修改前 clean；随后 23 个已追踪文件修改，最终合并后 clean |
 | 远程写入 | 未执行 push |
 
-`git fetch --prune origin` 同时清除了已不存在的 `origin/master` 远程追踪引用；因此本地 `main` 是在已同步的 `origin/main` 基础上继续审计。用户要求的“确认远程最新”已执行，未直接把工作区修改堆到 `main`，而是切出 `audit/20260809-project-analysis`。
+`git fetch --prune origin` 同时清除了已不存在的 `origin/master` 远程追踪引用；因此合并前远程没有领先提交。代码修复在 `audit/20260809-finalize` 分支提交后以 `--no-ff` 合并回本地 `main`，没有执行远程 push。
 
 ### 4.2 本次已完成的可提交修改
 
@@ -129,6 +132,10 @@
 | `docs/*.md`、`docs/guides/data_integration.md` | 将历史归档链接改为 GitHub 稳定链接，修正 CSV fence 和仓库链接 | 消除断链/未知 lexer，保留历史可追溯性 |
 | `archive/20260809/README.md`、`MANIFEST.md` | 保存本次归档扫描、版本来源和“不移动”的审计依据 | 新增审计批次，不覆盖历史正文 |
 | `project_analysis_20260809.md` | 综合分析报告 | 本报告 |
+| `.coveragerc`、`.github/workflows/full-test.yml` | 收紧 coverage 排除并启用 nightly/PR 全量门禁 | 质量门禁和自动回归范围扩大 |
+| `src/training/callbacks.py`、`scripts/train.py` | 保存/恢复 callback、`global_step`，修复 resume 后 best artifact fallback | 训练恢复语义连续，保留旧 checkpoint 兼容 |
+| `src/data/cross_scale_dataset.py`、相关测试 | 承载并校验可选 `cell_edge_weight` | 防止带权 cell graph 静默丢失 |
+| `pyproject.toml`、`.gitignore` | 版本化构建配置并修正 `setuptools.build_meta` backend | wheel 构建可复现 |
 
 ### 4.3 合并后版本记录
 
@@ -136,25 +143,28 @@
 
 | 项目 | 值 |
 |---|---|
-| 审计分支提交 | `d0c78a1b4b7f27f39d321e79ac52be87369674cc` — `docs: audit project status and archive review` |
-| `main` 合并提交 | `3087d633364d8739f5598ecd9d583402400794ff` — `merge: project code and documentation audit` |
-| 合并父提交 | `c28f2a670885fb8ae314ec4569e30bfee6657a74` + `d0c78a1b4b7f27f39d321e79ac52be87369674cc` |
+| 前序审计分支提交 | `d0c78a1b4b7f27f39d321e79ac52be87369674cc` — `docs: audit project status and archive review` |
+| 前序 `main` 合并提交 | `3087d633364d8739f5598ecd9d583402400794ff` — `merge: project code and documentation audit` |
+| 本轮修复分支提交 | `df540a548949a718231c0aa8c97d0e8192f622e7` — `fix: close checkpoint and build quality debt` |
+| 最终 `main` 合并提交 | `ab0685f2f1d8b730fc002d360f00973183f3108a` — `merge: finalize audit remediation and build configuration` |
+| 本轮合并父提交 | `f2084fa5b07957374391ad6a567d065255bd72a7` + `df540a548949a718231c0aa8c97d0e8192f622e7` |
 
 ## 5. 需求基线与文档归档审计
 
 ### 5.1 当前权威文档关系
 
-最新 E2E 报告明确把标准链路和跨尺度链路分开：标准链路由 `scripts/train.py`、`scripts/predict.py` 和 FastAPI 组成；跨尺度链路由 `cross_scale.py`、NPZ dataset、专用 trainer 和两个 CLI 组成，当前不属于标准 API 服务链路，见 [`docs/E2E训练与推理现状分析_2026-08-08.md:9-24`](docs/E2E训练与推理现状分析_2026-08-08.md#L9-L24)。该报告同时明确 I-06“跨尺度 API”未实现，见 [`:43-52`](docs/E2E训练与推理现状分析_2026-08-08.md#L43-L52)，因此本报告不把它误记为回归缺陷。
+2026-08-08 E2E 历史快照把标准链路和跨尺度链路分开：标准链路由 `scripts/train.py`、`scripts/predict.py` 和 FastAPI 组成；跨尺度链路由 `cross_scale.py`、NPZ dataset、专用 trainer 和两个 CLI 组成，当前不属于标准 API 服务链路，见 [`docs/E2E训练与推理现状分析_2026-08-08.md:15-30`](docs/E2E训练与推理现状分析_2026-08-08.md#L15-L30)。该快照同时明确 I-06“跨尺度 API”未实现，见 [`:49-58`](docs/E2E训练与推理现状分析_2026-08-08.md#L49-L58)；本次最终验证将其作为仍未闭环需求，而不是回归缺陷。
 
 工作区架构蓝图中已经取消实时质谱流、自定义 PTM 数据库、GUI 和 API key 功能扩展；兼容 shim 可保留，但不能重新列入 roadmap。故本次未把这些兼容入口当作“待开发功能”。
 
 ### 5.2 扫描结果与归档判定
 
-本次文件扫描结果：根目录 Markdown 7 个、`docs/` Markdown 109 个、`archive/20260808/` 文件 19 个、`docs/archive/` 文件 168 个。活动报告入口包括 `CURRENT_STATUS.md`、2026-08-08 E2E 报告和 2026-08-04/08-08 历史入口。
+本次文件扫描结果：根目录 Markdown 9 个（含当前综合报告和被忽略的同日修复草稿）、`docs/` Markdown 109 个、`archive/20260808/` 文件 19 个、`docs/archive/` 文件 168 个；`archive/20260809/` 当前保存本批次 2 个审计记录文件。活动报告入口包括 `CURRENT_STATUS.md`、2026-08-08 E2E 报告和 2026-08-04/08-08 历史入口。
 
 | 类别 | 典型路径 | 判定 | 处理 |
 |---|---|---|---|
-| 当前状态/权威报告 | `docs/CURRENT_STATUS.md`、`docs/E2E训练与推理现状分析_2026-08-08.md` | 内容与当前代码/测试边界一致 | 保留 |
+| 当前状态/权威报告 | `project_analysis_20260809.md`、`docs/CURRENT_STATUS.md` | 与最终 main、代码和验证结果同步 | 保留 |
+| 日期化历史快照 | `docs/E2E训练与推理现状分析_2026-08-08.md`、`docs/r01_r03_systematic_repair_report_20260808.md` | 内容准确反映 2026-08-08；已明确标注非当前计数来源 | 保留原路径并标为历史，避免破坏链接 |
 | 当前操作指南 | `docs/guides/real_assets_acceptance.md`、`docs/guides/data_integration.md` | 当前命令和 fail-fast 语义仍适用；发现并修复 Sphinx fence 问题 | 保留并修复 |
 | 历史入口短页 | `docs/E2E训练与推理代码修复报告_2026-08-08.md`、`docs/PTM2CellNet_技术文档.md` 等 | 是重定向页，不是过时正文 | 保留，改稳定外链 |
 | 已过期正文 | `archive/20260808/reports/*`、`archive/20260808/docs/*` | 已有时间戳、版本和归档清单 | 不重复移动 |
@@ -177,12 +187,22 @@
 
 | ID | 需求引用与证据 | 未实现内容/缺失接口 | 优先级 | 影响 |
 |---|---|---|---|---|
-| U-01 | E2E §4.1 P0-01，[`docs/E2E...:100-106`](docs/E2E训练与推理现状分析_2026-08-08.md#L100-L106)；manifest profile [`:32-54`](data/manifests/datasets.yaml#L32-L54) | 8 个受控 cross-scale 输入没有授权本地 snapshot/path/hash；真实 train→val→test 无法启动 | 高（P0） | 核心功能 |
-| U-02 | E2E I-06/P0-02，[`docs/E2E...:108-112`](docs/E2E训练与推理现状分析_2026-08-08.md#L108-L112) | 跨尺度 API model type、artifact adapter、输入转换和资源限制 | 高（P0，若 API 属目标范围） | 核心功能 |
-| U-03 | E2E P1-02，[`docs/E2E...:128-132`](docs/E2E训练与推理现状分析_2026-08-08.md#L128-L132) | 原始序列→三路 pLM embedding→NPZ/manifest/provenance 的生产预计算器 | 高（P1） | 核心数据流 |
-| U-04 | E2E P0-03，[`docs/E2E...:114-118`](docs/E2E训练与推理现状分析_2026-08-08.md#L114-L118)；真实资产指南 [`:55-62`](docs/guides/real_assets_acceptance.md#L55-L62) | 真实快照、固定指标阈值、标签/graph 版本、baseline 和验收附件组成的科学验收流程 | 高（P0） | 核心发布 |
+| U-01 | E2E §4.1 P0-01，[`docs/E2E...:108-112`](docs/E2E训练与推理现状分析_2026-08-08.md#L108-L112)；manifest profile [`:32-54`](data/manifests/datasets.yaml#L32-L54) | 8 个受控 cross-scale 输入没有授权本地 snapshot/path/hash；真实 train→val→test 无法启动 | 高（P0） | 核心功能 |
+| U-02 | E2E I-06/P0-02，[`docs/E2E...:114-118`](docs/E2E训练与推理现状分析_2026-08-08.md#L114-L118) | 跨尺度 API model type、artifact adapter、输入转换和资源限制 | 高（P0，若 API 属目标范围） | 核心功能 |
+| U-03 | E2E P1-02，[`docs/E2E...:134-138`](docs/E2E训练与推理现状分析_2026-08-08.md#L134-L138) | 原始序列→三路 pLM embedding→NPZ/manifest/provenance 的生产预计算器 | 高（P1） | 核心数据流 |
+| U-04 | E2E P0-03，[`docs/E2E...:120-124`](docs/E2E训练与推理现状分析_2026-08-08.md#L120-L124)；真实资产指南 [`:55-62`](docs/guides/real_assets_acceptance.md#L55-L62) | 真实快照、固定指标阈值、标签/graph 版本、baseline 和验收附件组成的科学验收流程 | 高（P0） | 核心发布 |
 | U-05 | manifest 数据项如 `scperturb` [`:337-377`](data/manifests/datasets.yaml#L337-L377) 与 `kinase_substrate` [`:496-520`](data/manifests/datasets.yaml#L496-L520) | 受控数据的实际 loader/导入脚本仍为 `null` 或 contract-only | 高（P1/P0 数据前置） | 核心数据依赖 |
-| U-06 | E2E P1-01 [`:122-126`](docs/E2E训练与推理现状分析_2026-08-08.md#L122-L126)；callbacks source | 自定义 callback 的 `state_dict()`/`load_state_dict()` 和 checkpoint `callback_states` 接口 | 中（P1） | 训练恢复 |
+
+### 6.1.1 本轮已关闭的工程缺口
+
+以下项目曾在前序审计中列为未完全实现项，本轮已由代码和回归测试关闭，不再计入当前未实现清单：
+
+| 项目 | 当前实现与证据 | 验证 |
+|---|---|---|
+| callback 状态恢复 | `ModelCheckpoint`/`EarlyStopping` 提供 `state_dict()`/`load_state_dict()`；checkpoint 写入 `callback_states` 和 `global_step`，见 [`src/training/callbacks.py:180-245`](src/training/callbacks.py#L180-L245) | `tests/unit/training/test_callbacks.py`、`tests/integration/test_train_resume_cli.py`；全量回归通过 |
+| 带权 cell graph NPZ 契约 | `_STATIC_INPUT_KEYS` 包含 `cell_edge_weight`，并在构造阶段校验边数、浮点、有限和非负，见 [`src/data/cross_scale_dataset.py:24-31`](src/data/cross_scale_dataset.py#L24-L31)、[`149-165`](src/data/cross_scale_dataset.py#L149-L165) | `TestCellEdgeWeightContract` 及 cross-scale train/predict 集成测试 |
+| coverage/CI 自动门禁 | coverage 不再全局排除 `pass`/`except ImportError`；full-test 增加 nightly 和 PR 触发，见 [`.coveragerc:9-17`](.coveragerc#L9-L17)、[`.github/workflows/full-test.yml:3-16`](.github/workflows/full-test.yml#L3-L16) | 核心 coverage 75.27%；ruff/mypy/compileall 通过 |
+| Sphinx strict 与 wheel 构建 | strict Sphinx 已 0 诊断警告；`pyproject.toml` 使用标准 `setuptools.build_meta`，见 [`pyproject.toml:1-3`](pyproject.toml#L1-L3) | `sphinx -W`、`python -m build --wheel --no-isolation` 均通过 |
 
 ### 6.2 缺失接口的建议契约（待需求确认）
 
@@ -233,26 +253,26 @@ flowchart TD
 | 模块 | 完成度 | 分类 | 关键缺失/依赖 | 证据 |
 |---|---:|---|---|---|
 | 标准数据加载、清洗和 PTM 数据集 | 90.0% | 部分实现但可用 | 受控 PTMAtlas/ProteomeTools 仍是 controlled；标准本地 PMADS 可验证 | [`data/manifests/datasets.yaml:174-229`](data/manifests/datasets.yaml#L174-L229) |
-| 标准训练、resume、artifact | 91.0% | 实现但有缺陷 | callback best/wait/top-k 未进入 checkpoint；旧纯权重不能精确续训 | [`docs/E2E...:37-41`](docs/E2E训练与推理现状分析_2026-08-08.md#L37-L41)、[`src/training/callbacks.py:146-165`](src/training/callbacks.py#L146-L165) |
+| 标准训练、resume、artifact | 95.0% | 部分实现但可用 | 新 checkpoint 可恢复 callback、`global_step`、优化器/scheduler/scaler/RNG；旧纯权重兼容路径仍不能提供精确续训 | [`src/training/callbacks.py:221-245`](src/training/callbacks.py#L221-L245)、[`scripts/train.py:350-380`](scripts/train.py#L350-L380) |
 | 标准推理、FastAPI、安全中间件 | 89.0% | 部分实现但可用 | 仅标准模型；多 worker 共享限流/metrics 仍需外部组件 | [`src/api/routes/initialize.py:213-264`](src/api/routes/initialize.py#L213-L264)、E2E I-04/I-05 |
 | 跨尺度模型与 forward/loss | 78.0% | 部分实现但可用 | 真实图、真实 pLM、科学指标未验收；部分 graph approximation 需显式策略 | [`src/models/cross_scale.py:1401-1460`](src/models/cross_scale.py#L1401-L1460) |
-| 跨尺度 NPZ dataset/schema | 58.0% | 实现但不符合完整规范 | manifest 8 个输入无路径；dataset 未承载 `cell_edge_weight`，对 edge weight/type 的 fail-fast 校验不完整 | [`src/data/cross_scale_dataset.py:24-38`](src/data/cross_scale_dataset.py#L24-L38)、[`:120-177`](src/data/cross_scale_dataset.py#L120-L177) |
+| 跨尺度 NPZ dataset/schema | 68.0% | 部分实现但可用 | `cell_edge_weight` 已承载并 fail-fast；manifest 8 个受控输入仍无路径，部分 edge type/range 约束仍需扩展 | [`src/data/cross_scale_dataset.py:24-31`](src/data/cross_scale_dataset.py#L24-L31)、[`:149-165`](src/data/cross_scale_dataset.py#L149-L165)、manifest exit 2 |
 | 跨尺度训练/恢复/产物 CLI | 72.0% | 部分实现但可用 | 只接受预计算 NPZ；无 raw sequence 预计算器和真实 release | [`scripts/train_cross_scale.py:26-37`](scripts/train_cross_scale.py#L26-L37)、[`src/training/cross_scale_trainer.py:148-194`](src/training/cross_scale_trainer.py#L148-L194) |
 | 跨尺度离线推理 | 68.0% | 部分实现但可用 | artifact/NPZ 契约可用，但无在线 API 和原始序列入口 | [`scripts/predict_cross_scale.py:24-75`](scripts/predict_cross_scale.py#L24-L75)、[`src/inference/cross_scale_predictor.py:58-116`](src/inference/cross_scale_predictor.py#L58-L116) |
 | 真实资产与科学验收 | 20.0% | 未实现 | 真实数据、baseline、阈值、graph/label release 和验收附件缺失 | [`docs/guides/real_assets_acceptance.md:39-62`](docs/guides/real_assets_acceptance.md#L39-L62) |
 | 评估指标、排序指标和 CI | 84.0% | 部分实现但可用 | 关键低覆盖模块仍有异常/恢复分支缺口 | [`docs/TEST_COVERAGE.md:39-62`](docs/TEST_COVERAGE.md#L39-L62) |
-| 文档入口与 HTML 构建 | 72.0% | 实现但有缺陷 | 结构性问题已修复；源码 docstring/第三方导入仍有 40 个 warning | [`docs/conf.py:16-58`](docs/conf.py#L16-L58)；本次 Sphinx 结果 |
-| CI、依赖和可复现环境 | 70.0% | 实现但有缺陷 | full-test 仅 `workflow_dispatch`；lock/pyproject 等文件被忽略；本地 pip 冲突 | [`.github/workflows/full-test.yml:1-5`](.github/workflows/full-test.yml#L1-L5)、[`.gitignore:1-6`](.gitignore#L1-L6) |
+| 文档入口与 HTML 构建 | 90.0% | 部分实现但可用 | 活动文档和 API autodoc strict 已通过；应用导入日志仍会出现在构建 stdout，不属于 Sphinx warning | [`docs/conf.py:16-99`](docs/conf.py#L16-L99)、strict build exit 0 |
+| CI、依赖和可复现环境 | 82.0% | 实现但有缺陷 | full-test 已 nightly/PR；`pyproject.toml` 已追踪且 wheel 可构建，但本地可选依赖仍有两个 `pip check` 冲突，lock/平台矩阵仍需治理 | [`.github/workflows/full-test.yml:3-60`](.github/workflows/full-test.yml#L3-L60)、[`pyproject.toml:1-3`](pyproject.toml#L1-L3) |
 
 ### 7.3 文档与实际实现对比
 
 | 文档原文/规范 | 实际实现 | 判定 |
 |---|---|---|
-| “跨尺度链路目前是离线 CLI 与 NPZ artifact，不属于标准 API 服务链路”——E2E [`:9-12`](docs/E2E训练与推理现状分析_2026-08-08.md#L9-L12) | API 初始化只构建 `PTM2CellNet.from_config`，没有 `CrossScalePTM2CellNet` 路由 | 一致；是明确未实现项，不是误报 |
-| “I-06 跨尺度模型由 API 直接提供真实预测：未实现”——E2E [`:47-52`](docs/E2E训练与推理现状分析_2026-08-08.md#L47-L52) | `initialize_endpoint` 输入只有 checkpoint/config/cell_states/device，并在 [`:258-262`](src/api/routes/initialize.py#L258-L262) 固定构造标准模型 | 一致；需求缺口真实存在 |
+| “跨尺度链路目前是离线 CLI 与 NPZ artifact，不属于标准 API 服务链路”——E2E [`:15-18`](docs/E2E训练与推理现状分析_2026-08-08.md#L15-L18) | API 初始化只构建 `PTM2CellNet.from_config`，没有 `CrossScalePTM2CellNet` 路由 | 一致；是明确未实现项，不是误报 |
+| “I-06 跨尺度模型由 API 直接提供真实预测：未实现”——E2E [`:58`](docs/E2E训练与推理现状分析_2026-08-08.md#L58) | `initialize_endpoint` 输入只有 checkpoint/config/cell_states/device，并在 [`:258-262`](src/api/routes/initialize.py#L258-L262) 固定构造标准模型 | 一致；需求缺口真实存在 |
 | `cross_scale_training` 要求 PMADS + 8 个 controlled datasets——manifest [`:32-44`](data/manifests/datasets.yaml#L32-L44) | 8 个条目 `path: null`，部分 `loader: null`，本次命令 exit 2 | 规范定义完整但资产实现不完整 |
 | 真实资产指南规定无授权快照时 cross-scale manifest 应失败——[`docs/guides/real_assets_acceptance.md:55-58`](docs/guides/real_assets_acceptance.md#L55-L58) | 本次标准 profile exit 0，cross-scale profile exit 2 | 一致；fail-fast 是预期行为 |
-| 文档要求覆盖率提升不得靠排除业务模块/无断言测试——[`docs/TEST_COVERAGE.md:14-17`](docs/TEST_COVERAGE.md#L14-L17) | `.coveragerc` 全局排除 `pass`、`raise NotImplementedError`、`except ImportError`——[`.coveragerc:12-17`](.coveragerc#L12-L17) | 部分不一致；应证明排除项不会掩盖业务分支 |
+| 文档要求覆盖率提升不得靠排除业务模块/无断言测试——[`docs/TEST_COVERAGE.md:14-17`](docs/TEST_COVERAGE.md#L14-L17) | 当前 `.coveragerc` 仅保留显式 pragma、抽象 `NotImplementedError` 和 `__main__` 守卫——[`.coveragerc:9-17`](.coveragerc#L9-L17) | 当前规则一致；模块级低覆盖仍需持续补测 |
 | 活动文档贡献链接应指向项目仓库 | 原链接是 `HG-Lab/PTM2CellNet`，实际 remote 是 `valleyhe/PTM2CellNET` | 本次已修复，回归风险低 |
 
 ## 8. 技术债分类、证据与解决策略
@@ -266,16 +286,16 @@ flowchart TD
 | TD-C01 | 数据/科学验收 | Critical | 已知/复核 | 8 个真实 cross-scale 输入缺失，不能做真实训练和科学发布 | manifest profile、本次 exit 2、E2E P0-01/P0-03 |
 | TD-H01 | 架构/API | High | 已知/复核 | 跨尺度模型不在标准 API；若 API 是目标，服务能力完全缺失 | [`src/api/routes/initialize.py:258-262`](src/api/routes/initialize.py#L258-L262) |
 | TD-H02 | 数据工程/性能 | High | 已知/复核 | 无 raw sequence→三路 embedding 的生产预计算、缓存、重试和 provenance | [`scripts/train_cross_scale.py:26-37`](scripts/train_cross_scale.py#L26-L37)、E2E P1-02 |
-| TD-H03 | 可复现性/依赖 | High | 新增/确认 | `pyproject.toml`、`requirements-lock.txt`、`requirements-docs.txt`、`AGENTS.md` 等工作区文件被 `.gitignore` 的 `/*` 忽略，干净 clone 无法得到同等治理配置；lock 还含 `/tmp` 本地 URI | [`.gitignore:1-6`](.gitignore#L1-L6)、`requirements-lock.txt:24,98`、本次 `git ls-files` |
-| TD-M01 | 训练恢复 | Medium | 已知/复核 | callback 状态未保存，resume 后 early stop/best 语义变化 | [`src/training/callbacks.py:146-165`](src/training/callbacks.py#L146-L165)、[`:289-304`](src/training/callbacks.py#L289-L304) |
-| TD-M02 | 输入契约 | Medium | 新增/确认 | dataset 静态 key 无 `cell_edge_weight`，但模型 forward 会读取；`signal_edge_type`/edge weight 的 dtype/range 不能全部在 NPZ 构造时 fail-fast | [`src/data/cross_scale_dataset.py:24-38`](src/data/cross_scale_dataset.py#L24-L38)、[`:120-146`](src/data/cross_scale_dataset.py#L120-L146)、[`src/models/cross_scale.py:1411-1425`](src/models/cross_scale.py#L1411-L1425) |
-| TD-M03 | 文档构建 | Medium | 新增/确认 | Sphinx 结构问题已修复，但严格构建仍因源码 docstring 和第三方导入有 40 warnings 失败；非严格构建成功 | `sphinx-build -E -b html -W` 与 `sphinx-build -E -b html` 实际结果 |
-| TD-M04 | CI/测试 | Medium | 新增/确认 | 完整测试 workflow 只有 `workflow_dispatch`，push/PR 不自动跑 1910 项全套 | [`.github/workflows/full-test.yml:1-5`](.github/workflows/full-test.yml#L1-L5)、[`.github/workflows/ci.yml:1-6`](.github/workflows/ci.yml#L1-L6) |
+| TD-H03 | 可复现性/依赖 | High | 部分修复 | `pyproject.toml` 已纳入 Git并修正 wheel backend；仍需决定 lock/docs requirements 等被忽略文件的发布归属，并治理平台依赖矩阵 | [`.gitignore:14-18`](.gitignore#L14-L18)、[`pyproject.toml:1-3`](pyproject.toml#L1-L3)、`python -m build` |
+| TD-M01 | 训练恢复 | Medium | 已修复 | callback best/wait/top-k、`global_step` 已进入 checkpoint；旧纯 state_dict 仍按兼容模式提示非精确 resume | [`src/training/callbacks.py:180-245`](src/training/callbacks.py#L180-L245)、[`scripts/train.py:350-380`](scripts/train.py#L350-L380) |
+| TD-M02 | 输入契约 | Medium | 部分修复 | `cell_edge_weight` 已进入静态 key 并做 dtype/shape/range fail-fast；其他 edge type/range 与 controlled loader 仍需扩展 | [`src/data/cross_scale_dataset.py:24-31`](src/data/cross_scale_dataset.py#L24-L31)、[`:149-165`](src/data/cross_scale_dataset.py#L149-L165) |
+| TD-M03 | 文档构建 | Medium | 已修复 | Sphinx strict 构建现为 0 个 Sphinx warning；应用导入日志仍可能出现在 stdout，但不使构建失败 | [`docs/conf.py:39-99`](docs/conf.py#L39-L99)、strict build exit 0 |
+| TD-M04 | CI/测试 | Medium | 已修复 | full-test 已增加 nightly cron 和 PR path trigger，并保留手动 dispatch | [`.github/workflows/full-test.yml:3-16`](.github/workflows/full-test.yml#L3-L16) |
 | TD-M05 | 依赖环境 | Medium | 新增/确认 | 本地 `pip check` 报 `scgpt` 要求 `scvi-tools<1.0` 但当前为 1.4.3；`ssh-unit` 要求 `torchaudio>=2.5` 但当前为 2.4.1+cu118 | 本次 `python -m pip check` |
-| TD-M06 | 测试度量 | Medium | 新增/确认 | coverage 排除通用 `pass`/ImportError/NotImplementedError，可能抬高数字并隐藏分支 | [`.coveragerc:12-17`](.coveragerc#L12-L17) |
+| TD-M06 | 测试度量 | Medium | 已修复 | 已移除通用 `pass`/`except ImportError` 排除；仅保留明确无业务语义的排除，核心 branch coverage 仍为 75.27% | [`.coveragerc:9-17`](.coveragerc#L9-L17)、核心 coverage 命令 |
 | TD-M07 | 数据依赖 | Medium | 已知/复核 | manifest 能识别缺失，但 controlled entries 没有仓库内生成/导入闭环和负责人交付流程 | [`data/manifests/datasets.yaml:337-377`](data/manifests/datasets.yaml#L337-L377)、E2E P1-04 |
 | TD-M08 | 运维/并发 | Medium | 已知/复核 | rate limit/metrics 是进程内状态；Docker 默认 4 workers 时不具备全局一致性 | E2E P2、`src/api/middleware.py` 与 Dockerfile |
-| TD-M09 | 发布环境 | Medium | 已知/复核 | lock `/tmp` URI、本地 `.part/.tmp` 资产、Docker mutable base tag 降低可移植性 | E2E P2、`requirements-lock.txt:24,98` |
+| TD-M09 | 发布环境 | Medium | 部分修复 | wheel backend 已改为标准可移植配置；lock `/tmp` URI、本地 `.part/.tmp` 资产、Docker mutable base tag 等问题仍需治理 | [`pyproject.toml:1-3`](pyproject.toml#L1-L3)、E2E P2 |
 | TD-L01 | 文档链接 | Low | 本次已修复 | GitHub 项目链接错误；修复后需防止再次漂移 | `docs/index.rst:40` |
 | TD-L02 | 依赖告警 | Low | 已知/复核 | 全量测试 28 warnings，含 Mamba AMP 弃用、Lightning worker、取消功能 deprecated tests | 全量 pytest 输出、E2E P2 |
 
@@ -309,6 +329,8 @@ flowchart TD
 
 ### 8.5 TD-H03：版本化治理文件未纳入 Git
 
+本轮已追踪 `pyproject.toml` 并修正构建 backend；以下方案仅针对仍未确认归属的 lock/docs requirements 和跨平台发布治理。
+
 | 方案 | 实施步骤与时间 | 优点 | 缺点/风险 | 资源 |
 |---|---|---|---|---|
 | A. 追踪最小治理集合（推荐） | 0.5d 清点并确认 `pyproject.toml`、docs requirements、lock 的归属；0.5d 移除对应 ignore 例外；0.5d 用可移植 URI 重生成 lock；0.5d clean-clone CI 验证 | 直接提升审计和复现性 | 需要确认这些文件是否为环境私有文件；lock 可能包含平台差异 | Python packaging、Git/CI；约 2.0d |
@@ -316,6 +338,8 @@ flowchart TD
 | C. 只发布环境 manifest | 0.5d 生成 Python/torch/CUDA/依赖清单；0.5d 加 CI 检查和文档 | 快速、低侵入 | clean clone 仍缺 lint/docs 配置，复现弱 | 发布负责人；约 1.0d |
 
 ### 8.6 TD-M01：callback 状态恢复
+
+本项已在 `df540a5` 实现并在最终 `main` 验证；下表保留为实现方案和未来迁移选项的审计记录，不再作为当前阻塞项。
 
 | 方案 | 实施步骤与时间 | 优点 | 缺点/风险 | 资源 |
 |---|---|---|---|---|
@@ -325,6 +349,8 @@ flowchart TD
 
 ### 8.7 TD-M02/TD-M07：跨尺度输入契约与 controlled loader
 
+本轮已完成 `cell_edge_weight` 的 NPZ 传递、校验和 manifest contract 字段；剩余问题是 controlled 数据 loader、其他 edge 字段完整约束和真实资产交付。
+
 | 方案 | 实施步骤与时间 | 优点 | 缺点/风险 | 资源 |
 |---|---|---|---|---|
 | A. 扩展 NPZ v2 schema（推荐） | 0.5d 冻结 `cell_edge_weight`、edge type/range 规则；0.5d 更新 dataset keys/contract；0.5d 生成器和 manifest；0.5d 异常/回归测试 | 与模型实际能力一致，fail-fast 前移 | schema version 迁移和旧 NPZ 兼容需处理 | 数据契约、NumPy/PyTorch；约 2.0d |
@@ -332,6 +358,8 @@ flowchart TD
 | C. 独立 graph adapter/loader | 1.0d 定义 controlled bundle；1.0d source adapter；0.5d hash/license；0.5d integration | 数据源和模型解耦 | 接口层增加，首批数据仍需要外部交付 | 图数据工程；约 3.0d |
 
 ### 8.8 TD-M03/TD-M04：文档严格构建与 CI 自动化
+
+本轮已完成方案 A 的代码侧部分：Sphinx strict 为 0 个 Sphinx warning，full-test 已有 nightly/PR trigger；仍建议把文档构建显式加入 CI job，避免只依赖本地验证。
 
 | 方案 | 实施步骤与时间 | 优点 | 缺点/风险 | 资源 |
 |---|---|---|---|---|
@@ -348,6 +376,8 @@ flowchart TD
 | C. 容器化并固定 digest | 1.0d 修 Docker base/torch ABI；0.5d 生成 SBOM；0.5d CI build/run smoke | 运行时稳定 | 镜像大、构建慢，开发环境仍需处理 | Docker/供应链；约 2.0d |
 
 ### 8.10 TD-M06：覆盖率盲点
+
+本轮已完成方案 A 的排除规则收紧和回归验证；剩余工作是为低覆盖模块补充异常/恢复路径测试。
 
 | 方案 | 实施步骤与时间 | 优点 | 缺点/风险 | 资源 |
 |---|---|---|---|---|
@@ -367,28 +397,30 @@ flowchart TD
 
 ### 9.1 环境信息
 
-本次实际检查环境：Python `3.12.13`（`/home/scu/anaconda3/envs/SSH_unit/bin/python`）、PyTorch `2.4.1+cu118`、NumPy `2.4.3`、pandas `2.3.3`、scikit-learn `1.8.0`、FastAPI `0.138.1`、Pydantic `2.13.4`。项目 CI 配置目标 Python `3.10`，因此本次结果不能替代 Python 3.10 clean environment 验证。
+本次实际检查环境：Python `3.12.13`（`/home/scu/anaconda3/envs/SSH_unit/bin/python`）、setuptools `80.10.2`、PyTorch `2.4.1+cu118`、NumPy `2.4.3`、pandas `2.3.3`、scikit-learn `1.8.0`、FastAPI `0.138.1`、Pydantic `2.13.4`、Sphinx `9.1.0`。项目 CI 配置目标 Python `3.10`，因此本次结果不能替代 Python 3.10 clean environment 验证。
 
 ### 9.2 实际执行命令与结果
 
 | 命令 | 结果 | 备注 |
 |---|---|---|
-| `python -m pytest -q` | **1897 passed, 13 skipped, 28 warnings**，451.17s | 全量 1910 collected；真实资产 skip 为预期 |
-| `python -m pytest tests/unit/ tests/integration/ tests/test_*.py -m "not slow and not gpu" --cov=src --cov-branch --cov-fail-under=74` | **1843 passed, 5 skipped, 21 warnings**，75.63%，288.04s | 核心 CI coverage 门禁通过 |
+| `python -m pytest -q` | **1920 passed, 13 skipped, 28 warnings**，477.40s | 全量 1933 collected；真实资产 skip 为预期 |
+| `python -m pytest tests/unit/ tests/integration/ tests/test_*.py -m "not slow and not gpu" --cov=src --cov-branch --cov-fail-under=74` | **1866 passed, 5 skipped, 21 warnings**，75.27%，322.30s | 核心 branch coverage 门禁通过（`fail_under=74`） |
 | `python -m ruff check src scripts tests` | 通过 | `All checks passed!` |
 | `python -m mypy src --show-error-codes` | 通过 | 133 source files，0 errors |
 | `python -m compileall -q src scripts tests` | 通过 | 代码编译检查通过 |
-| `git diff --check` | 通过 | 无 whitespace error |
+| `python setup.py check` | 通过 | 包元数据检查通过 |
+| `python -m build --wheel --no-isolation --outdir /tmp/ptm2cellnet-build` | 通过 | 修正 `pyproject.toml` backend 后生成 `ptm2cellnet-1.0.0-py3-none-any.whl`；修复前曾因 `setuptools.backends._legacy` 不可导入而失败 |
+| `git diff --check` | 通过 | 合并前后均无 whitespace error |
 | `python scripts/validate_data_manifest.py ... --profile standard_training --check-files --verify-hashes` | 通过，exit 0 | `ok=true`，PMADS 文件和 SHA-256 通过 |
 | 同命令 `--profile cross_scale_training` | 预期失败，exit 2 | 8 个 required 数据集无 path；不是脚本异常 |
 | `python scripts/validate_plm_assets.py --asset-root data/weights/plm --required-backbone ankh39 --required-backbone esm2 --required-backbone prott5` | 通过，exit 0 | Ankh/ESM2/ProtT5 三个目录结构完整 |
-| `sphinx-build -E -b html --keep-going docs docs/_build/html` | 通过，40 warnings | HTML 生成完成；warnings 来自源码 docstring/第三方导入 |
-| `sphinx-build -E -b html -W --keep-going docs docs/_build/html` | 失败，40 warnings treated as errors | 严格构建技术债，未通过全局 suppress 隐藏 |
+| `python -m sphinx -E -b html --keep-going docs docs/_build/html` | 通过，0 个 Sphinx 诊断 warning | HTML 生成完成；导入 API app 时仍有应用自身日志输出 |
+| `python -m sphinx -E -b html -W --keep-going docs docs/_build/html-strict` | 通过，0 个 Sphinx 诊断 warning | strict 文档构建门禁通过 |
 | `python -m pip check` | 失败，exit 1 | `scgpt`/`scvi-tools` 与 `ssh-unit`/`torchaudio` 冲突 |
 
 ### 9.3 测试覆盖边界
 
-最新报告已经记录关键低覆盖模块：`self_supervised.py` 31.62%、`initialize.py` 47.88%、`data/validation.py` 53.65%、`cross_scale_predictor.py` 51.45%、`plm_assets.py` 66.42%，见 [`docs/E2E训练与推理现状分析_2026-08-08.md:134-138`](docs/E2E训练与推理现状分析_2026-08-08.md#L134-L138)。本次核心 coverage 总值通过门禁，但不能据此推断上述异常/恢复路径已经充分覆盖。
+本次 coverage 仍显示关键低覆盖模块：`self_supervised.py` 31.62%、`initialize.py` 47.88%、`data/validation.py` 53.40%、`cross_scale_predictor.py` 51.45%、`plm_assets.py` 66.42%。核心 coverage 总值通过门禁，但不能据此推断上述异常/恢复路径已经充分覆盖。
 
 ## 10. 智能体调用统计
 
@@ -404,7 +436,7 @@ flowchart TD
 
 | 工具 | 调用次数 | 任务 | 时长统计 |
 |---|---:|---|---|
-| CodeGraph MCP | 4 | 1 次索引健康检查、2 次上下文查询、1 次符号源码探索 | 本次未单独计时 |
+| CodeGraph MCP | 4 | 2 次索引健康检查、1 次上下文查询、1 次符号源码探索 | 本次未单独计时 |
 | Cognee recall | 1 | 读取项目历史记忆，避免重复审计 | 本次未单独计时 |
 | 本地 shell/patch | 多次 | 测试、静态检查、文档修复、归档和 Git 操作 | 各命令结果已在本报告记录 |
 
@@ -415,17 +447,18 @@ flowchart TD
 1. **先决定产品边界**：确认跨尺度 API 是否仍是目标；若是，按 TD-H01 设计接口并纳入验收；若不是，正式记录 offline-only，避免兼容入口继续被误认为承诺。
 2. **由数据负责人交付受控快照**：补齐 8 个 profile 输入，登记 license/release/SHA-256/owner；在资产交付前保持 cross-scale fail-fast。
 3. **补 raw sequence 预计算器**：否则 NPZ 能训练只说明人工准备的 fixture 可消费，不能说明研究输入可复现。
-4. **修复 callback state 和 NPZ schema**：这是代码侧最小、影响明确的中高优先级闭环。
-5. **治理依赖与版本文件**：确认被 `.gitignore` 忽略的 `pyproject.toml`/lock/docs requirements 是否应成为版本化发布输入；分离可选 scGPT/scVI/torchaudio 环境。
-6. **把 Sphinx/全量测试纳入自动质量门禁**：先修 40 个 warning，再让 strict docs build 和完整测试进入 nightly 或受控 PR workflow。
+4. **补 controlled loader 和数据责任链**：为 `scperturb`、三类单细胞参考/扰动和四类 graph source 冻结 schema、license、owner、release 和 hash。
+5. **治理剩余依赖与版本文件**：`pyproject.toml` 已纳入 Git并可构建；仍需分离 scGPT/scVI/torchaudio 环境，并确认 lock/docs requirements 是否进入发布清单。
+6. **补低覆盖异常/恢复路径**：优先 `self_supervised.py`、`src/api/routes/initialize.py`、`src/data/validation.py`、`src/inference/cross_scale_predictor.py` 和 `src/models/plm_assets.py`。
+7. **把 Sphinx strict 显式加入 CI job**：本地 strict 已通过，CI 仍应自动执行以防文档回归；full-test 已有 nightly/PR trigger。
 
 ### 11.2 不应做的事情
 
 - 不应把 8 个缺失的受控数据集用 synthetic fixture 填入 manifest 后宣称真实验收通过。
 - 不应把标准 API 兼容代码误描述为跨尺度 API 已实现。
-- 不应以全局 75.63% coverage 掩盖低覆盖核心模块。
+- 不应以全局 75.27% coverage 掩盖低覆盖核心模块。
 - 不应删除既有历史归档或活动重定向页；应保留 Git 历史和稳定外链。
-- 不应在未确认工作区文件归属前强制把所有被 `.gitignore` 忽略的环境私有文件加入 Git。
+- 不应把仍未确认归属的 lock/docs requirements 或环境私有文件未经评估强制加入 Git；`pyproject.toml` 已因其承担构建契约而明确纳入。
 
 ## 12. 证据索引
 
@@ -444,8 +477,10 @@ flowchart TD
 - [`src/models/cross_scale.py`](src/models/cross_scale.py)：跨尺度 forward 和 graph inputs。
 - [`src/training/callbacks.py`](src/training/callbacks.py)：checkpoint 与 early-stopping 状态。
 - [`src/training/cross_scale_trainer.py`](src/training/cross_scale_trainer.py)：跨尺度 checkpoint/artifact。
+- [`scripts/train.py`](scripts/train.py)：标准 resume、callback 状态恢复和最佳 artifact 导出。
 - [`data/manifests/datasets.yaml`](data/manifests/datasets.yaml)：profile 和数据条目。
 - [`.coveragerc`](.coveragerc)、[`.github/workflows/ci.yml`](.github/workflows/ci.yml)、[`.github/workflows/full-test.yml`](.github/workflows/full-test.yml)：coverage 和 CI 门禁。
+- [`pyproject.toml`](pyproject.toml)、[`setup.py`](setup.py)：构建 backend、包元数据和 wheel 入口。
 
 ### 12.3 可复现命令
 
@@ -457,11 +492,15 @@ python -m pytest tests/unit/ tests/integration/ tests/test_*.py \
 python -m ruff check src scripts tests
 python -m mypy src --show-error-codes
 python -m compileall -q src scripts tests
+python setup.py check
+python -m build --wheel --no-isolation --outdir /tmp/ptm2cellnet-build
 python scripts/validate_data_manifest.py --manifest data/manifests/datasets.yaml \
   --profile standard_training --check-files --verify-hashes
 python scripts/validate_plm_assets.py --asset-root data/weights/plm \
   --required-backbone ankh39 --required-backbone esm2 --required-backbone prott5
 sphinx-build -E -b html --keep-going docs docs/_build/html
+python -m sphinx -E -b html -W --keep-going docs docs/_build/html-strict
+python -m pip check  # 当前环境预期报告两个可选依赖冲突
 ```
 
 ### 12.4 报告置信度

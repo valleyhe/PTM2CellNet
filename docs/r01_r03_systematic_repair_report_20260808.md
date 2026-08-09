@@ -1,5 +1,9 @@
 # R-01～R-03 系统性修复与复核报告
 
+> **历史快照说明（2026-08-09）**：本文记录 2026-08-08 的组件修复结果；当前
+> 测试计数、最终 main 合并、callback/NPZ 后续修复和构建结果以
+> [`project_analysis_20260809.md`](https://github.com/valleyhe/PTM2CellNET/blob/main/project_analysis_20260809.md) 为准。
+
 - **报告日期**：2026-08-08
 - **参考基线**：[`project_analysis_20260808_pre_cross_scale.md`](https://github.com/valleyhe/PTM2CellNET/blob/main/archive/20260808/reports/project_analysis_20260808_pre_cross_scale.md)（历史快照）
 - **当前综合结论**：[`E2E训练与推理现状分析_2026-08-08.md`](E2E训练与推理现状分析_2026-08-08.md)
