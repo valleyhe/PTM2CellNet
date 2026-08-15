@@ -378,24 +378,45 @@ datasets:
 - id: norman_adamson
   name: Norman/Adamson CRISPR perturbation datasets
   category: single_cell_perturbation
-  status: controlled
+  # 2026-08-09: 已下载并登记 GSE133344（Norman 2019 组合扰动，filtered 10x）
+  # 与 GSE90546（Adamson 2016 RAW.tar，结构已探测，待解析导入）。
+  status: implemented
   source:
     provider: published single-cell perturbation studies
     homepage: https://www.ncbi.nlm.nih.gov/geo/
-    reference: Study accession and processed matrix selected by the data owner
+    reference: |
+      GSE133344 (Norman et al. 2019, Science; filtered 10x, 111668 cells x 33694
+      genes, 131 combinatorial perturbations + NegCtrl); GSE90546 (Adamson et al.
+      2016, Cell; RAW.tar, per-GSM 10x layout probed by scripts/import_norman_adamson.py)
     access: public_study_snapshot
-    license: Follow GEO/study-specific terms
+    license: Follow GEO/study-specific terms (academic use)
   formats:
-  - h5ad
   - mtx
   - csv
   - tsv
-  loader: null
+  - tar
+  loader: scripts/import_norman_adamson.py
   files:
-  - path: null
-    format: h5ad
-    required: false
-    sha256: null
+  - path: data/raw/norman_adamson/GSE133344/GSE133344_filtered_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 7af10888c29be7e5be0466af100dfd6c5f1bc87f6d7cbfcb48270248d3639120
+  - path: data/raw/norman_adamson/GSE133344/GSE133344_filtered_genes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 0dcba3cf4f3095b3fc1fa31b402c562bca7eea8d7d9ffd753e7b446dc37b9e3d
+  - path: data/raw/norman_adamson/GSE133344/GSE133344_filtered_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 49529cff274aada5757e0b5ce320133437282398a22af14afc314e16eecade66
+  - path: data/raw/norman_adamson/GSE133344/GSE133344_filtered_cell_identities.csv.gz
+    format: csv
+    required: true
+    sha256: daf30337e7f6f07096d57e0d81db784bef00c87bd1fc927f018792c2f7af81e4
+  - path: data/raw/norman_adamson/GSE90546/GSE90546_RAW.tar
+    format: tar
+    required: true
+    sha256: 6ee8f44aa271e05dc497ebf354b202a9cb82f454c2dc35f7838974f1285e1f90
   canonical_schema:
     required_columns:
     - gene_id
@@ -413,8 +434,14 @@ datasets:
     - perturbation_labels_present
     - batch_recorded
   preprocessing:
-    version: 0.1.0
-    entrypoint: local_import_contract_only
+    version: 1.0.0
+    entrypoint: scripts/import_norman_adamson.py
+    outputs:
+    - data/processed/norman_adamson/GSE133344_expression.npz
+    - data/processed/norman_adamson/GSE133344_delta_expression.npz
+    - data/processed/norman_adamson/GSE133344_perturbations.tsv
+    - data/processed/norman_adamson/sequence_requests.json
+    - data/processed/norman_adamson/import_manifest.json
 - id: replogle
   name: Replogle Perturb-seq datasets
   category: single_cell_perturbation
@@ -496,23 +523,23 @@ datasets:
 - id: kinase_substrate
   name: Kinase-substrate signaling edges
   category: signaling_graph
-  status: controlled
+  # 2026-08-09: 已下载 OmniPath enz_sub 全量（聚合 PhosphoSitePlus/KEA/
+  # ProtMapper 等源，41,506 条）。列为 UniProt ID，导入时映射为基因符号。
+  status: implemented
   source:
-    provider: PhosphoSitePlus or user-selected kinase-substrate release
-    homepage: https://www.phosphosite.org/
-    reference: Release, species, evidence policy and kinase-substrate extraction recipe
-    access: controlled_user_snapshot
-    license: Record source-specific terms before redistribution
+    provider: OmniPath (aggregated; PhosphoSitePlus/KEA/ProtMapper etc.)
+    homepage: https://omnipathdb.org/
+    reference: OmniPath enzsub endpoint (2026-08 snapshot), 41506 records
+    access: public_download
+    license: OmniPath academic terms; record source-specific terms before redistribution
   formats:
   - tsv
-  - csv
-  - parquet
-  loader: null
+  loader: scripts/import_norman_adamson.py
   files:
-  - path: null
+  - path: data/raw/kinase_substrate/omnipath_enzsub.tsv
     format: tsv
-    required: false
-    sha256: null
+    required: true
+    sha256: 4fc5fabaf89c19667296d23a379fb8eb0a0c739e2cac6bae14ffeae14a479516
   canonical_schema:
     required_columns:
     - source_gene
@@ -537,23 +564,27 @@ datasets:
 - id: string
   name: STRING protein-protein interaction network
   category: signaling_graph
-  status: controlled
+  # 2026-08-09: 已下载 STRING v12.0 人类子集（全网络 13.7M 边 + physical
+  # 1.48M 边）。导入时按 combined_score 阈值过滤（默认建议 >= 700）。
+  status: implemented
   source:
     provider: STRING database
     homepage: https://string-db.org/
-    reference: STRING release, species and confidence threshold
+    reference: STRING v12.0 human (9606), full + physical subnetworks
     access: public_download
-    license: STRING terms and citation required
+    license: STRING terms and citation required (CC BY 4.0)
   formats:
-  - tsv
   - tsv_gz
-  - txt
   loader: src.analysis.pathway_integration
   files:
-  - path: null
+  - path: data/raw/string/9606.protein.links.v12.0.txt.gz
+    format: tsv_gz
+    required: true
+    sha256: 3e22f32572211aa341d5b4bd08d30c32e693e294603202120936872f87719d4f
+  - path: data/raw/string/9606.protein.physical.links.v12.0.txt.gz
     format: tsv_gz
     required: false
-    sha256: null
+    sha256: 1ca87209a93cf7685e9c2997fbcfbfc69fedc6a803ccc1df917318a651df0823
   canonical_schema:
     required_columns:
     - source_gene
@@ -576,23 +607,28 @@ datasets:
 - id: bioplex
   name: BioPlex interaction network
   category: signaling_graph
-  status: controlled
+  # 2026-08-09: 已下载 BioPlex 2.0 (293T) 官方网络（NDEx 发布，117,930 边，
+  # 13,924 节点，基因符号）。CX 原始归档保留作为 provenance。
+  status: implemented
   source:
-    provider: BioPlex project
+    provider: BioPlex project (NDEx official release)
     homepage: https://bioplex.hms.harvard.edu/
-    reference: BioPlex release and assay-specific interaction table
+    reference: BioPlex 2.0 HEK293T network (Huttlin et al. 2017 Nature), NDEx uuid 9881c2f3-f137-11ee-9621-005056ae23aa
     access: public_download
     license: BioPlex terms and citation required
   formats:
   - tsv
-  - csv
-  - parquet
+  - cx
   loader: null
   files:
-  - path: null
+  - path: data/raw/bioplex/bioplex_293T_v2_edges.tsv
     format: tsv
+    required: true
+    sha256: 8fa300502921cefa293aec3fef582dd0adb188eb767bea82fcd102a6efc54672
+  - path: data/raw/bioplex/bioplex_293T_v2.cx
+    format: cx
     required: false
-    sha256: null
+    sha256: 70066e19d01063df64eb3af7b973b45f41d879c82a59c1ad882371febc698570
   canonical_schema:
     required_columns:
     - source_gene
@@ -613,23 +649,28 @@ datasets:
 - id: regnetwork
   name: RegNetwork transcriptional regulatory network
   category: signaling_graph
-  status: controlled
+  # 2026-08-09: 已下载 RegNetwork-1.0 人类调控网络（GitHub 官方仓库，
+  # 372,774 调控边 / 23,079 节点，Entrez ID 形式）。原 regnetworkweb.org
+  # 已迁移至 zpliulab.cn；官网 7z 下载被服务器截断，故采用 GitHub 源。
+  status: implemented
   source:
-    provider: RegNetwork
-    homepage: https://regnetworkweb.org/
-    reference: RegNetwork release and organism-specific regulatory edges
-    access: public_or_user_snapshot
-    license: Record release and redistribution terms
+    provider: RegNetwork (ZPLiu Lab)
+    homepage: https://www.zpliulab.cn/RegNetwork/home
+    reference: RegNetwork-1.0 human (Liu et al. 2015 Database), human.source + human.node
+    access: public_download
+    license: Open-source (record release and redistribution terms)
   formats:
-  - txt
   - tsv
-  - csv
   loader: null
   files:
-  - path: null
+  - path: data/raw/regnetwork/human.source
     format: tsv
-    required: false
-    sha256: null
+    required: true
+    sha256: 3fe117200f47bc3cdf501e0ae7f159eb16116c7460ca9a56be6494e28cf5274f
+  - path: data/raw/regnetwork/human.node
+    format: tsv
+    required: true
+    sha256: e92fcab8428bc8da5c7b971d51d49e66c39433d0e2604c930966adea15c226ba
   canonical_schema:
     required_columns:
     - source_gene
