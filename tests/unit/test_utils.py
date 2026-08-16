@@ -28,6 +28,18 @@ class TestConfig:
         assert config is not None
         assert config.get("project.name") == "PTM2CellNet"
 
+    def test_default_data_loader_workers_explicit(self):
+        """N09: default.yaml 显式声明 data.num_workers，train.py 读取该键。
+
+        dataset_base.DatasetConfig 与 PTMPlainDataModule 默认 0（主进程加载，
+        安全默认不变）；default.yaml 显式设为 4，保证开箱训练不静默单进程。
+        """
+        config = Config.from_yaml("configs/default.yaml")
+        assert config.get("data.num_workers") == 4, (
+            "data.num_workers must be explicit in configs/default.yaml (N09)"
+        )
+        assert config.get("data.persistent_workers") is False
+
     def test_get_and_set(self):
         """测试get和set方法"""
         config = Config({"a": {"b": 1}})

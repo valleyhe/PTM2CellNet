@@ -22,6 +22,11 @@ paths:
 data:
   max_sequence_length: 1000
   valid_amino_acids: "ACDEFGHIKLMNPQRSTVWY"
+  # N09 (2026-08-16): DataLoader 工作进程数显式化。train.py 从
+  # data.num_workers 读取（缺省 0 = 主进程加载）；4 为 CPU/GPU 通用折中，
+  # 低内存环境可改为 0 或 2。Lightning 管线请用 configs/lightning.yaml。
+  num_workers: 4
+  persistent_workers: false
   # HDF5 接入主数据链路的开关。启用后 DataLoader.load_from_csv 会优先用
   # pd.read_hdf 读取 .h5/.hdf5 文件，降低大表 IO 开销。
   use_hdf5: false

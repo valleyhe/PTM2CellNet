@@ -1,11 +1,19 @@
 """Gene to UniProt mapping module (FEAT-01)."""
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import requests
 
 logger = logging.getLogger(__name__)
+
+# N08 (2026-08-16): ID-mapping 轮询采用指数退避替代固定 1s 间隔。
+# 短作业快速完成（0.2s 起步），长作业总预算维持 60s 不变。
+_POLL_INITIAL_INTERVAL = 0.2
+_POLL_BACKOFF_FACTOR = 1.5
+_POLL_MAX_INTERVAL = 3.0
+_POLL_BUDGET_S = 60.0
 
 try:
     from UniProtMapper import ProtMapper
@@ -56,28 +64,38 @@ class _RequestsUniProtMapper:
         if not job_id:
             return pd.DataFrame(columns=["From", "To"]), list(ids)
 
-        # Poll for completion.
-        import time
-
+        # Poll for completion with exponential backoff.
+        # N08: 固定 1s 间隔改为 0.2s 起步 ×1.5 封顶 3s；sleep 前按剩余预算
+        # clamp，保证总等待不超过 _POLL_BUDGET_S（请求自身耗时不计入）。
         details_url = f"{self._ID_MAPPING_URL}/details/{job_id}"
-        for _ in range(60):  # up to ~60s
+        deadline = time.monotonic() + _POLL_BUDGET_S
+        interval = _POLL_INITIAL_INTERVAL
+        payload: Optional[Dict[str, Any]] = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
                 details_response = requests.get(details_url, timeout=30)
             except requests.RequestException as exc:
                 logger.warning("UniProt ID-mapping poll failed: %s", exc)
-                time.sleep(1.0)
+                time.sleep(min(interval, remaining))
+                interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
                 continue
             if details_response.status_code != 200:
-                time.sleep(1.0)
+                time.sleep(min(interval, remaining))
+                interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
                 continue
             try:
                 payload = details_response.json()
             except ValueError:
-                time.sleep(1.0)
+                time.sleep(min(interval, remaining))
+                interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
                 continue
             if payload.get("jobStatus") in ("FINISHED", "COMPLETED", "FAILED"):
                 break
-            time.sleep(1.0)
+            time.sleep(min(interval, remaining))
+            interval = min(interval * _POLL_BACKOFF_FACTOR, _POLL_MAX_INTERVAL)
 
         if not payload or payload.get("jobStatus") not in ("FINISHED", "COMPLETED"):
             logger.warning("UniProt ID-mapping job %s did not complete", job_id)
