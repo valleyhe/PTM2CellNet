@@ -347,3 +347,35 @@ class TestNeedlemanWunsch:
         score_same = _nw_score("ACD", "ACD")
         score_diff = _nw_score("ACD", "EEE")
         assert score_same > score_diff
+
+
+# ---------------------------------------------------------------------------
+# PSIPREDClient alias tests (src/models/external_tools/psipred.py, N06)
+# ---------------------------------------------------------------------------
+
+class TestPSIPREDClientAlias:
+    """PSIPREDClient is a deprecated alias for ChouFasmanClient.
+
+    ``src/models/external_tools/psipred.py`` implements the built-in
+    Chou-Fasman predictor under a PSIPRED-flavoured name; the alias keeps
+    older imports working and must stay behaviour-identical.
+    """
+
+    def test_alias_identity(self):
+        from src.models.external_tools.psipred import PSIPREDClient
+
+        assert PSIPREDClient is ChouFasmanClient
+
+    def test_alias_prediction_matches_choufasman(self):
+        from src.models.external_tools.psipred import PSIPREDClient
+
+        sequence = "AAAEEEKKK"
+        via_alias = PSIPREDClient().predict_secondary_structure(sequence)
+        via_canonical = ChouFasmanClient().predict_secondary_structure(sequence)
+        assert via_alias.ss_prediction == via_canonical.ss_prediction
+        assert via_alias.confidence_scores == via_canonical.confidence_scores
+
+    def test_module_reports_builtin_availability(self):
+        from src.models.external_tools.psipred import PSIPREDClient
+
+        assert PSIPREDClient().check_available() is True

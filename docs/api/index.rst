@@ -16,3 +16,6 @@ This section contains automatically generated API documentation for the
    api
    analysis
    integration
+   inference
+   baselines
+   project
