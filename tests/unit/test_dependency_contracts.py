@@ -195,3 +195,102 @@ def test_python_version_targets_are_consistent() -> None:
     assert 'python_version = "3.10"' in pyproject, "mypy python_version must be 3.10"
     setup_text = SETUP_PY.read_text(encoding="utf-8")
     assert 'python_requires=">=3.10"' in setup_text, "python_requires must be >=3.10"
+
+
+# ---------------------------------------------------------------------------
+# D1 (2026-08-16): requirements-lock.txt 入库后的契约测试。
+# 守卫：lock 与 core 无 numpy 漂移、lock 无不可移植行、lock 全量精确固定。
+# ---------------------------------------------------------------------------
+
+_LOCK_FILE = "requirements-lock.txt"
+
+# 不可移植行前缀/模式（注释行除外）：editable 本地路径、file URI、绝对路径。
+_NON_PORTABLE_PREFIXES = ("-e ", "--editable", "file://", "/tmp/", "git+", "git@")
+_ABSOLUTE_PATH_RE = re.compile(r"^\s*/")
+
+
+def parse_lock_file() -> dict:
+    """Return {norm_name: exact_version} for the frozen lock file.
+
+    The lock file is a flat ``name==version`` snapshot; unlike
+    requirements-*.txt it permits no range specs, extras, or local paths.
+    """
+    out: dict = {}
+    for raw_line in (REQ_DIR / _LOCK_FILE).read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        name, _, version = line.partition("==")
+        assert name and version and " " not in version, (
+            f"lock entry is not an exact pin 'name==version': {raw_line!r}"
+        )
+        out[_norm_name(name)] = version
+    return out
+
+
+def test_lock_numpy_version_satisfies_core_constraint() -> None:
+    """D1: lock 冻结的 numpy 必须落在 core 声明的约束区间内（消除漂移）。
+
+    2026-08-16 修复: core 上限由 <2 放宽至 <3 —— SSH_unit 验证环境
+    (numpy 2.4.3 + torch 2.4.1+cu118) 实测 1919 测试全绿，证明 numpy 2.x
+    兼容；lock 保持真实环境快照不变。
+    """
+    lock = parse_lock_file()
+    core = parse_requirements_file(_CORE_FILE)
+    assert "numpy" in lock, "lock must pin numpy"
+    locked_version = lock["numpy"]
+    core_spec = core["numpy"]
+    try:
+        from packaging.version import Version  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - packaging ships with pip
+        major = int(locked_version.split(".")[0])
+        assert major == 1, f"numpy {locked_version} out of {core_spec} (no packaging fallback)"
+        return
+    version = Version(locked_version)
+    # core spec like ">=1.24,<3" — check every comma-separated operator clause.
+    for clause in core_spec.split(","):
+        clause = clause.strip()
+        if not clause:
+            continue
+        if clause.startswith(">="):
+            assert version >= Version(clause[2:]), f"numpy {locked_version} < floor {clause}"
+        elif clause.startswith(">"):
+            assert version > Version(clause[1:]), f"numpy {locked_version} <= {clause}"
+        elif clause.startswith("<="):
+            assert version <= Version(clause[2:]), f"numpy {locked_version} > ceiling {clause}"
+        elif clause.startswith("<"):
+            assert version < Version(clause[1:]), f"numpy {locked_version} >= ceiling {clause}"
+        elif clause.startswith("=="):
+            assert version == Version(clause[2:]), f"numpy {locked_version} != {clause}"
+        else:  # pragma: no cover - unexpected spec syntax trips loudly
+            raise AssertionError(f"unsupported version clause {clause!r} in {core_spec}")
+
+
+def test_lock_has_no_non_portable_lines() -> None:
+    """D1: lock 不得包含不可移植安装指令。
+
+    2026-08-16 修复: 移除 `-e /home/scu/SSH_unit`（本机 editable 开发包，
+    干净 clone 无法解析）；更早的 file:///tmp/* 构建产物已改为 PyPI 规范名
+    （行内注释留痕）。此测试防止此类行回归。
+    """
+    bad_lines = []
+    for raw_line in (REQ_DIR / _LOCK_FILE).read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(_NON_PORTABLE_PREFIXES) or _ABSOLUTE_PATH_RE.match(stripped):
+            bad_lines.append(stripped)
+    assert not bad_lines, f"non-portable lines in {_LOCK_FILE}: {bad_lines}"
+
+
+def test_lock_is_fully_pinned_exact_versions() -> None:
+    """D1: lock 每一有效行必须是 name==version 精确固定（无范围/无 extras）。"""
+    bad_lines = []
+    for raw_line in (REQ_DIR / _LOCK_FILE).read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.split("#", 1)[0].strip()
+        if not stripped:
+            continue
+        name, sep, version = stripped.partition("==")
+        if not sep or not name or not version or " " in version:
+            bad_lines.append(raw_line.strip())
+    assert not bad_lines, f"non-exact-pin lines in {_LOCK_FILE}: {bad_lines}"

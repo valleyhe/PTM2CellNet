@@ -16,7 +16,7 @@ from setuptools import setup, find_packages
 # 与 requirements-core.txt 保持一致（镜像，禁止单独修改；一致性由测试门禁）。
 install_requires = [
     # Core data
-    "numpy>=1.24,<2",
+    "numpy>=1.24,<3",  # D1: 上限放宽至 <3 对齐 requirements-core.txt（lock==2.4.3 实测兼容）
     "pandas>=1.3.0",
     "scipy>=1.7.0",
     # Deep learning
