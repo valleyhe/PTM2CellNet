@@ -59,8 +59,16 @@ def load_cross_scale_artifact(
     artifact_dir: str | Path,
     *,
     device: str | torch.device = "cpu",
+    allow_last_checkpoint_fallback: bool = False,
 ) -> Tuple[CrossScalePTM2CellNet, Dict[str, Any], Dict[str, Any]]:
-    """Load and cross-check artifact manifest, config, label vocabulary and weights."""
+    """Load and cross-check artifact manifest, config, label vocabulary and weights.
+
+    ``allow_last_checkpoint_fallback=True`` relaxes only *which* checkpoint file
+    is resolved: when ``best_checkpoint`` is missing from the artifact (e.g. a
+    run stopped before validation improved), ``last_checkpoint`` is used instead.
+    All other cross-checks (schema, config/label consistency, strict weight
+    loading) remain exactly as strict.
+    """
 
     root = Path(artifact_dir).expanduser().resolve()
     manifest = _read_json_mapping(root / "artifact_manifest.json")
@@ -77,7 +85,12 @@ def load_cross_scale_artifact(
     if len(set(labels)) != len(labels):
         raise CrossScaleArtifactError("artifact.label_vocabulary 不允许重复")
 
-    checkpoint_path = _resolve_artifact_file(root, manifest.get("best_checkpoint"), field="best_checkpoint")
+    try:
+        checkpoint_path = _resolve_artifact_file(root, manifest.get("best_checkpoint"), field="best_checkpoint")
+    except CrossScaleArtifactError:
+        if not allow_last_checkpoint_fallback:
+            raise
+        checkpoint_path = _resolve_artifact_file(root, manifest.get("last_checkpoint"), field="last_checkpoint")
     target_device = torch.device(device)
     if target_device.type == "cuda" and not torch.cuda.is_available():
         raise CrossScaleArtifactError("请求了 CUDA，但当前环境不可用")
