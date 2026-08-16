@@ -270,7 +270,7 @@ class _FakeTokenizer:
             masks.append([1] * (len(sequence) + 2))
             specials.append([1] + [0] * len(sequence) + [1])
         width = max(len(row) for row in rows)
-        for row, mask, special in zip(rows, masks, specials):
+        for row, mask, special in zip(rows, masks, specials, strict=False):
             pad = width - len(row)
             row.extend([0] * pad)
             mask.extend([0] * pad)

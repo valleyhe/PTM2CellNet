@@ -703,7 +703,7 @@ class FeatureExtractor:
             ptm_sites_list = [None] * len(sequences)
 
         features_list = []
-        for sequence, ptm_sites_json in zip(sequences, ptm_sites_list):
+        for sequence, ptm_sites_json in zip(sequences, ptm_sites_list, strict=False):
             features_list.append(self._extract_sample_vector(sequence, ptm_sites_json))
 
         return np.array(features_list) if features_list else np.array([])

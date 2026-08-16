@@ -1003,7 +1003,7 @@ class CIGNNSignalBridge(nn.Module):
         ).to(dtype=nodes.dtype)
         propagated = torch.bmm(sensitivity.unsqueeze(0).expand(batch_size, -1, -1), nodes)
         hidden = self.input_projection(propagated)
-        for layer, norm in zip(self.message_layers, self.norms):
+        for layer, norm in zip(self.message_layers, self.norms, strict=False):
             message = torch.bmm(sensitivity.unsqueeze(0).expand(batch_size, -1, -1), hidden)
             hidden = norm(hidden + self.dropout(F.gelu(layer(message))))
         output = self.output_projection(hidden)
@@ -1160,7 +1160,7 @@ class CellGraphCompassHead(nn.Module):
         )
         genes = self.gene_projection(self._gene_inputs(gene_features, batch_size, signal.device))
         genes = genes + self.signal_projection(self._signal_to_gene(signal, signal_gene_map))
-        for layer, norm in zip(self.graph_layers, self.graph_norms):
+        for layer, norm in zip(self.graph_layers, self.graph_norms, strict=False):
             message = torch.bmm(adjacency.unsqueeze(0).expand(batch_size, -1, -1), genes)
             genes = norm(genes + self.dropout(F.gelu(layer(message))))
 

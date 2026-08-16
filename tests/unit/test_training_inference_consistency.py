@@ -592,6 +592,6 @@ class TestCheckpointConsistency:
         # 验证模型状态一致
         for (_n1, p1), (_n2, p2) in zip(
             model.named_parameters(),
-            loaded_model.named_parameters()
+            loaded_model.named_parameters(), strict=False
         ):
             assert torch.allclose(p1, p2, atol=1e-6)

@@ -167,7 +167,7 @@ class ModelEnsemble:
         all_probs = []
 
         with torch.no_grad():
-            for model, weight in zip(self.models, self.weights):
+            for model, weight in zip(self.models, self.weights, strict=False):
                 # 根据模型类型进行预测
                 if hasattr(model, 'forward'):
                     try:

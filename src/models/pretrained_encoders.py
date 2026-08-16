@@ -771,7 +771,7 @@ class ESM3TokenizerAdapter:
 
             padded_ids: List[List[int]] = []
             padded_masks: List[List[int]] = []
-            for ids, mask in zip(all_input_ids, all_attention_masks):
+            for ids, mask in zip(all_input_ids, all_attention_masks, strict=False):
                 if len(ids) > max_len:
                     ids = ids[:max_len]
                     mask = mask[:max_len]

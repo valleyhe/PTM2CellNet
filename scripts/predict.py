@@ -627,7 +627,7 @@ def _run_batch_predict(args, model, cell_states, device, logger, preprocess_requ
 
     results = []
     for sample_id, sequence, pred_idx, confidence, n_ptm, probs_row in zip(
-        ids, sequences, predictions, confidences, ptm_counts, prob_rows
+        ids, sequences, predictions, confidences, ptm_counts, prob_rows, strict=False
     ):
         results.append({
             "id": sample_id,

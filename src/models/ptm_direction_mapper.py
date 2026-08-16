@@ -377,7 +377,7 @@ class PTMDirectionMapper:
         directions = []
         masks = []
 
-        for ptm_site, gene_name in zip(ptm_sites, gene_names):
+        for ptm_site, gene_name in zip(ptm_sites, gene_names, strict=False):
             # Resolve gene ID
             gene_id, valid = self._resolve_gene_id(gene_name)
 
@@ -439,7 +439,7 @@ class PTMDirectionMapper:
         all_masks = torch.zeros(B, K, dtype=torch.float)
 
         # Process each sample
-        for i, (ptm_sites, gene_names) in enumerate(zip(batch_ptm_sites, batch_gene_names)):
+        for i, (ptm_sites, gene_names) in enumerate(zip(batch_ptm_sites, batch_gene_names, strict=False)):
             ctx = pathway_contexts[i] if pathway_contexts else None
             output = self.map_ptms(ptm_sites, gene_names, pathway_context=ctx)
             all_gene_ids[i] = output.gene_ids[0]

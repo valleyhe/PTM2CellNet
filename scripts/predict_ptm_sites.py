@@ -329,7 +329,7 @@ class BatchPTMPredictor:
             'ptm_counts': {},
         }
 
-        for protein_id, sequence in tqdm(zip(protein_ids, sequences), total=len(sequences)):
+        for protein_id, sequence in tqdm(zip(protein_ids, sequences, strict=False), total=len(sequences)):
             df = self.predict_protein(sequence, protein_id, ptm_types, threshold)
             if len(df) > 0:
                 all_results.append(df)

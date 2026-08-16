@@ -231,10 +231,10 @@ def _build_ptm_sites_from_batch(
     expects List[List[PTMSite]], so we construct the dataclass objects here.
     """
     result: List[List[PTMSite]] = []
-    for sites, types, _genes in zip(davf_sites, davf_type_names, davf_gene_names):
+    for sites, types, _genes in zip(davf_sites, davf_type_names, davf_gene_names, strict=False):
         ptm_sites = [
             PTMSite(position=pos, type=ptm_type)
-            for pos, ptm_type in zip(sites, types)
+            for pos, ptm_type in zip(sites, types, strict=False)
         ]
         result.append(ptm_sites)
     return result

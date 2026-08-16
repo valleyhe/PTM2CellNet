@@ -245,7 +245,7 @@ def pairwise_similarity_matrix_nonkmer(
             sims = Parallel(n_jobs=-1)(
                 delayed(_pair_sim)(i, j) for i, j in pairs
             )
-            for (i, j), sim in zip(pairs, sims):
+            for (i, j), sim in zip(pairs, sims, strict=False):
                 sim_matrix[i, j] = sim
                 sim_matrix[j, i] = sim
     else:

@@ -106,7 +106,7 @@ def prepare_pmads_frame(df: pd.DataFrame, *, target_col: str = "label") -> pd.Da
                     else [],
                     ensure_ascii=False,
                 )
-                for position, ptm_type in zip(frame["ptm_position"], ptm_types)
+                for position, ptm_type in zip(frame["ptm_position"], ptm_types, strict=False)
             ]
         else:
             frame["ptm_sites"] = "[]"
@@ -326,7 +326,7 @@ class PMADSRidgeBaseline:
                 and pd.api.types.is_numeric_dtype(frame[column])
             ]
         observed_types = set()
-        for value, sequence in zip(frame["ptm_sites"], frame["sequence"]):
+        for value, sequence in zip(frame["ptm_sites"], frame["sequence"], strict=False):
             observed_types.update(self._site_features(value, len(sequence))["_types"])
         self.ptm_types_ = sorted(observed_types)
         self.feature_names_ = ["sequence_length"] + [f"aa_fraction_{aa}" for aa in AMINO_ACIDS]
@@ -518,7 +518,7 @@ def run_pmads_ridge(
         raw = model.predict_raw(partition)
         predictions = model.predict(partition)
         for local_index, (raw_score, prediction, target) in enumerate(
-            zip(raw, predictions, partition[target_col].tolist())
+            zip(raw, predictions, partition[target_col].tolist(), strict=False)
         ):
             prediction_rows.append(
                 {

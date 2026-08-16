@@ -332,7 +332,7 @@ class TwoStageExplanationPipeline:
         # results, zipping them back with their originating candidates. Entries
         # that failed during the batch run are None and skipped (their failure
         # was already recorded in failed_rows by _run_batch_with_fallback).
-        for candidate, maybe_result in zip(staged_candidates, batch_outcomes):
+        for candidate, maybe_result in zip(staged_candidates, batch_outcomes, strict=False):
             if maybe_result is None:
                 continue
             result = maybe_result
@@ -411,7 +411,7 @@ class TwoStageExplanationPipeline:
         # straight through to per-candidate execution so adapters/test doubles
         # that only implement ``run`` still work.
         if not hasattr(self.genki_adapter, "run_batch"):
-            for idx, (candidate, request) in enumerate(zip(candidates, requests)):
+            for idx, (candidate, request) in enumerate(zip(candidates, requests, strict=False)):
                 try:
                     outcomes[idx] = self.genki_adapter.run(request)
                 except (RuntimeError, ValueError, TimeoutError) as run_exc:
@@ -434,7 +434,7 @@ class TwoStageExplanationPipeline:
                 "run_batch failed (%s); falling back to per-candidate execution",
                 exc,
             )
-            for idx, (candidate, request) in enumerate(zip(candidates, requests)):
+            for idx, (candidate, request) in enumerate(zip(candidates, requests, strict=False)):
                 try:
                     outcomes[idx] = self.genki_adapter.run(request)
                 except (RuntimeError, ValueError, TimeoutError) as run_exc:
