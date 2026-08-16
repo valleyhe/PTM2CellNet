@@ -729,7 +729,10 @@ datasets:
     license: STRING terms and citation required (CC BY 4.0)
   formats:
   - tsv_gz
-  loader: src.analysis.pathway_integration
+  # 2026-08-16: F-03 余量——由多源图导入器消费（physical 子网 + min_score>=700）。
+  # ENSP->symbol 映射文件（--ensp-mapping，可由 STRING protein.info 构造）
+  # 未获取前，正式 canonical 产物待生成（mapping_rate=0 时节点保留 ENSP ID）。
+  loader: scripts/import_ppi_graphs.py
   files:
   - path: data/raw/string/9606.protein.links.v12.0.txt.gz
     format: tsv_gz
@@ -756,8 +759,8 @@ datasets:
     - score_threshold_recorded
     - gene_ids_mapped
   preprocessing:
-    version: 0.1.0
-    entrypoint: local_graph_import_contract_only
+    version: 0.2.0
+    entrypoint: scripts/import_ppi_graphs.py --source string
 - id: bioplex
   name: BioPlex interaction network
   category: signaling_graph
@@ -773,7 +776,8 @@ datasets:
   formats:
   - tsv
   - cx
-  loader: null
+  # 2026-08-16: F-03 余量——已产出 canonical 边表（117,930 边，基因符号直转）。
+  loader: scripts/import_ppi_graphs.py
   files:
   - path: data/raw/bioplex/bioplex_293T_v2_edges.tsv
     format: tsv
@@ -798,8 +802,8 @@ datasets:
     - gene_ids_mapped
     - confidence_policy_recorded
   preprocessing:
-    version: 0.1.0
-    entrypoint: local_graph_import_contract_only
+    version: 0.2.0
+    entrypoint: scripts/import_ppi_graphs.py --source bioplex
 - id: regnetwork
   name: RegNetwork transcriptional regulatory network
   category: signaling_graph
@@ -815,7 +819,10 @@ datasets:
     license: Open-source (record release and redistribution terms)
   formats:
   - tsv
-  loader: null
+  # 2026-08-16: F-03 余量——已产出 canonical 边表（372,774 边，符号内嵌）。
+  # 调控方向（human.core.7z）上游文件本机不可解压，relation=unspecified
+  # 已在 import_manifest.json 显式记录；core 文件就位后可 --regnetwork-core 重跑。
+  loader: scripts/import_ppi_graphs.py
   files:
   - path: data/raw/regnetwork/human.source
     format: tsv
@@ -842,5 +849,5 @@ datasets:
     - gene_ids_mapped
     - relation_vocab_versioned
   preprocessing:
-    version: 0.1.0
-    entrypoint: local_graph_import_contract_only
+    version: 0.2.0
+    entrypoint: scripts/import_ppi_graphs.py --source regnetwork
