@@ -17,6 +17,7 @@ from src.data.aa_constants import (
     AMINO_ACIDS,
     AA_TO_IDX,
     AA_PAD_CHAR,
+    DEFAULT_PTM_WINDOW_SIZE,
 )
 
 
@@ -37,7 +38,7 @@ class PTMSiteDataset(Dataset):
         self,
         csv_path: str,
         ptm_type: Optional[str] = None,
-        window_size: int = 31,
+        window_size: int = DEFAULT_PTM_WINDOW_SIZE,
         max_samples: Optional[int] = None,
         balance: bool = False,
         seed: int = 42,
@@ -182,7 +183,7 @@ class PTMSiteDataModule(L.LightningDataModule):
         val_path: Optional[str] = None,
         test_path: Optional[str] = None,
         ptm_type: Optional[str] = None,
-        window_size: int = 31,
+        window_size: int = DEFAULT_PTM_WINDOW_SIZE,
         batch_size: int = 64,
         num_workers: int = 4,
         val_split: float = 0.1,

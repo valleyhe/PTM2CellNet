@@ -129,3 +129,10 @@ def normalize_ptm_type(ptm_type: str) -> str:
 NON_STANDARD_AA_MAP: dict = {
     'U': 'C', 'X': 'A', 'J': 'L', 'B': 'D', 'Z': 'E', 'O': 'K',
 }
+
+
+# PTM 位点序列窗口默认宽度（N05, 2026-08-16）
+# 训练/推理/报告三处窗口逻辑共用此常量，禁止在调用点重写魔法数 31/15/16。
+# 语义: 窗口以修饰位点为中心，位点处于窗口正中 → 宽度必须为奇数。
+DEFAULT_PTM_WINDOW_SIZE: int = 31
+DEFAULT_PTM_HALF_WINDOW: int = 15

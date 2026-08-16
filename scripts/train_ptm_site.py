@@ -26,6 +26,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 
 from src.data.ptm_site_dataset import PTMSiteDataModule
 from src.models.ptm_site_predictor import create_model
+from src.data.aa_constants import DEFAULT_PTM_WINDOW_SIZE
 from src.training.ptm_site_lightning import PTMSiteLightning
 
 
@@ -175,7 +176,7 @@ def main():
     data_module = PTMSiteDataModule(
         train_path=args.data,
         ptm_type=args.ptm_type,
-        window_size=31,
+        window_size=DEFAULT_PTM_WINDOW_SIZE,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         val_split=args.val_split,

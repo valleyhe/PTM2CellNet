@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 from src.utils.io import safe_torch_load
+from src.data.aa_constants import DEFAULT_PTM_WINDOW_SIZE, DEFAULT_PTM_HALF_WINDOW
 import torch.nn as nn
 import pandas as pd
 from typing import Dict, List, Optional
@@ -106,8 +107,8 @@ class BatchPTMPredictor:
         self.model_type = model_type
         self.device = torch.device(device)
         self.batch_size = batch_size
-        self.window_size = 31
-        self.half_window = 15
+        self.window_size = DEFAULT_PTM_WINDOW_SIZE
+        self.half_window = DEFAULT_PTM_HALF_WINDOW
 
         # 加载模型
         self.model = self._load_model()
@@ -282,7 +283,7 @@ class BatchPTMPredictor:
                             'aa': c['aa'],
                             'ptm_type': ptm_type,
                             'probability': float(prob),
-                            'sequence_window': sequence[max(0, c['position']-16):c['position']+15],
+                            'sequence_window': sequence[max(0, c['position'] - (DEFAULT_PTM_HALF_WINDOW + 1)):c['position'] + DEFAULT_PTM_HALF_WINDOW],
                         })
 
         return pd.DataFrame(results)

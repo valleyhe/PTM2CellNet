@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 import logging
 
 from .encoders import PooledCNNEncoder, PooledTransformerEncoder, PooledLSTMEncoder
+from src.data.aa_constants import DEFAULT_PTM_WINDOW_SIZE
 
 # Re-export pooled encoders under short names for backward compatibility.
 # These accept pre-embedded input and produce (batch, hidden_dim).
@@ -54,7 +55,7 @@ class MultiTaskPTMPredictor(nn.Module):
         num_heads: int = 4,
         dropout: float = 0.1,
         encoder_type: str = "cnn",
-        window_size: int = 31,
+        window_size: int = DEFAULT_PTM_WINDOW_SIZE,
         ptm_types: Optional[List[str]] = None,
         share_encoder: bool = True,
         use_adversarial: bool = False,

@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.data.aa_constants import DEFAULT_PTM_WINDOW_SIZE
 from .encoders import PooledCNNEncoder, PooledTransformerEncoder, PooledLSTMEncoder
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class PTMSitePredictor(nn.Module):
         num_heads: int = 4,
         dropout: float = 0.1,
         encoder_type: str = "cnn",
-        window_size: int = 31,
+        window_size: int = DEFAULT_PTM_WINDOW_SIZE,
         num_classes: int = 2,
         num_labels: int = 1,
     ):
