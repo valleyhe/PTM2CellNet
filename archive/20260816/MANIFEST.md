@@ -13,7 +13,7 @@
 | 过时判定 | 与当前代码/需求存在实质差异 |
 | 报告过期判定 | 生成超过 30 天，或内容不能反映当前状态 |
 | 审计方法 | 4 个只读分析子代理并行执行（需求对照 / 完成度评估 / 技术债 / 文档台账），判定均附 file:line 证据 |
-| 本批次实际移动文件 | 5 个（reports/ 2 + docs/ 3），另在原路径留 3 个重定向短页 |
+| 本批次实际移动文件 | 8 个（reports/ 3 + docs/ 3 + detection_artifacts/ 2），另在原路径留 3 个重定向短页 |
 
 ## 2. 归档文件与版本标签
 
@@ -24,6 +24,9 @@
 | `docs/E2E训练与推理现状分析_2026-08-08.md` | `docs/` 同名 | `366e691`（2026-08-09，git mv 保留历史） | E2E 审计报告 | L38 T-01"cross_scale_training 缺少 8 个 required 输入"（现仅 3 个 controlled）；§4.1 P0-01 图类快照缺失断言失效；L64"1897 passed"过时；文件头部已自声明历史快照 |
 | `docs/E2E训练与推理代码修复报告_2026-08-08_v2.md` | `docs/` 同名 | `d0c78a1`（2026-08-09，git mv 保留历史） | 修复报告 v2 | L161 将 Norman/Adamson、kinase-substrate、STRING、BioPlex、RegNetwork 列为"数据所有者职责"——`32ded55` 已登记其中 5 项 implemented；L128-129 测试计数过时 |
 | `docs/r01_r03_systematic_repair_report_20260808.md` | `docs/` 同名 | `366e691`（2026-08-09，git mv 保留历史） | 组件修复报告 | L25 R-03"真实 STRING/BioPlex/激酶-底物图未提供"——三类图快照（OmniPath enzsub 41,506 条等）已登记；L77/L93"1897 passed/13 skipped"过时 |
+| `detection_artifacts/coverage.xml` | `./coverage.xml` | 未追踪（生成于 2026-08-09 18:35，SHA-256 `1876bd77…b6fe96`） | 覆盖率检测报告（Cobertura XML） | 生成于 `32ded55` 与 2026-08-16 修复轮之前，不能反映当前代码；已被 2026-08-16 13:50 的根目录 `.coverage` 取代；沿用 `archive/20260808/detection_artifacts/` 旧快照归档惯例 |
+| `detection_artifacts/coverage.json` | `./coverage.json` | 未追踪（生成于 2026-08-08 22:30，SHA-256 `30ad399e…cd4736f`） | 覆盖率检测报告（JSON） | 同上（早于 coverage.xml 一天的更旧快照）；归档后原路径删除，不留重定向页（检测产物非链接入口） |
+| `reports/project_analysis_20260816_v3_repair_iterations.md` | `./project_analysis_20260816.md`（v3.0 中间版，从未提交） | 未追踪（2026-08-16 14:54 前后定稿，本轮 21:05 归档） | 修复迭代中间版报告 | v3.0 为"代码修复迭代任务"产物（N20/TD-M08/N03-N04 三轮迭代），结构为修复报告而非综合分析；其权威内容已由 `project_repair_report_20260816.md`（根目录，当日）承载，综合分析结构由 v4.0（同日）恢复，本中间版归档留痕 |
 
 时间戳与版本标签说明：文件名自带日期后缀（YYYYMMDD / YYYY-MM-DD）；上表"最后
 修改提交"即归档前的 Git 版本标签；`git mv` 保留全部历史（`git log --follow`）。

@@ -22,5 +22,16 @@
 2. `docs/` 直下三份 8-8 基线报告移入 `docs/`，原路径留重定向短页以保持链接兼容；
 3. 其余活动文档、入口短页与指南经逐项核实保留原路径（台账见 MANIFEST 第 4 节）。
 
+## 晚间批次追加（同日 21:00）
+
+晚间综合处理会话（5 组代码提交 `bcb9cc9`→`aa8b15b` 后）追加归档 3 个文件：
+
+4. `detection_artifacts/coverage.xml`、`coverage.json`：8-8/8-9 生成的覆盖率快照，
+   早于本轮代码与测试基线（1919 passed / 5 skipped），被根目录 2026-08-16 13:50
+   的 `.coverage` 取代；
+5. `reports/project_analysis_20260816_v3_repair_iterations.md`：修复迭代任务的
+   中间版报告（v3.0，从未提交），权威内容由根目录 `project_repair_report_20260816.md`
+   承载，综合分析结构由同日 v4.0 恢复，本中间版归档留痕。
+
 历史文件的原始版本和修改记录可通过 `git log --follow -- <path>` 追溯；本批次不
 删除任何历史内容。
