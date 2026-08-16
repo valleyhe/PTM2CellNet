@@ -31,7 +31,4 @@ UniProtMapper>=0.1
 # torch_geometric.data.Data；缺失时该 source backend 跳过，但应在此声明）。
 torch-geometric>=2.3.0
 
-# 文档构建（docs/conf.py 使用 sphinx.ext.autodoc/napoleon/viewcode/intersphinx）。
-sphinx>=5.0.0
-
 # GUI 已在 2026-07-05 取消，不再声明 Streamlit/Gradio 依赖。

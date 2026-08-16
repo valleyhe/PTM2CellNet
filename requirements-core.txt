@@ -36,18 +36,18 @@ seaborn>=0.11.0
 pyyaml>=5.4.0
 tqdm>=4.62.0
 h5py>=3.6.0
-requests>=2.26.0
+requests>=2.31.0  # N19: >=2.31 修复 CVE-2023-32681
 typing_extensions>=4.0.0
 # setuptools<81 keeps the ``pkg_resources`` module available; it was removed in
 # setuptools 81, which several scientific packages still import at runtime.
 setuptools>=68.0,<81
 
 # Web API (FastAPI service)
-fastapi>=0.68.0
-uvicorn>=0.15.0
+fastapi>=0.100.0  # N19: 下限对齐 setup.py，避免解析进含 CVE 旧版
+uvicorn>=0.20.0  # N19: 下限对齐 setup.py
 pydantic>=1.10,<3
 # starlette is a FastAPI dependency; pin explicitly for reproducibility
-starlette>=0.20.0
+starlette>=0.40.0  # N19: >=0.40 修复 CVE-2024-47874
 
 # joblib used by src/data/homology_splitter.py for parallel processing
 joblib>=1.2.0
@@ -60,8 +60,3 @@ safetensors>=0.3.0
 
 # sspa is required by src/analysis/pathway_integration.py but is declared in
 # requirements-analysis.txt. Install -r requirements-analysis.txt for KEGG/Reactome support.
-
-# Type stubs (for mypy static analysis)
-types-requests>=2.31
-types-PyYAML>=6.0
-pandas-stubs>=2.0
