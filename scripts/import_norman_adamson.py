@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import io
 import json
 import re
 import tarfile
@@ -348,11 +349,16 @@ def _requested_genes_from_labels(labels: Sequence[str], gene_symbols: Sequence[s
 def probe_gse90546(geo_root: Path) -> Dict[str, Any]:
     """List RAW.tar contents and parse recognisable tabular files.  The
     archive layout is not standardised; this returns a structural report and
-    parsed tables when they look like count matrices."""
+    parsed tables when they look like count matrices.
+
+    The report status is ``probed`` (structure inspection only) — not
+    ``parsed`` — because no expression/delta-expression artifacts are
+    produced here; the actual GSE90546 import is a separate step (see
+    ``data/manifests/datasets.yaml`` "待解析导入")."""
     tar_path = geo_root / GSE90546 / "GSE90546_RAW.tar"
     if not tar_path.is_file():
         return {"status": "missing", "reason": f"{tar_path} 不存在（尚未下载或下载失败）"}
-    report: Dict[str, Any] = {"status": "parsed", "members": []}
+    report: Dict[str, Any] = {"status": "probed", "members": []}
     try:
         with tarfile.open(tar_path, "r:*") as archive:
             for member in archive.getmembers():
@@ -380,6 +386,188 @@ def probe_gse90546(geo_root: Path) -> Dict[str, Any]:
         report["status"] = "error"
         report["reason"] = str(exc)
     return report
+
+
+_GSE90546_MEMBER_SUFFIXES = {
+    "_barcodes.tsv.gz": "barcodes",
+    "_cell_identities.csv.gz": "identities",
+    "_genes.tsv.gz": "genes",
+    "_matrix.mtx.txt.gz": "matrix",
+    "_matrix.mtx.gz": "matrix",
+}
+
+
+def _gse90546_groups(archive: tarfile.TarFile) -> Dict[str, Dict[str, tarfile.TarInfo]]:
+    """Group the four 10x members belonging to each GSM experiment."""
+    groups: Dict[str, Dict[str, tarfile.TarInfo]] = {}
+    for member in archive.getmembers():
+        if not member.isfile():
+            continue
+        basename = Path(member.name).name
+        for suffix, kind in _GSE90546_MEMBER_SUFFIXES.items():
+            if basename.endswith(suffix):
+                prefix = basename[: -len(suffix)]
+                groups.setdefault(prefix, {})[kind] = member
+                break
+    return groups
+
+
+def _tar_text_rows(archive: tarfile.TarFile, member: tarfile.TarInfo) -> List[List[str]]:
+    """Read a gzipped tabular tar member without extracting it to disk."""
+    raw = archive.extractfile(member)
+    if raw is None:
+        raise ImportError_(f"无法读取 tar 成员: {member.name}")
+    stream: Any = raw
+    if member.name.lower().endswith(".gz"):
+        stream = gzip.GzipFile(fileobj=raw)
+    try:
+        text = io.TextIOWrapper(stream, encoding="utf-8", errors="replace")
+        delimiter = "," if "cell_identities" in member.name.lower() else "\t"
+        rows: List[List[str]] = []
+        for line in text:
+            line = line.rstrip("\r\n")
+            if line.strip():
+                rows.append([cell.strip() for cell in line.split(delimiter)])
+        return rows
+    except (OSError, EOFError, UnicodeError) as exc:
+        raise ImportError_(f"无法解析 tar 成员 {member.name}: {exc}") from exc
+    finally:
+        stream.close()
+        if stream is not raw:
+            raw.close()
+
+
+def _tar_matrix(archive: tarfile.TarFile, member: tarfile.TarInfo) -> sp.csc_matrix:
+    """Read a MatrixMarket member directly from a gzipped tar stream."""
+    raw = archive.extractfile(member)
+    if raw is None:
+        raise ImportError_(f"无法读取矩阵 tar 成员: {member.name}")
+    stream: Any = gzip.GzipFile(fileobj=raw) if member.name.lower().endswith(".gz") else raw
+    try:
+        matrix = mmread(stream)
+    except (OSError, EOFError, ValueError) as exc:
+        raise ImportError_(f"无法解析矩阵 tar 成员 {member.name}: {exc}") from exc
+    finally:
+        stream.close()
+        if stream is not raw:
+            raw.close()
+    if not sp.issparse(matrix):
+        matrix = sp.csc_matrix(matrix)
+    return matrix.tocsc()
+
+
+def _orient_10x_matrix(
+    matrix: sp.csc_matrix,
+    symbols: Sequence[str],
+    barcodes: Sequence[str],
+) -> sp.csc_matrix:
+    """Normalize a 10x gene×cell or cell×gene matrix to cell×gene."""
+    if matrix.shape == (len(symbols), len(barcodes)):
+        matrix = matrix.T.tocsc()
+    if matrix.shape != (len(barcodes), len(symbols)):
+        raise ImportError_(
+            f"矩阵 shape={matrix.shape} 与 cells={len(barcodes)}, genes={len(symbols)} 不匹配"
+        )
+    return matrix
+
+
+def parse_gse90546(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
+    """Parse all recognisable GSE90546 10x experiments into research artifacts.
+
+    Each GSM is written separately to keep memory bounded and to preserve the
+    original experiment boundary.  The returned manifest is the authoritative
+    catalog consumed by later cross-scale assembly steps.
+    """
+    tar_path = geo_root / GSE90546 / "GSE90546_RAW.tar"
+    if not tar_path.is_file():
+        return {"status": "missing", "reason": f"{tar_path} 不存在"}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    experiments: List[Dict[str, Any]] = []
+    perturbation_rows: List[Tuple[str, str, int]] = []
+    try:
+        with tarfile.open(tar_path, "r:*") as archive:
+            groups = _gse90546_groups(archive)
+            if not groups:
+                return {"status": "error", "reason": "未识别到 10x 四件套成员"}
+            for prefix, members in sorted(groups.items()):
+                missing = sorted(set(("barcodes", "identities", "genes", "matrix")) - set(members))
+                if missing:
+                    experiments.append({"id": prefix, "status": "incomplete", "missing": missing})
+                    continue
+                try:
+                    _, symbols = _rows_to_genes(_tar_text_rows(archive, members["genes"]), prefix)
+                    barcodes = _rows_to_barcodes(_tar_text_rows(archive, members["barcodes"]), prefix)
+                    matrix = _orient_10x_matrix(
+                        _tar_matrix(archive, members["matrix"]), symbols, barcodes
+                    )
+                    annotations = parse_identities(_tar_text_rows(archive, members["identities"]))
+                    delta, sample_ids, cell_counts, control_mean, unassigned = compute_delta_expression(
+                        matrix, annotations, barcodes
+                    )
+                    safe_prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", prefix)
+                    expression_path = output_dir / f"GSE90546_{safe_prefix}_expression.npz"
+                    delta_path = output_dir / f"GSE90546_{safe_prefix}_delta_expression.npz"
+                    write_sparse_npz(
+                        expression_path,
+                        matrix,
+                        extra={"barcodes": np.asarray(barcodes, dtype="U")},
+                    )
+                    np.savez_compressed(
+                        delta_path,
+                        delta=delta,
+                        sample_ids=np.asarray(sample_ids, dtype="U"),
+                        gene_symbols=np.asarray(symbols, dtype="U"),
+                        control_mean=control_mean,
+                        unassigned_cells=unassigned,
+                    )
+                    for sample_id, count in zip(sample_ids, cell_counts, strict=True):
+                        perturbation_rows.append((prefix, sample_id, int(count)))
+                    experiments.append(
+                        {
+                            "id": prefix,
+                            "status": "parsed",
+                            "cells": int(matrix.shape[0]),
+                            "genes": int(matrix.shape[1]),
+                            "n_nonzero": int(matrix.nnz),
+                            "n_perturbations": len(sample_ids),
+                            "unassigned_cells": int(unassigned.sum()),
+                            "expression_npz": str(expression_path),
+                            "delta_expression_npz": str(delta_path),
+                        }
+                    )
+                except (ImportError_, OSError, ValueError, tarfile.TarError) as exc:
+                    experiments.append({"id": prefix, "status": "error", "reason": str(exc)})
+    except (tarfile.TarError, OSError) as exc:
+        return {"status": "error", "reason": str(exc), "experiments": experiments}
+
+    perturbations_path = output_dir / "GSE90546_perturbations.tsv"
+    with perturbations_path.open("w", encoding="utf-8") as handle:
+        handle.write("experiment_id\tperturbation_id\tn_cells\n")
+        for experiment_id, sample_id, count in perturbation_rows:
+            handle.write(f"{experiment_id}\t{sample_id}\t{count}\n")
+    parsed = [experiment for experiment in experiments if experiment.get("status") == "parsed"]
+    return {
+        "status": "parsed" if parsed and len(parsed) == len(experiments) else "partial",
+        "n_experiments": len(experiments),
+        "n_parsed": len(parsed),
+        "experiments": experiments,
+        "perturbations_tsv": str(perturbations_path),
+    }
+
+
+def _rows_to_genes(rows: List[List[str]], member_name: str) -> Tuple[List[str], List[str]]:
+    if not rows:
+        raise ImportError_(f"{member_name}: genes 文件为空")
+    if len(rows[0]) >= 2:
+        return [row[0] for row in rows], [row[1] or row[0] for row in rows]
+    return [row[0] for row in rows], [row[0] for row in rows]
+
+
+def _rows_to_barcodes(rows: List[List[str]], member_name: str) -> List[str]:
+    barcodes = [row[0] for row in rows if row and row[0]]
+    if not barcodes:
+        raise ImportError_(f"{member_name}: barcodes 文件为空")
+    return barcodes
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +684,7 @@ def import_gse133344(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
     )
     with (output_dir / "GSE133344_perturbations.tsv").open("w", encoding="utf-8") as handle:
         handle.write("perturbation_id\tn_cells\n")
-        for label, count in zip(sample_ids, cell_counts):
+        for label, count in zip(sample_ids, cell_counts, strict=False):
             handle.write(f"{label}\t{count}\n")
     np.savez_compressed(
         output_dir / "GSE133344_delta_expression.npz",
@@ -517,8 +705,13 @@ def import_gse133344(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
     return summary
 
 
-def import_gse90546(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
-    report = probe_gse90546(geo_root)
+def import_gse90546(
+    geo_root: Path,
+    output_dir: Path,
+    *,
+    parse: bool = False,
+) -> Dict[str, Any]:
+    report = parse_gse90546(geo_root, output_dir) if parse else probe_gse90546(geo_root)
     (output_dir / "GSE90546_structure_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -545,6 +738,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--geo-root", default="data/raw/norman_adamson", help="GEO 下载根目录")
     parser.add_argument("--output", default="data/processed/norman_adamson", help="输出目录")
     parser.add_argument("--skip-gse90546", action="store_true", help="跳过 GSE90546 探测（RAW.tar 未下载时）")
+    parser.add_argument(
+        "--parse-gse90546",
+        action="store_true",
+        help="解析 GSE90546 RAW.tar 的 10x 四件套并产出 expression/delta artifacts",
+    )
     args = parser.parse_args(argv)
 
     geo_root = Path(args.geo_root)
@@ -565,7 +763,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except ImportError_ as exc:
         print(f"[GSE133344] 跳过：{exc}")
     if not args.skip_gse90546:
-        gse90546_report = import_gse90546(geo_root, output_dir)
+        gse90546_report = import_gse90546(geo_root, output_dir, parse=args.parse_gse90546)
 
     manifest = write_import_manifest(
         output_dir,

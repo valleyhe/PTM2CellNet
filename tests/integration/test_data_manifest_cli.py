@@ -43,6 +43,18 @@ def test_update_and_validate_manifest_cli(tmp_path):
     assert pmads["status"] == "local"
     assert pmads["files"][0]["sha256"]
 
+    # The working copy carries required local snapshots (e.g. the 26 scperturb
+    # h5ad) whose relative paths resolve against the real repo, not the tmp
+    # copy. Downgrade every non-pmads required file so --check-files only
+    # validates the file this test registers (absolute path in tmp).
+    for dataset in payload["datasets"]:
+        if dataset["id"] == "pmads":
+            continue
+        for file_entry in dataset.get("files", []):
+            if isinstance(file_entry, dict):
+                file_entry["required"] = False
+    manifest.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
     checked = subprocess.run(
         [
             sys.executable,

@@ -193,6 +193,37 @@ def test_load_from_cplm_parses_tab_delimited_download(tmp_path) -> None:
     ]
 
 
+def test_load_from_epsd_parses_tab_delimited_download(tmp_path) -> None:
+    loader = DataLoader()
+    content = StringIO(
+        "EPSD ID\tUniProt ID\tAA\tPosition\tSource\tReference\n"
+        "EP0000005\tO00110\tY\t29\tExp\t15174125\n"
+        "EP0000006\tP31749\tS\t473\tExp\t28150246\n"
+    )
+    file_path = tmp_path / "epsd.tsv"
+    file_path.write_text(content.getvalue(), encoding="utf-8")
+
+    df = loader.load_from_epsd(str(file_path))
+
+    assert list(df.columns) == DBPTM_COLUMNS
+    assert df.to_dict("records") == [
+        {
+            "protein_accession": "O00110",
+            "position": 29,
+            "ptm_type": "phosphorylation",
+            "amino_acid": "Y",
+            "source": "EPSD",
+        },
+        {
+            "protein_accession": "P31749",
+            "position": 473,
+            "ptm_type": "phosphorylation",
+            "amino_acid": "S",
+            "source": "EPSD",
+        },
+    ]
+
+
 def test_load_from_uniprot_uses_api_and_cache(tmp_path, monkeypatch) -> None:
     raw_dir = tmp_path / "data" / "raw"
     raw_dir.mkdir(parents=True)

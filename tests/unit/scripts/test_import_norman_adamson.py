@@ -1,6 +1,7 @@
 """Unit tests for scripts/import_norman_adamson.py (synthetic 10x fixtures)."""
 
 import gzip
+import io
 import json
 import tarfile
 from pathlib import Path
@@ -212,10 +213,80 @@ class TestGSE90546Probe:
             info.size = len(content)
             archive.addfile(info, __import__("io").BytesIO(content))
         report = imp.probe_gse90546(tmp_path)
-        assert report["status"] == "parsed"
+        assert report["status"] == "probed"
         names = [member["name"] for member in report["members"]]
         assert "counts.tsv" in names
         assert report["members"][0]["looks_tabular"] is True
+
+
+class TestGSE90546FullParse:
+    def _make_tar(self, root: Path) -> Path:
+        dataset = root / "GSE90546"
+        dataset.mkdir(parents=True, exist_ok=True)
+        tar_path = dataset / "GSE90546_RAW.tar"
+        prefix = "GSM0001_10X001"
+        members = {
+            f"{prefix}_genes.tsv.gz": "ENSG1\tGENE1\nENSG2\tGENE2\nENSG3\tGENE3\n",
+            f"{prefix}_barcodes.tsv.gz": "b1\nb2\nb3\nb4\n",
+            f"{prefix}_cell_identities.csv.gz": (
+                "cell,target_gene,guide\n"
+                "b1,NT,g1\n"
+                "b2,NT,g2\n"
+                "b3,GENE1,g3\n"
+                "b4,GENE1,g4\n"
+            ),
+            f"{prefix}_matrix.mtx.txt.gz": (
+                "%%MatrixMarket matrix coordinate real general\n%\n"
+                "3 4 12\n"
+                "1 1 1\n2 1 1\n3 1 1\n"
+                "1 2 1\n2 2 1\n3 2 1\n"
+                "1 3 3\n2 3 1\n3 3 1\n"
+                "1 4 3\n2 4 1\n3 4 1\n"
+            ),
+        }
+        with tarfile.open(tar_path, "w") as archive:
+            for name, text in members.items():
+                compressed = io.BytesIO()
+                with gzip.GzipFile(fileobj=compressed, mode="wb") as gz:
+                    gz.write(text.encode("utf-8"))
+                payload = compressed.getvalue()
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+        return tar_path
+
+    def test_parse_writes_per_experiment_artifacts(self, tmp_path) -> None:
+        self._make_tar(tmp_path)
+        output = tmp_path / "out"
+        report = imp.parse_gse90546(tmp_path, output)
+
+        assert report["status"] == "parsed"
+        assert report["n_experiments"] == 1
+        experiment = report["experiments"][0]
+        assert experiment["cells"] == 4
+        assert experiment["genes"] == 3
+        assert (output / "GSE90546_GSM0001_10X001_expression.npz").is_file()
+        assert (output / "GSE90546_GSM0001_10X001_delta_expression.npz").is_file()
+        table = (output / "GSE90546_perturbations.tsv").read_text(encoding="utf-8")
+        assert "GSM0001_10X001\tGENE1\t2" in table
+
+        with np.load(output / "GSE90546_GSM0001_10X001_expression.npz", allow_pickle=False) as archive:
+            assert tuple(archive["shape"]) == (4, 3)
+            rebuilt = sp.csc_matrix(
+                (archive["data"], (archive["row"], archive["col"])), shape=tuple(archive["shape"])
+            )
+        assert rebuilt[2, 0] == 3
+        with np.load(output / "GSE90546_GSM0001_10X001_delta_expression.npz", allow_pickle=False) as archive:
+            assert list(archive["sample_ids"]) == ["GENE1"]
+            np.testing.assert_allclose(archive["delta"][0], [2.0, 0.0, 0.0])
+
+    def test_import_switches_to_parsed_status_only_with_explicit_flag(self, tmp_path) -> None:
+        self._make_tar(tmp_path)
+        output = tmp_path / "out"
+        report = imp.import_gse90546(tmp_path, output, parse=True)
+        assert report["status"] == "parsed"
+        saved = json.loads((output / "GSE90546_structure_report.json").read_text(encoding="utf-8"))
+        assert saved["status"] == "parsed"
 
 
 class TestCombinatorialPerturbationRequests:
@@ -246,7 +317,6 @@ class TestNormanGuideIdentity:
     def test_parse_identities_with_guide_identity_column(self, tmp_path):
         dataset = tmp_path / "GSE133344"
         dataset.mkdir(parents=True)
-        imp._write_gz if False else None
         import gzip as _gz
 
         path = dataset / "identities.csv.gz"

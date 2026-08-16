@@ -1,5 +1,5 @@
 """
-PTMDatabaseLoaderMixin — PhosphoSitePlus / dbPTM / CPLM 数据库加载。
+PTMDatabaseLoaderMixin — PhosphoSitePlus / dbPTM / CPLM / EPSD 数据库加载。
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
@@ -174,6 +174,50 @@ class PTMDatabaseLoaderMixin:
         except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
             logger.error("解析 dbPTM 数据失败: %s", exc)
             return self._empty_or_raise(self._empty_ptm_df(), "dbPTM")
+
+    def load_from_epsd(self, file_path_or_url: str, ptm_type: str = "phosphorylation") -> pd.DataFrame:
+        """
+        Load PTM annotations from a tab-delimited EPSD export.
+
+        EPSD (Eukaryotic Phosphorylation Sites Database) tabular release
+        columns: ``EPSD ID``, ``UniProt ID``, ``AA``, ``Position``,
+        ``Source``, ``Reference``.
+
+        Parameters:
+            file_path_or_url: Local file path or downloadable URL.
+            ptm_type: PTM type label assigned to returned rows (default
+                ``phosphorylation``, matching the EPSD scope).
+
+        Returns:
+            DataFrame with columns ``protein_accession``, ``position``, ``ptm_type``,
+            ``amino_acid`` and ``source``.
+        """
+        try:
+            local_path = self._download_if_url(file_path_or_url)
+        except requests.RequestException as exc:
+            logger.error("下载 EPSD 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_ptm_df(), "EPSD")
+
+        try:
+            df = self._read_tabular_file(local_path, sep="\t")
+            return self._build_ptm_dataframe(
+                df=df,
+                accession_candidates=[
+                    "UniProt ID",
+                    "UniProt Accession",
+                    "UniProtKB Accession",
+                    "protein_accession",
+                    "ACC_ID",
+                    "accession",
+                ],
+                position_candidates=["Position", "Site Position", "site", "pos"],
+                amino_acid_candidates=["Amino Acid", "Residue", "AA", "amino_acid"],
+                source="EPSD",
+                ptm_type=ptm_type,
+            )
+        except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
+            logger.error("解析 EPSD 数据失败: %s", exc)
+            return self._empty_or_raise(self._empty_ptm_df(), "EPSD")
 
     def load_from_cplm(self, file_path_or_url: str, ptm_type: str = "cysteine") -> pd.DataFrame:
         """

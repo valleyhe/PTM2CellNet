@@ -285,6 +285,54 @@ datasets:
   preprocessing:
     version: 0.1.0
     entrypoint: local_import_contract_only
+- id: epsd
+  name: EPSD eukaryotic phosphorylation site annotations
+  category: ptm_annotation
+  # 2026-08-16: 登记反向缺口（数据在位但 manifest 无条目）。Homo sapiens.txt
+  # 为位点注释（EPSD ID/UniProt ID/AA/Position/Source/Reference），fasta 为
+  # 蛋白序列（provenance），phosphorylation zip 为原始发布归档。
+  # annotations.zip 为 0 字节损坏下载，未登记。
+  status: implemented
+  source:
+    provider: EPSD (Eukaryotic Phosphorylation Sites Database)
+    homepage: https://epsd.biocuckoo.cn/
+    reference: EPSD human tabular release (2024-09/10 download)
+    access: public_download
+    license: Record release terms
+  formats:
+  - tsv
+  - fasta
+  - zip
+  loader: src.data.loaders.ptm_database_loaders.PTMDatabaseLoaderMixin.load_from_epsd
+  files:
+  - path: data/raw/epsd/Homo sapiens.txt
+    format: tsv
+    required: true
+    sha256: f6ede32015b1b3a79d5e233e400e4c8297b6331745cafec7eb5822fbac7c22bf
+  - path: data/raw/epsd/Homo sapiens.fasta
+    format: fasta
+    required: false
+    sha256: 16bc120a8f68d7c6e6d0fa7c2d4446484029f72a95896a0285b015356e5a68f7
+  - path: data/raw/epsd/homo_sapiens_phosphorylation.zip
+    format: zip
+    required: false
+    sha256: 1a760f6f85f6c4cdd125e88a67ae8636c820b10d60a4053131ddcde419d3c8e0
+  canonical_schema:
+    required_columns:
+    - protein_accession
+    - position
+    - amino_acid
+    - ptm_type
+    optional_columns:
+    - evidence
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - release_recorded
+    - gene_ids_mapped
+  preprocessing:
+    version: 0.1.0
+    entrypoint: local_ptm_annotation_import
 - id: pmads
   name: PMADS PTM-disease associations and CPTAC PTM intensity
   category: ptm_supervision
@@ -337,11 +385,14 @@ datasets:
 - id: scperturb
   name: scPerturb single-cell perturbation compendium
   category: single_cell_perturbation
-  status: controlled
+  status: implemented
   source:
     provider: scPerturb data consortium
     homepage: https://scperturb.org/
-    reference: Dataset release and perturbation metadata
+    reference: scPerturb consortium release (2026-08-10 download), 26 usable study h5ad files (~19GB)
+  # 2026-08-16: 登记时 4 个文件为截断下载（h5ad 无法打开），未登记：
+  # GasperiniShendure2019_atscale / LaraAstiasoHuntly2023_invivo /
+  # NadigOConner2024_hepg2 / SunshineHein2023，待重新下载后补登。
     access: public_or_user_snapshot
     license: Record per-study license and release
   formats:
@@ -349,12 +400,112 @@ datasets:
   - mtx
   - csv
   - tsv
-  loader: null
+  loader: scripts/import_scperturb.py
   files:
-  - path: null
+  - path: data/raw/scperturb/AissaBenevolenskaya2021.h5ad
     format: h5ad
-    required: false
-    sha256: null
+    required: true
+    sha256: b15a47195aae031dfcba94c6f7f080f1d7e5c69d46b070d49132ee2a1bb8bb99
+  - path: data/raw/scperturb/ChangYe2021.h5ad
+    format: h5ad
+    required: true
+    sha256: 79101d91992404772f590439d4ac5bd825c25866682c7ef439189f577613ca04
+  - path: data/raw/scperturb/DatlingerBock2017.h5ad
+    format: h5ad
+    required: true
+    sha256: 2ee8b95ef1b2567ce5cbf83fc3a20bf4318f32dc007e1228f064fe428125f7da
+  - path: data/raw/scperturb/DatlingerBock2021.h5ad
+    format: h5ad
+    required: true
+    sha256: 9f8c35058d71442a904391dabf6574bbb24ae31ed00cef5d4e4ed498828f3592
+  - path: data/raw/scperturb/DixitRegev2016_K562_TFs_13_days.h5ad
+    format: h5ad
+    required: true
+    sha256: f7c483fa2a3cb79740ee816850ad7b8432f2c4c17fb4ac6fdd2cbe32a29f11a1
+  - path: data/raw/scperturb/DixitRegev2016_K562_TFs_7_days.h5ad
+    format: h5ad
+    required: true
+    sha256: 03802e358de0568cfe32de26d78bee2805687412f5fbb6b788213aca31e973a0
+  - path: data/raw/scperturb/DixitRegev2016_K562_TFs_High_MOI.h5ad
+    format: h5ad
+    required: true
+    sha256: 57d4e51930ba3d526caaba8d657a72dba6c6a3ff1e7f5e5fd8c0553539d6db54
+  - path: data/raw/scperturb/FrangiehIzar2021_RNA.h5ad
+    format: h5ad
+    required: true
+    sha256: cc42ef38bcf703a00e0c77c7945dd53159b12d814c438ae8afeaed9bc71f48d1
+  - path: data/raw/scperturb/FrangiehIzar2021_protein.h5ad
+    format: h5ad
+    required: true
+    sha256: 1f85827b5afad11a30d8ac99399772231110a1c3723bed6ecf7981a12cc3dbcc
+  - path: data/raw/scperturb/GasperiniShendure2019_highMOI.h5ad
+    format: h5ad
+    required: true
+    sha256: b342ca237496764066a8b96115d551c48411049f52e3a7d9e89d864ece4ab90b
+  - path: data/raw/scperturb/GasperiniShendure2019_lowMOI.h5ad
+    format: h5ad
+    required: true
+    sha256: e5d43d9c0ea12299ca2880dece131db07d766a9779ac0f9ba792ed7b7d85a213
+  - path: data/raw/scperturb/JoungZhang2023_atlas.h5ad
+    format: h5ad
+    required: true
+    sha256: 8bd00eac883b469a1e82a2beca18f647e8023904920f233dbb8568e13503fc22
+  - path: data/raw/scperturb/JoungZhang2023_combinatorial.h5ad
+    format: h5ad
+    required: true
+    sha256: ce5188bd3f924f9c79fea6d0b2fb49e48a71d0cf6a2a5010ee9a9bd6e3289a01
+  - path: data/raw/scperturb/LaraAstiasoHuntly2023_exvivo.h5ad
+    format: h5ad
+    required: true
+    sha256: 5659e681da47419b8401ca65ca2ca4156933a38b98ac65d61af3445295b7346f
+  - path: data/raw/scperturb/LaraAstiasoHuntly2023_leukemia.h5ad
+    format: h5ad
+    required: true
+    sha256: c39f3b64d985958d172699761f1e7600bd1df653cf57da40798943100e53cd0f
+  - path: data/raw/scperturb/McFarlandTsherniak2020.h5ad
+    format: h5ad
+    required: true
+    sha256: 94a7240047b9ce6822dc2aa1e7a66c1fd8b00be842e5a95fc72cbeb6f2834d2c
+  - path: data/raw/scperturb/NadigOConner2024_jurkat.h5ad
+    format: h5ad
+    required: true
+    sha256: ade3d83150fd6944212363cd11da77c0d2143fa6df1febb3f15a66d4dab0677f
+  - path: data/raw/scperturb/PapalexiSatija2021_eccite_RNA.h5ad
+    format: h5ad
+    required: true
+    sha256: 03e9602d124c261281936717d5795445805e6e704a52b0310bcde94225aa0929
+  - path: data/raw/scperturb/PapalexiSatija2021_eccite_arrayed_RNA.h5ad
+    format: h5ad
+    required: true
+    sha256: 7f8b06d92955940c453b7bec5dec879d64c1b2e2667aa5b6f7bb4bbc6665d976
+  - path: data/raw/scperturb/PapalexiSatija2021_eccite_arrayed_protein.h5ad
+    format: h5ad
+    required: true
+    sha256: 45aa4e2279ca7b6522eacfe61d74fb5f107cd177814a94f70b58549913a094f4
+  - path: data/raw/scperturb/PapalexiSatija2021_eccite_protein.h5ad
+    format: h5ad
+    required: true
+    sha256: e1e293c75dfebe09301bf32093703cfd5f50c17d6fb53144d8213e52e0e4e150
+  - path: data/raw/scperturb/ShifrutMarson2018.h5ad
+    format: h5ad
+    required: true
+    sha256: 73c92a61ccc49d3a8c1bfc18ebfd002c2439294c98eb11b3ca8a2c2d7e3d1b19
+  - path: data/raw/scperturb/SrivatsanTrapnell2020_sciplex2.h5ad
+    format: h5ad
+    required: true
+    sha256: 0adabca03632ac9421a769fc9eaa4178447d4d572f4c2c54e4fde93a81acde67
+  - path: data/raw/scperturb/SrivatsanTrapnell2020_sciplex3.h5ad
+    format: h5ad
+    required: true
+    sha256: 603ed16c5e25401c8a7f5bb0b2b045179701017d65dcfc6aeea71722a66cd10a
+  - path: data/raw/scperturb/SrivatsanTrapnell2020_sciplex4.h5ad
+    format: h5ad
+    required: true
+    sha256: 29db0c7a1372d96b70200946c11651aa62905b1d3091f89947bc19795d236b9f
+  - path: data/raw/scperturb/WeinrebKlein2020.h5ad
+    format: h5ad
+    required: true
+    sha256: 51b70f06df6fd6a22a2b1d6f7b2e1616f1dac1a77985ec4568107f1b5f5726c3
   canonical_schema:
     required_columns:
     - gene_id
@@ -374,7 +525,7 @@ datasets:
     - counts_or_normalization_recorded
   preprocessing:
     version: 0.1.0
-    entrypoint: local_import_contract_only
+    entrypoint: scripts/import_scperturb.py
 - id: norman_adamson
   name: Norman/Adamson CRISPR perturbation datasets
   category: single_cell_perturbation
@@ -534,7 +685,10 @@ datasets:
     license: OmniPath academic terms; record source-specific terms before redistribution
   formats:
   - tsv
-  loader: scripts/import_norman_adamson.py
+  # 2026-08-16: loader 断链修复——原指向 scripts/import_norman_adamson.py
+  # （无任何 OmniPath 逻辑），现由独立导入器消费并产出 canonical edge
+  # table + UniProt->gene 映射缓存（scripts/import_kinase_substrate.py）。
+  loader: scripts/import_kinase_substrate.py
   files:
   - path: data/raw/kinase_substrate/omnipath_enzsub.tsv
     format: tsv
@@ -560,7 +714,7 @@ datasets:
     - edge_type_vocab_versioned
   preprocessing:
     version: 0.1.0
-    entrypoint: local_graph_import_contract_only
+    entrypoint: scripts/import_kinase_substrate.py
 - id: string
   name: STRING protein-protein interaction network
   category: signaling_graph
