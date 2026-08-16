@@ -84,4 +84,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/ready || exit 1
 
 # 启动FastAPI服务（app.py 模块级别导出 app 实例）
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# TD-M08 方案 B：默认单 worker——进程内限流（_RateLimitState）与 Prometheus
+# /metrics 仅在单 worker 下才是全局语义；多 worker 时每个进程独立计数，
+# 限流会被按进程数放大、指标按进程分片。需要多进程扩展时请先接入
+# Redis/网关级限流（方案 A），再上调 --workers。
+CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

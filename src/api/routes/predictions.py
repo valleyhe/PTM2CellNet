@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from fastapi import APIRouter, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from typing_extensions import TypedDict
 
 from ..schemas import (
@@ -218,7 +219,7 @@ def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, torch.Tensor
                     {"position": p, "ptm_type": t}
                     for p, t in zip(
                         davf_inputs["davf_positions"],
-                        davf_inputs["davf_ptm_types"],
+                        davf_inputs["davf_ptm_types"], strict=False,
                     )
                 ]
                 davf_sites_per_sample.append(sites_list)
@@ -373,7 +374,7 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
                 {"position": p, "ptm_type": t}
                 for p, t in zip(
                     davf_inputs["davf_positions"],
-                    davf_inputs["davf_ptm_types"],
+                    davf_inputs["davf_ptm_types"], strict=False,
                 )
             ]
             out["davf_gene_names"] = davf_inputs["davf_gene_names"]
@@ -460,28 +461,32 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
     start_time = time.time()
 
     try:
-        batch = preprocess_request(request)
+        # N01: 推理（预处理 + torch 前向 + pathway 分析）是阻塞 CPU/GPU 工作，
+        # 通过 run_in_threadpool 卸载出事件循环，避免单 worker 串行阻塞
+        # 健康检查与并发请求。
+        def _infer() -> Tuple[torch.Tensor, torch.Tensor, Optional[List[PathwayImpact]]]:
+            batch = preprocess_request(request)
 
-        # Add batch dimension for single-sample inference. DAVF inputs
-        # (``davf_sites`` / ``davf_gene_names``) are Python lists, not tensors,
-        # so wrap them as single-element lists instead of calling ``.unsqueeze``.
-        tensorized: Dict[str, Union[torch.Tensor, List[Any]]] = {}
-        for key, val in batch.items():
-            if isinstance(val, torch.Tensor):
-                tensorized[key] = val.unsqueeze(0).to(STATE.device)
-            elif key in ("davf_sites", "davf_gene_names"):
-                tensorized[key] = [val]  # one sample -> list of one
-            else:
-                tensorized[key] = val
-        batch = tensorized
+            # Add batch dimension for single-sample inference. DAVF inputs
+            # (``davf_sites`` / ``davf_gene_names``) are Python lists, not tensors,
+            # so wrap them as single-element lists instead of calling ``.unsqueeze``.
+            tensorized: Dict[str, Union[torch.Tensor, List[Any]]] = {}
+            for key, val in batch.items():
+                if isinstance(val, torch.Tensor):
+                    tensorized[key] = val.unsqueeze(0).to(STATE.device)
+                elif key in ("davf_sites", "davf_gene_names"):
+                    tensorized[key] = [val]  # one sample -> list of one
+                else:
+                    tensorized[key] = val
 
-        probs_tensor, pred_tensor, _ = _run_prediction_on_batch(batch)
+            probs_tensor, pred_tensor, _ = _run_prediction_on_batch(tensorized)
+            pathway_impacts = _compute_pathway_impacts(request.ptm_sites, STATE.pathway_mapper)
+            return probs_tensor, pred_tensor, pathway_impacts
+
+        probs_tensor, pred_tensor, pathway_impacts = await run_in_threadpool(_infer)
 
         probs_np = probs_tensor[0].numpy()
         pred_idx = int(pred_tensor[0].item())
-
-        # Optional pathway analysis via SignalingNetworkMapper (shared helper)
-        pathway_impacts = _compute_pathway_impacts(request.ptm_sites, STATE.pathway_mapper)
 
         processing_time_ms = (time.time() - start_time) * 1000
 
@@ -540,14 +545,24 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
     start_time = time.time()
 
     try:
-        batch = batch_preprocess(request.samples)
-        # Move tensors to device; leave DAVF list inputs untouched.
-        batch = {
-            key: (val.to(STATE.device) if isinstance(val, torch.Tensor) else val)
-            for key, val in batch.items()
-        }
+        # N01: 批量推理（预处理 + torch 前向 + 逐样本 pathway 分析）卸载出事件循环。
+        def _batch_infer() -> Tuple[torch.Tensor, torch.Tensor, List[Optional[List[PathwayImpact]]]]:
+            batch = batch_preprocess(request.samples)
+            # Move tensors to device; leave DAVF list inputs untouched.
+            batch = {
+                key: (val.to(STATE.device) if isinstance(val, torch.Tensor) else val)
+                for key, val in batch.items()
+            }
+            probs_tensor, pred_tensor, _ = _run_prediction_on_batch(batch)
+            impacts = [
+                _compute_pathway_impacts(
+                    request.samples[i].ptm_sites, STATE.pathway_mapper
+                )
+                for i in range(len(request.samples))
+            ]
+            return probs_tensor, pred_tensor, impacts
 
-        probs_tensor, pred_tensor, _ = _run_prediction_on_batch(batch)
+        probs_tensor, pred_tensor, impacts = await run_in_threadpool(_batch_infer)
 
         total_time_ms = (time.time() - start_time) * 1000
         per_sample_ms = total_time_ms / len(request.samples) if request.samples else 0
@@ -557,9 +572,7 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
                 probs_tensor[i].numpy(),
                 int(pred_tensor[i].item()),
                 per_sample_ms,
-                _compute_pathway_impacts(
-                    request.samples[i].ptm_sites, STATE.pathway_mapper
-                ),
+                impacts[i],
             )
             for i in range(len(request.samples))
         ]
@@ -618,7 +631,11 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
         sequence = request.sequence
         if sequence is None and request.uniprot_id:
             try:
-                sequence = STATE.variant_workflow.fetch_sequence_from_uniprot(request.uniprot_id)
+                # N01: UniProt fetch 是阻塞网络 I/O，卸载出事件循环。
+                sequence = await run_in_threadpool(
+                    STATE.variant_workflow.fetch_sequence_from_uniprot,
+                    request.uniprot_id,
+                )
                 logger.info(f"Fetched sequence from UniProt for {request.uniprot_id}")
             except (ConnectionError, TimeoutError) as e:
                 logger.warning("UniProt fetch network error [%s]: %s", type(e).__name__, e)
@@ -651,7 +668,9 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
                 detail="Sequence required (either provide directly or UniProt ID)",
             )
 
-        result = STATE.variant_workflow.predict_from_hgvs(
+        # N01: HGVS 解析 + 效应预测是 CPU 密集工作，卸载出事件循环。
+        result = await run_in_threadpool(
+            STATE.variant_workflow.predict_from_hgvs,
             hgvs_string=request.hgvs,
             sequence=sequence,
             include_pathways=request.include_pathways,
@@ -692,21 +711,24 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
             try:
                 # Build PTM sites from the derived PTM effects so the model sees
                 # the variant-induced modifications.
-                variant_ptm_sites = [
-                    {"position": 1, "type": ptm_type}
-                    for ptm_type in result.ptm_effects.keys()
-                ]
-                variant_request = PredictionRequest(
-                    sequence=sequence,
-                    ptm_sites=variant_ptm_sites,
-                    use_davf=False,
-                )
-                variant_batch = preprocess_request(variant_request)
-                variant_batch = {
-                    key: val.unsqueeze(0).to(STATE.device) for key, val in variant_batch.items()
-                }
-                _, variant_pred_tensor, _ = _run_prediction_on_batch(variant_batch)
-                variant_pred_idx = int(variant_pred_tensor[0].item())
+                def _variant_cell_state_sync() -> int:
+                    variant_ptm_sites = [
+                        {"position": 1, "type": ptm_type}
+                        for ptm_type in result.ptm_effects.keys()
+                    ]
+                    variant_request = PredictionRequest(
+                        sequence=sequence,
+                        ptm_sites=variant_ptm_sites,
+                        use_davf=False,
+                    )
+                    variant_batch = preprocess_request(variant_request)
+                    variant_batch = {
+                        key: val.unsqueeze(0).to(STATE.device) for key, val in variant_batch.items()
+                    }
+                    _, variant_pred_tensor, _ = _run_prediction_on_batch(variant_batch)
+                    return int(variant_pred_tensor[0].item())
+
+                variant_pred_idx = await run_in_threadpool(_variant_cell_state_sync)
                 variant_label = STATE.idx_to_label.get(variant_pred_idx, "unknown")
                 # Express the cell-state prediction as the predicted state.
                 cell_state_prediction = variant_label

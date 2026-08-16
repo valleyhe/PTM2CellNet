@@ -62,8 +62,19 @@ curl -X POST http://localhost:8000/api/v1/predict \
 
 ### 扩缩容
 
+> ⚠️ **TD-M08 进程模型（重要）**：镜像与 `configs/production.yaml` 默认 **单 worker**
+> （`uvicorn --workers 1`）。速率限制（`PTM2CELLNET_RATE_LIMIT_RPM`）与 Prometheus
+> `/metrics` 均为**进程内语义**：
+> - 单 worker：限流与指标即全局值，语义一致；
+> - 多 worker / 多副本：每个进程**独立**计数与采集，限流总量会被进程数放大、
+>   `/metrics` 按进程分片（多副本场景 K8s 按 Pod 抓取可接受，多 worker 单 Pod
+>   抓取 `/metrics` 会看到分片后的值）。
+>
+> 需要多进程/多副本扩展时，请先接入 Redis 或网关级共享限流（方案 A），再上调
+> `--workers` 或副本数。当前默认配置下：
+
 ```bash
-# 增加worker数量
+# 增加副本数（每个副本独立加载模型、独立限流计数）
 docker compose up -d --scale api=3
 
 # 使用负载均衡
@@ -154,5 +165,7 @@ docker compose logs -f api
 
 1. **API认证**: 在生产环境中启用API密钥或OAuth
 2. **HTTPS**: 使用反向代理(nginx)配置TLS
-3. **速率限制**: 配置请求频率限制防止滥用
+3. **速率限制**: 配置请求频率限制防止滥用。`PTM2CELLNET_RATE_LIMIT_RPM` 为
+   **每进程**上限（单 worker 部署下即全局上限）；多 worker/多副本部署时各进程
+   独立计数，需在 Redis/网关层实施共享限流（见「扩缩容」节）
 4. **输入验证**: 所有输入经过Pydantic验证

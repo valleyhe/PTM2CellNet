@@ -7,13 +7,14 @@
 
 import hmac
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import os
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from ...utils.io import safe_torch_load
 from ...utils.logging import setup_logger
@@ -253,7 +254,7 @@ async def initialize_endpoint(
 
     device = request.device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    try:
+    def _load_model() -> Tuple[str, int]:
         # 延迟导入，避免在 API 模块加载阶段强制依赖 torch 模型构建
         from ...models.architectures import PTM2CellNet
         from ...utils.checkpoint_utils import extract_model_state_dict
@@ -322,19 +323,12 @@ async def initialize_endpoint(
             "模型热加载完成: checkpoint=%s, config=%s, device=%s, format=%s",
             ckpt_path, config_source, device, loaded_format,
         )
+        return loaded_format, total_params
 
-        return InitializeResponse(
-            status="success",
-            checkpoint_path=str(ckpt_path),
-            config_path=config_source,
-            cell_states=STATE.cell_states,
-            device=device,
-            message=None,
-            loaded_format=loaded_format,
-            missing_keys_count=0,
-            unexpected_keys_count=0,
-            loaded_parameter_ratio=1.0 if total_params else None,
-        )
+    try:
+        # N01: 模型构建 + checkpoint 加载（安全反序列化 + 权重匹配）是阻塞
+        # CPU 工作，卸载出事件循环，避免初始化期间阻塞健康检查与预测请求。
+        loaded_format, total_params = await run_in_threadpool(_load_model)
     except HTTPException:
         raise
     except Exception as exc:
@@ -343,6 +337,19 @@ async def initialize_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"模型加载失败: {exc}",
         ) from exc
+
+    return InitializeResponse(
+        status="success",
+        checkpoint_path=str(ckpt_path),
+        config_path=config_source,
+        cell_states=STATE.cell_states,
+        device=device,
+        message=None,
+        loaded_format=loaded_format,
+        missing_keys_count=0,
+        unexpected_keys_count=0,
+        loaded_parameter_ratio=1.0 if total_params else None,
+    )
 
 
 __all__ = ["router", "initialize_endpoint", "InitializeRequest", "InitializeResponse"]

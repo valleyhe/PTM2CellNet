@@ -2,7 +2,10 @@
 server:
   host: "0.0.0.0"
   port: 8000
-  workers: 4
+  # TD-M08 方案 B：默认单 worker。限流（PTM2CELLNET_RATE_LIMIT_RPM）与
+  # /metrics 为进程内语义，多 worker 时各进程独立计数/分片；
+  # 需要多进程前先接入 Redis/网关级限流（方案 A）。
+  workers: 1
   timeout: 30
   access_log: true
 

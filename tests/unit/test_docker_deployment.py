@@ -200,3 +200,38 @@ class TestAutoInitPath:
             assert STATE.model_kind == "demo"
         finally:
             reset_state()
+
+
+# ---------------------------------------------------------------------------
+# Single-worker default (TD-M08 plan B)
+# ---------------------------------------------------------------------------
+
+class TestSingleWorkerDefault:
+    """Deployment must default to one uvicorn worker (TD-M08 plan B).
+
+    Rate limiting (``_RateLimitState``) and Prometheus ``/metrics`` are
+    in-process semantics: with N workers each process counts independently,
+    so the effective limit is multiplied by N and metrics are sharded.
+    The default must stay single-worker until a shared (Redis/gateway)
+    limiter is deployed.
+    """
+
+    def test_dockerfile_defaults_to_single_worker(self):
+        import re
+
+        content = _read(DOCKERFILE)
+        match = re.search(
+            r'CMD\s*\[.*?--workers",\s*"(\d+)"', content, flags=re.S
+        )
+        assert match is not None, "Dockerfile CMD must pass --workers to uvicorn"
+        assert match.group(1) == "1", (
+            "Dockerfile must default to uvicorn --workers 1 (TD-M08 plan B); "
+            f"found --workers {match.group(1)}; multi-worker needs a shared limiter first"
+        )
+
+    def test_production_config_defaults_to_single_worker(self):
+        cfg_path = REPO_ROOT / "configs" / "production.yaml"
+        content = _read(cfg_path)
+        assert "workers: 1" in content, (
+            "configs/production.yaml must default to a single worker (TD-M08 plan B)"
+        )
