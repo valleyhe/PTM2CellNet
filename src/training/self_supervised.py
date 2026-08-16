@@ -14,6 +14,7 @@ from torch import nn
 logger = logging.getLogger(__name__)
 
 from .amp_compat import make_grad_scaler, amp_autocast
+from ..utils.safe_io import safe_torch_load
 
 
 class MaskedPTMPrediction(nn.Module):
@@ -288,6 +289,7 @@ def pretrain_masked_ptm(
     log_interval: int = 10,
     patience: int | None = None,
     min_delta: float = 0.0,
+    resume_from: str | None = None,
 ) -> List[float]:
     """Run masked-PTM pretraining and return mean loss per epoch.
 
@@ -315,6 +317,12 @@ def pretrain_masked_ptm(
         (``validation_split > 0``). ``None`` disables early stopping.
     min_delta : float
         Minimum decrease in validation loss to count as an improvement.
+    resume_from : str or None
+        Path to a checkpoint written by a previous ``pretrain_masked_ptm``
+        run (or a legacy bare ``state_dict``). Restores model/optimizer/
+        scheduler state, ``best_val_loss`` and epoch counter so training
+        continues exactly where it stopped. Old-format checkpoints (bare
+        ``state_dict``) are supported with a warning.
     """
     model.to(device)
 
@@ -380,7 +388,41 @@ def pretrain_masked_ptm(
 
     history: List[float] = []
 
-    for epoch in range(epochs):
+    start_epoch = 0
+    if resume_from is not None:
+        # N20: resume 恢复模型/optimizer/scheduler/best_val_loss/epoch，
+        # 与 TD-M01 callbacks 恢复语义对齐（检查点缺字段时仅告警继续）。
+        state = safe_torch_load(resume_from, map_location=device)
+        if isinstance(state, dict) and "model" in state:
+            model.load_state_dict(state["model"])
+            if state.get("optimizer") is not None:
+                optimizer.load_state_dict(state["optimizer"])
+            if state.get("scheduler") is not None and cosine_scheduler is not None:
+                cosine_scheduler.load_state_dict(state["scheduler"])
+            start_epoch = int(state.get("epoch", -1)) + 1
+            best_val_loss = float(state.get("best_val_loss", float("inf")))
+            epochs_since_improvement = int(state.get("epochs_since_improvement", 0))
+            restored_history = state.get("history")
+            if isinstance(restored_history, list):
+                history = [float(v) for v in restored_history]
+            logger.info(
+                "Resumed %s from epoch %d (best_val_loss=%.6f)",
+                resume_from, start_epoch, best_val_loss,
+            )
+        else:
+            # 旧格式：裸 state_dict（仅权重）
+            if not isinstance(state, dict):
+                raise ValueError(
+                    f"Unrecognized checkpoint format for masked pretraining: {resume_from}"
+                )
+            model.load_state_dict(state)
+            logger.warning(
+                "Legacy checkpoint %s contains only model weights; "
+                "optimizer/scheduler/epoch state not restored",
+                resume_from,
+            )
+
+    for epoch in range(start_epoch, epochs):
         if early_stop:
             break
         model.train()
@@ -473,7 +515,30 @@ def pretrain_masked_ptm(
                 best_val_loss = val_loss
                 if checkpoint_dir is not None:
                     ckpt_path = os.path.join(checkpoint_dir, "best_model.pt")
-                    torch.save(model.state_dict(), ckpt_path)
+                    torch.save({
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": (
+                            cosine_scheduler.state_dict()
+                            if cosine_scheduler is not None else None
+                        ),
+                        "epoch": epoch,
+                        "best_val_loss": best_val_loss,
+                        "epochs_since_improvement": epochs_since_improvement,
+                        "config": {
+                            "epochs": epochs,
+                            "use_amp": use_amp,
+                            "validation_split": validation_split,
+                            "validate_every": validate_every,
+                            "lr_scheduler": lr_scheduler,
+                            "warmup_steps": warmup_steps,
+                            "grad_clip_norm": grad_clip_norm,
+                            "log_interval": log_interval,
+                            "patience": patience,
+                            "min_delta": min_delta,
+                        },
+                        "history": history,
+                    }, ckpt_path)
                     logger.info("Saved best model to %s", ckpt_path)
 
             if patience is not None:
@@ -506,6 +571,7 @@ def pretrain_combined(
     checkpoint_dir: str | None = None,
     use_amp: bool = False,
     log_interval: int = 10,
+    resume_from: str | None = None,
 ) -> List[Dict[str, float]]:
     """Combined pretraining with masked prediction, contrastive learning, and denoising.
 
@@ -520,6 +586,12 @@ def pretrain_combined(
         Weight for the denoising autoencoder loss component.
     masked_weight : float
         Weight for the masked PTM prediction loss component (primary objective).
+    resume_from : str or None
+        Path to a checkpoint written by a previous ``pretrain_combined`` run.
+        Restores all three module weights, optimizer state, ``best_loss`` and
+        the epoch counter so training continues exactly where it stopped.
+        Legacy checkpoints (weights only, written before this field existed)
+        are supported with a warning.
 
     Returns
     -------
@@ -549,7 +621,44 @@ def pretrain_combined(
 
     history: List[Dict[str, float]] = []
 
-    for epoch in range(epochs):
+    start_epoch = 0
+    if resume_from is not None:
+        # N20: 恢复三模块权重 + optimizer + best_loss + epoch 计数，
+        # 使断点续训后 best 语义与 TD-M01 checkpoint 恢复一致。
+        state = safe_torch_load(resume_from, map_location=device)
+        if isinstance(state, dict) and "masked_model" in state:
+            model.load_state_dict(state["masked_model"])
+            contrastive_module.load_state_dict(state["contrastive_module"])
+            denoising_module.load_state_dict(state["denoising_module"])
+            if "optimizer" in state and state["optimizer"] is not None:
+                # 新格式（2026-08-16 起）：完整训练状态
+                optimizer.load_state_dict(state["optimizer"])
+                start_epoch = int(state.get("epoch", -1)) + 1
+                best_loss = float(state.get("best_loss", float("inf")))
+                restored_history = state.get("history")
+                if isinstance(restored_history, list):
+                    history = [
+                        {k: float(v) for k, v in entry.items()}
+                        for entry in restored_history
+                        if isinstance(entry, dict)
+                    ]
+                logger.info(
+                    "Resumed %s from epoch %d (best_loss=%.6f)",
+                    resume_from, start_epoch, best_loss,
+                )
+            else:
+                # 旧格式：三模块裸权重（2026-08 前产物）
+                logger.warning(
+                    "Legacy checkpoint %s contains only module weights; "
+                    "optimizer/epoch state not restored",
+                    resume_from,
+                )
+        else:
+            raise ValueError(
+                f"Unrecognized checkpoint format for combined pretraining: {resume_from}"
+            )
+
+    for epoch in range(start_epoch, epochs):
         model.train()
         contrastive_module.train()
         denoising_module.train()
@@ -590,12 +699,10 @@ def pretrain_combined(
                 original_emb = outputs["logits"].detach()
                 masked_emb = outputs["logits"]
                 # Normalize to embeddings for contrastive
-                anchor = F.adaptive_avg_pool1d(
-                    original_emb.unsqueeze(1), 1
-                ).squeeze(-1)
-                positive = F.adaptive_avg_pool1d(
-                    masked_emb.unsqueeze(1), 1
-                ).squeeze(-1)
+                # R-02: logits 为 [B, L, D]，按 L 维平均得到 [B, D] 样本向量
+                # （原实现 unsqueeze 后 adaptive_avg_pool1d 收到 4 维张量必崩）
+                anchor = original_emb.mean(dim=1)
+                positive = masked_emb.mean(dim=1)
                 if anchor.shape[-1] != contrastive_module.projector[0].in_features:
                     # Project to matching dim
                     min_dim = min(anchor.shape[-1], contrastive_module.projector[0].in_features)
@@ -657,6 +764,18 @@ def pretrain_combined(
                 "masked_model": model.state_dict(),
                 "contrastive_module": contrastive_module.state_dict(),
                 "denoising_module": denoising_module.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch,
+                "best_loss": best_loss,
+                "config": {
+                    "epochs": epochs,
+                    "contrastive_weight": contrastive_weight,
+                    "denoising_weight": denoising_weight,
+                    "masked_weight": masked_weight,
+                    "use_amp": use_amp,
+                    "log_interval": log_interval,
+                },
+                "history": history,
             }, ckpt_path)
             logger.info("Saved best combined model to %s", ckpt_path)
 
