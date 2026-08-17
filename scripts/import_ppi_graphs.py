@@ -16,14 +16,17 @@ canonical signaling-edge 产物：
 * ``bioplex`` — ``bioplex_293T_v2_edges.tsv``（两列基因符号，117,930 边）。
   无需 ID 映射，直接转 canonical。
 * ``regnetwork`` — ``human.source`` 四列
-  ``TF_symbol <TAB> TF_Entrez <TAB> Target_symbol <TAB> Target_Entrez``；
-  符号已在文件内。调控方向（activation/inhibition）在 ``human.core``
-  （7z 发布）；上游 7z 文件 py7zr 无法解压（sha256 与 SHA256SUMS 一致，
-  为上游文件问题），故 relation 读取为尽力而为：优先使用
-  ``--regnetwork-core`` 指向的已解压 core 文件（每行三列
-  ``tf_entrez <TAB> target_entrez <TAB> sign``，sign ∈ +/-/?，RegNetwork
-  官方 core 格式【假设，未能在线核对】）；不可用时 relation 记为
-  ``unspecified`` 并在 manifest 显式记录——不静默、不丢弃边。
+  ``TF_symbol <TAB> TF_Entrez <TAB> Target_symbol <TAB> Target_Entrez``
+  （CRLF 行尾）；符号已在文件内。``human.core.7z`` 解压得到
+  ``human.core.txt``（六列，2026-08-17 在线核对）：
+  ``regulator_symbol <TAB> regulator_id <TAB> target_symbol <TAB>
+  target_entrez <TAB> regulator_type <TAB> target_type``，regulator_type ∈
+  {TF, miRNA, lncRNA, circRNA}。RegNetwork 批量发布**不含
+  activation/inhibition 符号**——方向语义不存在于数据中，不捏造；
+  core 的价值是按 ``(regulator_id, target_entrez)`` join 提供调控者类型，
+  用于输出 ``{tf|mirna|lncrna|circrna}_regulation:unspecified`` 边型。
+  未 join 命中的行按命名规约兜底（``hsa-miR-*`` → mirna），
+  其余记 ``regulation:unspecified``；manifest 显式记录——不静默、不丢弃边。
 * ``string`` — ``9606.protein.links.v12.0.txt.gz``（默认 physical 子网，
   ``--string-full`` 切全量）按 ``--min-score``（默认 700）过滤
   ``combined_score``。节点为 ``9606.ENSP...`` 蛋白 ID，需要
@@ -47,7 +50,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 SOURCES = ("bioplex", "regnetwork", "string")
 
@@ -75,15 +78,23 @@ SPECIES = "9606"
 EDGE_TYPE_VOCAB = {
     "bioplex": ("ppi:bioplex_apms",),
     "regnetwork": (
-        "tf_regulation:activates",
-        "tf_regulation:inhibits",
         "tf_regulation:unspecified",
+        "mirna_regulation:unspecified",
+        "lncrna_regulation:unspecified",
+        "circrna_regulation:unspecified",
+        "regulation:unspecified",
     ),
     "string": ("ppi:string_physical", "ppi:string_combined"),
 }
 
-#: RegNetwork core 符号 → relation 词表。
-REGNETWORK_RELATION_VOCAB = {"+": "activates", "-": "inhibits", "?": "unspecified"}
+#: RegNetwork human.core.txt 的 regulator_type → edge_type 前缀。
+#: RegNetwork 批量文件不发布 activation/inhibition 符号，方向一律 unspecified。
+REGNETWORK_REGULATOR_TO_EDGE_PREFIX = {
+    "TF": "tf_regulation",
+    "miRNA": "mirna_regulation",
+    "lncRNA": "lncrna_regulation",
+    "circRNA": "circrna_regulation",
+}
 
 
 class ImportError_(RuntimeError):
@@ -121,7 +132,7 @@ def parse_bioplex(path: Path, max_rows: Optional[int] = None) -> List[Dict[str, 
     edges: List[Dict[str, str]] = []
     with open(path, "rt", encoding="utf-8", errors="replace") as handle:
         for line_no, line in enumerate(handle, start=1):
-            line = line.rstrip("\n")
+            line = line.rstrip("\r\n")
             if not line.strip():
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
@@ -163,7 +174,7 @@ def load_entrez_symbol_map(node_path: Path) -> Dict[str, str]:
         raise ImportError_(f"缺少 RegNetwork human.node: {node_path}")
     with open(node_path, "rt", encoding="utf-8", errors="replace") as handle:
         for line_no, line in enumerate(handle, start=1):
-            line = line.rstrip("\n")
+            line = line.rstrip("\r\n")
             if not line.strip():
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
@@ -175,31 +186,59 @@ def load_entrez_symbol_map(node_path: Path) -> Dict[str, str]:
     return mapping
 
 
-def load_regnetwork_core(core_path: Optional[Path]) -> Dict[str, str]:
-    """解析已解压的 human.core 调控方向表。
+def load_regnetwork_core(core_path: Optional[Path]) -> Tuple[Dict[Tuple[str, str], str], int]:
+    """解析已解压的 human.core.txt（六列真实格式，2026-08-17 在线核对）。
 
-    【假设】RegNetwork 官方 core 文件为三列
-    ``tf_entrez <TAB> target_entrez <TAB> sign``（sign ∈ +/-/?）；该 7z
-    上游文件本机不可解压，格式未能在线核对。返回
-    ``(tf_entrez, target_entrez) -> relation`` 映射；路径不可用返回空映射
-    （调用方记录 relation=unspecified，不静默）。
+    每行 ``regulator_symbol <TAB> regulator_id <TAB> target_symbol <TAB>
+    target_entrez <TAB> regulator_type <TAB> target_type``；regulator_type ∈
+    {TF, miRNA, lncRNA, circRNA}。返回 ``(regulator_id, target_entrez) ->
+    regulator_type`` 映射与 join 键缺失被跳过的行数（811,766 行实测 1 行
+    circRNA 目标无 Entrez——跳过并显式计数，不静默）。RegNetwork 批量
+    文件不发布 activation/inhibition 符号——方向语义不存在于数据中，
+    不捏造。路径不可用返回空映射（调用方按命名规约兜底，manifest 记录）。
     """
-    relations: Dict[str, str] = {}
+    relations: Dict[Tuple[str, str], str] = {}
+    n_keyless = 0
     if core_path is None or not Path(core_path).is_file():
-        return relations
+        return relations, n_keyless
     with open(Path(core_path), "rt", encoding="utf-8", errors="replace") as handle:
         for line_no, line in enumerate(handle, start=1):
-            line = line.rstrip("\n")
+            line = line.rstrip("\r\n")
             if not line.strip():
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
-            if len(cells) < 3:
-                cells = line.split()
-            if len(cells) < 3:
-                raise ImportError_(f"human.core 行格式错误（期望 3 列）: {core_path}:{line_no}")
-            relation = REGNETWORK_RELATION_VOCAB.get(cells[2], "unspecified")
-            relations[(cells[0], cells[1])] = relation
-    return relations
+            if len(cells) < 6 or not cells[4]:
+                raise ImportError_(
+                    f"human.core.txt 行格式错误（期望 6 列）: {core_path}:{line_no}"
+                )
+            regulator_type = cells[4]
+            if regulator_type not in REGNETWORK_REGULATOR_TO_EDGE_PREFIX:
+                raise ImportError_(
+                    f"human.core.txt 未知 regulator_type {regulator_type!r}: "
+                    f"{core_path}:{line_no}"
+                )
+            if not cells[1] or not cells[3]:
+                n_keyless += 1
+                continue
+            relations[(cells[1], cells[3])] = regulator_type
+    if not relations:
+        raise ImportError_(f"human.core.txt 无有效行: {core_path}")
+    return relations, n_keyless
+
+
+def _regnetwork_edge_type(regulator_symbol: str, regulator_type: Optional[str]) -> str:
+    """按 core 类型（或命名规约）决定 RegNetwork 边的 edge_type。
+
+    core 命中 → ``{tf|mirna|lncrna|circrna}_regulation:unspecified``；
+    未命中 → ``hsa-miR-*`` 前缀是 miRNA 命名标准，按规约归类；其余无
+    类型证据，记 neutral 的 ``regulation:unspecified``（不冒充 TF）。
+    """
+    if regulator_type is not None:
+        prefix = REGNETWORK_REGULATOR_TO_EDGE_PREFIX[regulator_type]
+        return f"{prefix}:unspecified"
+    if regulator_symbol.startswith("hsa-miR"):
+        return "mirna_regulation:unspecified"
+    return "regulation:unspecified"
 
 
 def parse_regnetwork(
@@ -208,19 +247,23 @@ def parse_regnetwork(
     core_path: Optional[Path] = None,
     max_rows: Optional[int] = None,
 ) -> tuple:
-    """解析 human.source 四列调控边，返回 (edges, relation_source_note)。"""
+    """解析 human.source 四列调控边，返回 (edges, typing_source_note, n_typed_by_core)。"""
     if not source_path.is_file():
         raise ImportError_(f"缺少 RegNetwork human.source: {source_path}")
     fallback = load_entrez_symbol_map(node_path)
-    relations = load_regnetwork_core(core_path)
-    relation_note = (
-        f"human.core: {core_path}" if relations else "unavailable (human.core.7z unreadable; relation=unspecified)"
+    regulator_types, n_core_keyless = load_regnetwork_core(core_path)
+    typing_note = (
+        f"human.core.txt: {core_path} (regulator typing; RegNetwork publishes no "
+        "activation/inhibition signs in bulk files; "
+        f"{n_core_keyless} core rows skipped for missing join key)"
+        if regulator_types
+        else "unavailable (human.core.txt not provided; naming-convention fallback)"
     )
     edges: List[Dict[str, str]] = []
-    n_relation_resolved = 0
+    n_typed_by_core = 0
     with open(source_path, "rt", encoding="utf-8", errors="replace") as handle:
         for line_no, line in enumerate(handle, start=1):
-            line = line.rstrip("\n")
+            line = line.rstrip("\r\n")
             if not line.strip():
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
@@ -234,14 +277,15 @@ def parse_regnetwork(
                 tf_symbol = fallback.get(tf_entrez, tf_entrez)
             if not target_symbol or target_symbol == "-":
                 target_symbol = fallback.get(target_entrez, target_entrez)
-            relation = relations.get((tf_entrez, target_entrez), "unspecified")
-            if relation != "unspecified":
-                n_relation_resolved += 1
+            regulator_type = regulator_types.get((tf_entrez, target_entrez))
+            if regulator_type is not None:
+                n_typed_by_core += 1
+            edge_type = _regnetwork_edge_type(tf_symbol, regulator_type)
             edges.append(
                 {
                     "source_gene": tf_symbol,
                     "target_gene": target_symbol,
-                    "edge_type": f"tf_regulation:{relation}",
+                    "edge_type": edge_type,
                     "score": "",
                     "evidence": "RegNetwork-1.0 human (Liu et al. 2015 Database)",
                     "species": SPECIES,
@@ -252,7 +296,7 @@ def parse_regnetwork(
                 break
     if not edges:
         raise ImportError_(f"human.source 无数据行: {source_path}")
-    return edges, relation_note, n_relation_resolved
+    return edges, typing_note, n_typed_by_core
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +318,7 @@ def load_ensp_mapping(path: Optional[Path]) -> Dict[str, str]:
         raise ImportError_(f"ENSP 映射文件不存在: {p}")
     with open(p, "rt", encoding="utf-8", errors="replace") as handle:
         for line_no, line in enumerate(handle, start=1):
-            line = line.rstrip("\n")
+            line = line.rstrip("\r\n")
             if not line.strip() or line.startswith("#"):
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
@@ -312,7 +356,7 @@ def parse_string(
     unmapped: set = set()
     with _open_maybe_gzip(path) as handle:
         for line_no, line in enumerate(handle, start=1):
-            line = line.rstrip("\n")
+            line = line.rstrip("\r\n")
             if not line.strip():
                 continue
             cells = line.split()
@@ -389,7 +433,11 @@ def write_import_manifest(
         "summary": dict(summary),
         "parameters": dict(parameters),
         "edge_type_vocab": list(EDGE_TYPE_VOCAB[source_name]),
-        "relation_vocab": dict(REGNETWORK_RELATION_VOCAB) if source_name == "regnetwork" else None,
+        "relation_vocab": (
+            {k: f"{v}:unspecified" for k, v in REGNETWORK_REGULATOR_TO_EDGE_PREFIX.items()}
+            if source_name == "regnetwork"
+            else None
+        ),
         "artifacts": {
             "edges": str(output_dir / f"{source_name}_edges.tsv"),
         },
@@ -431,7 +479,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--regnetwork-core",
         type=Path,
         default=None,
-        help="已解压的 human.core（tf_entrez<TAB>target_entrez<TAB>sign）；缺省时 relation=unspecified",
+        help="已解压的 human.core.txt（6 列，提供 regulator 类型标注）；缺省时按命名规约兜底",
     )
     args = parser.parse_args(argv)
 
@@ -447,14 +495,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         elif args.source == "regnetwork":
             source_files = [raw_root / "human.source", raw_root / "human.node"]
-            edges, relation_note, n_relation = parse_regnetwork(
+            edges, typing_note, n_typed = parse_regnetwork(
                 source_files[0], source_files[1], args.regnetwork_core, max_rows=args.max_rows
             )
             summary = {
                 "n_records": len(edges),
                 "n_edges": len(edges),
-                "n_relation_resolved": n_relation,
-                "relation_source": relation_note,
+                "n_typed_by_core": n_typed,
+                "typing_source": typing_note,
             }
             parameters = {
                 "regnetwork_core": str(args.regnetwork_core) if args.regnetwork_core else None,

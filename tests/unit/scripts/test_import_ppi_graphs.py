@@ -33,17 +33,24 @@ def bioplex_raw(tmp_path):
 
 @pytest.fixture()
 def regnetwork_raw(tmp_path):
+    # human.source 官方发布为 CRLF 行尾（2026-08-17 在线核对）
     source = tmp_path / "human.source"
-    source.write_text(
-        "USF1\t7391\tS100A6\t6277\n"
-        "USF1\t7391\tDUSP1\t1843\n"
-        "-\t7157\tTP73\t7161\n",  # TF 符号缺失 -> human.node 回填
-        encoding="utf-8",
+    source.write_bytes(
+        b"USF1\t7391\tS100A6\t6277\r\n"
+        b"USF1\t7391\tDUSP1\t1843\r\n"
+        b"-\t7157\tTP73\t7161\r\n"  # TF 符号缺失 -> human.node 回填
+        b"hsa-miR-1\tMIMAT0000416\tBCL2\t596\r\n"  # core 未命中 -> 命名规约兜底
     )
     node = tmp_path / "human.node"
-    node.write_text("7391\tUSF1\n6277\tS100A6\n1843\tDUSP1\n7157\tTP53\n7161\tTP73\n", encoding="utf-8")
-    core = tmp_path / "human.core"
-    core.write_text("7391\t6277\t+\n7391\t1843\t-\n", encoding="utf-8")
+    node.write_text("7391\tUSF1\n6277\tS100A6\n1843\tDUSP1\n7157\tTP53\n7161\tTP73\n596\tBCL2\n", encoding="utf-8")
+    # human.core.txt 官方六列（regulator_symbol/id, target_symbol/entrez, 双侧类型）
+    core = tmp_path / "human.core.txt"
+    core.write_text(
+        "USF1\t7391\tS100A6\t6277\tTF\tGene\n"
+        "USF1\t7391\tDUSP1\t1843\tTF\tGene\n"
+        "hsa-miR-21\tMIMAT0000076\tPTEN\t5728\tmiRNA\tGene\n",
+        encoding="utf-8",
+    )
     return source, node, core
 
 
@@ -114,24 +121,30 @@ class TestBioplex:
 
 
 class TestRegnetwork:
-    def test_parse_with_core_relations(self, regnetwork_raw):
+    def test_parse_with_core_regulator_typing(self, regnetwork_raw):
         source, node, core = regnetwork_raw
-        edges, note, n_resolved = imp.parse_regnetwork(source, node, core)
-        assert len(edges) == 3
-        assert n_resolved == 2
-        assert note.startswith("human.core")
+        edges, note, n_typed = imp.parse_regnetwork(source, node, core)
+        assert len(edges) == 4
+        assert n_typed == 2
+        assert note.startswith("human.core.txt")
+        assert "no activation/inhibition signs" in note
         by_pair = {(e["source_gene"], e["target_gene"]): e["edge_type"] for e in edges}
-        assert by_pair[("USF1", "S100A6")] == "tf_regulation:activates"
-        assert by_pair[("USF1", "DUSP1")] == "tf_regulation:inhibits"
-        # TF 符号缺失行经 human.node 回填为 TP53
-        assert by_pair[("TP53", "TP73")] == "tf_regulation:unspecified"
+        # core join 命中（按 regulator_id|target_entrez）-> TF 类型
+        assert by_pair[("USF1", "S100A6")] == "tf_regulation:unspecified"
+        assert by_pair[("USF1", "DUSP1")] == "tf_regulation:unspecified"
+        # TF 符号缺失行经 human.node 回填为 TP53；core 未命中且非 miR 前缀 -> neutral
+        assert by_pair[("TP53", "TP73")] == "regulation:unspecified"
+        # core 未命中但 hsa-miR-* 命名规约 -> mirna
+        assert by_pair[("hsa-miR-1", "BCL2")] == "mirna_regulation:unspecified"
 
-    def test_parse_without_core_marks_unspecified(self, regnetwork_raw):
+    def test_parse_without_core_falls_back_to_conventions(self, regnetwork_raw):
         source, node, _ = regnetwork_raw
-        edges, note, n_resolved = imp.parse_regnetwork(source, node, None)
-        assert n_resolved == 0
+        edges, note, n_typed = imp.parse_regnetwork(source, node, None)
+        assert n_typed == 0
         assert "unavailable" in note
-        assert all(e["edge_type"] == "tf_regulation:unspecified" for e in edges)
+        by_pair = {(e["source_gene"], e["target_gene"]): e["edge_type"] for e in edges}
+        assert by_pair[("USF1", "S100A6")] == "regulation:unspecified"
+        assert by_pair[("hsa-miR-1", "BCL2")] == "mirna_regulation:unspecified"
 
     def test_cli_roundtrip(self, regnetwork_raw, tmp_path, capsys):
         source, node, core = regnetwork_raw
@@ -142,12 +155,55 @@ class TestRegnetwork:
         )
         assert exit_code == 0
         summary = json.loads(capsys.readouterr().out)
-        assert summary["n_edges"] == 3
+        assert summary["n_edges"] == 4
+        assert summary["n_typed_by_core"] == 2
         manifest = json.loads(
             (tmp_path / "out" / "regnetwork" / "import_manifest.json").read_text(encoding="utf-8")
         )
-        assert manifest["relation_vocab"] == {"+": "activates", "-": "inhibits", "?": "unspecified"}
-        assert manifest["summary"]["n_relation_resolved"] == 2
+        assert manifest["relation_vocab"] == {
+            "TF": "tf_regulation:unspecified",
+            "miRNA": "mirna_regulation:unspecified",
+            "lncRNA": "lncrna_regulation:unspecified",
+            "circRNA": "circrna_regulation:unspecified",
+        }
+        assert manifest["summary"]["edge_type_counts"] == {
+            "tf_regulation:unspecified": 2,
+            "regulation:unspecified": 1,
+            "mirna_regulation:unspecified": 1,
+        }
+
+    def test_crlf_source_does_not_leak_or_break_backfill(self, regnetwork_raw, tmp_path):
+        """CRLF 源文件：产物无 \\r 残留，且 Entrez 回填不被 \\r 破坏。"""
+        source, node, core = regnetwork_raw
+        edges, _, _ = imp.parse_regnetwork(source, node, core)
+        flat = "".join(str(v) for e in edges for v in e.values())
+        assert "\r" not in flat
+        # '-' 符号行回填成功（旧实现因 \r 残留在 Entrez 键上而回填失败）
+        assert any(e["source_gene"] == "TP53" for e in edges)
+
+    def test_core_bad_row_rejected(self, tmp_path):
+        core = tmp_path / "human.core.txt"
+        core.write_text("7391\t6277\t+\n", encoding="utf-8")  # 旧 3 列假设格式
+        with pytest.raises(imp.ImportError_, match="human.core.txt 行格式错误"):
+            imp.load_regnetwork_core(core)
+
+    def test_core_unknown_regulator_type_rejected(self, tmp_path):
+        core = tmp_path / "human.core.txt"
+        core.write_text("USF1\t7391\tS100A6\t6277\tprotein\tGene\n", encoding="utf-8")
+        with pytest.raises(imp.ImportError_, match="未知 regulator_type"):
+            imp.load_regnetwork_core(core)
+
+    def test_core_keyless_row_skipped_and_counted(self, tmp_path):
+        """join 键（regulator_id/target_entrez）缺失的行跳过并计数，不报错。"""
+        core = tmp_path / "human.core.txt"
+        core.write_text(
+            "USF1\t7391\tS100A6\t6277\tTF\tGene\n"
+            "hsa-miR-182-5p\tMIMAT0000259\tBRCC-3\t\tmiRNA\tcircRNA\n",
+            encoding="utf-8",
+        )
+        relations, n_keyless = imp.load_regnetwork_core(core)
+        assert relations == {("7391", "6277"): "TF"}
+        assert n_keyless == 1
 
     def test_bad_row_rejected(self, tmp_path):
         source = tmp_path / "human.source"

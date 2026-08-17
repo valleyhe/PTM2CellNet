@@ -729,9 +729,9 @@ datasets:
     license: STRING terms and citation required (CC BY 4.0)
   formats:
   - tsv_gz
-  # 2026-08-16: F-03 余量——由多源图导入器消费（physical 子网 + min_score>=700）。
-  # ENSP->symbol 映射文件（--ensp-mapping，可由 STRING protein.info 构造）
-  # 未获取前，正式 canonical 产物待生成（mapping_rate=0 时节点保留 ENSP ID）。
+  # 2026-08-17: F-03 尾巴闭环——protein.info v12.0 已下载并构造
+  # 9606.protein_to_symbol.v12.0.tsv（19,699 蛋白）；physical 子网 + min_score>=700
+  # canonical 产物已生成（173,038 边 / 10,746 节点 / mapping_rate=1.0，0 未映射）。
   loader: scripts/import_ppi_graphs.py
   files:
   - path: data/raw/string/9606.protein.links.v12.0.txt.gz
@@ -742,6 +742,14 @@ datasets:
     format: tsv_gz
     required: false
     sha256: 1ca87209a93cf7685e9c2997fbcfbfc69fedc6a803ccc1df917318a651df0823
+  - path: data/raw/string/9606.protein.info.v12.0.txt.gz
+    format: tsv_gz
+    required: false
+    sha256: 144de4b0d98c6a7dfde6ddc2591cf88657f27b989eadff4f501450c3ed1f0f1c
+  - path: data/raw/string/9606.protein_to_symbol.v12.0.tsv
+    format: tsv
+    required: true
+    sha256: fa5a0f77da739d30574205175a508ca51260950785f99c041d28f18029d25f12
   canonical_schema:
     required_columns:
     - source_gene
@@ -759,8 +767,8 @@ datasets:
     - score_threshold_recorded
     - gene_ids_mapped
   preprocessing:
-    version: 0.2.0
-    entrypoint: scripts/import_ppi_graphs.py --source string
+    version: 0.3.0
+    entrypoint: scripts/import_ppi_graphs.py --source string --ensp-mapping data/raw/string/9606.protein_to_symbol.v12.0.tsv
 - id: bioplex
   name: BioPlex interaction network
   category: signaling_graph
@@ -807,21 +815,25 @@ datasets:
 - id: regnetwork
   name: RegNetwork transcriptional regulatory network
   category: signaling_graph
-  # 2026-08-09: 已下载 RegNetwork-1.0 人类调控网络（GitHub 官方仓库，
-  # 372,774 调控边 / 23,079 节点，Entrez ID 形式）。原 regnetworkweb.org
-  # 已迁移至 zpliulab.cn；官网 7z 下载被服务器截断，故采用 GitHub 源。
+  # 2026-08-09: 已下载 RegNetwork-1.0 人类调控网络（372,774 调控边 /
+  # 23,079 节点，Entrez ID 形式）。2026-08-17: human.core.7z 从 zpliulab.cn
+  # 完整重下（旧文件 1.25MB 被截断，头部 NextHeaderOffset=3.14MB），
+  # 解压得 human.core.txt（811,766 行六列真实格式，无方向符号列——
+  # v5.0 的"3 列带 sign"为错误假设）。
   status: implemented
   source:
     provider: RegNetwork (ZPLiu Lab)
     homepage: https://www.zpliulab.cn/RegNetwork/home
-    reference: RegNetwork-1.0 human (Liu et al. 2015 Database), human.source + human.node
+    reference: RegNetwork-1.0 human (Liu et al. 2015 Database), human.source + human.node + human.core.txt
     access: public_download
     license: Open-source (record release and redistribution terms)
   formats:
   - tsv
-  # 2026-08-16: F-03 余量——已产出 canonical 边表（372,774 边，符号内嵌）。
-  # 调控方向（human.core.7z）上游文件本机不可解压，relation=unspecified
-  # 已在 import_manifest.json 显式记录；core 文件就位后可 --regnetwork-core 重跑。
+  # 2026-08-17: F-03 尾巴闭环——core 按 (regulator_id, target_entrez) join
+  # 提供调控者类型（98.98% 覆盖）；canonical 边表已按真实生物学重标：
+  # mirna_regulation 199,578 / tf_regulation 171,593 / regulation 1,600 /
+  # lncrna_regulation 3（此前全部误标为 tf_regulation）。RegNetwork 批量
+  # 文件不发布 activation/inhibition，方向一律 unspecified，不捏造。
   loader: scripts/import_ppi_graphs.py
   files:
   - path: data/raw/regnetwork/human.source
@@ -832,6 +844,10 @@ datasets:
     format: tsv
     required: true
     sha256: e92fcab8428bc8da5c7b971d51d49e66c39433d0e2604c930966adea15c226ba
+  - path: data/raw/regnetwork/human.core.txt
+    format: tsv
+    required: false
+    sha256: c1b28fa58986f3ac9bf5bb731fdd4b72758597e63c7d35a73809f841aaeac18d
   canonical_schema:
     required_columns:
     - source_gene
@@ -849,5 +865,5 @@ datasets:
     - gene_ids_mapped
     - relation_vocab_versioned
   preprocessing:
-    version: 0.2.0
-    entrypoint: scripts/import_ppi_graphs.py --source regnetwork
+    version: 0.3.0
+    entrypoint: scripts/import_ppi_graphs.py --source regnetwork --regnetwork-core data/raw/regnetwork/human.core.txt
