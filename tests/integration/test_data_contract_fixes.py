@@ -26,7 +26,7 @@ from src.data.data_manifest import load_manifest, validate_manifest  # noqa: E40
 MANIFEST = PROJECT_ROOT / "data/manifests/datasets.yaml"
 SCPERTURB_DIR = PROJECT_ROOT / "data/raw/scperturb"
 EPSD_DIR = PROJECT_ROOT / "data/raw/epsd"
-GSE90546_REPORT = PROJECT_ROOT / "data/processed/norman_adamson/GSE90546_structure_report.json"
+GSE90546_GEO_ROOT = PROJECT_ROOT / "data/raw/norman_adamson"
 
 
 def _dataset(manifest, dataset_id: str) -> dict:
@@ -111,8 +111,16 @@ class TestEpsdRegistration:
 
 class TestGSE90546StatusSemantics:
     def test_probe_status_is_probed_not_parsed(self):
-        if not GSE90546_REPORT.is_file():
-            pytest.skip("GSE90546 report not regenerated")
-        report = json.loads(GSE90546_REPORT.read_text(encoding="utf-8"))
+        """probe_gse90546 契约：结构探测返回 status='probed'，不冒充 'parsed'。
+
+        直接调用 probe 函数而非读取在盘 structure_report——后者会随后续
+        真实解析（--parse-gse90546，F-08）推进为 'parsed'，不可作为固定
+        断言对象（2026-08-17 复核发现：在盘状态推进后原断言被击穿）。
+        """
+        if not (GSE90546_GEO_ROOT / "GSE90546" / "GSE90546_RAW.tar").is_file():
+            pytest.skip("GSE90546_RAW.tar not on disk")
+        from scripts.import_norman_adamson import probe_gse90546
+
+        report = probe_gse90546(GSE90546_GEO_ROOT)
         assert report["status"] == "probed"
         assert report["status"] != "parsed"
