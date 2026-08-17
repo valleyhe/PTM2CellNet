@@ -452,6 +452,146 @@ class TestVariantPredictRoute:
         assert "variant" in data
         assert "ptm_effects" in data
 
+    def test_variant_confidence_from_max_abs_delta(self, app_client):
+        """confidence = min(max|delta_prob| * 2, 1.0)."""
+        mock_workflow = MagicMock()
+        mock_workflow.predict_from_hgvs.return_value = MagicMock(
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
+                     "ref_aa": "A", "alt_aa": "B"},
+            ptm_effects={
+                "Phosphorylation": {"wildtype_prob": 0.8, "mutant_prob": 0.2,
+                                    "delta_prob": -0.6, "effect": "loss"},
+                "Ubiquitination": {"wildtype_prob": 0.5, "mutant_prob": 0.9,
+                                   "delta_prob": 0.4, "effect": "gain"},
+            },
+            pathway_impacts=None,
+        )
+        with patch.object(STATE, "variant_workflow", mock_workflow):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B", "sequence": "M" * 100},
+            )
+        assert resp.status_code == 200
+        # max |delta| = 0.6 -> 0.6 * 2 = 1.2 -> capped at 1.0
+        assert resp.json()["confidence"] == 1.0
+
+    def test_variant_fetches_sequence_from_uniprot(self, app_client):
+        """uniprot_id-only request resolves the sequence via the workflow."""
+        mock_workflow = MagicMock()
+        mock_workflow.fetch_sequence_from_uniprot.return_value = "M" * 80
+        mock_workflow.predict_from_hgvs.return_value = MagicMock(
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
+                     "ref_aa": "A", "alt_aa": "B"},
+            ptm_effects={},
+            pathway_impacts=None,
+        )
+        with patch.object(STATE, "variant_workflow", mock_workflow):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B", "uniprot_id": "P12345"},
+            )
+        assert resp.status_code == 200
+        mock_workflow.fetch_sequence_from_uniprot.assert_called_once_with("P12345")
+
+    @pytest.mark.parametrize("exc,expected", [
+        (ConnectionError("down"), 504),
+        (TimeoutError("slow"), 504),
+        (ValueError("bad id"), 400),
+        (KeyError("missing"), 400),
+        (TypeError("wrong type"), 400),
+        (OSError("io"), 400),
+    ])
+    def test_variant_uniprot_fetch_error_mapping(self, app_client, exc, expected):
+        """UniProt fetch failures map to 504 (network) / 400 (parse, unexpected)."""
+        mock_workflow = MagicMock()
+        mock_workflow.fetch_sequence_from_uniprot.side_effect = exc
+        with patch.object(STATE, "variant_workflow", mock_workflow):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B", "uniprot_id": "P12345"},
+            )
+        assert resp.status_code == expected
+
+    def test_variant_missing_sequence_returns_400(self, app_client):
+        """Neither sequence nor uniprot_id -> 400 with explicit detail."""
+        mock_workflow = MagicMock()
+        with patch.object(STATE, "variant_workflow", mock_workflow):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B"},
+            )
+        assert resp.status_code == 400
+        assert "Sequence required" in resp.json()["detail"]
+
+    def test_variant_cell_state_prediction_populated(self, app_client):
+        """With STATE.model initialized, cell_state_prediction is a known label."""
+        mock_workflow = MagicMock()
+        mock_workflow.predict_from_hgvs.return_value = MagicMock(
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
+                     "ref_aa": "A", "alt_aa": "B"},
+            ptm_effects={
+                "Phosphorylation": {"wildtype_prob": 0.8, "mutant_prob": 0.2,
+                                    "delta_prob": -0.6, "effect": "loss"},
+            },
+            pathway_impacts=None,
+        )
+        with patch.object(STATE, "variant_workflow", mock_workflow):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B", "sequence": "M" * 100},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["cell_state_prediction"] in {
+            "proliferation", "differentiation", "apoptosis", "quiescence",
+        }
+        assert not data["warnings"]
+
+    def test_variant_cell_state_failure_degrades_to_warning(self, app_client):
+        """Cell-state model failure yields 200 + warning, never a 500."""
+        mock_workflow = MagicMock()
+        mock_workflow.predict_from_hgvs.return_value = MagicMock(
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
+                     "ref_aa": "A", "alt_aa": "B"},
+            ptm_effects={},
+            pathway_impacts=None,
+        )
+        broken_model = MagicMock(side_effect=RuntimeError("boom"))
+        with patch.object(STATE, "variant_workflow", mock_workflow), \
+                patch.object(STATE, "model", broken_model):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B", "sequence": "M" * 100},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["cell_state_prediction"] is None
+        assert any("Cell-state prediction unavailable" in w for w in data["warnings"])
+
+    def test_variant_pathway_impacts_mapped_with_confidence(self, app_client):
+        """include_pathways maps workflow dicts to PathwayImpact with thresholds."""
+        mock_workflow = MagicMock()
+        mock_workflow.predict_from_hgvs.return_value = MagicMock(
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
+                     "ref_aa": "A", "alt_aa": "B"},
+            ptm_effects={},
+            pathway_impacts={
+                "MAPK cascade": {"activity": 0.8, "genes": ["BRAF", "MAP2K1"]},
+                "Apoptosis": {"activity": -0.2, "genes": ["BAX"]},
+            },
+        )
+        with patch.object(STATE, "variant_workflow", mock_workflow):
+            resp = app_client.post(
+                "/api/v1/predict/variant",
+                json={"hgvs": "X:p.A1B", "sequence": "M" * 100,
+                      "include_pathways": True},
+            )
+        assert resp.status_code == 200
+        impacts = {p["pathway_name"]: p for p in resp.json()["pathway_impacts"]}
+        assert impacts["MAPK cascade"]["confidence"] == "high"
+        assert impacts["Apoptosis"]["confidence"] == "medium"
+        assert impacts["MAPK cascade"]["key_genes"] == ["BRAF", "MAP2K1"]
+
 
 # ---------------------------------------------------------------------------
 # End-to-end prediction with a real (in-test) model — replaces the former

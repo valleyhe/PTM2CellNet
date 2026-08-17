@@ -607,6 +607,148 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
         ) from e
 
 
+def _ptm_effects_to_models(ptm_effects: Dict[str, Dict[str, Any]]) -> List[PTMEffect]:
+    """Convert workflow PTM effect dicts into ``PTMEffect`` schema objects."""
+    return [
+        PTMEffect(
+            ptm_type=ptm_type,
+            wildtype_prob=effect["wildtype_prob"],
+            mutant_prob=effect["mutant_prob"],
+            delta_prob=effect["delta_prob"],
+            effect=effect["effect"],
+        )
+        for ptm_type, effect in ptm_effects.items()
+    ]
+
+
+def _pathway_impacts_to_models(
+    pathway_impacts: Optional[Dict[str, Dict[str, Any]]],
+) -> Optional[List[PathwayImpact]]:
+    """Convert workflow pathway impact dicts into ``PathwayImpact`` objects.
+
+    Confidence is "high" when |activity| > 0.5, otherwise "medium" — the
+    threshold contract locked by the variant route characterization tests.
+    """
+    if not pathway_impacts:
+        return None
+    return [
+        PathwayImpact(
+            pathway_name=name,
+            activity_change=data.get("activity", 0.0),
+            confidence="high" if abs(data.get("activity", 0)) > 0.5 else "medium",
+            key_genes=data.get("genes", []),
+        )
+        for name, data in pathway_impacts.items()
+    ]
+
+
+def _variant_confidence(ptm_effects: List[PTMEffect]) -> float:
+    """Confidence from the strongest PTM probability shift (capped at 1.0)."""
+    max_delta = max((abs(e.delta_prob) for e in ptm_effects), default=0.0)
+    return min(max_delta * 2, 1.0)
+
+
+async def _resolve_variant_sequence(
+    request: VariantPredictionRequest,
+    warnings_list: List[str],
+) -> Optional[str]:
+    """Resolve the variant sequence from the request or UniProt.
+
+    Uses the request sequence when present; otherwise fetches from UniProt via
+    the variant workflow. Network failures map to 504, parse/unexpected errors
+    to 400. Raises HTTPException when no sequence can be resolved.
+    """
+    sequence = request.sequence
+    if sequence is None and request.uniprot_id:
+        try:
+            # N01: UniProt fetch 是阻塞网络 I/O，卸载出事件循环。
+            sequence = await run_in_threadpool(
+                STATE.variant_workflow.fetch_sequence_from_uniprot,
+                request.uniprot_id,
+            )
+            logger.info(f"Fetched sequence from UniProt for {request.uniprot_id}")
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning("UniProt fetch network error [%s]: %s", type(e).__name__, e)
+            warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=f"Could not reach UniProt for {request.uniprot_id}: {e}",
+            ) from e
+        except (ValueError, KeyError) as e:
+            logger.warning("UniProt fetch parse error [%s]: %s", type(e).__name__, e)
+            warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Could not fetch sequence for {request.uniprot_id}: {e}",
+            ) from e
+        except (TypeError, AttributeError, OSError) as e:
+            logger.warning(
+                "UniProt fetch unexpected error [%s]: %s",
+                type(e).__name__, e, exc_info=True,
+            )
+            warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Could not fetch sequence for {request.uniprot_id}: {e}",
+            ) from e
+
+    if sequence is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sequence required (either provide directly or UniProt ID)",
+        )
+    return sequence
+
+
+async def _variant_cell_state_prediction(
+    sequence: Optional[str],
+    ptm_types: List[str],
+    warnings_list: List[str],
+) -> Optional[str]:
+    """Predict a qualitative cell-state label for the variant sequence.
+
+    Runs the variant-aware sequence (plus PTM sites derived from the variant's
+    PTM effects) through the initialized cell-state model. Degrades to a
+    warning instead of an error when the model is unavailable or fails — the
+    variant effect itself has already been computed at this point.
+    """
+    if STATE.model is None or not sequence:
+        return None
+
+    try:
+        # Build PTM sites from the derived PTM effects so the model sees
+        # the variant-induced modifications.
+        def _sync() -> int:
+            variant_ptm_sites = [{"position": 1, "type": ptm_type} for ptm_type in ptm_types]
+            variant_request = PredictionRequest(
+                sequence=sequence,
+                ptm_sites=variant_ptm_sites,
+                use_davf=False,
+            )
+            variant_batch = preprocess_request(variant_request)
+            variant_batch = {
+                key: val.unsqueeze(0).to(STATE.device) for key, val in variant_batch.items()
+            }
+            _, variant_pred_tensor, _ = _run_prediction_on_batch(variant_batch)
+            return int(variant_pred_tensor[0].item())
+
+        variant_pred_idx = await run_in_threadpool(_sync)
+        return STATE.idx_to_label.get(variant_pred_idx, "unknown")
+    except (ValueError, KeyError, RuntimeError) as exc:
+        logger.warning(
+            "Variant cell-state prediction failed [%s]: %s",
+            type(exc).__name__, exc,
+        )
+        warnings_list.append(f"Cell-state prediction unavailable: {exc}")
+    except (TypeError, AttributeError, OSError) as exc:
+        logger.warning(
+            "Variant cell-state prediction unexpected error [%s]: %s",
+            type(exc).__name__, exc, exc_info=True,
+        )
+        warnings_list.append(f"Cell-state prediction unavailable: {exc}")
+    return None
+
+
 @router.post("/predict/variant", response_model=VariantPredictionResponse)
 async def predict_variant(request: VariantPredictionRequest) -> VariantPredictionResponse:
     """
@@ -628,45 +770,7 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
     warnings_list = []
 
     try:
-        sequence = request.sequence
-        if sequence is None and request.uniprot_id:
-            try:
-                # N01: UniProt fetch 是阻塞网络 I/O，卸载出事件循环。
-                sequence = await run_in_threadpool(
-                    STATE.variant_workflow.fetch_sequence_from_uniprot,
-                    request.uniprot_id,
-                )
-                logger.info(f"Fetched sequence from UniProt for {request.uniprot_id}")
-            except (ConnectionError, TimeoutError) as e:
-                logger.warning("UniProt fetch network error [%s]: %s", type(e).__name__, e)
-                warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                    detail=f"Could not reach UniProt for {request.uniprot_id}: {e}",
-                ) from e
-            except (ValueError, KeyError) as e:
-                logger.warning("UniProt fetch parse error [%s]: %s", type(e).__name__, e)
-                warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not fetch sequence for {request.uniprot_id}: {e}",
-                ) from e
-            except (TypeError, AttributeError, OSError) as e:
-                logger.warning(
-                    "UniProt fetch unexpected error [%s]: %s",
-                    type(e).__name__, e, exc_info=True,
-                )
-                warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not fetch sequence for {request.uniprot_id}: {e}",
-                ) from e
-
-        if sequence is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Sequence required (either provide directly or UniProt ID)",
-            )
+        sequence = await _resolve_variant_sequence(request, warnings_list)
 
         # N01: HGVS 解析 + 效应预测是 CPU 密集工作，卸载出事件循环。
         result = await run_in_threadpool(
@@ -676,74 +780,16 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
             include_pathways=request.include_pathways,
         )
 
-        ptm_effects = [
-            PTMEffect(
-                ptm_type=ptm_type,
-                wildtype_prob=effect["wildtype_prob"],
-                mutant_prob=effect["mutant_prob"],
-                delta_prob=effect["delta_prob"],
-                effect=effect["effect"],
-            )
-            for ptm_type, effect in result.ptm_effects.items()
-        ]
-
-        pathway_impacts = None
-        if request.include_pathways and result.pathway_impacts:
-            pathway_impacts = [
-                PathwayImpact(
-                    pathway_name=name,
-                    activity_change=data.get("activity", 0.0),
-                    confidence="high" if abs(data.get("activity", 0)) > 0.5 else "medium",
-                    key_genes=data.get("genes", []),
-                )
-                for name, data in result.pathway_impacts.items()
-            ]
-
-        max_delta = max((abs(e.delta_prob) for e in ptm_effects), default=0.0)
-        confidence = min(max_delta * 2, 1.0)
-
-        # Predict cell-state change by running the variant-aware sequence through
-        # the model when it is initialized. The variant workflow derives PTM
-        # effects from the variant; we feed the (possibly mutated) sequence plus
-        # those PTM sites into the cell-state model to obtain a qualitative label.
-        cell_state_prediction: Optional[str] = None
-        if STATE.model is not None and sequence:
-            try:
-                # Build PTM sites from the derived PTM effects so the model sees
-                # the variant-induced modifications.
-                def _variant_cell_state_sync() -> int:
-                    variant_ptm_sites = [
-                        {"position": 1, "type": ptm_type}
-                        for ptm_type in result.ptm_effects.keys()
-                    ]
-                    variant_request = PredictionRequest(
-                        sequence=sequence,
-                        ptm_sites=variant_ptm_sites,
-                        use_davf=False,
-                    )
-                    variant_batch = preprocess_request(variant_request)
-                    variant_batch = {
-                        key: val.unsqueeze(0).to(STATE.device) for key, val in variant_batch.items()
-                    }
-                    _, variant_pred_tensor, _ = _run_prediction_on_batch(variant_batch)
-                    return int(variant_pred_tensor[0].item())
-
-                variant_pred_idx = await run_in_threadpool(_variant_cell_state_sync)
-                variant_label = STATE.idx_to_label.get(variant_pred_idx, "unknown")
-                # Express the cell-state prediction as the predicted state.
-                cell_state_prediction = variant_label
-            except (ValueError, KeyError, RuntimeError) as exc:
-                logger.warning(
-                    "Variant cell-state prediction failed [%s]: %s",
-                    type(exc).__name__, exc,
-                )
-                warnings_list.append(f"Cell-state prediction unavailable: {exc}")
-            except (TypeError, AttributeError, OSError) as exc:
-                logger.warning(
-                    "Variant cell-state prediction unexpected error [%s]: %s",
-                    type(exc).__name__, exc, exc_info=True,
-                )
-                warnings_list.append(f"Cell-state prediction unavailable: {exc}")
+        ptm_effects = _ptm_effects_to_models(result.ptm_effects)
+        pathway_impacts = (
+            _pathway_impacts_to_models(result.pathway_impacts)
+            if request.include_pathways
+            else None
+        )
+        confidence = _variant_confidence(ptm_effects)
+        cell_state_prediction = await _variant_cell_state_prediction(
+            sequence, list(result.ptm_effects.keys()), warnings_list
+        )
 
         processing_time_ms = (time.time() - start_time) * 1000
 
