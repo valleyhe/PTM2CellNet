@@ -138,6 +138,54 @@ spec:
   type: LoadBalancer
 ```
 
+## 跨尺度推理端点（cross-scale）
+
+跨尺度模型（`CrossScalePTM2CellNet`，由 `scripts/train_cross_scale.py --output` 产出的
+artifact 目录）通过独立的三个端点在线服务。它与标准 `/api/v1/predict` 链路
+**完全独立**：独立状态槽、独立初始化，两类模型可在同一进程并存，互不干扰。
+
+### 端点一览
+
+| 端点 | 用途 | 关键行为 |
+|---|---|---|
+| `POST /api/v1/cross-scale/initialize` | 加载跨尺度 artifact | 校验 schema/词表/权重（`strict_assets=false` 仅放宽 best→last checkpoint 回退，其余校验不变） |
+| `POST /api/v1/cross-scale/predict` | 单样本预测 | `sequence` 或 `embedding_ref` 二选一；二者皆无/皆有 → 400 |
+| `POST /api/v1/cross-scale/batch_predict` | 批量预测 | `samples[]`（1–64，空列表 422）+ `batch_size`（1–64）；`fail_fast=false` 时逐样本收集 errors |
+
+### initialize 关键字段
+
+- `artifact_path`（必填）：`train_cross_scale.py` 产物目录（含 manifest/config/
+  checkpoint/label 词表）。路径穿越被拒绝（403）。
+- `graph_ref`（可选）：服务端 NPZ 默认图路径，需含 `cell_edge_index`（必需）、
+  `signal_edge_index`、`signal_gene_map`。模型 `CellGraphCompassHead` 硬性要求
+  显式 cell graph——在线请求无法内嵌大图，因此由 initialize 登记为默认图；
+  单样本 embedding NPZ 自带图时优先使用。两者皆无且请求含序列/embedding
+  需要图时 → 显式 400，不静默。
+- `device` / `max_batch_size`：常规配置项。
+
+### predict 关键字段
+
+- `sequence`：原始氨基酸序列（服务端做 PTM 位点解析与词表映射，越界 400）。
+- `embedding_ref` + `sample_index`：预计算 embedding NPZ 的服务端路径与行号，
+  需含 `{backbone}_embeddings` 数组。
+- `ptm_sites`：与标准端点相同的 `PTMSite` 列表（`position`/`type`/`gene_symbol`）。
+- `include_delta_expression`：默认关闭；开启后返回 `num_cell_genes` 维
+  `delta_expression` 向量。
+- `allow_uniform_signal_map`（默认 `false`）：缺少可用 `signal_gene_map` 时的
+  **显式工程选择**——按当前请求蛋白质节点数构造均匀映射（signal→gene 无信息
+  退化），并在响应 `fallback_flags.signal_map_uniform=true` 标记。默认关闭时
+  缺少映射直接 400。禁止隐式随机 fallback。
+
+### 响应要点
+
+每个 prediction 含 `cell_state`/`confidence`/`probabilities`/`cell_state_logits`、
+`ptm_sites_applied`、`fallback_flags`（全部显式布尔，无静默降级）与
+`provenance`（artifact manifest digest、模型来源等）。批量响应含
+`summary{total,succeeded,failed}` 与逐样本 `errors[{index,sample_id,detail}]`。
+
+> 与标准链路一致：跨尺度端点同样受 API key 门禁（401/403）、速率限制与
+> 请求体大小限制约束；未初始化时返回 503。
+
 ## 监控
 
 ### 健康检查端点
