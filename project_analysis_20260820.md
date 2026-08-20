@@ -49,7 +49,7 @@
 | 工作树状态 | 干净，无待提交代码修改（前置"提交所有已完成修改"自然满足） | `git status` → `nothing to commit, working tree clean` |
 | 合并操作 | **无需执行**：已位于 `main`，无待合并分支；`audit/20260809-*` 为历史审计分支，不在合并范围 | `git branch -a` |
 | 冲突 | 无（无合并发生；本地包含远程全部历史） | 同上 |
-| 本轮新提交 | 归档 + lint 修复 + 本报告 + CURRENT_STATUS 刷新（提交哈希见 `git log -1`，提交信息前缀 `chore(docs)`/`style(tests)`） | §1.3、附录 B |
+| 本轮新提交 | **3 个提交**：`d703430`（style(tests)：6 处 ruff 修复）、`d0a3b0c`（归档批次 + 本报告，含 R100 纯 rename 保历史）、`a5ab6b2`（原路径重定向短页）。合并前版本 `cea16f3` → 合并后版本 `a5ab6b2` | §1.3、附录 B |
 
 **本地领先远程的 22 个提交关键修改点**（按主题归类，`git log --oneline origin/main..main`）：
 

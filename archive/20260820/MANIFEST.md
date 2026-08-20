@@ -7,6 +7,7 @@
 | 审计日期 | 2026-08-20 |
 | 远程基线 `origin/main` | `c76fff881f268f9bd0b39d68db8ba547115ec4cf`（`git fetch` 后确认，远程自 2026-08-16 发布后无新提交） |
 | 本轮起点本地 `main` | `cea16f3`（领先远程 22 个提交、落后 0 个，本地为远程超集；工作树干净，无待合并分支） |
+| 本轮归档同步提交 | `d0a3b0c`（`git log -1 -- archive/20260820/`；R100 纯 rename 保历史），前导 `d703430`（tests lint 修复），后续 `a5ab6b2`（原路径重定向短页） |
 | 验证状态 | `python -m compileall src scripts` 通过（exit 0）；全量单测 **1957 passed / 6 skipped**（98.69s，6 个 skip 均为环境守卫） |
 | 审计范围 | 根目录活动报告、`docs/` 直下文档与报告、`.planning/` 审计快照；沿用 `archive/20260816/MANIFEST.md` 归档规则 |
 | 过时判定 | 内容与当前代码实现或需求规范存在实质性差异 |
