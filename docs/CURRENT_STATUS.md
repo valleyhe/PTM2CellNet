@@ -1,9 +1,11 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-08-16（Norman/Adamson 导入管线合并与文档归档后）**
+**Last updated: 2026-08-20（归档轮 20260820 与综合分析刷新后）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260816.md`](https://github.com/valleyhe/PTM2CellNET/blob/main/project_analysis_20260816.md)。
+[`project_analysis_20260820.md`](./project_analysis_20260820.md)。
+2026-08-16 的综合分析 v5.0 已作为历史快照归档到
+[`archive/20260820/`](./archive/20260820/MANIFEST.md)（原路径留有重定向入口）；
 2026-08-08/09 的 E2E 现状分析、R-01～R-03 修复报告与修复报告 v2 已作为历史快照
 归档到 [`archive/20260816/`](https://github.com/valleyhe/PTM2CellNET/tree/main/archive/20260816)
 （原路径留有重定向入口）；更早的快照位于
@@ -12,11 +14,11 @@
 ## Quick Reference
 
 - **验证环境**：Python 3.12.13、PyTorch 2.4.1+cu118、NumPy 2.4.3、CUDA 可用；真实资产测试未启用网络/GPU/外部服务验收门禁。
-- **测试基线**：完整 `pytest tests/unit -q` 为 **1716 passed、4 skipped**（2026-08-16，79.4s，4 个 skip 均为环境守卫：2×scvi 反向守卫、1×onnx 缺失、1×pickle 限制）；上一轮 coverage 门禁基线为 branch coverage 75.27%（2026-08-09 数据，`fail_under=74`，待下一轮复测刷新）。
-- **静态/构建质量**：`ruff check src scripts tests`、`mypy src --show-error-codes`（133 个源文件，0 errors）、`compileall`、`setup.py check`、wheel 构建和 Sphinx strict 均通过；`pip check` 仍有两个可选依赖冲突。
+- **测试基线**：完整 `pytest tests/unit -q` 为 **1957 passed、6 skipped**（2026-08-20，`-rs` 实测 6 个 skip：2×scvi 反向守卫、1×pickle/pooling 限制、1×ONNX 缺失、2×window 边界位置守卫；较 2026-08-16 的 1716/4 增加 241 例）；上一轮 coverage 门禁基线为 branch coverage 75.27%（2026-08-09 数据，`fail_under=74`，待下一轮复测刷新）。
+- **静态/构建质量**：`compileall` 通过；`ruff check src scripts tests` 通过（2026-08-20 本轮修复 6 处 tests/ 新增 lint 后复测全绿，受影响 56 例测试通过）；`mypy src` 在当前依赖齐全环境实测 **25 errors / 12 files**（`pyproject.toml` 对 architectures、predictions 两模块部分错误码豁免后；以 `Tensor | Module` 注解精度与 `no-any-return` 为主，不阻塞运行时，已登记技术债 TD-N-06，详见 project_analysis_20260820.md）；`pip check` 仍有两个可选依赖冲突（已登记 F-10）。
 - **当前实现**：标准模型离线训练/推理/API 工程链路可运行；跨尺度模型已有版本化 NPZ DataModule、独立训练/批量推理 CLI、完整 checkpoint 和 artifact manifest，但仍是 opt-in 离线路径，未接入标准 API。callback 状态/`global_step` 恢复和 `cell_edge_weight` 契约已闭环。
 - **R-01～R-03 状态**：`MultiPLMEncoder`、`PTMTokenAdapter`、`CIGNNSignalBridge`/敏感度矩阵和 `CellGraphCompassHead` 的工程契约与 synthetic batch 测试通过；本地三路 pLM 资产结构门禁通过，真实图/扰动训练和科学验收仍未验证。
-- **剩余需求差距**：`32ded55`（2026-08-16）已登记 norman_adamson（GSE133344 完整导入，GSE90546 待解析）、kinase_substrate（OmniPath 41,506 条）、string、bioplex、regnetwork 快照，`cross_scale_training` 9 个 required 数据集仅剩 **scperturb（已下载未登记）、replogle、scgenescope** 3 项 controlled 且正确 fail-fast；跨尺度 checkpoint 尚未被 API 初始化路由支持，TD-H02 embedding 预计算器、信号图原始格式导入与真实数据科学验收仍未实现（详见 project_analysis_20260816.md 任务 1）。
+- **剩余需求差距**：`cross_scale_training` 9 个 required 数据集经 2026-08-17/18 轮收口后仅剩 **replogle、scgenescope** 2 项 controlled 且正确 fail-fast（scperturb 已登记为 implemented，`scripts/import_scperturb.py`）；跨尺度 checkpoint 已由 `a63e4dd` 接入 API（`/cross-scale/*` 三端点，`src/api/routes/__init__.py:20`）；TD-H02 embedding 预计算器（`scripts/prepare_cross_scale_embeddings.py`）与信号图原始格式导入（`scripts/import_ppi_graphs.py`，STRING/BioPlex/RegNetwork）均已实现。剩余核心缺口为**真实数据科学验收（F-04）**：`tests/real_assets/` 门禁内全部 skip，无固定阈值/快照/验收报告（详见 project_analysis_20260820.md 任务 1 GAP-1）。
 - **覆盖率门禁**：默认 CI 使用 branch coverage，`fail_under=74`；下一轮优先补 `training/self_supervised.py`、初始化路由、`data/validation.py`、跨尺度推理和 pLM 资产异常路径。
 - **范围裁剪**：实时质谱流、自定义 PTM 数据库、GUI、API key 功能扩展已取消；兼容代码可保留，不得重新列为 roadmap 目标。
 
