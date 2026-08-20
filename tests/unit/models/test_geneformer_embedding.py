@@ -116,7 +116,7 @@ class TestGeneEmbeddingLookup:
         loader = _make_fallback_loader(tmp_path)
         loader._embeddings = None
         with pytest.raises(RuntimeError, match="not loaded"):
-            loader.embeddings
+            _ = loader.embeddings
 
 
 class TestDeviceAndSingletonHelpers:

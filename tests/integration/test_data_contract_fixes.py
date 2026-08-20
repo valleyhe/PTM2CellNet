@@ -12,7 +12,6 @@ These tests read the real manifest and the real on-disk snapshots; they
 skip when the snapshots are absent (e.g. fresh clones without data).
 """
 
-import json
 import sys
 from pathlib import Path
 

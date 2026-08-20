@@ -291,7 +291,6 @@ class TestK02NumericalParity:
         me._HAS_MAMBA_SSM = True
         # Force sequential by invoking _ssm_step_sequential directly with its inputs.
         # We rebuild the same intermediate tensors the public path produces:
-        from einops import einsum
         import torch.nn.functional as F
         x_proj = ssm.in_proj(x); x_ssm, x_gate = x_proj.chunk(2, dim=-1)
         x_conv = ssm.conv1d(x_ssm.permute(0, 2, 1))[:, :, :x.shape[1]].permute(0, 2, 1)

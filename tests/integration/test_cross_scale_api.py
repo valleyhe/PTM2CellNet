@@ -6,7 +6,6 @@
 （``predict_cross_scale.py``）的概率输出做数值一致性对拍。
 """
 
-import json
 import subprocess
 import sys
 from pathlib import Path

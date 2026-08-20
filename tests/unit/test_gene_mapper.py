@@ -82,8 +82,8 @@ def test_backoff_caps_at_max_interval() -> None:
     assert len(fake_time.sleeps) == 10
     assert fake_time.sleeps[0] == 0.2
     assert fake_time.sleeps[-1] == pytest.approx(3.0)
-    # 递增且不超过 3.0（封顶后保持 3.0，允许相等）
-    for prev, nxt in zip(fake_time.sleeps[:-1], fake_time.sleeps[1:]):
+    # 递增且不超过 3.0（封顶后保持 3.0，允许相等）；同列表的 [:-1]/[1:] 切片长度恒相等
+    for prev, nxt in zip(fake_time.sleeps[:-1], fake_time.sleeps[1:], strict=True):
         assert nxt <= 3.0 + 1e-9
         assert nxt >= prev
 
