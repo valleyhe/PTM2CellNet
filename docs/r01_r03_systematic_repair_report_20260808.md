@@ -8,5 +8,5 @@
 失效；1897 passed/13 skipped 测试计数不再反映当前基线（1716/4）。
 
 当前权威分析请参考仓库根目录的
-[`project_analysis_20260816.md`](../project_analysis_20260816.md) 与
+[`project_analysis_20260821.md`](../project_analysis_20260821.md) 与
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md)。
