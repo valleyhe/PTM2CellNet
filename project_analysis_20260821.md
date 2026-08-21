@@ -1,7 +1,7 @@
 # PTM2CellNet 项目综合分析报告（2026-08-21）
 
 **报告日期**：2026-08-21
-**分析基线**：本地 `main` @ `919f4ed`（领先 `origin/main` @ `c76fff8` 26 个提交，工作树干净）
+**分析基线**：分析起点为本地 `main` @ `919f4ed`（当时领先 `origin/main` @ `c76fff8` 26 个提交，工作树干净）；报告随本轮提交 `179b077` 落地后，本地领先远程 **27 个提交**
 **上一份权威报告**：`project_analysis_20260820.md`（已作为历史快照归档至 `archive/20260821/reports/`，原路径留重定向短页）
 **执行方式**：主代理直接执行全部前置操作、验证门禁与三项系统性复核任务；本轮未调用任何子智能体（统计见 §6）
 
@@ -27,7 +27,7 @@
 
 本轮综合处理结论如下：
 
-1. **版本控制**：起点工作树干净、无待提交修改；本地 `main`（`919f4ed`）为远程 `origin/main`（`c76fff8`，fetch 确认无新提交）的严格超集（领先 26 / 落后 0），无需合并、无冲突。编译验证通过（`compileall` exit 0）、单元测试 **1957 passed / 6 skipped** 复现、集成测试 **107 passed / 1 skipped**（740.19s）复现、`ruff` 全绿。
+1. **版本控制**：起点工作树干净、无待提交修改；本地 `main`（起点 `919f4ed`）为远程 `origin/main`（`c76fff8`，fetch 确认无新提交）的严格超集（起点领先 26 / 落后 0），无需合并、无冲突。编译验证通过（`compileall` exit 0）、单元测试 **1957 passed / 6 skipped** 复现、集成测试 **107 passed / 1 skipped**（740.19s）复现、`ruff` 全绿。
 2. **mypy 结论修正（本轮最重要发现）**：0820 报告"25 errors / 12 files"实为 **mypy 版本差异**所致——同一代码库在 mypy 1.20.0 下报 25 errors / 12 files，在 mypy 2.1.0 下仅报 **5 errors / 2 files**。两个版本均已实测复核并定位根因（新版对 `Tensor | Module` 联合类型与 `str | None` 收窄的推断改进）。TD-N-06 的清偿范围据此修正。
 3. **新增技术债 TD-N-08（严重度：高）**：首次使用 `pip-audit` 对 `requirements-lock.txt` 全量审计，发现 **64 个已知漏洞条目，涉及 12 个包**——pillow 12.1.1（26 条）、aiohttp 3.13.5（14 条）、transformers 4.57.6（3 条）、pytorch-lightning 1.9.5（3 条）等；其中 pytorch-lightning 1.9.5 与 lightning 2.6.5 双包共存于锁定清单。
 4. **归档**：`project_analysis_20260820.md` 因 mypy 结论被实测推翻 + 漏洞审计缺位归档至 `archive/20260821/reports/`（`git mv` 保历史）；同步刷新 `docs/CURRENT_STATUS.md`、AGENTS.md 过时技术债注记、3 份 docs 入口短页的权威报告指向。
@@ -48,9 +48,9 @@
 | 工作树状态 | 干净，无待提交代码修改（前置"提交所有已完成修改"自然满足） | `git status` → `nothing to commit, working tree clean` |
 | 合并操作 | **无需执行**：已位于 `main`，无待合并分支；`audit/20260809-*` 为历史审计分支，不在合并范围 | `git branch -a -v` |
 | 冲突 | 无（无合并发生；本地包含远程全部历史） | 同上 |
-| 本轮新提交 | 见 §1.3 与文末提交记录；合并前版本 `919f4ed` → 归档后版本见 git log | §1.3 |
+| 本轮新提交 | **1 个提交**：`179b077`（docs: 20260821 archive batch + comprehensive analysis，9 files changed, +464/−343）。合并前版本 `919f4ed` → 合并后版本 `179b077` | `git log --oneline -2` |
 
-**本地领先远程的 26 个提交关键修改点**（`git log --oneline origin/main..main`，按主题归类）：
+**本地领先远程的 27 个提交关键修改点**（`git log --oneline origin/main..main`，按主题归类，含本轮 `179b077`）：
 
 | 主题 | 提交 |
 |---|---|
@@ -324,7 +324,7 @@ flowchart LR
 3. **质量门禁实况**：compileall / 单测 1957+6 / 集成 107+1 / ruff 全绿；`pip check` 4 条已知可选冲突维持登记。coverage 门禁受 TD-N-09 影响，本地无法直接复测 branch coverage，下一轮应在 CI 或独立环境刷新 75.27% 基线。
 4. **文档治理**：本轮归档 1 份（0820 报告）、修订 AGENTS.md 过时注记、刷新 CURRENT_STATUS 与 3 份短页指向。文档链路（CURRENT_STATUS → 最新报告 → archive MANIFEST）现已一致。
 5. **技术债总量**：活跃债 **0 严重 / 1 高 / 4 中 / 4 低**。高+中级合计约 4.0 工作日可全部清偿（TD-N-08 1.5 + TD-N-06 1.5 + TD-N-01/02/03 各 0.5，取方案 A 口径）。
-6. **版本控制**：本地领先远程 26 个提交，建议择机 `git push origin main` 发布（本次任务范围限定本地操作，未推送）。
+6. **版本控制**：本地领先远程 27 个提交（含本轮 `179b077`），建议择机 `git push origin main` 发布（本次任务范围限定本地操作，未推送）。
 
 ---
 
