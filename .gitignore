@@ -22,6 +22,7 @@
 /.github/workflows/*
 !.github/workflows/ci.yml
 !.github/workflows/full-test.yml
+!.github/workflows/perturbgen-real-assets.yml
 !scripts/
 !src/
 !tests/

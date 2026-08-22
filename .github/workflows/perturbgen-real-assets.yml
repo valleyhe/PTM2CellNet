@@ -1,0 +1,116 @@
+name: PerturbGen Real Assets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * *"
+
+jobs:
+  perturbgen-real-assets:
+    name: Real PerturbGen Smoke + Release Gate
+    runs-on: [self-hosted, linux, x64, gpu, cuda]
+    timeout-minutes: 240
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PTM2CELLNET_RUN_REAL_ASSET_TESTS: "1"
+      PTM2CELLNET_PERTURBGEN_REAL_CONFIG: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_CONFIG }}
+      PTM2CELLNET_PERTURBGEN_REAL_OUTPUT_ROOT: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_OUTPUT_ROOT }}
+      PTM2CELLNET_PERTURBGEN_REAL_STAGES: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_STAGES || 'tokenise train_mask train_decoder perturb export_gene_embeddings report' }}
+      PTM2CELLNET_PERTURBGEN_REAL_PATH: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_PATH || 'both' }}
+      PTM2CELLNET_PERTURBGEN_REAL_TIMEOUT_S: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_TIMEOUT_S || '14400' }}
+      PTM2CELLNET_PERTURBGEN_RELEASE_MAX_AGE_HOURS: ${{ vars.PTM2CELLNET_PERTURBGEN_RELEASE_MAX_AGE_HOURS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install core test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-core.txt
+          pip install -r requirements-dev.txt
+
+      - name: Preflight real-assets configuration
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/real_assets
+          if [[ -z "${PTM2CELLNET_PERTURBGEN_REAL_CONFIG:-}" ]]; then
+            echo "Formal Gate-4 requires PTM2CELLNET_PERTURBGEN_REAL_CONFIG" >&2
+            exit 1
+          fi
+          if [[ -n "${PTM2CELLNET_PERTURBGEN_REAL_OUTPUT_ROOT:-}" ]]; then
+            echo "Formal Gate-4 must execute the configured pipeline; unset PTM2CELLNET_PERTURBGEN_REAL_OUTPUT_ROOT" >&2
+            exit 1
+          fi
+          if [[ "${PTM2CELLNET_PERTURBGEN_REAL_PATH}" != "both" ]]; then
+            echo "Formal Gate-4 requires PTM2CELLNET_PERTURBGEN_REAL_PATH=both" >&2
+            exit 1
+          fi
+          if [[ " ${PTM2CELLNET_PERTURBGEN_REAL_STAGES} " != *" perturb "* ]]; then
+            echo "Formal Gate-4 stage selection must include perturb" >&2
+            exit 1
+          fi
+          if [[ ! -f "${PTM2CELLNET_PERTURBGEN_REAL_CONFIG}" ]]; then
+            echo "Configured PTM2CELLNET_PERTURBGEN_REAL_CONFIG does not exist: ${PTM2CELLNET_PERTURBGEN_REAL_CONFIG}" >&2
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          from src.integration.perturbgen.config_builder import load_pipeline_config
+
+          path = Path(os.environ["PTM2CELLNET_PERTURBGEN_REAL_CONFIG"]).expanduser()
+          load_pipeline_config(path)
+          print(f"validated real config: {path}")
+          PY
+
+      - name: Run real PerturbGen smoke
+        run: |
+          pytest tests/real_assets/test_real_perturbgen_smoke.py -vv -rs \
+            --junitxml outputs/real_assets/pytest-real-assets.xml
+
+      - name: Fail if real smoke was skipped
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path("outputs/real_assets/pytest-real-assets.xml")
+          if not path.is_file():
+              raise SystemExit("missing pytest JUnit XML for real-assets smoke")
+          root = ET.parse(path).getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          if suite is None:
+              raise SystemExit("unable to locate testsuite node in JUnit XML")
+          tests = int(suite.attrib.get("tests", "0"))
+          skipped = int(suite.attrib.get("skipped", "0"))
+          if tests < 1:
+              raise SystemExit("no real-assets smoke tests executed")
+          if skipped:
+              raise SystemExit(f"real-assets smoke was skipped ({skipped})")
+          print("real-assets smoke executed without skips")
+          PY
+
+      - name: Check M5 release evidence hard gate
+        if: always()
+        run: |
+          python scripts/check_perturbgen_release_evidence.py \
+            --evidence outputs/real_assets/test_real_perturbgen_smoke.json \
+            --mode formal \
+            --max-age-hours "${PTM2CELLNET_PERTURBGEN_RELEASE_MAX_AGE_HOURS:-48}" \
+            --output outputs/real_assets/perturbgen_release_gate.json
+
+      - name: Upload real-assets evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perturbgen-real-assets-${{ github.run_id }}
+          path: outputs/real_assets/**
+          if-no-files-found: error
+          retention-days: 14

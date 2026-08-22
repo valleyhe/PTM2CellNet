@@ -29,6 +29,9 @@ __all__ = [
     "ProteinGeneMapper",
     "PTMPerturbationProfile",
     "apply_soft_perturbation",
+    "PerturbGenCandidateEvidence",
+    "PerturbGenRunner",
+    "evaluate_dual_path_candidate",
 ]
 
 # Module-level import error tracking for diagnostic purposes
@@ -68,6 +71,13 @@ def __getattr__(name: str) -> Any:
         # ptm_virtual_perturbation
         "PTMPerturbationProfile": (".ptm_virtual_perturbation", "PTMPerturbationProfile"),
         "apply_soft_perturbation": (".ptm_virtual_perturbation", "apply_soft_perturbation"),
+        # perturbgen (main-process bridge only; never imports external package)
+        "PerturbGenCandidateEvidence": (".perturbgen.contracts", "CandidateEvidence"),
+        "PerturbGenRunner": (".perturbgen.runner", "PerturbGenRunner"),
+        "evaluate_dual_path_candidate": (
+            ".perturbgen.dual_path",
+            "evaluate_dual_path_candidate",
+        ),
     }
 
     if name in _LAZY_IMPORTS:
