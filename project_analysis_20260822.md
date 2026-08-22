@@ -57,8 +57,8 @@ main 已包含远程全部内容，无需 pull/merge，无冲突。当前分支�
 | 合并前（起点） | `115de00` | docs: record final commit hash and ahead-count in 20260821 report |
 | 提交 1（功能入库） | `ddbf571` | feat(integration): PerturbGen 双路径集成工程主干——`src/integration/perturbgen/` 10 模块（runner/dual_path/results/config_builder/data_prep/env_guard/embedding_export/reports/contracts）、`src/models/gene_vocabulary.py` + `perturbgen_embedding.py`、5 个 CLI 脚本、`configs/integration/perturbgen.yaml`、`.github/workflows/perturbgen-real-assets.yml`、pytest 双 marker（benchmark/real_assets）、约 20 个新测试文件（112 例）、设计方案文档 |
 | 提交 2（归档） | `8eef452` | docs: 20260822 archive batch + refresh CURRENT_STATUS——`git mv` 20260821 报告至 `archive/20260822/reports/`（留重定向短页）+ MANIFEST + `docs/CURRENT_STATUS.md` 按 PerturbGen 实况刷新 |
-| 提交 3（报告） | {{COMMIT_REPORT}} | docs: 20260822 综合分析报告 v1.0（本提交） |
-| 合并后 | {{COMMIT_FINAL}} | 哈希回填提交：记录提交 3 哈希与最终领先数（沿用 `115de00` 惯例，见 `archive/20260822/MANIFEST.md`） |
+| 提交 3（报告） | `f756650` | docs: 20260822 comprehensive analysis report v1.0 |
+| 合并后（最终） | 本行所在提交 | docs: record final commit hash and ahead-count in 20260822 report（哈希回填提交；最终本地领先远程 **32** / 落后 0） |
 
 **提交策略说明**：PerturbGen 功能作为单一特性提交（21 组文件内聚：源码+测试+配置+CI+设计文档同属方案 §7 里程碑交付物）；归档与报告按仓库既有惯例分层提交，保留审计痕迹。
 
