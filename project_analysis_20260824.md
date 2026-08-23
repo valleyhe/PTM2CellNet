@@ -48,7 +48,7 @@
 | 报告入库 | `1d6e30d` | docs: add 20260823 comprehensive analysis and point-in-time repair reports（6 files，+1604） |
 | 状态刷新 | `6864821` | docs: refresh CURRENT_STATUS for PerturbGen M4 landing and env closure |
 | 归档批次 | `c066e01` | docs: 20260824 archive batch + refresh authority pointers and CURRENT_STATUS（29 files，+326/−2072） |
-| 分析报告 | 见 §6 回填 | project_analysis_20260824.md 本文件 |
+| 分析报告 | `3d35d58` | docs: 20260824 comprehensive analysis report v1.0（本文件，354 行） |
 
 ### 1.2 关键修改点（`63ebf75` 内容摘要）
 
@@ -351,4 +351,4 @@ cat archive/20260824/MANIFEST.md
 ---
 
 **报告版本**：v1.0（2026-08-24）　**作者**：ox-alpha 主代理 + 3 只读侦察子代理
-**最终批次哈希回填位**：归档提交 = `c066e01`；本报告提交哈希见仓库 `git log --oneline -1`。
+**最终批次哈希回填**：功能提交 = `63ebf75`；归档批次提交 = `c066e01`；分析报告提交 = `3d35d58`；哈希回填提交 = 本文件最后一次修改所在提交（`git log --oneline -1`）。
