@@ -1,20 +1,19 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-08-22（PerturbGen 双路径集成工程主干入库 + 第四轮综合分析后）**
+**Last updated: 2026-08-23（Geneformer 死语义清除 + PerturbGen 资产注入链路落地 + Python 3.11 独立环境建立）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260822.md`](./project_analysis_20260822.md)。
-2026-08-21 的综合分析已作为历史快照归档到
-[`archive/20260822/`](./archive/20260822/MANIFEST.md)（原路径留有重定向入口）；
-更早批次见 `archive/20260820/`、`archive/20260816/`、`archive/20260809/`、`archive/20260808/`。
+[`project_analysis_20260823.md`](./project_analysis_20260823.md)。
+2026-08-22 的综合分析在 `project_analysis_20260822.md`（历史快照）；
+更早批次见 `archive/20260822/`、`archive/20260820/`、`archive/20260816/`、`archive/20260809/`、`archive/20260808/`。
 
 ## Quick Reference
 
-- **验证环境**：Python 3.12.13（SSH_unit env）、PyTorch 2.4.1+cu118、CUDA 可用；真实资产测试未启用网络/GPU/外部服务验收门禁。
-- **测试基线**：全量 `pytest tests -m "not gpu and not real_assets"` 于**网络命名空间隔离（`unshare -rn`）+ HF 离线缓存（`HF_HUB_OFFLINE=1`）**下 **2310 passed、15 skipped、1 deselected、exit 0（496.35s，2026-08-22 实测）**；该口径含 PerturbGen 新增约 112 例。注意：默认联网环境下套件存在网络隐性依赖（见下"测试基础设施"）。
+- **验证环境**：主进程 Python 3.12.13（SSH_unit env）、PyTorch 2.4.1+cu118、CUDA 可用；**PerturbGen 独立环境 conda `perturbgen`（Python 3.11.15）已于 2026-08-23 完全建立并通过 GPU 实测**（源码 commit `a9a9375` editable 安装、Tesla P40 24GB `cuda_available=True`、真实 checkpoint cuda:0 加载、95 wheels sha256 全验证、HF/evaluate 离线 import 全过、token round-trip 通过；evidence 见 `outputs/perturbgen/env_evidence_20260823.json`，复现入口 `scripts/setup_perturbgen_env.sh` + `scripts/download_perturbgen_wheels.sh`）；真实资产测试未启用网络/GPU/外部服务验收门禁。
+- **测试基线（2026-08-23 更新）**：全量 `pytest tests`（`unshare -rn` 网络隔离 + HF 离线）**2321 passed、16 skipped、exit 0（520.53s）**；较 0822 基线 +6（schema v2 注入链路新增回归），零失败。
 - **静态/构建质量**：`compileall` 通过；`ruff check src scripts tests` 通过；`mypy src` 实测 **23 errors / 8 files**（默认 env，mypy 2.1.0）= 0821 基线 5 处（predictions.py/cross_scale.py）+ PerturbGen 新增 18 处（TD-N-11）；base env（mypy 1.20.0）38/18；`pip check` 仅 1 条 PyNaCl 平台告警（F-10 族）。
 - **测试基础设施（本轮关键发现）**：外部包 `UniProtMapper` 的 HTTP 调用无超时（被 `src/analysis/gene_mapper.py` 优先选用），代理/网络半死时集成测试实测挂死 21+ 分钟、生产 `/predict`（含 `gene_symbol`）链路同样可无限挂起——登记 **TD-N-24（高）**；另有 49 项测试依赖 HF 在线检查（TD-N-25，建议 CI 固化 `HF_HUB_OFFLINE=1` + 隔离跑法，复现命令见权威报告 §7.3）。
-- **PerturbGen 双路径集成（本轮入库 `ddbf571`）**：`src/integration/perturbgen/`（contracts/data_prep/env_guard/config_builder/runner/results/dual_path/reports/embedding_export）+ `src/models/{gene_vocabulary,perturbgen_embedding}.py` + 5 个 CLI（run_perturbgen_pipeline / export_perturbgen_gene_embeddings / evaluate_perturbgen_dual_path / benchmark_perturbgen / check_perturbgen_release_evidence）+ `configs/integration/perturbgen.yaml` + `.github/workflows/perturbgen-real-assets.yml`。按设计方案（`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`）：**M1–M3 工程门全部通过（mocked）；M0/Gate-0 因外部资产缺失 BLOCKED（encoder 权重、Python 3.11 独立环境、≥3 donor 合规 cohort）；M4（DAVF runtime 注入）/M6（科学验收）/M7（收口）按 Gate-0 阻断未开始**。API 不暴露 PerturbGen 端点为方案 §9 有意决策。
+- **PerturbGen 双路径集成**：`src/integration/perturbgen/`（contracts/data_prep/env_guard/config_builder/runner/results/dual_path/reports/embedding_export）+ `src/models/{gene_vocabulary,perturbgen_embedding}.py` + 5 个 CLI + `configs/integration/perturbgen.yaml` + `.github/workflows/perturbgen-real-assets.yml`。按设计方案：**M1–M3 工程门全部通过（mocked）；M0/Gate-0 的「Python 3.11 独立环境」阻塞已于 2026-08-23 完全解除**（含离线初始化与 token round-trip），M0 剩余为 ⑤ 真实 perturb smoke 与 ⑥ ≥3 donor 合规 cohort（外部数据）；**M4 代码前置已于 2026-08-23 落地**（`davf_inference.py` 删除 `geneformer_path` 死语义并以 `embedding_asset_path` 接入 `load_perturbgen_embedding_asset`→`LatentDAVF(pretrained_gene_embeddings=...)` 注入链路——真实 18967×768 资产逐元素验证通过；`configs/davf_integration.yaml` 升级 schema v2 + `architectures.py` 迁移闸门 fail-fast；checkpoint 读写显式 `schema_version`；`finetune_davf_e2e.py` 新增 `--embedding-asset`）。runtime 默认链路未切换（Gate-0 数据条件未过），DAVF 重训/Gate-E/M6/M7 仍按阻断执行。API 不暴露 PerturbGen 端点为方案 §9 有意决策。
 - **R-01～R-03 状态**：`MultiPLMEncoder`、`PTMTokenAdapter`、`CIGNNSignalBridge`/敏感度矩阵和 `CellGraphCompassHead` 的工程契约与 synthetic batch 测试通过；本地三路 pLM 资产结构门禁通过，真实图/扰动训练和科学验收仍未验证。
 - **剩余需求差距**：REQUIREMENTS v2.2 全部 24 项 Complete（2026-08-22 代码侧独立复核成立）；`cross_scale_training` required 数据集仅剩 replogle、scgenescope 2 项 controlled 且正确 fail-fast；跨尺度 API（`/cross-scale/*`）已接入。缺口集中于真实数据科学验收（F-04：`tests/real_assets/` 门禁内全部 skip）与 PerturbGen Gate-0 阻断链（含 **CI analysis job 缺失**——方案 §4.5/§5.3 定义但未开发，属被遗漏交付物）。
 - **覆盖率门禁**：默认 CI branch coverage `fail_under=74`；上一轮基线 75.27%（2026-08-09 数据），待 CI/独立环境复测刷新（PerturbGen 112 例增量未计入）。
@@ -23,7 +22,7 @@
 ## 文档入口
 
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)、[真实资产验收](guides/real_assets_acceptance.md)
-- [项目代码与文档综合分析（2026-08-22，当前权威）](../project_analysis_20260822.md)、[归档清单（2026-08-22）](../archive/20260822/MANIFEST.md)
+- [项目代码与文档综合分析（2026-08-23，当前权威）](../project_analysis_20260823.md)、[2026-08-22 历史快照](../project_analysis_20260822.md)、[归档清单（2026-08-22）](../archive/20260822/MANIFEST.md)
 - [PerturbGen 双路径整合方案（v2.0，现行需求基线）](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)
 - [测试覆盖率治理](TEST_COVERAGE.md)
 - [历史系统性复核 v19](https://github.com/valleyhe/PTM2CellNET/blob/main/archive/systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)
