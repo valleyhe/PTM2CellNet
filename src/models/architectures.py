@@ -53,7 +53,7 @@ class DAVFConfig(TypedDict, total=False):
     num_steps: int
     device: Optional[str]
     scvi_model_path: Optional[str]
-    geneformer_path: Optional[str]
+    embedding_asset_path: Optional[str]
 
 
 class ModelInfo(TypedDict, total=False):
@@ -242,6 +242,16 @@ class PTM2CellNetBase(nn.Module):
             # so the ``.get(key, default)`` calls below all hit their defaults
             # instead of crashing on ``None.get``.
             davf_config_local: Dict[str, Any] = self.davf_config or {}
+            # Schema v2 migration gate (single chokepoint for yaml/dict/from_config
+            # sources): ``geneformer_path`` was removed together with its
+            # null→random-embedding semantics; old configs must fail loudly.
+            if "geneformer_path" in davf_config_local:
+                raise ValueError(
+                    "DAVF config uses removed schema v1 key 'geneformer_path'. "
+                    "Migrate to schema v2: replace it with 'embedding_asset_path' "
+                    "pointing to a verified PerturbGen embedding asset directory "
+                    "(manifest.json + vocabulary.json + gene_embeddings.safetensors)."
+                )
             davf_inference_config = DAVFInferenceConfig(
                 state_space=davf_config_local.get("state_space", "scvi_latent"),
                 checkpoint_path=davf_config_local.get(
@@ -255,6 +265,7 @@ class PTM2CellNetBase(nn.Module):
                 num_genes=davf_config_local.get("num_genes", 5000),
                 num_steps=davf_config_local.get("num_steps", 50),
                 device=davf_config_local.get("device", None),
+                embedding_asset_path=davf_config_local.get("embedding_asset_path", None),
             )
 
             self.davf_module = DAVFInferenceModule(davf_inference_config)
@@ -563,7 +574,7 @@ class PTM2CellNetBase(nn.Module):
 
         davf_cfg = dict(yaml_cfg["davf"])
         davf_cfg["scvi_model_path"] = davf_cfg.get("scvi_model_path")
-        davf_cfg["geneformer_path"] = davf_cfg.get("geneformer_path")
+        davf_cfg["embedding_asset_path"] = davf_cfg.get("embedding_asset_path")
         return davf_cfg
 
     @classmethod
@@ -627,7 +638,7 @@ class PTM2CellNetBase(nn.Module):
             if davf_config is not None:
                 merged_davf_config.update(davf_config)
             merged_davf_config["scvi_model_path"] = merged_davf_config.get("scvi_model_path")
-            merged_davf_config["geneformer_path"] = merged_davf_config.get("geneformer_path")
+            merged_davf_config["embedding_asset_path"] = merged_davf_config.get("embedding_asset_path")
 
         return {
             "encoder_type": encoder_type,

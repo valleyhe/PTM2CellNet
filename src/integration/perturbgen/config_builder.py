@@ -314,12 +314,59 @@ def _validate_tokenise_output_contract(
 
 
 def _validate_perturb_candidate_contract(stage_config: Mapping[str, Any]) -> None:
+    """Validate the upstream val.py contract for the perturb stage.
+
+    Three upstream pitfalls (verified against ref/Perturbgen-src val.py) are
+    rejected here instead of silently corrupting runs:
+
+    - val.py:253 skips inference entirely (exit 0) when
+      ``model.ckpt_masking_path`` is None — the generated config must always
+      carry a downstream checkpoint.
+    - val.py:53 only takes the explicit branch when BOTH ``tgt_vocab_size``
+      and ``max_seq_length`` are present in ``trainer``; otherwise val.py:63
+      derives them via ``max(max(input_id))``, which compares ragged lists
+      lexicographically. Both fields are therefore mandatory.
+    - val.py:216-218 adds a +100/+50 runtime buffer to
+      ``trainer.max_seq_length``/``tgt_vocab_size`` and rewrites
+      ``datamodule.max_len`` to the unbuffered base value. The config must
+      carry consistent BASE values (datamodule.max_len == trainer.max_seq_length
+      when provided).
+    """
     perturb_config = stage_config.get("perturb_config", {})
     if not isinstance(perturb_config, Mapping):
         return
     trainer = perturb_config.get("trainer", {})
     if not isinstance(trainer, Mapping):
         raise PerturbGenConfigError("perturb.perturb_config.trainer must be a mapping")
+    model = perturb_config.get("model", {})
+    if not isinstance(model, Mapping):
+        raise PerturbGenConfigError("perturb.perturb_config.model must be a mapping")
+    ckpt_masking_path = model.get("ckpt_masking_path")
+    if not isinstance(ckpt_masking_path, str) or not ckpt_masking_path.strip():
+        raise PerturbGenConfigError(
+            "perturb model.ckpt_masking_path must be a non-empty string: "
+            "upstream val.py silently skips inference when it is None"
+        )
+    explicit_dims = {}
+    for field_name in ("tgt_vocab_size", "max_seq_length"):
+        value = trainer.get(field_name)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise PerturbGenConfigError(
+                f"perturb trainer.{field_name} must be an explicit positive integer: "
+                "upstream val.py falls back to lexicographic max(input_id) over "
+                "ragged lists unless BOTH tgt_vocab_size and max_seq_length are set"
+            )
+        explicit_dims[field_name] = value
+    datamodule = perturb_config.get("datamodule", {})
+    if isinstance(datamodule, Mapping) and "max_len" in datamodule:
+        max_len = datamodule["max_len"]
+        if not isinstance(max_len, int) or isinstance(max_len, bool):
+            raise PerturbGenConfigError("perturb datamodule.max_len must be an integer")
+        if max_len != explicit_dims["max_seq_length"]:
+            raise PerturbGenConfigError(
+                "perturb datamodule.max_len must equal trainer.max_seq_length "
+                "(base value; val.py adds the +100/+50 runtime buffer itself)"
+            )
     if "genes_to_perturb" not in trainer:
         return
     genes = trainer["genes_to_perturb"]
@@ -330,6 +377,40 @@ def _validate_perturb_candidate_contract(stage_config: Mapping[str, Any]) -> Non
     gene = str(genes[0])
     if _SAFE_IDENTIFIER_PATTERN.fullmatch(gene) is None:
         raise PerturbGenConfigError("perturb target gene must contain only letters, digits, dot, underscore, or hyphen")
+
+
+def _validate_stage_dimension_consistency(stages: Mapping[str, Any]) -> None:
+    """Reject tgt_vocab_size drift across train_mask/train_decoder/perturb.
+
+    A checkpoint restored with a different tgt_vocab_size than it was trained
+    with fails deep inside val.py with a tensor size mismatch (observed in the
+    2026-08-23 M0 smoke iterations); when more than one stage declares the
+    dimension explicitly they must agree.
+    """
+    declared: dict[str, int] = {}
+    for stage_name in ("train_mask", "train_decoder"):
+        stage_config = stages.get(stage_name)
+        if not isinstance(stage_config, Mapping):
+            continue
+        args = stage_config.get("args", {})
+        if isinstance(args, Mapping) and isinstance(args.get("tgt_vocab_size"), int):
+            declared[stage_name] = args["tgt_vocab_size"]
+    perturb_trainer = (
+        stages.get("perturb", {}).get("perturb_config", {}).get("trainer", {})
+        if isinstance(stages.get("perturb"), Mapping)
+        else {}
+    )
+    if isinstance(perturb_trainer, Mapping) and isinstance(
+        perturb_trainer.get("tgt_vocab_size"), int
+    ):
+        declared["perturb"] = perturb_trainer["tgt_vocab_size"]
+    values = set(declared.values())
+    if len(values) > 1:
+        detail = ", ".join(f"{name}={value}" for name, value in sorted(declared.items()))
+        raise PerturbGenConfigError(
+            f"tgt_vocab_size drift across stages ({detail}); restored checkpoints "
+            "fail with tensor size mismatches when dimensions disagree"
+        )
 
 
 def build_stage_plans(
@@ -406,6 +487,7 @@ def build_stage_plans(
     )
 
     stages = config["stages"]
+    _validate_stage_dimension_consistency(stages)
     plans: list[StagePlan] = []
     for stage_name in STAGE_ORDER:
         stage_config = stages[stage_name]

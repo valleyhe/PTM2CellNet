@@ -158,7 +158,12 @@ def test_build_stage_plans_rejects_output_path_escape(tmp_path):
         "timeout_seconds": 10,
         "uses_gpu": False,
         "expected_outputs": [{"path": "ok.txt", "kind": "file"}],
-        "perturb_config": {"data": {}, "trainer": {}, "datamodule": {}, "model": {}},
+        "perturb_config": {
+            "data": {},
+            "trainer": {"tgt_vocab_size": 2002, "max_seq_length": 1024},
+            "datamodule": {},
+            "model": {"ckpt_masking_path": "decoder.ckpt"},
+        },
     }
     cfg["stages"]["report"] = {
         "driver": "internal_report",
@@ -219,4 +224,62 @@ def test_perturb_contract_rejects_glob_metacharacters_in_gene(tmp_path, monkeypa
     config["stages"]["perturb"]["perturb_config"]["trainer"]["genes_to_perturb"] = ["ENSG*"]
 
     with pytest.raises(PerturbGenConfigError, match="target gene must contain only"):
+        build_stage_plans(config, project_root=PROJECT_ROOT)
+
+
+def _assert_ckpt_masking_path_rejected(tmp_path, monkeypatch, mutation):
+    _template_env(tmp_path, monkeypatch)
+    config = load_pipeline_config(TEMPLATE)
+    mutation(config["stages"]["perturb"]["perturb_config"]["model"])
+
+    with pytest.raises(PerturbGenConfigError, match="silently skips inference"):
+        build_stage_plans(config, project_root=PROJECT_ROOT)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        pytest.param(lambda model: model.pop("ckpt_masking_path"), id="absent"),
+        pytest.param(lambda model: model.update(ckpt_masking_path=None), id="none"),
+        pytest.param(lambda model: model.update(ckpt_masking_path="  "), id="blank"),
+    ],
+)
+def test_perturb_contract_ckpt_masking_path_matrix(tmp_path, monkeypatch, mutation):
+    _assert_ckpt_masking_path_rejected(
+        tmp_path, monkeypatch, mutation
+    )
+
+
+@pytest.mark.parametrize("field", ["tgt_vocab_size", "max_seq_length"])
+def test_perturb_contract_requires_both_explicit_dimensions(tmp_path, monkeypatch, field):
+    # val.py:53 takes the explicit branch only when BOTH fields are present;
+    # with either missing it derives dims via lexicographic max(input_id).
+    _template_env(tmp_path, monkeypatch)
+    config = load_pipeline_config(TEMPLATE)
+    del config["stages"]["perturb"]["perturb_config"]["trainer"][field]
+
+    with pytest.raises(PerturbGenConfigError, match="lexicographic max"):
+        build_stage_plans(config, project_root=PROJECT_ROOT)
+
+
+def test_perturb_contract_datamodule_max_len_must_equal_trainer_base(tmp_path, monkeypatch):
+    # val.py:216-218 adds +100/+50 buffers itself and rewrites
+    # datamodule.max_len to the unbuffered base; the config must stay
+    # consistent in base units.
+    _template_env(tmp_path, monkeypatch)
+    config = load_pipeline_config(TEMPLATE)
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["max_len"] = 1124
+
+    with pytest.raises(PerturbGenConfigError, match="base value"):
+        build_stage_plans(config, project_root=PROJECT_ROOT)
+
+
+def test_stage_dimension_consistency_rejects_tgt_vocab_drift(tmp_path, monkeypatch):
+    # A checkpoint restored under a different tgt_vocab_size than it was
+    # trained with fails with a tensor size mismatch (2026-08-23 M0 smoke).
+    _template_env(tmp_path, monkeypatch)
+    config = load_pipeline_config(TEMPLATE)
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["tgt_vocab_size"] = 2004
+
+    with pytest.raises(PerturbGenConfigError, match="tgt_vocab_size drift"):
         build_stage_plans(config, project_root=PROJECT_ROOT)

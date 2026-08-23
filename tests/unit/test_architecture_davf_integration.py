@@ -61,6 +61,46 @@ def make_config(use_davf: bool = True, davf_config: dict | None = None) -> dict:
     return config
 
 
+def make_embedding_asset(tmp_path) -> str:
+    """Build a minimal verified PerturbGen embedding asset directory.
+
+    Schema v2 DAVF configs load the asset at construction time and fail fast
+    when it is missing, so transparency tests need a real (tiny) asset.
+    """
+    import hashlib
+    import json
+
+    from safetensors.torch import save_file as save_safetensors
+
+    asset_dir = tmp_path / "embedding_asset"
+    asset_dir.mkdir()
+    tensor_path = asset_dir / "gene_embeddings.safetensors"
+    vocab_path = asset_dir / "vocabulary.json"
+    matrix = torch.arange(8, dtype=torch.float32).reshape(4, 2)
+    save_safetensors({"gene_embeddings": matrix}, str(tensor_path))
+    vocab_path.write_text(
+        json.dumps({f"ENSG00000{i}": i for i in range(4)}), encoding="utf-8"
+    )
+
+    def _sha(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    (asset_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "embedding_shape": [4, 2],
+                "files": {
+                    tensor_path.name: {"sha256": _sha(tensor_path)},
+                    vocab_path.name: {"sha256": _sha(vocab_path)},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(asset_dir)
+
+
 class TestDAVFArchitectureIntegration:
     def test_backward_compatibility_use_davf_false(self):
         model = PTM2CellNet(
@@ -100,7 +140,8 @@ class TestDAVFArchitectureIntegration:
         first_linear = model.predictor.mlp[0]
         assert first_linear.in_features == 256
 
-    def test_davf_config_from_dict(self):
+    def test_davf_config_from_dict(self, tmp_path):
+        asset_path = make_embedding_asset(tmp_path)
         model = PTM2CellNet(
             encoder_type="transformer",
             embed_dim=128,
@@ -109,14 +150,25 @@ class TestDAVFArchitectureIntegration:
             davf_config={
                 "feature_dim": 64,
                 "scvi_model_path": "checkpoints/scvi/model.pt",
-                "geneformer_path": "checkpoints/geneformer_embeddings.pt",
+                "embedding_asset_path": asset_path,
             },
         )
 
         assert model.davf_feature_dim == 64
         assert model.davf_module.config.feature_dim == 64
         assert model.davf_config["scvi_model_path"] == "checkpoints/scvi/model.pt"
-        assert model.davf_config["geneformer_path"] == "checkpoints/geneformer_embeddings.pt"
+        assert model.davf_config["embedding_asset_path"] == asset_path
+
+    def test_davf_config_rejects_removed_geneformer_path(self):
+        """Schema v2: geneformer_path must fail loudly, not silently degrade."""
+        with pytest.raises(ValueError, match="geneformer_path"):
+            PTM2CellNet(
+                encoder_type="transformer",
+                embed_dim=128,
+                num_classes=4,
+                use_davf=True,
+                davf_config={"geneformer_path": "checkpoints/geneformer_embeddings.pt"},
+            )
 
     def test_forward_with_davf_sites(self):
         model = PTM2CellNet(
@@ -312,13 +364,14 @@ class TestDAVFArchitectureIntegration:
         output = model(make_batch())
         assert output["cell_state"]["logits"].shape == (2, 4)
 
-    def test_from_config_with_davf(self):
+    def test_from_config_with_davf(self, tmp_path):
+        asset_path = make_embedding_asset(tmp_path)
         config = make_config(
             use_davf=True,
             davf_config={
                 "feature_dim": 64,
                 "scvi_model_path": "checkpoints/scvi/model.pt",
-                "geneformer_path": "checkpoints/geneformer_embeddings.pt",
+                "embedding_asset_path": asset_path,
             },
         )
         model = PTM2CellNet.from_config(config)
@@ -326,7 +379,7 @@ class TestDAVFArchitectureIntegration:
         assert model.use_davf is True
         assert model.davf_module.config.feature_dim == 64
         assert model.davf_config["scvi_model_path"] == "checkpoints/scvi/model.pt"
-        assert model.davf_config["geneformer_path"] == "checkpoints/geneformer_embeddings.pt"
+        assert model.davf_config["embedding_asset_path"] == asset_path
 
     def test_from_config_without_davf(self):
         model = PTM2CellNet.from_config(make_config(use_davf=False))
@@ -340,7 +393,8 @@ class TestDAVFArchitectureIntegration:
         assert model.davf_module.config.feature_dim == 128
         assert model.davf_module.config.num_steps == 50
         assert "scvi_model_path" in model.davf_config
-        assert "geneformer_path" in model.davf_config
+        assert "embedding_asset_path" in model.davf_config
+        assert "geneformer_path" not in model.davf_config
 
     def test_get_model_info_includes_davf(self):
         model = PTM2CellNet(

@@ -531,3 +531,132 @@ class TestPTMIntegration:
 
         # Both batch elements should have same shape
         assert output.davf_features.shape == (2, 128)
+
+
+# ============================================================================
+# Schema v2: PerturbGen embedding asset injection (replaces geneformer_path)
+# ============================================================================
+
+class TestEmbeddingAssetInjection:
+    """Regression tests for the M4 injection chain [R1] §3.2 A2.
+
+    DAVFInferenceModule must pass the verified PerturbGen matrix into
+    LatentDAVF via ``pretrained_gene_embeddings``; the removed
+    ``geneformer_path`` null→random-embedding semantics must stay gone.
+    """
+
+    @staticmethod
+    def _make_asset(tmp_path):
+        import hashlib
+        import json
+
+        from safetensors.torch import save_file
+
+        tensor_path = tmp_path / "gene_embeddings.safetensors"
+        vocab_path = tmp_path / "vocabulary.json"
+        matrix = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+        save_file({"gene_embeddings": matrix}, str(tensor_path))
+        vocab_path.write_text(
+            json.dumps({f"ENSG00000{i}": i for i in range(4)}), encoding="utf-8"
+        )
+
+        def _sha(path):
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        (tmp_path / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "embedding_shape": [4, 3],
+                    "run_id": "test-run",
+                    "files": {
+                        tensor_path.name: {"sha256": _sha(tensor_path)},
+                        vocab_path.name: {"sha256": _sha(vocab_path)},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return matrix
+
+    def test_config_has_no_geneformer_path(self):
+        """The removed dead semantic must not resurface on the dataclass."""
+        from src.models.davf_inference import DAVFInferenceConfig
+
+        field_names = {f for f in DAVFInferenceConfig.__dataclass_fields__}
+        assert "geneformer_path" not in field_names
+        assert "embedding_asset_path" in field_names
+
+    def test_asset_is_injected_into_latent_davf(self, tmp_path):
+        """The frozen matrix must reach LatentDAVF.gene_embed_table verbatim."""
+        from src.models.davf_inference import DAVFInferenceConfig, DAVFInferenceModule
+
+        matrix = self._make_asset(tmp_path)
+        config = DAVFInferenceConfig(
+            state_space="scvi_latent",
+            checkpoint_path=str(tmp_path / "absent.pt"),
+            embedding_asset_path=str(tmp_path),
+            device="cpu",
+        )
+        module = DAVFInferenceModule(config)
+
+        assert module.latent_davf.gene_embed_table is not None
+        assert torch.equal(module.latent_davf.gene_embed_table.weight.data, matrix)
+        # 3-dim asset vs default 192-dim gene_embed_dim requires a projection
+        assert module.latent_davf.gene_embed_proj is not None
+        assert module.latent_davf.gene_embed_proj.in_features == 3
+
+    def test_missing_asset_directory_fails_fast(self, tmp_path):
+        """A configured-but-absent asset must raise, not degrade to random."""
+        from src.models.davf_inference import DAVFInferenceConfig, DAVFInferenceModule
+        from src.models.perturbgen_embedding import PerturbGenEmbeddingError
+
+        config = DAVFInferenceConfig(
+            state_space="scvi_latent",
+            checkpoint_path=str(tmp_path / "absent.pt"),
+            embedding_asset_path=str(tmp_path / "no_such_asset"),
+            device="cpu",
+        )
+        with pytest.raises(PerturbGenEmbeddingError, match="not found"):
+            DAVFInferenceModule(config)
+
+    def test_gene_mode_ignores_asset(self, tmp_path):
+        """Gene-space mode is self-contained and must not touch the asset."""
+        from src.models.davf_inference import DAVFInferenceConfig, DAVFInferenceModule
+
+        config = DAVFInferenceConfig(
+            state_space="gene",
+            checkpoint_path=str(tmp_path / "absent.pt"),
+            embedding_asset_path=str(tmp_path / "no_such_asset"),
+            device="cpu",
+        )
+        module = DAVFInferenceModule(config)
+        assert module.gene_encoder is not None
+
+    def test_unsupported_checkpoint_schema_version_fails_loudly(self, tmp_path, monkeypatch):
+        """Versioned checkpoints with unknown schema must not silently degrade."""
+        import os
+
+        from src.models.davf_inference import DAVFInferenceConfig, DAVFInferenceModule
+
+        monkeypatch.setenv("PTM2CELLNET_STRICT_MODEL_ASSETS", "1")
+        assert os.environ["PTM2CELLNET_STRICT_MODEL_ASSETS"] == "1"
+        ckpt_path = tmp_path / "future.pt"
+        torch.save(
+            {"schema_version": 99, "model_state_dict": {}}, str(ckpt_path)
+        )
+        config = DAVFInferenceConfig(
+            state_space="scvi_latent",
+            checkpoint_path=str(ckpt_path),
+            device="cpu",
+        )
+        module = DAVFInferenceModule(config)
+        assert module._checkpoint_loaded is False
+
+        mapper_output = PTMDirectionMapperOutput(
+            gene_ids=torch.tensor([[1, 2]]),
+            directions=torch.tensor([[0, 1]]),
+            attention_mask=torch.ones(1, 2),
+        )
+        with pytest.raises(RuntimeError, match="STRICT_MODEL_ASSETS"):
+            module(mapper_output)

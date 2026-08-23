@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pickle
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -42,8 +43,17 @@ def _resolve_explicit_key(payload: Mapping[str, Any], key: str) -> torch.Tensor:
             raise TypeError(f"checkpoint value at {key!r} is not a tensor")
         return direct
     current: Any = payload
-    for part in key.split("."):
+    parts = key.split(".")
+    for index, part in enumerate(parts):
         if not isinstance(current, Mapping) or part not in current:
+            # PyTorch state_dicts commonly store dotted parameter names as
+            # flat keys inside a nested ``state_dict`` mapping.  Consume the
+            # remaining path as one explicit key; never search or guess.
+            if isinstance(current, Mapping):
+                remaining = ".".join(parts[index:])
+                if remaining in current:
+                    current = current[remaining]
+                    break
             raise KeyError(f"explicit tensor key not found: {key}")
         current = current[part]
     if not isinstance(current, torch.Tensor):
@@ -51,11 +61,37 @@ def _resolve_explicit_key(payload: Mapping[str, Any], key: str) -> torch.Tensor:
     return current
 
 
+class _VocabularyUnpickler(pickle.Unpickler):
+    """Allow only builtin containers/scalars in the upstream token dictionary."""
+
+    _ALLOWED = {
+        ("builtins", "dict"),
+        ("builtins", "list"),
+        ("builtins", "tuple"),
+        ("builtins", "str"),
+        ("builtins", "int"),
+    }
+
+    def find_class(self, module: str, name: str) -> Any:
+        if (module, name) not in self._ALLOWED:
+            raise pickle.UnpicklingError(f"disallowed vocabulary global: {module}.{name}")
+        return super().find_class(module, name)
+
+
 def _load_vocabulary(path: Path) -> dict[str, int]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    if path.suffix.lower() == ".json":
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    elif path.suffix.lower() in {".pkl", ".pickle"}:
+        with path.open("rb") as handle:
+            raw = _VocabularyUnpickler(handle).load()
+    else:
+        raise ValueError("vocabulary must be a JSON or pickle file")
     if not isinstance(raw, dict) or not raw:
-        raise ValueError("vocabulary must be a non-empty JSON object")
-    vocab = {str(gene): int(token) for gene, token in raw.items()}
+        raise ValueError("vocabulary must be a non-empty object")
+    try:
+        vocab = {str(gene): int(token) for gene, token in raw.items()}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("vocabulary token IDs must be integers") from exc
     if any(token < 0 for token in vocab.values()) or len(set(vocab.values())) != len(vocab):
         raise ValueError("source vocabulary token IDs must be unique non-negative integers")
     return vocab
@@ -95,6 +131,7 @@ def export_asset(checkpoint: Path, tensor_key: str, vocabulary: Path, output_dir
         "source": {
             "checkpoint_sha256": _sha256(checkpoint),
             "vocabulary_sha256": _sha256(vocabulary),
+            "vocabulary_format": vocabulary.suffix.lower().lstrip("."),
             "tensor_key": tensor_key,
         },
         "embedding_shape": list(matrix.shape),
@@ -111,7 +148,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--tensor-key", required=True, help="Exact dot-separated checkpoint tensor key")
-    parser.add_argument("--vocabulary", type=Path, required=True, help="JSON object mapping gene ID to row")
+    parser.add_argument(
+        "--vocabulary",
+        type=Path,
+        required=True,
+        help="JSON or pickle object mapping gene ID to source embedding row",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     export_asset(args.checkpoint, args.tensor_key, args.vocabulary, args.output_dir)

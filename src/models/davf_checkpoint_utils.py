@@ -108,6 +108,7 @@ def save_checkpoint(
         **extras: Additional keys to include in the checkpoint.
     """
     ckpt: Dict[str, Any] = {
+        "schema_version": 1,
         "model_state_dict": model.state_dict(),
         "config": config if config is not None else {},
     }
@@ -161,6 +162,13 @@ def load_checkpoint(
         ) from exc
     if not isinstance(ckpt, dict):
         raise ValueError("Checkpoint must be a dictionary")
+
+    schema_version = ckpt.get("schema_version")
+    if schema_version is not None and schema_version != 1:
+        raise ValueError(
+            f"Unsupported DAVF checkpoint schema_version={schema_version!r} "
+            f"(supported: 1). Re-export or retrain the checkpoint."
+        )
 
     if "config" not in ckpt:
         ckpt["config"] = {}

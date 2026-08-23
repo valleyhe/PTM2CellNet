@@ -1,14 +1,24 @@
-# DAVF Integration Configuration
+# DAVF Integration Configuration (schema v2)
 # Used by PTM2CellNet when use_davf=True
 # See src/models/davf_inference.py for DAVFInferenceConfig documentation
+#
+# Schema v2 (2026-08-23): removed `geneformer_path` and its null→random
+# embedding fallback. Gene embeddings come from a verified PerturbGen
+# embedding asset directory (exported by scripts/export_perturbgen_gene_embeddings.py)
+# via `embedding_asset_path`. Old configs containing `geneformer_path` are
+# rejected with an explicit migration error at load time.
 
 davf:
   state_space: "scvi_latent"
   checkpoint_path: "checkpoints/latent_davf_ibd_norman/best_model.pt"
-  # scvi_model_path, geneformer_path, and gene_names_path must be provided
-  # when use_davf=True. Leave as null to use built-in fallback behavior.
+  # scvi_model_path and gene_names_path must be provided when use_davf=True.
+  # Leave as null to use built-in fallback behavior.
   scvi_model_path: null
-  geneformer_path: null
+  # PerturbGen embedding asset directory (manifest.json + vocabulary.json +
+  # gene_embeddings.safetensors). When set, the frozen matrix is injected into
+  # LatentDAVF; missing/corrupt assets fail fast. null = train-from-scratch
+  # embedding table (requires a matching checkpoint).
+  embedding_asset_path: null
   gene_names_path: null
   feature_dim: 128
   hidden_dim: 256

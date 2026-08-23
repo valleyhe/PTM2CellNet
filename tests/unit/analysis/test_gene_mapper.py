@@ -1,8 +1,11 @@
 """Tests for gene to UniProt mapping."""
+import threading
+import time
 import pytest
 from unittest.mock import Mock, patch
 import pandas as pd
 
+import src.analysis.gene_mapper as gene_mapper
 from src.analysis.gene_mapper import (
     GeneMapper,
     _RequestsUniProtMapper,
@@ -176,6 +179,53 @@ class TestGeneMapper:
         result = mapper.map_gene_to_uniprot('BRAF')
 
         assert result is None
+
+    def test_map_gene_to_uniprot_timeout_returns_none_without_fallback(
+        self, mock_protmapper, monkeypatch
+    ):
+        """A stalled optional mapper must not block or switch implementations."""
+        monkeypatch.setattr(gene_mapper, '_EXTERNAL_MAPPER_TIMEOUT_S', 0.05)
+        blocked = threading.Event()
+        mock_instance = Mock()
+        mock_instance.get.side_effect = lambda **kwargs: blocked.wait()
+        mock_protmapper.return_value = mock_instance
+
+        mapper = GeneMapper()
+        started = time.monotonic()
+        result = mapper.map_gene_to_uniprot('BRAF')
+
+        assert result is None
+        assert time.monotonic() - started < 0.5
+        assert mapper._gene_cache['BRAF'] is None
+        assert not isinstance(mapper._mapper, _RequestsUniProtMapper)
+        mock_instance.get.assert_called_once_with(
+            ids=['BRAF'],
+            from_db='Gene_Name',
+            to_db='UniProtKB',
+        )
+
+    def test_map_genes_batch_timeout_returns_none_without_fallback(
+        self, mock_protmapper, monkeypatch
+    ):
+        """A stalled optional batch mapper must return bounded partial results."""
+        monkeypatch.setattr(gene_mapper, '_EXTERNAL_MAPPER_TIMEOUT_S', 0.05)
+        blocked = threading.Event()
+        mock_instance = Mock()
+        mock_instance.get.side_effect = lambda **kwargs: blocked.wait()
+        mock_protmapper.return_value = mock_instance
+
+        mapper = GeneMapper()
+        started = time.monotonic()
+        results = mapper.map_genes_batch(['BRAF', 'TP53'])
+
+        assert results == {'BRAF': None, 'TP53': None}
+        assert time.monotonic() - started < 0.5
+        assert not isinstance(mapper._mapper, _RequestsUniProtMapper)
+        mock_instance.get.assert_called_once_with(
+            ids=['BRAF', 'TP53'],
+            from_db='Gene_Name',
+            to_db='UniProtKB',
+        )
 
     def test_get_canonical_isoform(self, mock_protmapper):
         """Test canonical isoform getter."""

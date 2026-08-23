@@ -142,8 +142,13 @@ def _config(tmp_path: Path, mock_repo: Path, export_script: Path) -> dict:
                     "perturb_config": {
                         "mock_output": str(output_root / "perturb" / "results" / "dynamic-perturb.h5ad"),
                         "data": {},
-                        "trainer": {"mapping_dict_path": str(mapping), "tokenid_to_rowid_path": str(token_row)},
-                        "datamodule": {},
+                        "trainer": {
+                            "mapping_dict_path": str(mapping),
+                            "tokenid_to_rowid_path": str(token_row),
+                            "tgt_vocab_size": 2002,
+                            "max_seq_length": 1024,
+                        },
+                        "datamodule": {"max_len": 1024},
                         "model": {"ckpt_masking_path": "@artifact:train_decoder:checkpoint"},
                     },
                     "fingerprint_paths": [str(mapping), str(token_row), "@artifact:train_decoder:checkpoint"],

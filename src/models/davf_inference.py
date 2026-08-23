@@ -67,13 +67,17 @@ Attributes:
         num_steps: ODE integration steps (default 50)
         device: Device to use (auto-detect if None)
         scvi_model_path: Path to scVI model (null = use fallback)
-        geneformer_path: Path to Geneformer model (null = use random embeddings)
+        embedding_asset_path: Directory of a verified PerturbGen embedding
+            asset (manifest.json + vocabulary.json + gene_embeddings.safetensors).
+            When set, the frozen matrix is injected into ``LatentDAVF`` as
+            ``pretrained_gene_embeddings`` (schema v2; replaces the removed
+            ``geneformer_path`` semantics). Asset load errors propagate.
         gene_names_path: Path to gene names mapping (null = mapping unavailable)
     """
     state_space: str = "scvi_latent"
     checkpoint_path: str = "checkpoints/latent_davf_ibd_norman/best_model.pt"
     scvi_model_path: Optional[str] = None
-    geneformer_path: Optional[str] = None
+    embedding_asset_path: Optional[str] = None
     gene_names_path: Optional[str] = None
     feature_dim: int = 128
     hidden_dim: int = 256
@@ -119,10 +123,6 @@ Attributes:
         if self.scvi_model_path is None:
             logger.warning(
                 "DAVF config: scvi_model_path is null. DAVF scVI branch will be unavailable."
-            )
-        if self.geneformer_path is None:
-            logger.warning(
-                "DAVF config: geneformer_path is null. DAVF Geneformer branch will use random embeddings."
             )
         if self.gene_names_path is None:
             logger.warning(
@@ -268,14 +268,37 @@ class DAVFInferenceModule(nn.Module):
         else:
             self.device = torch.device("cpu")
 
+        pretrained_gene_embeddings: Optional[torch.Tensor] = None
         if config.state_space == "scvi_latent":
+            if config.embedding_asset_path is not None:
+                # Schema v2: inject the verified PerturbGen matrix into LatentDAVF.
+                # Load errors (missing files, sha256 mismatch, bad schema) propagate:
+                # a configured asset must resolve or the module must not start.
+                from src.models.perturbgen_embedding import load_perturbgen_embedding_asset
+
+                asset = load_perturbgen_embedding_asset(config.embedding_asset_path)
+                pretrained_gene_embeddings = asset.embeddings.to(
+                    dtype=torch.float32, device=self.device
+                )
+                logger.info(
+                    "Injected PerturbGen embedding asset %s into LatentDAVF "
+                    "(rows=%d, dim=%d, manifest run_id=%s)",
+                    config.embedding_asset_path,
+                    asset.vocab_size,
+                    asset.embedding_dim,
+                    asset.manifest.get("run_id"),
+                )
+
             # Create LatentDAVF model for scVI latent-space inference
             latent_config = LatentDAVFConfig(
                 latent_dim=config.latent_dim,
                 num_genes=config.num_genes,
                 hidden_dim=config.hidden_dim,
             )
-            self.latent_davf: LatentDAVF | LegacyLatentDAVF = LatentDAVF(latent_config)
+            self.latent_davf: LatentDAVF | LegacyLatentDAVF = LatentDAVF(
+                latent_config,
+                pretrained_gene_embeddings=pretrained_gene_embeddings,
+            )
         elif config.state_space == "gene":
             # Create GeneMLEPEncoder for gene-space inference (no ODE)
             self.gene_encoder = GeneMLEPEncoder(
@@ -380,6 +403,16 @@ class DAVFInferenceModule(nn.Module):
             else:
                 raise ValueError(
                     f"Checkpoint must be a dictionary, got {type(checkpoint)}"
+                )
+
+            # Explicit checkpoint schema versioning (no silent partial load):
+            # versioned checkpoints that this code does not understand must
+            # fail loudly instead of degrading to zero features.
+            schema_version = checkpoint.get("schema_version") if isinstance(checkpoint, dict) else None
+            if schema_version is not None and schema_version != 1:
+                raise ValueError(
+                    f"Unsupported DAVF checkpoint schema_version={schema_version!r} "
+                    f"(supported: 1). Re-export or retrain the checkpoint."
                 )
 
             # Legacy-architecture checkpoints (pre-2026, ``delta_mlp`` block):

@@ -99,6 +99,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=32, help="批次大小")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="权重衰减")
     parser.add_argument("--feature-dim", type=int, default=128, help="DAVF 特征维度")
+    parser.add_argument(
+        "--embedding-asset",
+        type=str,
+        default=None,
+        help="PerturbGen embedding asset 目录 (manifest.json + vocabulary.json + "
+        "gene_embeddings.safetensors, schema v2)。设置后冻结矩阵注入 LatentDAVF；"
+        "目录缺失或校验失败将直接报错",
+    )
     parser.add_argument("--dropout", type=float, default=0.1, help="分类头 dropout")
     parser.add_argument("--device", type=str, default=None, help="设备 (cuda/cpu)")
     return parser.parse_args()
@@ -198,6 +206,7 @@ def build_model(
     checkpoint_path: str,
     feature_dim: int,
     device: torch.device,
+    embedding_asset_path: Optional[str] = None,
 ) -> tuple[DAVFInferenceModule, PTMDirectionMapper]:
     """Build DAVF inference module and PTM direction mapper."""
     davf_config = DAVFInferenceConfig(
@@ -205,6 +214,7 @@ def build_model(
         freeze=True,  # Start frozen for stage 1
         feature_dim=feature_dim,
         device=str(device),
+        embedding_asset_path=embedding_asset_path,
     )
     davf_module = DAVFInferenceModule(davf_config).to(device)
     logger.info("DAVFInferenceModule 已加载 (model_source=%s)", davf_module.model_source)
@@ -398,7 +408,9 @@ def main() -> None:
     logger.info("类别数: %d", num_classes)
 
     # 2. Build model
-    davf_module, mapper = build_model(args.checkpoint, args.feature_dim, device)
+    davf_module, mapper = build_model(
+        args.checkpoint, args.feature_dim, device, args.embedding_asset
+    )
     head = TaskHead(feature_dim=args.feature_dim, num_classes=num_classes, dropout=args.dropout).to(device)
 
     results: Dict[str, Any] = {"args": vars(args), "num_classes": num_classes}

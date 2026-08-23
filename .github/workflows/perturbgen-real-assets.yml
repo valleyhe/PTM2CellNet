@@ -13,6 +13,7 @@ jobs:
     env:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
       PTM2CELLNET_RUN_REAL_ASSET_TESTS: "1"
       PTM2CELLNET_PERTURBGEN_REAL_CONFIG: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_CONFIG }}
       PTM2CELLNET_PERTURBGEN_REAL_OUTPUT_ROOT: ${{ vars.PTM2CELLNET_PERTURBGEN_REAL_OUTPUT_ROOT }}
@@ -34,6 +35,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-core.txt
           pip install -r requirements-dev.txt
+          pip install -r requirements-analysis.txt
 
       - name: Preflight real-assets configuration
         run: |

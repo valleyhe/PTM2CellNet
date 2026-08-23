@@ -211,9 +211,17 @@ stages:
           - "${PTM2CELLNET_PERTURBGEN_DONOR_OBS}"
         pred_tps:
           - 1
+        # val.py only takes the explicit branch when BOTH fields are present;
+        # otherwise it derives them via lexicographic max(input_id). The
+        # values here are BASE values: val.py adds +50/+100 buffers itself.
+        tgt_vocab_size: 2002
+        max_seq_length: 1024
       datamodule:
         batch_size: 8
         num_workers: 4
+        # Base value, must equal trainer.max_seq_length; val.py rewrites it
+        # to the unbuffered base at runtime (val.py:218).
+        max_len: 1024
         shuffle: false
         split: false
         var_list:

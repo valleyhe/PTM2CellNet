@@ -1,5 +1,6 @@
 """Gene to UniProt mapping module (FEAT-01)."""
 import logging
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +15,7 @@ _POLL_INITIAL_INTERVAL = 0.2
 _POLL_BACKOFF_FACTOR = 1.5
 _POLL_MAX_INTERVAL = 3.0
 _POLL_BUDGET_S = 60.0
+_EXTERNAL_MAPPER_TIMEOUT_S = 90.0
 
 try:
     from UniProtMapper import ProtMapper
@@ -137,6 +139,54 @@ class _RequestsUniProtMapper:
         return pd.DataFrame(rows, columns=["From", "To"]), failed
 
 
+def _call_external_mapper(
+    mapper: Any,
+    *,
+    ids: List[str],
+    from_db: str,
+    to_db: str,
+) -> Any:
+    """Call the optional mapper with a hard upper bound.
+
+    ``UniProtMapper`` does not expose a request timeout and can poll forever
+    for a job that never becomes ready.  Run only that optional dependency in
+    a daemon thread so a stalled socket cannot block the caller.  A timeout
+    is raised to the caller; there is deliberately no fallback mapper because
+    returning a result from a different implementation could change mapping
+    semantics.
+    """
+    result: List[Any] = []
+    error: List[Exception] = []
+    completed = threading.Event()
+
+    def run() -> None:
+        try:
+            result.append(
+                mapper.get(ids=ids, from_db=from_db, to_db=to_db)
+            )
+        except Exception as exc:  # Re-raise the dependency's error in the caller.
+            error.append(exc)
+        finally:
+            completed.set()
+
+    worker = threading.Thread(
+        target=run,
+        name="uniprot-mapper",
+        daemon=True,
+    )
+    worker.start()
+
+    if not completed.wait(timeout=_EXTERNAL_MAPPER_TIMEOUT_S):
+        raise TimeoutError(
+            "UniProtMapper.get timed out after "
+            f"{_EXTERNAL_MAPPER_TIMEOUT_S:g}s"
+        )
+
+    if error:
+        raise error[0]
+    return result[0]
+
+
 def _build_mapper() -> Any:
     """Construct the UniProt mapper, preferring the optimized package.
 
@@ -158,6 +208,24 @@ class GeneMapper:
         # Cache for UniProt canonical isoform lookups
         self._isoform_cache: Dict[str, str] = {}
 
+    def _get_mapper_results(
+        self,
+        ids: List[str],
+    ) -> Any:
+        """Get mappings while bounding calls to the optional dependency."""
+        if isinstance(self._mapper, _RequestsUniProtMapper):
+            return self._mapper.get(
+                ids=ids,
+                from_db="Gene_Name",
+                to_db="UniProtKB",
+            )
+        return _call_external_mapper(
+            self._mapper,
+            ids=ids,
+            from_db="Gene_Name",
+            to_db="UniProtKB",
+        )
+
     def map_gene_to_uniprot(
         self,
         gene_symbol: str,
@@ -177,11 +245,7 @@ class GeneMapper:
             return self._gene_cache[gene_symbol]
 
         try:
-            result, failed = self._mapper.get(
-                ids=[gene_symbol],
-                from_db="Gene_Name",
-                to_db="UniProtKB",
-            )
+            result, failed = self._get_mapper_results([gene_symbol])
 
             if failed:
                 logger.warning(f"Failed to map gene {gene_symbol}: {failed}")
@@ -238,11 +302,7 @@ class GeneMapper:
             return results
 
         try:
-            mapper_results, failed = self._mapper.get(
-                ids=uncached_genes,
-                from_db="Gene_Name",
-                to_db="UniProtKB",
-            )
+            mapper_results, failed = self._get_mapper_results(uncached_genes)
 
             # Process successful mappings
             if not mapper_results.empty:
@@ -258,7 +318,13 @@ class GeneMapper:
                     results[gene] = None
                     self._gene_cache[gene] = None
 
-        except (ConnectionError, TimeoutError, ValueError, KeyError) as e:
+        except (
+            ConnectionError,
+            TimeoutError,
+            ValueError,
+            KeyError,
+            requests.RequestException,
+        ) as e:
             logger.error(f"Error in batch gene mapping: {e}")
             # Return what we have, mark rest as None
             for gene in uncached_genes:

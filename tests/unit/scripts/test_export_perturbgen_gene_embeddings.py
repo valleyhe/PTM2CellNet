@@ -1,4 +1,5 @@
 import json
+import pickle
 import subprocess
 import sys
 from pathlib import Path
@@ -72,3 +73,43 @@ def test_exporter_accepts_flat_dotted_state_dict_key(tmp_path):
         check=False, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_exporter_accepts_upstream_pickle_vocabulary(tmp_path):
+    checkpoint = tmp_path / "encoder.ckpt"
+    vocabulary = tmp_path / "token_dict.pkl"
+    output = tmp_path / "asset"
+    matrix = torch.arange(12, dtype=torch.float32).reshape(3, 4)
+    torch.save(
+        {"state_dict": {"transformer.token_embedding.weight": matrix}},
+        checkpoint,
+    )
+    with vocabulary.open("wb") as handle:
+        pickle.dump({"<pad>": 0, "ENSG000001": 2}, handle)
+    script = Path(__file__).parents[3] / "scripts" / "export_perturbgen_gene_embeddings.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--checkpoint",
+            str(checkpoint),
+            "--tensor-key",
+            "state_dict.transformer.token_embedding.weight",
+            "--vocabulary",
+            str(vocabulary),
+            "--output-dir",
+            str(output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source"]["vocabulary_format"] == "pkl"
+    assert json.loads((output / "vocabulary.json").read_text()) == {
+        "<pad>": 0,
+        "ENSG000001": 1,
+    }

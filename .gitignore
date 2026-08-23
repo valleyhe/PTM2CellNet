@@ -37,6 +37,7 @@
 !.pylintrc
 !API_DOCUMENTATION.md
 !project_analysis_*.md
+!project_repair_*.md
 !CHANGELOG.md
 !LICENSE
 !archive/
