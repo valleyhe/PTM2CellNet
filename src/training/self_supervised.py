@@ -238,39 +238,260 @@ def _validate(
 
     with torch.no_grad():
         for batch in dataloader:
-            ptm_types = batch["ptm_types"].to(device)
-            ptm_positions = batch.get("ptm_positions")
-            if ptm_positions is None:
-                ptm_positions = torch.arange(ptm_types.size(1), device=device).unsqueeze(0).expand_as(ptm_types)
-            else:
-                ptm_positions = ptm_positions.to(device)
-
-            ptm_mask = batch.get("ptm_mask")
-            if ptm_mask is None:
-                ptm_mask = (ptm_types > 0).float()
-            else:
-                ptm_mask = ptm_mask.to(device)
-
-            masked_ptm_types, masked_positions = model.mask_inputs(ptm_types, ptm_mask)
-            if not masked_positions.any():
+            loss, _ = _compute_masked_loss(model, batch, device, use_amp)
+            if loss is None:
                 continue
-
-            if use_amp:
-                with amp_autocast():
-                    outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
-                    logits = outputs["logits"][masked_positions]
-                    targets = ptm_types[masked_positions]
-                    loss = F.cross_entropy(logits, targets)
-            else:
-                outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
-                logits = outputs["logits"][masked_positions]
-                targets = ptm_types[masked_positions]
-                loss = F.cross_entropy(logits, targets)
-
             total_loss += float(loss.item())
             steps += 1
 
     return total_loss / max(steps, 1)
+
+
+def _split_train_val(
+    dataloader: Iterable[Dict[str, torch.Tensor]],
+    validation_split: float,
+) -> tuple[Iterable[Dict[str, torch.Tensor]], Iterable[Dict[str, torch.Tensor]] | None]:
+    """Hold out ``validation_split`` of a DataLoader as a validation loader.
+
+    Returns ``(dataloader, None)`` unchanged when no split is requested or the
+    input is not a DataLoader (warning logged in the latter case).
+    """
+    if validation_split <= 0.0:
+        return dataloader, None
+
+    if not (hasattr(dataloader, "dataset") and hasattr(dataloader, "batch_size")):
+        logger.warning(
+            "validation_split > 0 but dataloader is not a DataLoader; skipping split"
+        )
+        return dataloader, None
+
+    dataset = dataloader.dataset
+    val_size = int(len(dataset) * validation_split)
+    train_size = len(dataset) - val_size
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        dataset, [train_size, val_size]
+    )
+    bs = dataloader.batch_size
+    cf = getattr(dataloader, "collate_fn", None)
+    ss = getattr(dataloader, "sampler", None)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=bs, shuffle=(ss is None),
+        collate_fn=cf,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=bs, shuffle=False,
+        collate_fn=cf,
+    )
+    logger.info(
+        "Split dataset: %d train, %d validation (%.1f%%)",
+        train_size, val_size, validation_split * 100,
+    )
+    return train_loader, val_loader
+
+
+def _build_lr_schedulers(
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: str | None,
+    epochs: int,
+) -> tuple[
+    torch.optim.lr_scheduler.CosineAnnealingLR | None,
+    torch.optim.lr_scheduler.ReduceLROnPlateau | None,
+]:
+    """Build the requested LR scheduler pair (at most one is non-None)."""
+    cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
+    plateau_scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None = None
+    if lr_scheduler == "cosine":
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=epochs
+        )
+    elif lr_scheduler == "plateau":
+        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5, patience=3
+        )
+    return cosine_scheduler, plateau_scheduler
+
+
+def _restore_checkpoint(
+    model: MaskedPTMPrediction,
+    optimizer: torch.optim.Optimizer,
+    cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None,
+    resume_from: str,
+    device: str | torch.device,
+) -> tuple[int, float, int, List[float]]:
+    """Restore model/optimizer/scheduler state from a resume checkpoint.
+
+    N20: 与 TD-M01 callbacks 恢复语义对齐（检查点缺字段时仅告警继续）。
+    Returns ``(start_epoch, best_val_loss, epochs_since_improvement, history)``.
+    """
+    start_epoch = 0
+    best_val_loss = float("inf")
+    epochs_since_improvement = 0
+    history: List[float] = []
+
+    state = safe_torch_load(resume_from, map_location=device)
+    if isinstance(state, dict) and "model" in state:
+        model.load_state_dict(state["model"])
+        if state.get("optimizer") is not None:
+            optimizer.load_state_dict(state["optimizer"])
+        if state.get("scheduler") is not None and cosine_scheduler is not None:
+            cosine_scheduler.load_state_dict(state["scheduler"])
+        start_epoch = int(state.get("epoch", -1)) + 1
+        best_val_loss = float(state.get("best_val_loss", float("inf")))
+        epochs_since_improvement = int(state.get("epochs_since_improvement", 0))
+        restored_history = state.get("history")
+        if isinstance(restored_history, list):
+            history = [float(v) for v in restored_history]
+        logger.info(
+            "Resumed %s from epoch %d (best_val_loss=%.6f)",
+            resume_from, start_epoch, best_val_loss,
+        )
+    else:
+        # 旧格式：裸 state_dict（仅权重）
+        if not isinstance(state, dict):
+            raise ValueError(
+                f"Unrecognized checkpoint format for masked pretraining: {resume_from}"
+            )
+        model.load_state_dict(state)
+        logger.warning(
+            "Legacy checkpoint %s contains only model weights; "
+            "optimizer/scheduler/epoch state not restored",
+            resume_from,
+        )
+    return start_epoch, best_val_loss, epochs_since_improvement, history
+
+
+def _compute_masked_loss(
+    model: MaskedPTMPrediction,
+    batch: Dict[str, torch.Tensor],
+    device: str | torch.device,
+    use_amp: bool,
+) -> tuple[torch.Tensor | None, torch.Tensor]:
+    """Mask one batch, run the model and return ``(loss, masked_positions)``.
+
+    ``loss`` is ``None`` when no position was sampled for masking (the batch
+    is skipped by callers without running a forward pass).
+    """
+    ptm_types = batch["ptm_types"].to(device)
+    ptm_positions = batch.get("ptm_positions")
+    if ptm_positions is None:
+        ptm_positions = torch.arange(ptm_types.size(1), device=device).unsqueeze(0).expand_as(ptm_types)
+    else:
+        ptm_positions = ptm_positions.to(device)
+
+    ptm_mask = batch.get("ptm_mask")
+    if ptm_mask is None:
+        ptm_mask = (ptm_types > 0).float()
+    else:
+        ptm_mask = ptm_mask.to(device)
+
+    masked_ptm_types, masked_positions = model.mask_inputs(ptm_types, ptm_mask)
+    if not masked_positions.any():
+        return None, masked_positions
+
+    if use_amp:
+        with amp_autocast():
+            outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
+            logits = outputs["logits"][masked_positions]
+            targets = ptm_types[masked_positions]
+            loss = F.cross_entropy(logits, targets)
+    else:
+        outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
+        logits = outputs["logits"][masked_positions]
+        targets = ptm_types[masked_positions]
+        loss = F.cross_entropy(logits, targets)
+    return loss, masked_positions
+
+
+def _train_one_epoch(
+    model: MaskedPTMPrediction,
+    train_loader: Iterable[Dict[str, torch.Tensor]],
+    optimizer: torch.optim.Optimizer,
+    device: str | torch.device,
+    *,
+    epoch: int,
+    epochs: int,
+    use_amp: bool,
+    scaler: torch.amp.GradScaler | None,
+    grad_clip_norm: float | None,
+    warmup_steps: int,
+    initial_lr: float | None,
+    log_interval: int,
+) -> float:
+    """Run one training epoch (AMP/grad-clip/warmup aware); return mean loss."""
+    model.train()
+    total_loss = 0.0
+    steps = 0
+
+    for batch_idx, batch in enumerate(train_loader):
+        loss, masked_positions = _compute_masked_loss(model, batch, device, use_amp)
+        if loss is None:
+            continue
+
+        optimizer.zero_grad()
+
+        if use_amp:
+            assert scaler is not None
+            scaler.scale(loss).backward()
+            if grad_clip_norm is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            if grad_clip_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+            optimizer.step()
+
+        if warmup_steps > 0 and initial_lr is not None and epoch == 0:
+            if batch_idx + 1 < warmup_steps:
+                warmup_factor = (batch_idx + 1) / warmup_steps
+                for group in optimizer.param_groups:
+                    group["lr"] = initial_lr * warmup_factor
+            else:
+                for group in optimizer.param_groups:
+                    group["lr"] = initial_lr
+
+        total_loss += float(loss.item())
+        steps += 1
+
+        if (batch_idx + 1) % log_interval == 0:
+            logger.info(
+                "Epoch %d/%d, Batch %d, Loss: %.4f",
+                epoch + 1, epochs, batch_idx + 1, loss.item(),
+            )
+
+    return total_loss / max(steps, 1)
+
+
+def _save_best_checkpoint(
+    model: MaskedPTMPrediction,
+    optimizer: torch.optim.Optimizer,
+    cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None,
+    checkpoint_dir: str,
+    *,
+    epoch: int,
+    best_val_loss: float,
+    epochs_since_improvement: int,
+    history: List[float],
+    training_config: Dict[str, object],
+) -> None:
+    """Save the best-model checkpoint with full resume state."""
+    ckpt_path = os.path.join(checkpoint_dir, "best_model.pt")
+    torch.save({
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": (
+            cosine_scheduler.state_dict()
+            if cosine_scheduler is not None else None
+        ),
+        "epoch": epoch,
+        "best_val_loss": best_val_loss,
+        "epochs_since_improvement": epochs_since_improvement,
+        "config": training_config,
+        "history": history,
+    }, ckpt_path)
+    logger.info("Saved best model to %s", ckpt_path)
 
 
 def pretrain_masked_ptm(
@@ -329,50 +550,12 @@ def pretrain_masked_ptm(
     if not logger.handlers:
         logger.addHandler(logging.StreamHandler())
 
-    train_loader: Iterable[Dict[str, torch.Tensor]] = dataloader
-    val_loader: Iterable[Dict[str, torch.Tensor]] | None = None
-
-    if validation_split > 0.0:
-        if hasattr(dataloader, "dataset") and hasattr(dataloader, "batch_size"):
-            dataset = dataloader.dataset
-            val_size = int(len(dataset) * validation_split)
-            train_size = len(dataset) - val_size
-            train_dataset, val_dataset = torch.utils.data.random_split(
-                dataset, [train_size, val_size]
-            )
-            bs = dataloader.batch_size
-            cf = getattr(dataloader, "collate_fn", None)
-            ss = getattr(dataloader, "sampler", None)
-            train_loader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=bs, shuffle=(ss is None),
-                collate_fn=cf,
-            )
-            val_loader = torch.utils.data.DataLoader(
-                val_dataset, batch_size=bs, shuffle=False,
-                collate_fn=cf,
-            )
-            logger.info(
-                "Split dataset: %d train, %d validation (%.1f%%)",
-                train_size, val_size, validation_split * 100,
-            )
-        else:
-            logger.warning(
-                "validation_split > 0 but dataloader is not a DataLoader; skipping split"
-            )
+    train_loader, val_loader = _split_train_val(dataloader, validation_split)
 
     use_amp = use_amp and torch.cuda.is_available()
     scaler = make_grad_scaler() if use_amp else None
 
-    cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
-    plateau_scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None = None
-    if lr_scheduler == "cosine":
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=epochs
-        )
-    elif lr_scheduler == "plateau":
-        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=3
-        )
+    cosine_scheduler, plateau_scheduler = _build_lr_schedulers(optimizer, lr_scheduler, epochs)
 
     initial_lr: float | None = None
     if warmup_steps > 0 and optimizer.param_groups:
@@ -388,119 +571,28 @@ def pretrain_masked_ptm(
 
     history: List[float] = []
 
-    start_epoch = 0
     if resume_from is not None:
-        # N20: resume 恢复模型/optimizer/scheduler/best_val_loss/epoch，
-        # 与 TD-M01 callbacks 恢复语义对齐（检查点缺字段时仅告警继续）。
-        state = safe_torch_load(resume_from, map_location=device)
-        if isinstance(state, dict) and "model" in state:
-            model.load_state_dict(state["model"])
-            if state.get("optimizer") is not None:
-                optimizer.load_state_dict(state["optimizer"])
-            if state.get("scheduler") is not None and cosine_scheduler is not None:
-                cosine_scheduler.load_state_dict(state["scheduler"])
-            start_epoch = int(state.get("epoch", -1)) + 1
-            best_val_loss = float(state.get("best_val_loss", float("inf")))
-            epochs_since_improvement = int(state.get("epochs_since_improvement", 0))
-            restored_history = state.get("history")
-            if isinstance(restored_history, list):
-                history = [float(v) for v in restored_history]
-            logger.info(
-                "Resumed %s from epoch %d (best_val_loss=%.6f)",
-                resume_from, start_epoch, best_val_loss,
-            )
-        else:
-            # 旧格式：裸 state_dict（仅权重）
-            if not isinstance(state, dict):
-                raise ValueError(
-                    f"Unrecognized checkpoint format for masked pretraining: {resume_from}"
-                )
-            model.load_state_dict(state)
-            logger.warning(
-                "Legacy checkpoint %s contains only model weights; "
-                "optimizer/scheduler/epoch state not restored",
-                resume_from,
-            )
+        start_epoch, best_val_loss, epochs_since_improvement, history = (
+            _restore_checkpoint(model, optimizer, cosine_scheduler, resume_from, device)
+        )
+    else:
+        start_epoch = 0
 
     for epoch in range(start_epoch, epochs):
         if early_stop:
             break
-        model.train()
-        total_loss = 0.0
-        steps = 0
-
-        for batch_idx, batch in enumerate(train_loader):
-            ptm_types = batch["ptm_types"].to(device)
-            ptm_positions = batch.get("ptm_positions")
-            if ptm_positions is None:
-                ptm_positions = torch.arange(ptm_types.size(1), device=device).unsqueeze(0).expand_as(ptm_types)
-            else:
-                ptm_positions = ptm_positions.to(device)
-
-            ptm_mask = batch.get("ptm_mask")
-            if ptm_mask is None:
-                ptm_mask = (ptm_types > 0).float()
-            else:
-                ptm_mask = ptm_mask.to(device)
-
-            masked_ptm_types, masked_positions = model.mask_inputs(ptm_types, ptm_mask)
-            if not masked_positions.any():
-                continue
-
-            if use_amp:
-                with amp_autocast():
-                    outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
-                    logits = outputs["logits"][masked_positions]
-                    targets = ptm_types[masked_positions]
-                    loss = F.cross_entropy(logits, targets)
-            else:
-                outputs = model(masked_ptm_types, ptm_positions, ptm_mask)
-                logits = outputs["logits"][masked_positions]
-                targets = ptm_types[masked_positions]
-                loss = F.cross_entropy(logits, targets)
-
-            optimizer.zero_grad()
-
-            if use_amp:
-                assert scaler is not None
-                scaler.scale(loss).backward()
-                if grad_clip_norm is not None:
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                if grad_clip_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
-                optimizer.step()
-
-            if warmup_steps > 0 and initial_lr is not None and epoch == 0:
-                if batch_idx + 1 < warmup_steps:
-                    warmup_factor = (batch_idx + 1) / warmup_steps
-                    for group in optimizer.param_groups:
-                        group["lr"] = initial_lr * warmup_factor
-                else:
-                    for group in optimizer.param_groups:
-                        group["lr"] = initial_lr
-
-            total_loss += float(loss.item())
-            steps += 1
-
-            if (batch_idx + 1) % log_interval == 0:
-                logger.info(
-                    "Epoch %d/%d, Batch %d, Loss: %.4f",
-                    epoch + 1, epochs, batch_idx + 1, loss.item(),
-                )
-
-        epoch_loss = total_loss / max(steps, 1)
+        epoch_loss = _train_one_epoch(
+            model, train_loader, optimizer, device,
+            epoch=epoch, epochs=epochs, use_amp=use_amp, scaler=scaler,
+            grad_clip_norm=grad_clip_norm, warmup_steps=warmup_steps,
+            initial_lr=initial_lr, log_interval=log_interval,
+        )
         history.append(epoch_loss)
         logger.info("Epoch %d/%d training loss: %.4f", epoch + 1, epochs, epoch_loss)
 
         if cosine_scheduler is not None:
             cosine_scheduler.step()
 
-        val_loss = None
         if val_loader is not None and (epoch + 1) % validate_every == 0:
             val_loss = _validate(model, val_loader, device, use_amp)
             logger.info("Epoch %d/%d validation loss: %.4f", epoch + 1, epochs, val_loss)
@@ -514,18 +606,12 @@ def pretrain_masked_ptm(
             if improved:
                 best_val_loss = val_loss
                 if checkpoint_dir is not None:
-                    ckpt_path = os.path.join(checkpoint_dir, "best_model.pt")
-                    torch.save({
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scheduler": (
-                            cosine_scheduler.state_dict()
-                            if cosine_scheduler is not None else None
-                        ),
-                        "epoch": epoch,
-                        "best_val_loss": best_val_loss,
-                        "epochs_since_improvement": epochs_since_improvement,
-                        "config": {
+                    _save_best_checkpoint(
+                        model, optimizer, cosine_scheduler, checkpoint_dir,
+                        epoch=epoch, best_val_loss=best_val_loss,
+                        epochs_since_improvement=epochs_since_improvement,
+                        history=history,
+                        training_config={
                             "epochs": epochs,
                             "use_amp": use_amp,
                             "validation_split": validation_split,
@@ -537,9 +623,7 @@ def pretrain_masked_ptm(
                             "patience": patience,
                             "min_delta": min_delta,
                         },
-                        "history": history,
-                    }, ckpt_path)
-                    logger.info("Saved best model to %s", ckpt_path)
+                    )
 
             if patience is not None:
                 if improved:
