@@ -13,7 +13,7 @@
 - **测试基线（2026-08-24 更新）**：全量 `pytest tests`（`unshare -rn` 网络隔离 + HF 离线）**2328 passed / 16 skipped / exit 0（551.86s）**，零失败。
 - **静态/构建质量**：`compileall` 通过；`ruff check src scripts tests` 全绿；`mypy src` **23 errors / 8 files**（= TD-N-06 基线 5 处 + TD-N-11 PerturbGen 18 处，无新增）；`pip check` 仅 1 条 PyNaCl 平台告警（F-10 族）。
 - **技术债闭环（本轮确认，提交 `63ebf75`）**：
-  - **TD-N-24（高）已修复**：`src/analysis/gene_mapper.py:150-186` 新增 `_call_external_mapper`——外部 `UniProtMapper` 调用包裹 daemon 线程 + `_EXTERNAL_MAPPER_TIMEOUT_S` 硬超时，超时转既有异常分支；生产 `/predict` 挂死风险解除。回归锚点 `tests/unit/test_gene_mapper.py`。
+  - **TD-N-24（高）已修复**：`src/analysis/gene_mapper.py:150-186` 新增 `_call_external_mapper`——外部 `UniProtMapper` 调用包裹 daemon 线程 + `_EXTERNAL_MAPPER_TIMEOUT_S` 硬超时，超时转既有异常分支；生产 `/predict` 挂死风险解除。回归锚点 `tests/unit/analysis/test_gene_mapper.py`（TD-N-33 合并后单一入口）。
   - **TD-N-10（高）已修复**：`.github/workflows/perturbgen-real-assets.yml:44-46` 安装步骤追加 `pip install -r requirements-analysis.txt`，Gate-4 门禁 anndata 缺口闭环。
   - **「CI analysis job 缺失」表述作废**：`.github/workflows/ci.yml:59-84` 已存在 `analysis` job（显式跑 data_prep/results/pipeline_mocked 三文件并装 analysis 依赖）；残留语义偏差（方案 §4.5 字面「单测必跑」仅部分满足）降级登记为 U-15（低），见权威分析 §任务1。
 - **PerturbGen 双路径集成**：工程代码 M1–M3 全绿（mocked）；Gate-0 已闭环 ①~⑤（独立环境、真实 ckpt、token 对齐、离线初始化、真实 perturb smoke `outputs/perturbgen/spike/20260823_m0_smoke/evidence.json`）+ M2 train→perturb 工程闭环（`20260823_m2_trainmask/evidence.json`，288/288 张量映射验证）；**剩余唯一硬阻断 = M0⑥ ≥3 donor 合规 cohort**（本地 30 文件审计 0 合规候选，`20260823_donor_audit/evidence.json`）。M4 代码前置 6/8 落地（schema v2 注入链路 + checkpoint 版本化），余 2/8（`ptm_direction_mapper.py` 公共 resolver、`davf.py` Protocol 化）按方案 §7.3 有意延后至 Gate-0 通过。
