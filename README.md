@@ -171,6 +171,8 @@ pip install -e ".[api,lightning]"
 
 > 未安装某个可选依赖时，对应能力（Lion 优化器、原生 Mamba、GenKI 图扰动、scVI 基因空间工作流）会**优雅降级**而非崩溃，并在 CLI 入口打印带 `pip install -e ".[<extra>]"` 提示的警告。
 
+> **可复现钉扎**：唯一权威钉扎源是 `requirements-lock.txt`（`pkg==version` 全量钉扎；scgpt 等互斥依赖按 TD-M05 决策不进 lock，见文件内注释）。仓库不使用 `uv.lock`（TD-N-27，2026-08-24 移除空壳文件）。lock 与各 requirements 轨的一致性由 `scripts/check_requirements_consistency.py` 在 CI `dependencies` job 中门禁。
+
 ### 外部工具（非 pip 包）
 
 `scripts/homology_split.py` 使用 **MMseqs2** 进行蛋白质同源聚类，它是一个外部二进制工具而非 pip 包，不包含在上述 requirements 中。安装方式：
