@@ -64,7 +64,8 @@
 | origin/main | c76fff881f268f9bd0b39d68db8ba547115ec4cf |
 | main...origin/main | 43 0；本地包含远程全部提交并领先 43 个提交 |
 | 冲突 | fetch 和后续 fast-forward 合并均无冲突 |
-| 审计后 HEAD | 由最终交付命令 git rev-parse HEAD 记录；未推送远程 |
+| 审计内容提交后 HEAD | f0be1abbceca7105d5605bb9d8c989c619a71ea7 |
+| 主分支合并检查 | `git merge --ff-only origin/main` → `Already up to date.`；未推送远程 |
 
 审计期间所有修改均集中在文档、规划记录、归档清单和本报告；没有擅自创建 worktree，没有修改 src、scripts 或 tests 的生产逻辑。
 
@@ -496,7 +497,7 @@ TD-N-06、TD-N-08、TD-N-09、TD-N-10、TD-N-11、TD-N-25、TD-N-26 至 TD-N-34 
 4. 补齐 TD-N-40、TD-N-41、TD-N-54 的规划证据，恢复阶段验证记录的可审计性。
 5. 最后处理格式、版本、Pydantic、数据处理和低风险维护债务。
 
-报告完成后，最终提交 hash、git merge --ff-only origin/main 的实际输出和工作树状态以交付消息为准；本地不执行 push。
+审计内容提交 hash：f0be1abbceca7105d5605bb9d8c989c619a71ea7；主分支合并输出：Already up to date.；本地不执行 push。
 
 ---
 报告生成：2026-08-27<br>

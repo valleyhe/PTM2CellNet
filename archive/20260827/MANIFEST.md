@@ -27,5 +27,6 @@
 - 归档动作使用 `git mv`，因此原文件的完整历史由 Git rename detection 和
   `git log --follow -- <path>` 保留。
 - 归档前已确认本地 `main` 不落后 `origin/main`，没有新 worktree，也没有覆盖或删除既有归档。
-- 本批次内容提交与最终版本号由 `git log -1 --format='%H'` 在提交后回填到综合交付记录；
-  报告同时记录归档前版本和远程同步关系。
+- 本批次审计内容提交：`f0be1abbceca7105d5605bb9d8c989c619a71ea7`。
+- 提交后执行 `git merge --ff-only origin/main`，实际输出为 `Already up to date.`，
+  `main...origin/main = 44 0`；报告同时记录归档前版本和远程同步关系。
