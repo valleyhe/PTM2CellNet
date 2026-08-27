@@ -253,7 +253,9 @@ flowchart LR
 | F-19 | 文档中的工程完成需与真实验收边界一致 | CURRENT_STATUS 声称 M1-M3 工程链完成，但同页说明 real path mocked；设计文档预期 resolver，生产链仍无接入 | 实现但不符合规范；容易误判发布状态 |
 | F-20 | Gate-0/Gate-E/Gate-4 需要真实 evidence | donor audit 为 0 合规候选，M0 decoder 为随机初始化，real DAVF 为 zero_fallback | 部分实现但可用；工程 smoke 可用，科学结论不可用 |
 
-### 5.3 其他文档差异
+### 5.3 审计前活动文档差异及本轮处理结果
+
+下表记录审计开始时发现的活动文档差异；“本轮已修复”表示当前工作树已经完成对应修订，未修复项仍是开放债务。
 
 | 文件 | 证据 | 当前判断 |
 |---|---|---|
@@ -267,6 +269,8 @@ flowchart LR
 | .planning/ROADMAP.md | v2.2 complete 与 Gate-E/Gate-4/Gate-5 follow-up 容易混淆 | 本轮增加 post-v2.2 acceptance boundary |
 | docs/api/*.rst | 只有 automodule，没有端点、schema、错误语义、CLI 和真实资产门禁 | 活动文档覆盖不足，建议另行补齐，不应归档为历史文件 |
 | v2.0 Phase 11 UAT | status=testing、passed=0、pending=10，与 summary 的实现完成叙述冲突；Phase 12-14 还缺 VERIFICATION.md | 历史审计证据不完整，纳入 TD-N-54 |
+| API_DOCUMENTATION.md | 审计前指向尚未落地的 2026-08-27 报告 | 当前报告已落地，链接已修复 |
+| docs/CURRENT_STATUS.md | 审计前指向尚未落地的 2026-08-27 报告，且测试/pip 基线过旧 | 当前报告已落地，基线已更新 |
 
 ## 6. 模块完成度
 
