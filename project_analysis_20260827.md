@@ -430,7 +430,7 @@ TD-N-06、TD-N-08、TD-N-09、TD-N-10、TD-N-11、TD-N-25、TD-N-26 至 TD-N-34 
 | python scripts/run_perturbgen_pipeline.py --help | 通过，支持 source_intervention、within_state、both、resume、dry-run |
 | git fetch origin main | 通过 |
 | git rev-list --left-right --count main...origin/main | 43 0 |
-| git merge --ff-only origin/main | 最终闭环执行，预期 Already up to date；若输出不同，以最终交付记录为准 |
+| git merge --ff-only origin/main | 通过，实际输出 `Already up to date.`；审计内容提交后 `main...origin/main = 44 0`，最终文档复核后为 `45 0` |
 
 ### 8.2 真实资产和科学门禁
 
