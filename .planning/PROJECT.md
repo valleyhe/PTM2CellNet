@@ -61,21 +61,28 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 - ✓ 级联融合架构 + use_davf 向后兼容 — v2.0 (DAVF-CASCADE, DAVF-CONFIG)
 - ✓ 端到端 DAVF 流水线集成测试 — v2.0 (DAVF-TEST)
 
-### Active
+### Historical Debt Checklist
 
-- [ ] FIX-01: 修复 14 个失败测试（peft_config mock、Lightning API、pathway_integration）
-- [ ] FIX-02: 补齐 requirements.txt 缺失依赖（anndata, sspa）
-- [ ] FIX-03: 修复 evaluation/__init__.py 静默吞 ImportError
-- [ ] FIX-04: 整合根目录孤立脚本到 src/scripts 体系
-- [ ] FIX-05: 修复 .gitignore 白名单遗漏关键文件
-- [ ] FIX-06: Lightning Trainer 默认 Logger 配置
-- [ ] FIX-07: 根目录重复文件归属决策与清理
-- [ ] FIX-08: KEGG/Reactome 加载 stub 明确化
-- [ ] DAVF 端到端微调 (v2.2)
-- [ ] scVI decode 集成 (v2.2)
-- [ ] 通路知识库上下文相关映射 (v2.2)
-- [ ] 文档完善
-- [ ] 更多PTM类型支持
+以下 FIX 条目属于 v2.1 技术债里程碑，已由
+`.planning/REQUIREMENTS.md` 的 TEST/DEPS/CODE/CONF 需求和 Phase 15--17
+验收关闭；保留在这里是为了历史追踪，不应再被当作未完成任务：
+
+- [x] FIX-01: 修复失败测试（peft_config mock、Lightning API、pathway_integration）
+- [x] FIX-02: 补齐可选依赖（anndata、sspa、lion-pytorch）
+- [x] FIX-03: 修复 `evaluation/__init__.py` 静默吞 `ImportError`
+- [x] FIX-04: 整合根目录孤立脚本到 `src/scripts` 体系
+- [x] FIX-05: 修复 `.gitignore` 白名单遗漏关键文件
+- [x] FIX-06: Lightning Trainer 默认 Logger 配置
+- [x] FIX-07: 根目录重复文件归属决策与清理
+- [x] FIX-08: KEGG/Reactome 加载 stub 明确化
+
+### Active Follow-up
+
+- [ ] DAVF 端到端微调：属于 2026-08-21 PerturbGen 后续方案 M4，当前状态见
+  `project_analysis_20260827.md` 的 U-02；不属于已完成的 v2.2 工程契约验收。
+- [ ] 真实数据/权重/图的科学验收：属于后续 Gate-0、Gate-E、Gate-4、Gate-5，
+  不用 synthetic fixture 代替，当前状态见综合报告任务 1。
+- [ ] 文档持续维护：以 `docs/CURRENT_STATUS.md` 和当前综合报告为活动入口。
 
 ### Cancelled
 
@@ -133,4 +140,4 @@ graph files or controlled datasets must be explicit in provenance; no synthetic
 fallback is accepted as evidence of biological validity.
 
 ---
-*Last updated: 2026-08-08 after starting v2.2 TD-01/TD-02 implementation*
+*Last updated: 2026-08-27 after the v2.2 audit and PerturbGen follow-up status refresh*

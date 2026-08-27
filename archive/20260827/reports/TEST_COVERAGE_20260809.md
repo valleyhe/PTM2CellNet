@@ -36,14 +36,27 @@ python -m pytest tests/unit tests/integration tests/test_*.py \
 新增测试应覆盖正常、空/边界、异常和至少一个回归场景，并在本地先跑定向测试，
 再跑默认覆盖率门禁。
 
-## 2026-08-27 状态
+## 2026-08-09 基线与剩余缺口
 
-2026-08-27 全量离线回归的测试数量与通过结果见
-[`project_analysis_20260827.md`](../project_analysis_20260827.md) 的验证章节。
-本轮未执行带 `--cov` 的独立覆盖率测量，因此不能把历史数值当作当前覆盖率；门禁仍为
-74%，下一次覆盖率刷新应在依赖一致的 CI/独立环境完成。
+当前可重复核心套件结果为 **1866 passed、5 skipped，综合 branch coverage 75.27%**；
+门禁设置为 74%，用于吸收 Python/可选依赖造成的小幅路径差异。完整 `pytest -q`
+结果为 **1920 passed、13 skipped、28 warnings**，其中真实资产未启用的 skip 属预期行为。
 
-2026-08-09 的旧覆盖率快照（1866 passed、5 skipped、75.27% branch coverage，以及
-1920 passed、13 skipped 的完整套件记录）已归档至
-[`archive/20260827/reports/TEST_COVERAGE_20260809.md`](../archive/20260827/reports/TEST_COVERAGE_20260809.md)，
-以保留原始基线和历史审计记录。
+本轮重点模块覆盖率：
+
+| 模块 | 覆盖率 |
+|---|---:|
+| `src/data/data_manifest.py` | 96.36% |
+| `src/data/cross_scale_dataset.py` | 78.93% |
+| `src/training/cross_scale_trainer.py` | 82.57% |
+| `src/data/loaders/file_loaders.py` | 94.97% |
+| `src/integration/contracts.py` | 95.83% |
+| `src/integration/ptm_gene_mapper.py` | 96.67% |
+| `src/utils/checkpoint_utils.py` | 95.54% |
+
+下一轮 ratchet 应优先补核心且低覆盖的 `training/self_supervised.py`（31.62%）、
+`api/routes/initialize.py`（47.88%）和 `data/validation.py`（53.40%）。本轮
+`training/callbacks.py` 已提升至 95.55%；
+`models/plm_assets.py`（66.42%）和跨尺度推理错误路径仍需补测。`scvi_adapter.py`、`latent_davf.py`、GenKI 与
+外部工具路径依赖可选运行时或真实资产，应在对应分层套件中提升，不能通过排除文件
+或宽泛 `pragma: no cover` 提高总数。

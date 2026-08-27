@@ -11,6 +11,16 @@
 
 The following items are no longer project requirements and must not appear as future implementation phases: real-time mass-spec streaming, custom PTM database support, GUI, and new API-key feature work. Existing compatibility code may remain, but roadmap and plan documents should treat these as cancelled/out-of-scope.
 
+## Post-v2.2 acceptance boundary (2026-08-27)
+
+The v2.2 engineering milestone is complete. The separate DAVF × PerturbGen
+follow-up proposal remains an acceptance track rather than a completed roadmap
+phase: Gate-0 donor eligibility, Gate-E real DAVF retraining, Gate-4 release
+evidence and Gate-5 scientific validation are still open. See
+`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md` and the current
+root audit report for evidence. Synthetic fixtures and opt-in code paths must
+not be described as real biological validation.
+
 ## Phases
 
 <details>

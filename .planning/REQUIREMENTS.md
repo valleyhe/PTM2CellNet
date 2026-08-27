@@ -83,6 +83,15 @@ Completion evidence is recorded in the phase verification files, executed test
 results, baseline smoke output and dated technical summary; real-asset skips and
 the boundary between engineering fixtures and biological evidence are explicit.
 
+## Supplemental active proposal
+
+The document [`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)
+is a follow-up implementation proposal, not an additional completed requirement
+in the 24-item v2.1/v2.2 acceptance set above. Its M0--M7 gates remain separately
+tracked because Gate-0 needs owner-supplied donor data and Gate-E/Gate-4/Gate-5
+need real assets and scientific acceptance. The dated status and evidence are
+maintained in the repository-root `project_analysis_20260827.md`.
+
 ## Cancelled Requirements
 
 These items are explicitly removed from project scope as of 2026-07-05 and must not be reintroduced into roadmap, phase plans, or agent task prompts unless the project owner reverses this decision.
@@ -144,4 +153,4 @@ always the literal original wording:
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-08-08 — v2.2 DATA/BASE/MODEL/VERIFY requirements completed with phase verification and technical summary*
+*Last updated: 2026-08-27 — v2.2 formal requirements remain complete; supplemental PerturbGen proposal gates remain open as documented above*

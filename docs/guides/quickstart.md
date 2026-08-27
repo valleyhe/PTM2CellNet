@@ -62,7 +62,7 @@ docker compose up -d
 docker compose logs -f api
 
 # 测试API
-curl -X POST http://localhost:8000/predict \
+curl -X POST http://localhost:8000/api/v1/predict \
   -H "Content-Type: application/json" \
   -d '{"sequence": "MVLSPADKTNVKAA", "ptm_sites": []}'
 ```

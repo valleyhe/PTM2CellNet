@@ -162,11 +162,11 @@ pip install -r requirements-pretrained.txt   # + ESM-2 / ProtBERT
 pip install -r requirements-mamba.txt        # + Mamba 编码器（需 CUDA）
 pip install -r requirements-analysis.txt     # + scVI / sspa 分析
 
-# 全部能力（等价于旧 requirements.txt，磁盘/网络充裕时）
+# 核心 + 预训练能力（requirements.txt 的组合，磁盘/网络充裕时）
 pip install -r requirements.txt
 
-# 或按能力分组安装 extra，例如只要 API + Lightning：
-pip install -e ".[api,lightning]"
+# 需要完整可选能力时按 extra 组合安装，例如 API + Lightning/预训练模型：
+pip install -e ".[api,pretrained]"
 ```
 
 > 未安装某个可选依赖时，对应能力（Lion 优化器、原生 Mamba、GenKI 图扰动、scVI 基因空间工作流）会**优雅降级**而非崩溃，并在 CLI 入口打印带 `pip install -e ".[<extra>]"` 提示的警告。

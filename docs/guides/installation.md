@@ -22,11 +22,10 @@ PTM2CellNet 把依赖按能力分组（见 `setup.py` 的 `extras_require`）。
 
 | 安装命令 | 适用场景 | 启用的能力 |
 |---|---|---|
-| `pip install -e .` | **最小核心** | 训练/推理主链路（CNN/LSTM/Transformer 编码器、细胞状态预测）。不含 API、Lightning、预训练模型。 |
-| `pip install -r requirements.txt` | **核心 + 大部分能力** | 上面 + FastAPI、Lightning、ESM-2/ProtBERT、scVI/DAVF、Mamba fallback。**大多数用户选这个。** |
+| `pip install -e .` | **最小核心** | 训练/推理主链路（CNN/LSTM/Transformer 编码器、细胞状态预测）和 FastAPI 核心依赖；不含 Lightning、预训练模型、scVI 或 Mamba。 |
+| `pip install -r requirements.txt` | **核心 + 预训练能力** | 上面 + Lightning、ESM-2/ProtBERT/Hugging Face 依赖；不含 scVI/GenKI analysis 和原生 Mamba。**大多数预训练模型用户选这个。** |
 | `pip install -e ".[api]"` | 仅补充 API 服务 | FastAPI 推理服务 |
-| `pip install -e ".[lightning]"` | 仅补充 Lightning 训练 | Lightning 训练框架 |
-| `pip install -e ".[pretrained]"` | 仅补充预训练编码器 | ESM-2 / ProtBERT |
+| `pip install -e ".[pretrained]"` | 预训练/Lightning 训练 | ESM-2 / ProtBERT、Hugging Face 和 Lightning |
 | `pip install -e ".[analysis]"` | 仅补充单细胞/通路分析 | scVI / DAVF 基因空间工作流（`scvi-tools>=1.2.0` + `anndata>=0.10,<0.12`） |
 | `pip install -e ".[genki]"` | 仅补充 GenKI 图扰动 | `torch-geometric` + `scanpy` |
 | `pip install -e ".[mamba]"` | 仅补充原生 Mamba / Lion | `mamba-ssm` + `lion-pytorch` |
@@ -78,11 +77,12 @@ CLI 入口在能力不可用时会打印带安装提示的警告，不会抛晦�
 
 ```bash
 # 运行单元测试
-pytest tests/unit/ -v
+python -m pytest tests/unit/ -v
 
 # 检查代码质量
-flake8 src/ --max-line-length=120
-mypy src/ --ignore-missing-imports
+ruff check src/ tests/
+python -m ruff format --check src/ tests/
+python -m mypy src/ --ignore-missing-imports
 
 # （可选）验证 scVI 链路（需要 [analysis] extra）
 python -c "import scvi; from scvi.model import SCVI; print('scvi ok', scvi.__version__)"

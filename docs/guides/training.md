@@ -36,7 +36,7 @@ python scripts/train.py \
   --config configs/default.yaml \
   --data data/processed/ptm_integrated_human_labeled.csv \
   --epochs 50 \
-  --batch-size 64
+  --batch_size 64
 ```
 
 ## 模型调优
@@ -70,15 +70,18 @@ python scripts/evaluate.py \
   --model outputs/models/best_model.pt \
   --data data/processed/test.csv
 
-# 生成可视化
-python scripts/evaluate.py --model outputs/models/best_model.pt --plot
+# 生成评估结果（可视化由评估输出目录和独立绘图流程处理）
+python scripts/evaluate.py \
+  --model outputs/models/best_model.pt \
+  --data data/processed/test.csv \
+  --output outputs/evaluation
 ```
 
 ## 使用GPU训练
 
 ```bash
-# 指定设备
-python scripts/train.py --device cuda
+# 训练设备由配置文件和运行环境决定；train.py 没有 --device 参数。
+# 需要 GPU 时，在配置中设置 device/cuda，并先确认 CUDA 可用。
 
 # 混合精度训练 (需PyTorch 1.6+)
 # 在配置文件中启用

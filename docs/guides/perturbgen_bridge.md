@@ -1,8 +1,8 @@
 # PerturbGen 桥接指南（DAVF × PerturbGen 双路径整合）
 
-> **文档版本**：v1.0（2026-08-24，清偿 TD-N-19）
+> **文档版本**：v1.1（2026-08-27，修正 pipeline 示例与嵌入资产文件名）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
-> **状态基线**：[`project_analysis_20260824.md`](../../project_analysis_20260824.md)（完成度 models 98.6% / PerturbGen 全口径 71.4%）
+> **状态基线**：[`project_analysis_20260827.md`](../../project_analysis_20260827.md)（本报告按代码闭合度评估 models 68.5% / PerturbGen 工程代码 68.0%，真实资产与 Gate 另计）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。
@@ -54,7 +54,7 @@ donor cohort 硬要求（方案 §4.6-1；lessons.md L-2026-0822-06）：
 python scripts/audit_perturbgen_cohort.py
 ```
 
-**当前状态（2026-08-24）**：30 文件审计 0 合规候选 —— M0⑥ 是全链唯一
+**当前状态（2026-08-27）**：30 文件审计 0 合规候选 —— M0⑥ 是全链唯一
 外部数据硬阻断（U-01）。Gate-0 未过时，M4 重训/M6/Gate-4 按方案 §7.3
 有意挂起，不得跳过。
 
@@ -62,21 +62,23 @@ python scripts/audit_perturbgen_cohort.py
 
 ```bash
 python scripts/run_perturbgen_pipeline.py \
-    --config configs/integration/perturbgen.yaml \
-    --stages tokenise train_mask train_decoder perturb export_gene_embeddings report \
-    --path both \            # source_intervention | within_state | both
-    [--resume] [--dry-run] [--gpu-lock-file /tmp/pg.gpu.lock]
+  --config configs/integration/perturbgen.yaml \
+  --stages tokenise train_mask train_decoder perturb export_gene_embeddings report \
+  --path both \
+  --dry-run \
+  --gpu-lock-file /tmp/pg.gpu.lock
 ```
 
 - stage 顺序固定：`tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；
 - 产物路径按上游公式 + 唯一 glob 解析后写入 manifest（路径 + hash），**禁止
   latest-mtime 猜测**；零匹配/多匹配/hash 变化直接失败（lessons.md L-2026-0822-04）；
-- `--resume` 按 manifest 续跑；`--dry-run` 只打印计划。
+- 上例用 `--dry-run` 只打印计划；正式续跑时移除 `--dry-run`，需要从 manifest
+  继续时再添加 `--resume`。
 
 ## 5. 嵌入资产导出与 DAVF 注入（工作流 B）
 
 ```bash
-# 在独立环境内导出（tensor-key 必填：工具从不猜测 checkpoint 布局）
+# 参数模板：执行前将尖括号替换为真实路径；tensor-key 必填，工具从不猜测 checkpoint 布局
 python scripts/export_perturbgen_gene_embeddings.py \
     --checkpoint <encoder.ckpt> \
     --tensor-key <精确的 embedding 参数键> \
@@ -84,12 +86,16 @@ python scripts/export_perturbgen_gene_embeddings.py \
     --output-dir outputs/perturbgen/embedding_asset/
 ```
 
-产出 `safetensors + token_dict.json + manifest.json`（schema v2，含 sha256
-与维度）。主环境加载零 PerturbGen 依赖。
+产出 `gene_embeddings.safetensors + vocabulary.json + manifest.json`。其中嵌入资产
+`manifest.json` 使用 `schema_version: 1`（含 sha256 与维度）；DAVF 配置文件另使用
+配置 schema v2。主环境加载零 PerturbGen 依赖。
 
 ```bash
-# schema v2 注入 + DAVF 重训（缺失资产 fail-fast，不随机 fallback）
-python scripts/finetune_davf_e2e.py --embedding-asset outputs/perturbgen/embedding_asset/ ...
+# schema v2 注入 + DAVF 重训（参数模板；缺失资产 fail-fast，不随机 fallback）
+python scripts/finetune_davf_e2e.py \
+  --data <ptm_training.csv> \
+  --checkpoint <davf_checkpoint.pt> \
+  --embedding-asset outputs/perturbgen/embedding_asset/
 ```
 
 注入链路：`src/models/davf_inference.py`（`embedding_asset_path` 字段 +
@@ -114,7 +120,7 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 两路 rescue 均稳定为正（排除目标基因本身、≥3 donor 方向一致、跨 seed/mask-pad-delete
 模式一致）才进实验验证候选清单。
 
-## 7. 门禁状态速查（截至 2026-08-24）
+## 7. 门禁状态速查（截至 2026-08-27）
 
 | Gate | 内容 | 状态 |
 |---|---|---|
