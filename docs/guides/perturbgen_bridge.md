@@ -1,8 +1,8 @@
 # PerturbGen 桥接指南（DAVF × PerturbGen 双路径整合）
 
-> **文档版本**：v1.1（2026-08-27，修正 pipeline 示例与嵌入资产文件名）
+> **文档版本**：v1.2（2026-09-01，补充 DAVF 方向 gate 与生产接线边界）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
-> **状态基线**：[`project_analysis_20260827.md`](../../project_analysis_20260827.md)（本报告按代码闭合度评估 models 68.5% / PerturbGen 工程代码 68.0%，真实资产与 Gate 另计）
+> **状态基线**：[`project_analysis_20260901.md`](../../project_analysis_20260901.md)（本报告按代码闭合度评估 DAVF 方向推理 77.0% / PerturbGen runner 68.0%，真实资产与 Gate 另计）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。
@@ -24,6 +24,11 @@
 - 主项目环境（如 `SSH_unit`）：输入契约、路径安全、symbol↔ENSG 解析、配置生成、manifest、stage 调度、输出 schema 校验、统计与报告。
 - PerturbGen 独立环境（conda env `perturbgen`，Python 3.11）：官方 tokenisation、masking/count decoder 训练、`src/tgt` 扰动推理、gene embedding 导出。
 - **主进程绝不 `import perturbgen`**；所有跨环境调用为参数数组（禁止 `shell=True`），stage 带 timeout、退出码与输出 schema 校验。
+
+当前 `run_perturbgen_pipeline.py` 只负责六阶段 runner 调度；DAVF 方向 gate 和
+`evaluate_davf_perturbgen_candidate()` 已作为严格库契约实现，但尚未由该 CLI
+自动调用。因此正式 candidate manifest 仍需按未实现项补齐，不能把 mocked
+pipeline 输出当成方向 gate 或真实科学闭环。
 
 ## 2. 环境准备（一次性）
 
@@ -54,7 +59,7 @@ donor cohort 硬要求（方案 §4.6-1；lessons.md L-2026-0822-06）：
 python scripts/audit_perturbgen_cohort.py
 ```
 
-**当前状态（2026-08-27）**：30 文件审计 0 合规候选 —— M0⑥ 是全链唯一
+**当前状态（2026-09-01）**：30 文件审计 0 合规候选 —— M0⑥ 是全链唯一
 外部数据硬阻断（U-01）。Gate-0 未过时，M4 重训/M6/Gate-4 按方案 §7.3
 有意挂起，不得跳过。
 
@@ -120,13 +125,13 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 两路 rescue 均稳定为正（排除目标基因本身、≥3 donor 方向一致、跨 seed/mask-pad-delete
 模式一致）才进实验验证候选清单。
 
-## 7. 门禁状态速查（截至 2026-08-27）
+## 7. 门禁状态速查（截至 2026-09-01）
 
 | Gate | 内容 | 状态 |
 |---|---|---|
 | Gate-0 M0⑤ | 独立环境 smoke（perturb 51.88s / 1757 MiB / h5ad schema 通过） | ✅ 已过（`outputs/perturbgen/spike/20260823_m0_smoke/evidence.json`） |
 | Gate-0 M0⑥ | ≥3 donor 合规 cohort | ❌ 阻断（0 合规候选，U-01，外部数据依赖） |
-| Gate-1~3 | 契约 / runner / 双路径统计 | ✅ 工程代码完成（单测 91 项锚定） |
+| Gate-1~3 | 契约 / runner / 双路径统计 | ⚠️ 工程组件完成；方向 gate→runner 自动接线仍开放 |
 | Gate-E | DAVF 新底座回归（≥200 PTM 基准 + bootstrap CI + 下游非劣） | ⏸ 等 M4 重训（数据阻断） |
 | Gate-4 | 真实 smoke / 正式 release evidence | ⏸ 等真资产 workflow 运行 |
 | Gate-5 | 冻结队列科学验收（3 seeds / held-out / ≥99 null / BH-FDR） | ⏸ 未开始（M6） |

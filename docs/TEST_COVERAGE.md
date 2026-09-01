@@ -36,10 +36,10 @@ python -m pytest tests/unit tests/integration tests/test_*.py \
 新增测试应覆盖正常、空/边界、异常和至少一个回归场景，并在本地先跑定向测试，
 再跑默认覆盖率门禁。
 
-## 2026-08-27 状态
+## 2026-09-01 状态
 
-2026-08-27 全量离线回归的测试数量与通过结果见
-[`project_analysis_20260827.md`](../project_analysis_20260827.md) 的验证章节。
+2026-09-01 全量离线回归为 **2357 passed、16 skipped、47 warnings、2373 项收集、536.65s**，
+详细命令和证据见 [`project_analysis_20260901.md`](../project_analysis_20260901.md) 的验证章节。
 本轮未执行带 `--cov` 的独立覆盖率测量，因此不能把历史数值当作当前覆盖率；门禁仍为
 74%，下一次覆盖率刷新应在依赖一致的 CI/独立环境完成。
 

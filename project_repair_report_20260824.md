@@ -8,4 +8,4 @@
 可用 `git log --follow` 追溯。
 
 当前状态请参考
-[`project_analysis_20260827.md`](./project_analysis_20260827.md)。
+[`project_analysis_20260901.md`](./project_analysis_20260901.md)。

@@ -79,7 +79,7 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 ### Active Follow-up
 
 - [ ] DAVF 端到端微调：属于 2026-08-21 PerturbGen 后续方案 M4，当前状态见
-  `project_analysis_20260827.md` 的 U-02；不属于已完成的 v2.2 工程契约验收。
+  `project_analysis_20260901.md` 的 U-02；不属于已完成的 v2.2 工程契约验收。
 - [ ] 真实数据/权重/图的科学验收：属于后续 Gate-0、Gate-E、Gate-4、Gate-5，
   不用 synthetic fixture 代替，当前状态见综合报告任务 1。
 - [ ] 文档持续维护：以 `docs/CURRENT_STATUS.md` 和当前综合报告为活动入口。
@@ -140,4 +140,4 @@ graph files or controlled datasets must be explicit in provenance; no synthetic
 fallback is accepted as evidence of biological validity.
 
 ---
-*Last updated: 2026-08-27 after the v2.2 audit and PerturbGen follow-up status refresh*
+*Last updated: 2026-09-01 after the DAVF direction-gate implementation and follow-up status refresh*

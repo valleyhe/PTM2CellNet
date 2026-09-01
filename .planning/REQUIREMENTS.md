@@ -90,7 +90,7 @@ is a follow-up implementation proposal, not an additional completed requirement
 in the 24-item v2.1/v2.2 acceptance set above. Its M0--M7 gates remain separately
 tracked because Gate-0 needs owner-supplied donor data and Gate-E/Gate-4/Gate-5
 need real assets and scientific acceptance. The dated status and evidence are
-maintained in the repository-root `project_analysis_20260827.md`.
+maintained in the repository-root `project_analysis_20260901.md`.
 
 ## Cancelled Requirements
 
@@ -153,4 +153,4 @@ always the literal original wording:
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-08-27 — v2.2 formal requirements remain complete; supplemental PerturbGen proposal gates remain open as documented above*
+*Last updated: 2026-09-01 — v2.2 formal requirements remain complete; supplemental PerturbGen proposal gates remain open as documented above*
