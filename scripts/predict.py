@@ -67,8 +67,9 @@ def _run_prediction_on_batch(
     import torch
 
     with torch.no_grad():
-        for key in batch:
-            batch[key] = batch[key].to(device)
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                batch[key] = value.to(device)
 
         outputs = model(batch)
 
@@ -177,10 +178,13 @@ def _predict_in_batches(
 
     for start in range(0, len(preprocessed_rows), batch_size):
         chunk = preprocessed_rows[start : start + batch_size]
-        batch = {
-            key: torch.stack([row[key] for row in chunk], dim=0)
-            for key in chunk[0].keys()
-        }
+        batch: Dict[str, Any] = {}
+        for key in chunk[0].keys():
+            values = [row[key] for row in chunk]
+            if key in {"davf_sites", "davf_gene_names"}:
+                batch[key] = values
+            else:
+                batch[key] = torch.stack(values, dim=0)
 
         probabilities = _run_prediction_on_batch(model, batch, device)
         pred_indices = torch.argmax(probabilities, dim=-1)
@@ -311,6 +315,7 @@ def _parse_ptm_sites_arg(ptm_sites_arg):
             "position": pos,
             "type": str(site.get("type", "")),
             **({"amino_acid": site["amino_acid"]} if site.get("amino_acid") else {}),
+            **({"gene_symbol": str(site["gene_symbol"]).strip()} if site.get("gene_symbol") else {}),
         })
 
     return cleaned, parse_errors
@@ -364,6 +369,7 @@ def _parse_batch_ptm_sites(ptm_sites_value, sequence: str, row_index, parse_erro
             "position": pos,
             "type": str(site.get("type", "")),
             **({"amino_acid": site["amino_acid"]} if site.get("amino_acid") else {}),
+            **({"gene_symbol": str(site["gene_symbol"]).strip()} if site.get("gene_symbol") else {}),
         })
     return cleaned
 
@@ -456,11 +462,17 @@ def _run_single_predict(args, model, cell_states, device, logger, preprocess_req
     )
 
     batch = preprocess_request(request)
-    batch = {key: val.unsqueeze(0) for key, val in batch.items()}
+    batch = {
+        key: val.unsqueeze(0)
+        if isinstance(val, torch.Tensor)
+        else [val]
+        for key, val in batch.items()
+    }
 
     with torch.no_grad():
-        for key in batch:
-            batch[key] = batch[key].to(device)
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                batch[key] = value.to(device)
 
         outputs = model(batch)
 

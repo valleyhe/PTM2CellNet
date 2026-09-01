@@ -32,6 +32,8 @@ __all__ = [
     "PerturbGenCandidateEvidence",
     "PerturbGenRunner",
     "evaluate_dual_path_candidate",
+    "MainlineDecision",
+    "evaluate_davf_perturbgen_candidate",
 ]
 
 # Module-level import error tracking for diagnostic purposes
@@ -77,6 +79,11 @@ def __getattr__(name: str) -> Any:
         "evaluate_dual_path_candidate": (
             ".perturbgen.dual_path",
             "evaluate_dual_path_candidate",
+        ),
+        "MainlineDecision": (".perturbgen.mainline", "MainlineDecision"),
+        "evaluate_davf_perturbgen_candidate": (
+            ".perturbgen.mainline",
+            "evaluate_davf_perturbgen_candidate",
         ),
     }
 

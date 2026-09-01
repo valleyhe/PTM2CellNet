@@ -258,18 +258,24 @@ class PTM2CellNetBase(nn.Module):
                     "checkpoint_path",
                     "checkpoints/latent_davf_ibd_norman/best_model.pt",
                 ),
+                scvi_model_path=davf_config_local.get("scvi_model_path", None),
+                gene_names_path=davf_config_local.get("gene_names_path", None),
                 feature_dim=davf_config_local.get("feature_dim", 128),
                 hidden_dim=davf_config_local.get("hidden_dim", 256),
                 freeze=davf_config_local.get("freeze", True),
                 latent_dim=davf_config_local.get("latent_dim", 10),
                 num_genes=davf_config_local.get("num_genes", 5000),
+                gene_vocab_size=davf_config_local.get("gene_vocab_size", 5000),
                 num_steps=davf_config_local.get("num_steps", 50),
                 device=davf_config_local.get("device", None),
                 embedding_asset_path=davf_config_local.get("embedding_asset_path", None),
             )
 
             self.davf_module = DAVFInferenceModule(davf_inference_config)
-            self.ptm_mapper = PTMDirectionMapper()
+            if davf_inference_config.embedding_asset_path is not None:
+                self.ptm_mapper = self.davf_module.build_perturbgen_direction_mapper()
+            else:
+                self.ptm_mapper = PTMDirectionMapper()
             self.davf_feature_dim = davf_inference_config.feature_dim
 
             # 用扩展后的输入维度重建 predictor（D-04）。

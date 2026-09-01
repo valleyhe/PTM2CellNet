@@ -30,12 +30,16 @@ Architecture flow (gene mode):
     DAVF Features [B, feature_dim=128]
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence, cast
+
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -44,6 +48,9 @@ from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
 from src.models.legacy_davf import LegacyLatentDAVF
 from src.models.ptm_direction_mapper import PTMDirectionMapperOutput
 from src.utils.io import safe_torch_load
+
+if TYPE_CHECKING:
+    from src.integration.perturbgen.contracts import DAVFDirectionEvidence
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +276,7 @@ class DAVFInferenceModule(nn.Module):
             self.device = torch.device("cpu")
 
         pretrained_gene_embeddings: Optional[torch.Tensor] = None
+        self._embedding_gene_to_token: dict[str, int] = {}
         if config.state_space == "scvi_latent":
             if config.embedding_asset_path is not None:
                 # Schema v2: inject the verified PerturbGen matrix into LatentDAVF.
@@ -280,6 +288,7 @@ class DAVFInferenceModule(nn.Module):
                 pretrained_gene_embeddings = asset.embeddings.to(
                     dtype=torch.float32, device=self.device
                 )
+                self._embedding_gene_to_token = dict(asset.gene_to_token)
                 logger.info(
                     "Injected PerturbGen embedding asset %s into LatentDAVF "
                     "(rows=%d, dim=%d, manifest run_id=%s)",
@@ -321,6 +330,28 @@ class DAVFInferenceModule(nn.Module):
         # Apply freeze if configured
         if config.freeze:
             self.freeze_davf()
+
+    @property
+    def embedding_gene_to_token(self) -> Mapping[str, int]:
+        """Return the verified gene-token mapping used by DAVF embeddings."""
+
+        return dict(self._embedding_gene_to_token)
+
+    def build_perturbgen_direction_mapper(self, *, gene_mapper=None):
+        """Build a mapper locked to the loaded PerturbGen vocabulary."""
+
+        if not self._embedding_gene_to_token:
+            raise RuntimeError(
+                "a verified PerturbGen embedding asset is required to build "
+                "the strict direction mapper"
+            )
+        from src.models.ptm_direction_mapper import MAX_TARGETS, PTMDirectionMapper
+
+        return PTMDirectionMapper(
+            gene_mapper=gene_mapper,
+            max_targets=MAX_TARGETS,
+            gene_to_idx=self._embedding_gene_to_token,
+        )
 
     @property
     def model_source(self) -> str:
@@ -564,3 +595,153 @@ class DAVFInferenceModule(nn.Module):
         davf_features = self.delta_projection(condition)
 
         return DAVFInferenceOutput(davf_features=davf_features, model_kind="davf")
+
+    @torch.no_grad()
+    def predict_expression_direction(
+        self,
+        mapper_output: PTMDirectionMapperOutput,
+        z_0: torch.Tensor,
+        scvi_adapter: Any,
+        *,
+        target_gene_indices: Sequence[int] | torch.Tensor,
+        target_gene_symbols: Sequence[str],
+        target_ensembl_ids: Sequence[str],
+        library_size: float | None = None,
+        direction_epsilon: float = 0.0,
+        n_samples: int = 1,
+    ) -> list[DAVFDirectionEvidence]:
+        """Decode DAVF's latent prediction and return gene-level direction evidence.
+
+        This is the formal DAVF entry point for the new mainline.  It is
+        intentionally separate from :meth:`forward`, whose 128-dimensional
+        feature output belongs to the historical PTM2CellNet fusion path.
+
+        A complete checkpoint, scVI adapter, and verified embedding asset are
+        required.  Missing assets raise immediately; zero/random fallback
+        output is never converted into direction evidence.
+        """
+
+        from src.integration.perturbgen.contracts import DAVFDirectionEvidence
+
+        if self.config.state_space != "scvi_latent":
+            raise RuntimeError(
+                "predict_expression_direction requires state_space='scvi_latent'; "
+                "gene-space DAVF has no gene-expression decoder"
+            )
+        if self.model_source != "davf":
+            raise RuntimeError(
+                "DAVF checkpoint is not loaded; expression direction evidence "
+                "cannot be produced from zero_fallback"
+            )
+        if self.config.scvi_model_path is None:
+            raise RuntimeError(
+                "scvi_model_path is required for gene-level DAVF direction evidence"
+            )
+        if self.config.embedding_asset_path is None:
+            raise RuntimeError(
+                "embedding_asset_path is required for formal DAVF direction evidence"
+            )
+        predict = getattr(self.latent_davf, "predict", None)
+        if not callable(predict):
+            raise RuntimeError(
+                "the loaded DAVF checkpoint does not expose latent expression "
+                "prediction; retrain with the current LatentDAVF architecture"
+            )
+        if scvi_adapter is None or not hasattr(scvi_adapter, "decode"):
+            raise TypeError("scvi_adapter with a decode() method is required")
+        if direction_epsilon < 0 or not np.isfinite(direction_epsilon):
+            raise ValueError("direction_epsilon must be finite and >= 0")
+        if n_samples <= 0:
+            raise ValueError("n_samples must be > 0")
+        if z_0.ndim != 2 or z_0.shape[1] != self.config.latent_dim:
+            raise ValueError(
+                f"z_0 must be [B, {self.config.latent_dim}], got {tuple(z_0.shape)}"
+            )
+
+        batch_size = int(z_0.shape[0])
+        if mapper_output.gene_ids.shape[0] != batch_size:
+            raise ValueError("mapper_output batch size must match z_0")
+
+        if isinstance(target_gene_indices, torch.Tensor):
+            target_indices = target_gene_indices.detach().cpu().tolist()
+        else:
+            target_indices = list(target_gene_indices)
+        if not (
+            len(target_indices) == len(target_gene_symbols) == len(target_ensembl_ids) == batch_size
+        ):
+            raise ValueError(
+                "target_gene_indices, target_gene_symbols, target_ensembl_ids, "
+                "and z_0 must have the same batch length"
+            )
+        if any(isinstance(index, bool) or int(index) < 0 for index in target_indices):
+            raise ValueError("target_gene_indices must contain non-negative integers")
+
+        param_device = next(self.parameters()).device
+        z_0_device = z_0.to(param_device, dtype=torch.float32)
+        gene_ids = mapper_output.gene_ids.to(param_device)
+        directions = mapper_output.directions.to(param_device)
+        attention_mask = mapper_output.attention_mask.to(param_device)
+
+        z_1 = predict(
+            z_0_device,
+            gene_ids=gene_ids,
+            directions=directions,
+            num_steps=self.config.num_steps,
+            attention_mask=attention_mask,
+        )
+        baseline_expression = np.asarray(
+            scvi_adapter.decode(
+                z_0_device.detach().cpu().numpy(),
+                library_size=library_size,
+                n_samples=n_samples,
+            ),
+            dtype=float,
+        )
+        perturbed_expression = np.asarray(
+            scvi_adapter.decode(
+                z_1.detach().cpu().numpy(),
+                library_size=library_size,
+                n_samples=n_samples,
+            ),
+            dtype=float,
+        )
+        if baseline_expression.shape != perturbed_expression.shape:
+            raise ValueError(
+                "scVI decoder returned inconsistent baseline and perturbed shapes"
+            )
+        if baseline_expression.ndim != 2 or baseline_expression.shape[0] != batch_size:
+            raise ValueError(
+                "scVI decoder must return a [B, num_genes] expression matrix"
+            )
+        if not np.isfinite(baseline_expression).all() or not np.isfinite(perturbed_expression).all():
+            raise ValueError("scVI decoder returned non-finite expression values")
+
+        checkpoint_provenance = str(Path(self.config.checkpoint_path).expanduser().resolve())
+        embedding_provenance = str(Path(self.config.embedding_asset_path).expanduser().resolve())
+        evidence: list[DAVFDirectionEvidence] = []
+        for row_index, raw_index in enumerate(target_indices):
+            gene_index = int(raw_index)
+            if gene_index >= baseline_expression.shape[1]:
+                raise ValueError(
+                    f"target gene index {gene_index} is outside decoder vocabulary "
+                    f"[0, {baseline_expression.shape[1]})"
+                )
+            delta = float(
+                perturbed_expression[row_index, gene_index]
+                - baseline_expression[row_index, gene_index]
+            )
+            predicted_direction = None
+            if abs(delta) > direction_epsilon:
+                predicted_direction = "up" if delta > 0 else "down"
+            evidence.append(
+                DAVFDirectionEvidence(
+                    gene_symbol=target_gene_symbols[row_index],
+                    ensembl_id=target_ensembl_ids[row_index],
+                    predicted_direction=predicted_direction,
+                    predicted_delta=delta,
+                    model_source=self.model_source,
+                    checkpoint_provenance=checkpoint_provenance,
+                    embedding_provenance=embedding_provenance,
+                )
+            )
+        return evidence

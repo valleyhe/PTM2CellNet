@@ -415,11 +415,12 @@ class _FakeDavfModel:
     use_davf = True
 
 
-def test_preprocess_request_emits_davf_keys_when_model_supports_davf():
-    """When STATE.model.use_davf, preprocess_request adds davf_* keys."""
+def test_preprocess_request_rejects_missing_davf_gene_symbol():
+    """DAVF must not silently drop a PTM site without its gene identifier."""
     from src.api.routes import state as state_mod
     from src.api.routes import predictions as preds
     from src.api.schemas import PTMSite, PredictionRequest
+    from fastapi import HTTPException
 
     # Save & patch STATE.
     saved_model = state_mod.STATE.model
@@ -434,12 +435,10 @@ def test_preprocess_request_emits_davf_keys_when_model_supports_davf():
             use_davf=True,
         )
 
-        batch = preds.preprocess_request(req)
-        assert "davf_sites" in batch
-        assert "davf_gene_names" in batch
-        # Only the gene_symbol-bearing site survives.
-        assert len(batch["davf_sites"]) == 1
-        assert batch["davf_gene_names"] == ["BRAF"]
+        with pytest.raises(HTTPException) as exc_info:
+            preds.preprocess_request(req)
+        assert exc_info.value.status_code == 400
+        assert "gene_symbol" in str(exc_info.value.detail)
     finally:
         state_mod.STATE.model = saved_model
 

@@ -19,14 +19,17 @@ def build_candidate_report_payload(
     """稳定 JSON payload，保留 manifest 以便重放。"""
 
     payload = _to_plain_object(decision)
-    path_decisions = payload.get("path_decisions", [])
+    dual_payload = payload.get("dual_path") or payload
+    path_decisions = dual_payload.get("path_decisions", [])
+    candidate_payload = candidate or payload.get("candidate") or {}
     return {
-        "candidate": dict(candidate or {}),
-        "candidate_gene": payload.get("candidate_gene") or (candidate or {}).get("gene_symbol"),
+        "candidate": dict(candidate_payload),
+        "candidate_gene": dual_payload.get("candidate_gene") or candidate_payload.get("gene_symbol"),
         "verdict": payload.get("verdict"),
-        "q_value": payload.get("q_value"),
+        "q_value": dual_payload.get("q_value"),
         "reasons": list(payload.get("reasons", [])),
         "paths": list(path_decisions),
+        "direction_gate": payload.get("direction_gate"),
         "manifest": dict(manifest),
     }
 

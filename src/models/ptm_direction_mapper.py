@@ -12,7 +12,7 @@ Direction codes (from BiPerturbEncoder):
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, List, Mapping, Optional, Tuple, Type
 
 import torch
 
@@ -209,6 +209,7 @@ class PTMDirectionMapper:
         geneformer_loader=None,
         gene_mapper=None,
         max_targets: int = MAX_TARGETS,
+        gene_to_idx: Optional[Mapping[str, int]] = None,
     ):
         """
         Initialize PTMDirectionMapper.
@@ -219,18 +220,22 @@ class PTMDirectionMapper:
             gene_mapper: GeneMapper for gene symbol → UniProt resolution.
                         If None, creates new GeneMapper instance.
             max_targets: Maximum targets per sample (K). Default 32.
+            gene_to_idx: Optional verified gene-token mapping. When supplied,
+                         it is the only vocabulary used for resolution; this
+                         is the strict path for PerturbGen embedding assets.
         """
-        if geneformer_loader is None:
+        if geneformer_loader is None and gene_to_idx is None:
             from src.models.geneformer_embedding import get_geneformer_loader
             geneformer_loader = get_geneformer_loader()
 
-        if gene_mapper is None:
+        if gene_mapper is None and gene_to_idx is None:
             from src.analysis.gene_mapper import GeneMapper
             gene_mapper = GeneMapper()
 
         self.geneformer_loader = geneformer_loader
         self.gene_mapper = gene_mapper
         self.max_targets = max_targets
+        self.gene_to_idx = dict(gene_to_idx) if gene_to_idx is not None else None
 
     def _normalize_ptm_type(self, ptm_type: str) -> str:
         """
@@ -317,6 +322,30 @@ class PTMDirectionMapper:
         if not gene_name or not gene_name.strip():
             return 0, 0
 
+        # A verified PerturbGen asset supplies the authoritative row mapping.
+        # Do not fall through to GeneMapper/hash behavior in that mode.
+        if self.gene_to_idx is not None:
+            normalized_gene_name = gene_name.strip()
+            candidate_names = (normalized_gene_name, normalized_gene_name.upper())
+            candidate_tokens = {
+                int(self.gene_to_idx[name])
+                for name in candidate_names
+                if name in self.gene_to_idx
+            }
+            if len(candidate_tokens) == 1:
+                return candidate_tokens.pop(), 1
+            if len(candidate_tokens) > 1:
+                logger.warning(
+                    "Gene '%s' has ambiguous case variants in the verified vocabulary; masking",
+                    gene_name,
+                )
+                return 0, 0
+            logger.debug(
+                "Gene '%s' not found in the supplied verified vocabulary, masking",
+                gene_name,
+            )
+            return 0, 0
+
         # Check if directly in Geneformer vocabulary
         gene_to_idx = getattr(self.geneformer_loader, '_gene_to_idx', {})
 
@@ -334,6 +363,42 @@ class PTMDirectionMapper:
         # Unknown gene - mask out (D-08, D-10)
         logger.debug(f"Gene '{gene_name}' not found in vocabulary, masking")
         return 0, 0
+
+    @classmethod
+    def from_perturbgen_embedding_asset(
+        cls,
+        asset_dir: str,
+        *,
+        gene_mapper=None,
+        max_targets: int = MAX_TARGETS,
+    ) -> "PTMDirectionMapper":
+        """Build a mapper whose IDs are exactly the asset row IDs."""
+
+        from src.models.perturbgen_embedding import load_perturbgen_embedding_asset
+
+        asset = load_perturbgen_embedding_asset(asset_dir)
+        return cls(
+            gene_mapper=gene_mapper,
+            max_targets=max_targets,
+            gene_to_idx=asset.gene_to_token,
+        )
+
+    @staticmethod
+    def _get_ptm_type(ptm_site: PTMSite | Mapping[str, object]) -> str:
+        """Read the canonical PTM type from an object or API batch mapping.
+
+        The API historically emitted ``ptm_type`` mappings while the mapper
+        consumed ``PTMSite.type`` objects.  Normalize that boundary here so a
+        valid API request reaches the same code path as dataset inputs.
+        """
+
+        if isinstance(ptm_site, Mapping):
+            raw_type = ptm_site.get("type") or ptm_site.get("ptm_type")
+        else:
+            raw_type = getattr(ptm_site, "type", None)
+        if not isinstance(raw_type, str) or not raw_type.strip():
+            raise ValueError("each DAVF PTM site must provide a non-empty 'type'")
+        return raw_type
 
     def map_ptms(
         self,
@@ -382,7 +447,9 @@ class PTMDirectionMapper:
             gene_id, valid = self._resolve_gene_id(gene_name)
 
             # Get direction code (context-aware when pathway_context given, V22-03)
-            direction = self._get_direction(ptm_site.type, pathway_context)
+            direction = self._get_direction(
+                self._get_ptm_type(ptm_site), pathway_context
+            )
 
             gene_ids.append(gene_id if valid else 0)
             directions.append(direction)
@@ -427,6 +494,12 @@ class PTMDirectionMapper:
         B = len(batch_ptm_sites)
         K = self.max_targets
 
+        if len(batch_ptm_sites) != len(batch_gene_names):
+            raise ValueError(
+                f"batch_ptm_sites ({len(batch_ptm_sites)}) and batch_gene_names "
+                f"({len(batch_gene_names)}) must have same batch size"
+            )
+
         if pathway_contexts is not None and len(pathway_contexts) != B:
             raise ValueError(
                 f"pathway_contexts ({len(pathway_contexts)}) must match batch "
@@ -439,7 +512,7 @@ class PTMDirectionMapper:
         all_masks = torch.zeros(B, K, dtype=torch.float)
 
         # Process each sample
-        for i, (ptm_sites, gene_names) in enumerate(zip(batch_ptm_sites, batch_gene_names, strict=False)):
+        for i, (ptm_sites, gene_names) in enumerate(zip(batch_ptm_sites, batch_gene_names, strict=True)):
             ctx = pathway_contexts[i] if pathway_contexts else None
             output = self.map_ptms(ptm_sites, gene_names, pathway_context=ctx)
             all_gene_ids[i] = output.gene_ids[0]

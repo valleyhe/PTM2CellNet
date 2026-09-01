@@ -8,19 +8,140 @@ from typing import Any, Literal
 
 from src.models.gene_vocabulary import normalize_ensembl_id, normalize_gene_symbol
 
-ObservedDirection = Literal["up", "down"]
+Direction = Literal["up", "down"]
+ObservedDirection = Direction
+DirectionGateStatus = Literal["pass", "fail", "inconclusive"]
 DavfAction = Literal["ko", "kd", "oe"]
 PathStatus = Literal["evaluable", "failed", "inconclusive"]
 DualPathVerdictValue = Literal["pass", "fail", "inconclusive"]
 PerturbationMode = Literal["mask", "pad", "delete", "overexpress"]
 PathKind = Literal["source_intervention", "within_state"]
 
-_VALID_OBSERVED_DIRECTIONS = {"up", "down"}
+_VALID_DIRECTIONS = {"up", "down"}
+_VALID_OBSERVED_DIRECTIONS = _VALID_DIRECTIONS
+_VALID_DIRECTION_GATE_STATUSES = {"pass", "fail", "inconclusive"}
 _VALID_DAVF_ACTIONS = {"ko", "kd", "oe"}
 _VALID_PATH_STATUSES = {"evaluable", "failed", "inconclusive"}
 _VALID_VERDICTS = {"pass", "fail", "inconclusive"}
 _VALID_MODES = {"mask", "pad", "delete", "overexpress"}
 _VALID_PATHS = {"source_intervention", "within_state"}
+
+
+@dataclass(frozen=True)
+class PTMSiteDirectionProposal:
+    """Direction proposed by the upstream PTM-site analysis.
+
+    The existing PTM-site classifier predicts site presence.  It does not
+    produce an expression-direction label, so the mainline accepts that
+    direction as an explicit, provenance-bearing artifact instead of
+    silently deriving it from a KO/KD/OE action code.
+    """
+
+    gene_symbol: str
+    ensembl_id: str
+    position: int
+    ptm_type: str
+    proposed_direction: Direction
+    site_probability: float
+    provenance: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
+        object.__setattr__(self, "ensembl_id", normalize_ensembl_id(self.ensembl_id))
+        object.__setattr__(self, "ptm_type", str(self.ptm_type).strip())
+        object.__setattr__(self, "provenance", str(self.provenance).strip())
+        if self.position < 1:
+            raise ValueError("position must be >= 1")
+        if not self.ptm_type:
+            raise ValueError("ptm_type must not be empty")
+        if self.proposed_direction not in _VALID_DIRECTIONS:
+            raise ValueError("proposed_direction must be 'up' or 'down'")
+        if not math.isfinite(self.site_probability) or not 0.0 <= self.site_probability <= 1.0:
+            raise ValueError("site_probability must be within [0, 1]")
+        if not self.provenance:
+            raise ValueError("provenance must not be empty")
+
+
+@dataclass(frozen=True)
+class DAVFDirectionEvidence:
+    """Gene-level expression-direction evidence emitted by DAVF.
+
+    ``davf_action`` is deliberately absent.  Action encoding remains the
+    responsibility of :class:`PTMDirectionMapper`; this object records only
+    the decoded gene-expression delta used by the direction gate.
+    """
+
+    gene_symbol: str
+    ensembl_id: str
+    predicted_direction: Direction | None
+    predicted_delta: float
+    model_source: str
+    checkpoint_provenance: str
+    embedding_provenance: str
+    confidence: float | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
+        object.__setattr__(self, "ensembl_id", normalize_ensembl_id(self.ensembl_id))
+        object.__setattr__(self, "model_source", str(self.model_source).strip())
+        object.__setattr__(self, "checkpoint_provenance", str(self.checkpoint_provenance).strip())
+        object.__setattr__(self, "embedding_provenance", str(self.embedding_provenance).strip())
+        if not math.isfinite(self.predicted_delta):
+            raise ValueError("predicted_delta must be finite")
+        if self.predicted_direction not in _VALID_DIRECTIONS and self.predicted_direction is not None:
+            raise ValueError("predicted_direction must be 'up', 'down' or None")
+        if self.predicted_direction == "up" and self.predicted_delta <= 0:
+            raise ValueError("predicted_direction='up' requires predicted_delta > 0")
+        if self.predicted_direction == "down" and self.predicted_delta >= 0:
+            raise ValueError("predicted_direction='down' requires predicted_delta < 0")
+        if not self.model_source:
+            raise ValueError("model_source must not be empty")
+        if not self.checkpoint_provenance:
+            raise ValueError("checkpoint_provenance must not be empty")
+        if not self.embedding_provenance:
+            raise ValueError("embedding_provenance must not be empty")
+        if self.confidence is not None and (
+            not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0
+        ):
+            raise ValueError("confidence must be within [0, 1]")
+
+
+@dataclass(frozen=True)
+class DirectionGateResult:
+    """Decision that controls whether a candidate may enter PerturbGen."""
+
+    status: DirectionGateStatus
+    gene_symbol: str | None
+    ensembl_id: str | None
+    proposed_direction: Direction | None
+    davf_direction: Direction | None
+    observed_direction: Direction | None
+    corrective_action: DavfAction | None
+    reasons: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if self.status not in _VALID_DIRECTION_GATE_STATUSES:
+            raise ValueError(f"invalid direction gate status: {self.status!r}")
+        if self.gene_symbol is not None:
+            object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
+        if self.ensembl_id is not None:
+            object.__setattr__(self, "ensembl_id", normalize_ensembl_id(self.ensembl_id))
+        for field_name in ("proposed_direction", "davf_direction", "observed_direction"):
+            value = getattr(self, field_name)
+            if value is not None and value not in _VALID_DIRECTIONS:
+                raise ValueError(f"{field_name} must be 'up', 'down' or None")
+        if self.corrective_action is not None and self.corrective_action not in _VALID_DAVF_ACTIONS:
+            raise ValueError("corrective_action must be 'ko', 'kd', 'oe' or None")
+        object.__setattr__(self, "reasons", tuple(str(reason) for reason in self.reasons))
+        if self.status == "pass":
+            if self.reasons:
+                raise ValueError("passing direction gate must not carry reasons")
+            if None in (self.gene_symbol, self.ensembl_id, self.proposed_direction, self.davf_direction, self.observed_direction):
+                raise ValueError("passing direction gate requires complete evidence")
+            if self.corrective_action is None:
+                raise ValueError("passing direction gate requires corrective_action")
+        elif not self.reasons:
+            raise ValueError("failed/inconclusive direction gate must provide reasons")
 
 
 @dataclass(frozen=True)
@@ -42,6 +163,11 @@ class CandidateEvidence:
     davf_action: DavfAction | None
     davf_score: float | None
     davf_provenance: str
+    proposed_direction: Direction | None = None
+    davf_predicted_direction: Direction | None = None
+    davf_predicted_delta: float | None = None
+    direction_gate_status: DirectionGateStatus | None = None
+    direction_gate_reasons: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
@@ -49,6 +175,7 @@ class CandidateEvidence:
         object.__setattr__(self, "cell_type", str(self.cell_type).strip())
         object.__setattr__(self, "ptm_context", str(self.ptm_context).strip())
         object.__setattr__(self, "davf_provenance", str(self.davf_provenance).strip())
+        object.__setattr__(self, "direction_gate_reasons", tuple(self.direction_gate_reasons))
 
         if not self.cell_type:
             raise ValueError("cell_type must not be empty")
@@ -76,6 +203,29 @@ class CandidateEvidence:
             raise ValueError("davf_score must be finite numeric or None")
         if self.davf_score is not None and not self.davf_provenance:
             raise ValueError("davf_provenance must not be empty when davf_score is provided")
+        if self.davf_predicted_delta is not None and not math.isfinite(self.davf_predicted_delta):
+            raise ValueError("davf_predicted_delta must be finite or None")
+        for field_name in ("proposed_direction", "davf_predicted_direction"):
+            value = getattr(self, field_name)
+            if value is not None and value not in _VALID_DIRECTIONS:
+                raise ValueError(f"{field_name} must be 'up', 'down' or None")
+        if self.direction_gate_status is not None:
+            if self.direction_gate_status not in _VALID_DIRECTION_GATE_STATUSES:
+                raise ValueError(
+                    "direction_gate_status must be 'pass', 'fail', 'inconclusive' or None"
+                )
+            if self.direction_gate_status != "pass":
+                raise ValueError(
+                    "CandidateEvidence may only be created after a passing direction gate"
+                )
+            if self.proposed_direction != self.observed_direction:
+                raise ValueError("passing candidate proposal must match observed_direction")
+            if self.davf_predicted_direction != self.observed_direction:
+                raise ValueError("passing DAVF direction must match observed_direction")
+            if self.davf_action is None:
+                raise ValueError("passing candidate must define davf_action")
+            if self.direction_gate_reasons:
+                raise ValueError("passing candidate must not carry direction_gate_reasons")
 
 
 @dataclass(frozen=True)

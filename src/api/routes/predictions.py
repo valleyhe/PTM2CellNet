@@ -112,6 +112,29 @@ def _collect_davf_inputs(
     }
 
 
+def _require_davf_gene_symbols(ptm_sites: List, *, sample_label: str = "request") -> None:
+    """Reject DAVF inputs that cannot be mapped to a gene.
+
+    ``_collect_davf_inputs`` remains a reusable low-level filter, but the
+    DAVF-enabled prediction path must not silently drop a site and then claim
+    to have evaluated it.
+    """
+
+    missing_positions = []
+    for ptm_site in ptm_sites or []:
+        site = ptm_site.model_dump() if hasattr(ptm_site, "model_dump") else ptm_site.dict()
+        if not site.get("gene_symbol"):
+            missing_positions.append(site.get("position"))
+    if missing_positions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"{sample_label}启用 DAVF 时，每个有效 PTM 位点都必须提供 gene_symbol；"
+                f"缺失位点: {missing_positions}"
+            ),
+        )
+
+
 def _model_supports_davf(request_flag: bool) -> bool:
     """True when DAVF features should be produced for this request.
 
@@ -126,7 +149,7 @@ def _model_supports_davf(request_flag: bool) -> bool:
     return bool(getattr(model, "use_davf", False))
 
 
-def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, torch.Tensor]:
+def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, Any]:
     """Vectorized preprocessing for a list of prediction requests.
 
     Builds sequence / ptm_mask / ptm_types tensors for all samples in a single
@@ -213,6 +236,7 @@ def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, torch.Tensor
             valid_ptm_sites.append(ptm_site)
 
         if collect_davf:
+            _require_davf_gene_symbols(valid_ptm_sites, sample_label=f"样本 {i}")
             davf_inputs = _collect_davf_inputs(valid_ptm_sites, max_len)
             if davf_inputs:
                 sites_list = [
@@ -228,7 +252,7 @@ def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, torch.Tensor
                 davf_sites_per_sample.append([])
                 davf_gene_names_per_sample.append([])
 
-    out: Dict[str, torch.Tensor] = {
+    out: Dict[str, Any] = {
         "sequence": seq_tensor,
         "ptm_mask": ptm_mask,
         "ptm_types": ptm_types,
@@ -297,7 +321,7 @@ def _compute_pathway_impacts(
     return None
 
 
-def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
+def preprocess_request(request: PredictionRequest) -> Dict[str, Any]:
     """
     预处理预测请求
 
@@ -368,7 +392,10 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
     # DAVF branch (otherwise the model would receive zero-features for a path
     # that needs real DAVF features).
     if _model_supports_davf(getattr(request, "use_davf", False)):
+        _require_davf_gene_symbols(valid_ptm_sites)
         davf_inputs = _collect_davf_inputs(valid_ptm_sites, max_len)
+        out["davf_sites"] = []
+        out["davf_gene_names"] = []
         if davf_inputs:
             out["davf_sites"] = [
                 {"position": p, "ptm_type": t}
@@ -383,7 +410,7 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, torch.Tensor]:
 
 
 def _run_prediction_on_batch(
-    batch: Dict[str, torch.Tensor],
+    batch: Dict[str, Any],
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Run model inference on a batched tensor dict (already on device).
@@ -727,13 +754,30 @@ async def _variant_cell_state_prediction(
             )
             variant_batch = preprocess_request(variant_request)
             variant_batch = {
-                key: val.unsqueeze(0).to(STATE.device) for key, val in variant_batch.items()
+                key: (
+                    val.unsqueeze(0).to(STATE.device)
+                    if isinstance(val, torch.Tensor)
+                    else [val]
+                    if key in ("davf_sites", "davf_gene_names")
+                    else val
+                )
+                for key, val in variant_batch.items()
             }
             _, variant_pred_tensor, _ = _run_prediction_on_batch(variant_batch)
             return int(variant_pred_tensor[0].item())
 
         variant_pred_idx = await run_in_threadpool(_sync)
         return STATE.idx_to_label.get(variant_pred_idx, "unknown")
+    except HTTPException as exc:
+        # DAVF-enabled models require a gene identifier for every PTM site.
+        # Variant-derived PTMs currently carry only their type, so this
+        # optional cell-state prediction is unavailable rather than a reason
+        # to fail the already-computed variant effect response.
+        logger.warning(
+            "Variant cell-state prediction unavailable [%s]: %s",
+            type(exc).__name__, exc.detail,
+        )
+        warnings_list.append(f"Cell-state prediction unavailable: {exc.detail}")
     except (ValueError, KeyError, RuntimeError) as exc:
         logger.warning(
             "Variant cell-state prediction failed [%s]: %s",

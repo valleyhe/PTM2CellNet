@@ -156,7 +156,7 @@ class TestDAVFTrainPredictE2E:
             "--model", str(davf_artifact["ckpt"]),
             "--config", str(davf_artifact["cfg"]),
             "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-            "--ptm-sites", '[{"position":3,"type":"phosphorylation"}]',
+            "--ptm-sites", '[{"position":3,"type":"phosphorylation","gene_symbol":"BRAF"}]',
             "--output", str(out),
             "--device", "cpu",
         ])
@@ -174,7 +174,7 @@ class TestDAVFTrainPredictE2E:
         batch_csv = tmp_path / "batch.csv"
         batch_csv.write_text(
             "id,sequence,ptm_sites\n"
-            '1,ACDEFGHIKLMNPQRSTVWY,"[{""position"":3,""type"":""phosphorylation""}]"\n'
+            '1,ACDEFGHIKLMNPQRSTVWY,"[{""position"":3,""type"":""phosphorylation"",""gene_symbol"":""BRAF""}]"\n'
             "2,ACDEFGHIKLMNPQRSTVWY,\n",
             encoding="utf-8",
         )

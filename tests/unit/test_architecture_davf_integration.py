@@ -158,6 +158,11 @@ class TestDAVFArchitectureIntegration:
         assert model.davf_module.config.feature_dim == 64
         assert model.davf_config["scvi_model_path"] == "checkpoints/scvi/model.pt"
         assert model.davf_config["embedding_asset_path"] == asset_path
+        assert model.davf_module.embedding_gene_to_token == {
+            f"ENSG00000{i}": i for i in range(4)
+        }
+        assert model.ptm_mapper is not None
+        assert model.ptm_mapper.gene_to_idx == model.davf_module.embedding_gene_to_token
 
     def test_davf_config_rejects_removed_geneformer_path(self):
         """Schema v2: geneformer_path must fail loudly, not silently degrade."""
