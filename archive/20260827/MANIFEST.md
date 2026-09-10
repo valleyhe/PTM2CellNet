@@ -4,7 +4,7 @@
 **审计前分支**：`main`
 **审计前版本**：`a8c480ca97a9902e7f34871358102b18bfebdd3f`
 **远程同步快照**：`origin/main = c76fff881f268f9bd0b39d68db8ba547115ec4cf`；执行 `git fetch origin main` 后 `main...origin/main = 43 0`
-**后续取代者**：仓库根目录 [`project_analysis_20260901.md`](../../project_analysis_20260901.md)
+**后续取代者**（2026-09-10 已再归档）：[`project_analysis_20260901.md`](../../archive/20260910/reports/project_analysis_20260901.md)
 
 ## 1. 归档文件
 

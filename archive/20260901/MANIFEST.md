@@ -3,7 +3,7 @@
 **归档日期**：2026-09-01<br>
 **归档前代码基线**：`19024a1b5255d07bc04d5a4ee178ee111869c1d3`<br>
 **远程同步快照**：`origin/main = c76fff881f268f9bd0b39d68db8ba547115ec4cf`；`git merge --ff-only origin/main` 输出 `Already up to date.`<br>
-**当前权威报告**：[`project_analysis_20260901.md`](../project_analysis_20260901.md)
+**报告正文**（2026-09-10 已再归档）：[`project_analysis_20260901.md`](../20260910/reports/project_analysis_20260901.md)
 
 ## 归档文件
 

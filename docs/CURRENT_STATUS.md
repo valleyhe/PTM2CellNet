@@ -1,18 +1,18 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-09-03（Gate-0 本地 donor 队列复审）**
+**Last updated: 2026-09-10（9 月批次合入 + 对抗性综合复核）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260901.md`](../project_analysis_20260901.md)。
-2026-08-24 及更早的综合分析和点时报告已归档：`archive/20260827/reports/`、
-`archive/20260824/reports/`、`archive/20260822/reports/`；
-各批次清单见对应 `archive/YYYYMMDD/MANIFEST.md`。
+[`project_analysis_20260910.md`](../project_analysis_20260910.md)。
+2026-09-01 及更早的综合分析、docs/ 下 7 个 2026-08 初点时报告已归档：
+`archive/20260910/reports/`（含 20260901 权威报告）、`archive/20260901/reports/`、
+`archive/20260827/reports/` 等；各批次清单见对应 `archive/YYYYMMDD/MANIFEST.md`。
 
 ## Quick Reference
 
 - **验证环境**：主进程 Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；PerturbGen 独立环境 conda `perturbgen`（Python 3.11.15）已于 2026-08-23 完全建立并通过 GPU 实测（evidence 见 `outputs/perturbgen/env_evidence_20260823.json`，复现入口 `scripts/setup_perturbgen_env.sh` + `scripts/download_perturbgen_wheels.sh`）。
-- **测试基线（2026-09-02 更新）**：本轮 DAVF/PerturbGen 聚焦回归 **157 passed / 2 skipped / 16 warnings**；真实资产 CUDA 桥接 **3 passed / 7 warnings**。2026-09-01 全量离线基线仍为 **2357 passed / 16 skipped / 47 warnings / exit 0（536.65s）**。
-- **静态/构建质量**：`compileall` 通过；`ruff check src scripts tests` 全绿；`mypy src` **23 errors / 8 files**（= TD-N-06 基线 5 处 + TD-N-11 PerturbGen 18 处，无新增）；`python -m pip check` 当前有 3 个环境冲突（ptm2cellnet/NumPy、scgpt/scvi-tools、ssh-unit/torchaudio），详见权威分析 TD-N-34 和验证章节。
+- **测试基线（2026-09-10 更新）**：全量离线回归 **2475 passed / 15 skipped / 7 deselected / 54 warnings / exit 0（729.03s）**（含 9 月批次新增 LatentDAVF/GSE/IBD/orchestrator 用例）。此前 2026-09-02 聚焦回归 157 passed、真实资产 CUDA 桥接 3 passed 的记录不变。
+- **静态/构建质量（2026-09-10）**：`compileall` 通过；`ruff check src scripts tests` 全绿；`mypy src` **80 errors / 17 files**——较 2026-09-01 基线 23 新增 57 处（ibd_qc 30、gse_normal_disease 18、runner 17 等），登记为权威分析 TD-NEW-16；`python -m pip check` 当前有 3 个环境冲突（ptm2cellnet/NumPy、scgpt/scvi-tools、ssh-unit/torchaudio），详见权威分析 TD-N-34 和验证章节。
 - **技术债闭环（本轮确认，提交 `63ebf75`）**：
   - **TD-N-24（高）已修复**：`src/analysis/gene_mapper.py:150-186` 新增 `_call_external_mapper`——外部 `UniProtMapper` 调用包裹 daemon 线程 + `_EXTERNAL_MAPPER_TIMEOUT_S` 硬超时，超时转既有异常分支；生产 `/predict` 挂死风险解除。回归锚点 `tests/unit/analysis/test_gene_mapper.py`（TD-N-33 合并后单一入口）。
   - **TD-N-10（高）已修复**：`.github/workflows/perturbgen-real-assets.yml:44-46` 安装步骤追加 `pip install -r requirements-analysis.txt`，Gate-4 门禁 anndata 缺口闭环。
@@ -29,7 +29,7 @@
 ## 文档入口
 
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)、[真实资产验收](guides/real_assets_acceptance.md)
-- [项目代码与文档综合分析（2026-09-01，当前权威）](../project_analysis_20260901.md)、[归档清单（2026-09-01）](../archive/20260901/MANIFEST.md)
+- [项目代码与文档综合分析（2026-09-10，当前权威）](../project_analysis_20260910.md)、[归档清单（2026-09-01）](../archive/20260901/MANIFEST.md)
 - [PerturbGen 双路径整合方案（v2.0，现行需求基线）](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)
 - [测试覆盖率治理](TEST_COVERAGE.md)
 

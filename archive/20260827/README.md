@@ -6,7 +6,7 @@
 
 本批次之后的当前权威入口：
 
-- [`project_analysis_20260901.md`](../../project_analysis_20260901.md)
+- [`project_analysis_20260901.md`](../../archive/20260910/reports/project_analysis_20260901.md)
 - [`docs/CURRENT_STATUS.md`](../../docs/CURRENT_STATUS.md)
 
 本批次基于本地 `main` 的审计前版本

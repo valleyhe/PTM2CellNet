@@ -3,7 +3,7 @@
 > **文档版本**：v1.4（2026-09-02，补充真实重训练/微调执行结果与 symbol alias 契约）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
 > **详细执行方案**：[`docs/guides/davf_perturbgen_retraining_plan_20260902.md`](davf_perturbgen_retraining_plan_20260902.md)
-> **状态基线**：[`project_analysis_20260901.md`](../../project_analysis_20260901.md)（本报告按代码闭合度评估 DAVF 方向推理 77.0% / PerturbGen runner 68.0%，真实资产与 Gate 另计）
+> **状态基线**：[`project_analysis_20260910.md`](../../project_analysis_20260910.md)（本报告按代码闭合度评估 DAVF 方向推理 77.0% / PerturbGen runner 68.0%，真实资产与 Gate 另计）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。

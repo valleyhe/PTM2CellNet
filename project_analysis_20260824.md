@@ -8,4 +8,4 @@ PerturbGen 未完成项；继续把 2026-08-24 正文留在根目录会造成当
 原文件通过 `git mv` 归档，完整历史可用 `git log --follow` 追溯。
 
 当前权威分析请参考
-[`project_analysis_20260901.md`](./project_analysis_20260901.md)。
+[`project_analysis_20260910.md`](./project_analysis_20260910.md)。

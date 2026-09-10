@@ -6,5 +6,5 @@
 
 当前权威入口：
 
-- [`project_analysis_20260901.md`](../project_analysis_20260901.md)
+- [`project_analysis_20260901.md`](../20260910/reports/project_analysis_20260901.md)
 - [`docs/CURRENT_STATUS.md`](../docs/CURRENT_STATUS.md)
