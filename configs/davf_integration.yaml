@@ -1,5 +1,9 @@
 # DAVF Integration Configuration (schema v2)
 # Used by PTM2CellNet when use_davf=True
+# Historical feature-path defaults only; this file does not certify the
+# checkpoint below as compatible with the current scVI latent model. Use
+# configs/davf_current.yaml plus a schema_version=2 checkpoint for formal
+# direction evidence.
 # See src/models/davf_inference.py for DAVFInferenceConfig documentation
 #
 # Schema v2 (2026-08-23): removed `geneformer_path` and its null→random
@@ -11,8 +15,9 @@
 davf:
   state_space: "scvi_latent"
   checkpoint_path: "checkpoints/latent_davf_ibd_norman/best_model.pt"
-  # scvi_model_path and gene_names_path must be provided when use_davf=True.
-  # Leave as null to use built-in fallback behavior.
+  # scvi_model_path must be provided for formal DAVF direction evidence.
+  # null keeps the historical feature-only path; it is not a valid scVI
+  # direction configuration.
   scvi_model_path: null
   # PerturbGen embedding asset directory (manifest.json + vocabulary.json +
   # gene_embeddings.safetensors). When set, the frozen matrix is injected into

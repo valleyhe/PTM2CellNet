@@ -262,6 +262,13 @@ class LatentDAVF(nn.Module):
                 "gene_ids and directions are required when condition_source='internal_targets'"
             )
         gene_ids = self._sanitize_gene_ids(gene_ids, attention_mask=attention_mask)
+        if attention_mask is not None:
+            valid_targets = attention_mask.to(dtype=torch.bool).any(dim=1)
+            if not bool(valid_targets.all()):
+                raise ValueError(
+                    "each DAVF sample must contain at least one valid PerturbGen gene token; "
+                    "check the symbol/Ensembl mapping"
+                )
         gene_embeddings = self._get_gene_embeddings(gene_ids)
         condition, _ = self.biperturb_encoder(
             gene_embeddings, directions, magnitudes,

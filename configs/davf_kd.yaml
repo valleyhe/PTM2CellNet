@@ -1,0 +1,24 @@
+# Formal KD DAVF path. Artifacts are produced by the commands in
+# docs/guides/davf_ko_kd_training.md.
+davf:
+  state_space: "scvi_latent"
+  intervention_type: "KD"
+  checkpoint_path: "checkpoints/davf/davf_kd_nadig/best_model.pt"
+  scvi_model_path: "checkpoints/scvi/davf_kd_nadig"
+  embedding_asset_path: "outputs/perturbgen/embedding_asset_20260822"
+  gene_names_path: "data/processed/davf_scperturb/kd/prepared.gene_aliases.tsv"
+  feature_dim: 128
+  hidden_dim: 256
+  latent_dim: 64
+  num_genes: 4018
+  num_steps: 50
+  freeze: true
+  device: null
+
+ptm_mapper:
+  max_targets: 32
+
+integration:
+  concat_point: "before_predictor"
+  zero_features_on_missing_checkpoint: false
+  zero_features_on_empty_ptm: true

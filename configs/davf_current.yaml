@@ -1,0 +1,30 @@
+# Explicit current formal DAVF configuration.
+#
+# This file is intentionally separate from configs/davf_integration.yaml.
+# The latter preserves the historical feature-path defaults and must not be
+# read as evidence that the old checkpoint is compatible with the current
+# scVI model.
+
+davf:
+  state_space: "scvi_latent"
+  checkpoint_path: "checkpoints/davf/latent_davf_perturbgen_4018/best_model.pt"
+  scvi_model_path: "checkpoints/scvi/ibd_norman_model"
+  embedding_asset_path: "outputs/perturbgen/embedding_asset_20260822"
+  # Two-column Ensembl ID / gene symbol table used to resolve API symbols to
+  # PerturbGen token rows. scVI decoder indices still come from adapter.gene_names.
+  gene_names_path: "data/raw/norman_adamson/GSE133344/GSE133344_filtered_genes.tsv.gz"
+  feature_dim: 128
+  hidden_dim: 256
+  latent_dim: 64
+  num_genes: 4018
+  num_steps: 50
+  freeze: true
+  device: null
+
+ptm_mapper:
+  max_targets: 32
+
+integration:
+  concat_point: "before_predictor"
+  zero_features_on_missing_checkpoint: false
+  zero_features_on_empty_ptm: true

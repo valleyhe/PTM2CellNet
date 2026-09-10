@@ -1,0 +1,38 @@
+# Candidate formal KO DAVF route trained with a cell-level baseline.
+#
+# This is intentionally a dated candidate configuration.  The historical
+# configs/davf_ko.yaml remains unchanged until this candidate passes the full
+# independent acceptance review.
+
+davf:
+  state_space: "scvi_latent"
+  intervention_type: "KO"
+  checkpoint_path: "checkpoints/davf/davf_ko_cell_baseline_formal_20260904/best_model.pt"
+  scvi_model_path: "checkpoints/scvi/davf_ko_dixit"
+  embedding_asset_path: "outputs/perturbgen/embedding_asset_20260822"
+  # This table resolves API gene symbols to PerturbGen token rows only.
+  # scVI decoder columns are always resolved from adapter.gene_names.
+  gene_names_path: "data/processed/davf_scperturb/ko/prepared.gene_aliases.tsv"
+  feature_dim: 128
+  hidden_dim: 256
+  latent_dim: 64
+  num_genes: 4018
+  # One-step endpoint is the current evidence-backed direction route.
+  num_steps: 1
+  freeze: true
+  device: null
+
+ptm_mapper:
+  max_targets: 32
+
+integration:
+  concat_point: "before_predictor"
+  zero_features_on_missing_checkpoint: false
+  zero_features_on_empty_ptm: true
+
+provenance:
+  training_pairs: "data/processed/davf_scperturb/ko_cell_baseline/pairs"
+  prepared_anndata: "data/processed/davf_scperturb/ko/prepared.h5ad"
+  split_strategy: "cell"
+  control_baseline: "cell"
+  training_output: "checkpoints/davf/davf_ko_cell_baseline_formal_20260904"

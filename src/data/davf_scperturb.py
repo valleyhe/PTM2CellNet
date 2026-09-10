@@ -1,0 +1,817 @@
+"""Prepare scPerturb AnnData and build strict latent DAVF pairs.
+
+The two operations in this module deliberately share one data contract:
+
+* intervention labels are resolved to Ensembl IDs and then to PerturbGen
+  token rows;
+* the prepared AnnData contains exactly the 4018 genes that the new scVI
+  model will decode, in one immutable order;
+* target labels, rather than individual cells, are split into train/val/test;
+* each split receives a disjoint subset of control cells and uses the
+  within-batch control latent mean as its baseline.
+
+No gene index is inferred from the PerturbGen vocabulary. PerturbGen indices
+are only written to ``gene_ids``; scVI decoder indices remain
+``adapter.gene_names`` at inference time.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence
+
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+
+from src.models.gene_vocabulary import normalize_ensembl_id, normalize_gene_symbol
+
+
+FORMAL_DAVF_LATENT_DIM = 64
+FORMAL_DAVF_NUM_GENES = 4018
+DIRECTION_CODES = {"KO": 0, "KD": 1, "OE": 2}
+CONTROL_LABELS = frozenset({"control", "control_", "non-targeting", "non_targeting", "nt"})
+
+
+class DAVFScPerturbError(ValueError):
+    """Raised when a supported scPerturb input cannot satisfy the DAVF contract."""
+
+
+@dataclass
+class _PreparedSource:
+    """One filtered source before all sources are concatenated."""
+
+    label: str
+    adata: Any
+    gene_ids: tuple[str, ...]
+    target_genes: tuple[str, ...]
+    feature_scores: np.ndarray
+    report: dict[str, Any]
+
+
+def _text(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _is_control_label(value: Any) -> bool:
+    value_text = _text(value).lower()
+    return bool(value_text) and value_text in CONTROL_LABELS
+
+
+def _canonical_gene_ids(adata: Any) -> tuple[str, ...]:
+    for column in ("ensembl_id", "gene_id", "gene_ids"):
+        if column in adata.var.columns:
+            raw_values = adata.var[column].tolist()
+            break
+    else:
+        raw_values = list(adata.var_names)
+
+    gene_ids: list[str] = []
+    for index, value in enumerate(raw_values):
+        try:
+            gene_ids.append(normalize_ensembl_id(_text(value)))
+        except ValueError as exc:
+            raise DAVFScPerturbError(
+                f"AnnData var row {index} is not a valid Ensembl gene ID: {value!r}"
+            ) from exc
+    if len(set(gene_ids)) != len(gene_ids):
+        raise DAVFScPerturbError("AnnData contains duplicate Ensembl gene IDs")
+    return tuple(gene_ids)
+
+
+def _symbol_to_gene_id(adata: Any, gene_ids: Sequence[str]) -> dict[str, str]:
+    if "gene_symbol" in adata.var.columns:
+        raw_symbols = adata.var["gene_symbol"].tolist()
+    else:
+        raw_symbols = list(adata.var_names)
+
+    mapping: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for raw_symbol, gene_id in zip(raw_symbols, gene_ids, strict=True):
+        symbol = _text(raw_symbol)
+        if not symbol:
+            continue
+        try:
+            normalized = normalize_gene_symbol(symbol)
+        except ValueError:
+            continue
+        previous = mapping.get(normalized)
+        if previous is not None and previous != gene_id:
+            ambiguous.add(normalized)
+        else:
+            mapping[normalized] = gene_id
+    for symbol in ambiguous:
+        mapping.pop(symbol, None)
+    return mapping
+
+
+def _candidate_columns(obs: pd.DataFrame, modality: str) -> tuple[str, ...]:
+    preferred = {
+        "KO": ("target", "gene_symbol", "gene", "perturbation"),
+        "KD": ("gene_id", "gene", "target", "gene_symbol", "perturbation"),
+        "OE": ("target", "gene_symbol", "gene", "perturbation"),
+    }[modality]
+    columns = tuple(column for column in preferred if column in obs.columns)
+    if not columns:
+        raise DAVFScPerturbError(
+            f"{modality} AnnData must contain one perturbation identity column; "
+            f"available columns={list(obs.columns)!r}"
+        )
+    return columns
+
+
+def _resolve_cell_target(
+    values: Sequence[Any],
+    *,
+    source_gene_ids: set[str],
+    symbol_to_id: Mapping[str, str],
+    asset_gene_to_token: Mapping[str, int],
+) -> str | None:
+    for value in values:
+        raw = _text(value)
+        if not raw or _is_control_label(raw):
+            continue
+        try:
+            candidate_id = normalize_ensembl_id(raw)
+        except ValueError:
+            try:
+                candidate_id = symbol_to_id.get(normalize_gene_symbol(raw))
+            except ValueError:
+                candidate_id = None
+        if candidate_id is None or candidate_id not in source_gene_ids:
+            continue
+        if candidate_id not in asset_gene_to_token:
+            continue
+        return candidate_id
+    return None
+
+
+def _feature_scores(adata: Any) -> np.ndarray:
+    """Return deterministic feature scores without duplicating a dense matrix."""
+
+    for column in ("ncells", "ncounts"):
+        if column in adata.var.columns:
+            values = pd.to_numeric(adata.var[column], errors="coerce").to_numpy(dtype=np.float64)
+            if np.isfinite(values).all() and (values >= 0).all():
+                return values
+
+    matrix = adata.X
+    if sp.issparse(matrix):
+        return np.asarray((matrix > 0).sum(axis=0)).ravel().astype(np.float64)
+    dense = np.asarray(matrix)
+    return np.asarray((dense > 0).sum(axis=0), dtype=np.float64)
+
+
+def _validate_counts(matrix: Any, *, source: str) -> None:
+    if sp.issparse(matrix):
+        values = np.asarray(matrix.data)
+    else:
+        values = np.asarray(matrix)
+    if values.size and (not np.isfinite(values).all() or (values < 0).any()):
+        raise DAVFScPerturbError(f"{source} expression matrix must contain finite non-negative counts")
+
+
+def _prepare_source(
+    path: Path,
+    *,
+    modality: str,
+    asset_gene_to_token: Mapping[str, int],
+) -> _PreparedSource:
+    try:
+        import anndata as ad
+    except ImportError as exc:  # pragma: no cover - optional dependency boundary
+        raise ImportError("anndata is required to prepare DAVF scPerturb data") from exc
+
+    if not path.is_file():
+        raise FileNotFoundError(f"scPerturb AnnData not found: {path}")
+    try:
+        source = ad.read_h5ad(path)
+    except (OSError, ValueError, KeyError) as exc:
+        raise DAVFScPerturbError(f"failed to read {path}: {exc}") from exc
+    if source.n_obs < 2 or source.n_vars < FORMAL_DAVF_NUM_GENES:
+        raise DAVFScPerturbError(
+            f"{path.name} has shape {source.shape}; at least two cells and {FORMAL_DAVF_NUM_GENES} genes are required"
+        )
+
+    _validate_counts(source.X, source=path.name)
+    gene_ids = _canonical_gene_ids(source)
+    source_gene_set = set(gene_ids)
+    symbol_to_id = _symbol_to_gene_id(source, gene_ids)
+    identity_columns = _candidate_columns(source.obs, modality)
+    control_columns = tuple(
+        column
+        for column in ("perturbation", "target", "gene", "gene_id", "gene_symbol")
+        if column in source.obs.columns
+    )
+    identity_values = {column: source.obs[column].to_numpy() for column in identity_columns}
+    control_values = {column: source.obs[column].to_numpy() for column in control_columns}
+
+    targets: list[str] = []
+    keep = np.zeros(source.n_obs, dtype=bool)
+    reasons: Counter[str] = Counter()
+    raw_target_values: list[str] = []
+    for row_index in range(source.n_obs):
+        control = any(_is_control_label(control_values[column][row_index]) for column in control_columns)
+        values = [identity_values[column][row_index] for column in identity_columns]
+        target = None if control else _resolve_cell_target(
+            values,
+            source_gene_ids=source_gene_set,
+            symbol_to_id=symbol_to_id,
+            asset_gene_to_token=asset_gene_to_token,
+        )
+        if control:
+            keep[row_index] = True
+            raw_target_values.append("")
+        elif target is not None:
+            keep[row_index] = True
+            raw_target_values.append(target)
+            targets.append(target)
+        else:
+            raw_target_values.append("")
+            reasons["unmapped_or_unobserved_target"] += 1
+
+    if not keep.any():
+        raise DAVFScPerturbError(f"{path.name} contains no explicit controls or asset-resolvable target cells")
+    if not targets:
+        raise DAVFScPerturbError(f"{path.name} contains no asset-resolvable target cells")
+
+    filtered = source[keep].copy()
+    filtered.obs_names_make_unique()
+    filtered.var_names = list(gene_ids)
+    filtered.var = pd.DataFrame(
+        {
+            "gene_id": np.asarray(gene_ids, dtype="U"),
+            "gene_symbol": np.asarray(
+                [
+                    _text(source.var.iloc[index]["gene_symbol"])
+                    if "gene_symbol" in source.var.columns
+                    else _text(source.var_names[index])
+                    for index in range(source.n_vars)
+                ],
+                dtype="U",
+            ),
+        },
+        index=list(gene_ids),
+    )
+
+    target_series = np.asarray(raw_target_values, dtype="U")[keep]
+    # Use ordinary object-backed strings here. anndata 0.11 refuses to write
+    # pandas nullable StringArray unless a global opt-in is enabled; the
+    # prepared artifact must be portable without changing process settings.
+    filtered.obs["davf_target_ensembl"] = pd.Series(target_series, index=filtered.obs_names)
+    filtered.obs["davf_modality"] = modality
+    raw_batches: Sequence[Any]
+    if "batch" in filtered.obs.columns:
+        raw_batches = filtered.obs["batch"].tolist()
+    elif "time" in filtered.obs.columns:
+        raw_batches = filtered.obs["time"].tolist()
+    else:
+        raw_batches = ["batch_0"] * filtered.n_obs
+    source_label = path.stem
+    filtered.obs["davf_batch"] = pd.Series(
+        [f"{source_label}:{_text(value) or 'batch_0'}" for value in raw_batches],
+        index=filtered.obs_names,
+    )
+    filtered.obs["davf_source"] = source_label
+
+    scores = _feature_scores(filtered)
+    target_genes = tuple(sorted(set(targets)))
+    report = {
+        "input": str(path.resolve()),
+        "source": source_label,
+        "input_shape": [int(source.n_obs), int(source.n_vars)],
+        "kept_cells": int(filtered.n_obs),
+        "control_cells": int((filtered.obs["davf_target_ensembl"] == "").sum()),
+        "target_cells": int((filtered.obs["davf_target_ensembl"] != "").sum()),
+        "target_genes": list(target_genes),
+        "excluded_cells": int((~keep).sum()),
+        "exclusion_reasons": dict(reasons),
+    }
+    return _PreparedSource(
+        label=source_label,
+        adata=filtered,
+        gene_ids=gene_ids,
+        target_genes=target_genes,
+        feature_scores=scores,
+        report=report,
+    )
+
+
+def prepare_scperturb_anndata(
+    input_paths: Sequence[str | Path],
+    *,
+    modality: str,
+    asset_gene_to_token: Mapping[str, int],
+    output_path: str | Path,
+    embedding_asset_path: str | Path,
+    embedding_manifest: Mapping[str, Any],
+    n_genes: int = FORMAL_DAVF_NUM_GENES,
+) -> dict[str, Any]:
+    """Filter one or more real scPerturb H5AD files to a formal DAVF input."""
+
+    if modality not in DIRECTION_CODES:
+        raise DAVFScPerturbError(f"unsupported DAVF modality {modality!r}; expected KO, KD or OE")
+    if n_genes != FORMAL_DAVF_NUM_GENES:
+        raise DAVFScPerturbError("formal DAVF preparation is fixed at exactly 4018 genes")
+    paths = tuple(Path(path).expanduser().resolve() for path in input_paths)
+    if not paths:
+        raise DAVFScPerturbError("at least one input AnnData path is required")
+
+    sources = [
+        _prepare_source(path, modality=modality, asset_gene_to_token=asset_gene_to_token)
+        for path in paths
+    ]
+    common = set(sources[0].gene_ids)
+    for source in sources[1:]:
+        common.intersection_update(source.gene_ids)
+    ordered_common = [gene_id for gene_id in sources[0].gene_ids if gene_id in common]
+    if len(ordered_common) < n_genes:
+        raise DAVFScPerturbError(
+            f"sources share only {len(ordered_common)} genes; {n_genes} are required for formal scVI"
+        )
+
+    target_union = set().union(*(set(source.target_genes) for source in sources))
+    target_in_common = [gene_id for gene_id in ordered_common if gene_id in target_union]
+    if not target_in_common:
+        raise DAVFScPerturbError("no perturbation target remains in the common gene vocabulary")
+
+    score_by_gene = {gene_id: 0.0 for gene_id in ordered_common}
+    for source in sources:
+        source_index = {gene_id: index for index, gene_id in enumerate(source.gene_ids)}
+        for gene_id in ordered_common:
+            score_by_gene[gene_id] += float(source.feature_scores[source_index[gene_id]])
+    remaining = [gene_id for gene_id in ordered_common if gene_id not in set(target_in_common)]
+    position = {gene_id: index for index, gene_id in enumerate(ordered_common)}
+    remaining.sort(key=lambda gene_id: (-score_by_gene[gene_id], position[gene_id]))
+    selected_gene_ids = tuple(target_in_common + remaining[: n_genes - len(target_in_common)])
+    if len(selected_gene_ids) != n_genes or len(set(selected_gene_ids)) != n_genes:
+        raise DAVFScPerturbError("failed to build a unique 4018-gene scVI vocabulary")
+
+    selected_sources = []
+    for source in sources:
+        source_index = {gene_id: index for index, gene_id in enumerate(source.gene_ids)}
+        indices = [source_index[gene_id] for gene_id in selected_gene_ids]
+        selected = source.adata[:, indices].copy()
+        selected.var_names = list(selected_gene_ids)
+        selected.var = pd.DataFrame(
+            {
+                "gene_id": list(selected_gene_ids),
+                "gene_symbol": [
+                    _text(source.adata.var.iloc[source_index[gene_id]].get("gene_symbol", gene_id))
+                    for gene_id in selected_gene_ids
+                ],
+            },
+            index=list(selected_gene_ids),
+        )
+        selected_sources.append(selected)
+
+    try:
+        import anndata as ad
+    except ImportError as exc:  # pragma: no cover - optional dependency boundary
+        raise ImportError("anndata is required to concatenate DAVF inputs") from exc
+    combined = ad.concat(
+        selected_sources,
+        axis=0,
+        join="inner",
+        merge="first",
+        label="davf_input_source",
+        keys=[source.label for source in sources],
+        index_unique="-",
+    )
+    combined.var_names = list(selected_gene_ids)
+    combined.var["gene_id"] = list(selected_gene_ids)
+    combined.uns = {
+        "davf_preparation": {
+            "schema_version": "ptm2cellnet.davf-scperturb-prepared.v1",
+            "modality": modality,
+            "direction_code": DIRECTION_CODES[modality],
+            "num_genes": n_genes,
+            "gene_names": list(selected_gene_ids),
+            "input_paths": [str(path) for path in paths],
+            "embedding_asset_path": str(Path(embedding_asset_path).expanduser().resolve()),
+            "embedding_manifest": dict(embedding_manifest),
+            "target_genes": list(target_in_common),
+        }
+    }
+
+    destination = Path(output_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    combined.write_h5ad(destination, compression=None)
+    alias_path = destination.with_suffix(".gene_aliases.tsv")
+    alias_rows = ["ensembl_id\tgene_symbol"]
+    for gene_id in selected_gene_ids:
+        symbol = _text(combined.var.loc[gene_id, "gene_symbol"]) or gene_id
+        alias_rows.append(f"{gene_id}\t{symbol}")
+    alias_path.write_text("\n".join(alias_rows) + "\n", encoding="utf-8")
+    report = {
+        "schema_version": "ptm2cellnet.davf-scperturb-prepared.v1",
+        "modality": modality,
+        "direction_code": DIRECTION_CODES[modality],
+        "output": str(destination),
+        "gene_aliases": str(alias_path),
+        "shape": [int(combined.n_obs), int(combined.n_vars)],
+        "gene_names": list(selected_gene_ids),
+        "target_genes": list(target_in_common),
+        "target_gene_tokens": {
+            gene_id: int(asset_gene_to_token[gene_id]) for gene_id in target_in_common
+        },
+        "embedding_asset": {
+            "path": str(Path(embedding_asset_path).expanduser().resolve()),
+            "manifest": dict(embedding_manifest),
+            "vocab_size": len(asset_gene_to_token),
+        },
+        "sources": [source.report for source in sources],
+    }
+    manifest_path = destination.with_suffix(".manifest.json")
+    manifest_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def split_target_labels(
+    labels: Iterable[str],
+    *,
+    seed: int,
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+    test_ratio: float = 0.1,
+) -> dict[str, tuple[str, ...]]:
+    """Split unique target genes; all cells of one target stay in one split."""
+
+    ratios = np.asarray([train_ratio, val_ratio, test_ratio], dtype=float)
+    if np.any(ratios <= 0) or not np.isclose(ratios.sum(), 1.0):
+        raise DAVFScPerturbError("train/val/test ratios must be positive and sum to 1")
+    unique = np.asarray(sorted(set(str(label) for label in labels if str(label))), dtype="U")
+    if len(unique) < 3:
+        raise DAVFScPerturbError("at least three target genes are required for train/val/test")
+    shuffled = unique[np.random.default_rng(seed).permutation(len(unique))]
+    counts = np.floor(ratios * len(unique)).astype(int)
+    counts = np.maximum(counts, 1)
+    while int(counts.sum()) > len(unique):
+        candidates = np.flatnonzero(counts > 1)
+        index = int(candidates[np.argmin(ratios[candidates])])
+        counts[index] -= 1
+    while int(counts.sum()) < len(unique):
+        deficits = ratios - counts / len(unique)
+        counts[int(np.argmax(deficits))] += 1
+    first = int(counts[0])
+    second = first + int(counts[1])
+    return {
+        "train": tuple(str(value) for value in shuffled[:first]),
+        "val": tuple(str(value) for value in shuffled[first:second]),
+        "test": tuple(str(value) for value in shuffled[second:]),
+    }
+
+
+def split_target_cells(
+    target_values: Sequence[str],
+    *,
+    seed: int,
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+    test_ratio: float = 0.1,
+) -> dict[str, tuple[int, ...]]:
+    """Split target cells while keeping every sufficiently sampled target in all splits.
+
+    This is the production split for evaluating known perturbation targets on
+    held-out cells. Targets with fewer than three cells cannot contribute one
+    cell to each split without inventing observations, so all of their real
+    cells are assigned to train and the omission is explicit in the result.
+    """
+
+    ratios = np.asarray([train_ratio, val_ratio, test_ratio], dtype=float)
+    if np.any(ratios <= 0) or not np.isclose(ratios.sum(), 1.0):
+        raise DAVFScPerturbError("train/val/test ratios must be positive and sum to 1")
+    rows_by_label: dict[str, list[int]] = {}
+    for index, value in enumerate(target_values):
+        label = str(value)
+        if label:
+            rows_by_label.setdefault(label, []).append(index)
+    labels = tuple(sorted(rows_by_label))
+    if not labels:
+        raise DAVFScPerturbError("at least one target gene is required for a cell split")
+
+    split_order = ("train", "val", "test")
+    rows_by_split: dict[str, list[int]] = {split: [] for split in split_order}
+    for label_index, label in enumerate(labels):
+        rows = np.asarray(rows_by_label[label], dtype=np.int64)
+        shuffled = rows[np.random.default_rng(seed + 7919 * (label_index + 1)).permutation(len(rows))]
+        if len(rows) < len(split_order):
+            rows_by_split["train"].extend(int(index) for index in shuffled)
+            continue
+
+        counts = np.floor(ratios * len(rows)).astype(int)
+        counts = np.maximum(counts, 1)
+        while int(counts.sum()) > len(rows):
+            candidates = np.flatnonzero(counts > 1)
+            counts[int(candidates[np.argmin(ratios[candidates])])] -= 1
+        while int(counts.sum()) < len(rows):
+            deficits = ratios - counts / len(rows)
+            counts[int(np.argmax(deficits))] += 1
+
+        start = 0
+        for split, count in zip(split_order, counts, strict=True):
+            stop = start + int(count)
+            rows_by_split[split].extend(int(index) for index in shuffled[start:stop])
+            start = stop
+
+    if any(not rows_by_split[split] for split in split_order):
+        raise DAVFScPerturbError("cell split produced an empty train, val, or test split")
+    return {split: tuple(rows_by_split[split]) for split in split_order}
+
+
+def build_scperturb_latent_pairs(
+    prepared_path: str | Path,
+    *,
+    scvi_model_path: str | Path,
+    embedding_asset: Any,
+    embedding_asset_path: str | Path,
+    output_dir: str | Path,
+    modality: str,
+    seed: int = 42,
+    max_cells_per_target: int = 256,
+    encoder_batch_size: int = 512,
+    device: str = "cpu",
+    split_strategy: str = "target",
+    control_baseline: str = "mean",
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+    test_ratio: float = 0.1,
+) -> dict[str, dict[str, Any]]:
+    """Encode a prepared AnnData and export leakage-free latent-pair NPZ files."""
+
+    if modality not in DIRECTION_CODES:
+        raise DAVFScPerturbError(f"unsupported DAVF modality {modality!r}")
+    if split_strategy not in {"target", "cell"}:
+        raise DAVFScPerturbError("split_strategy must be 'target' or 'cell'")
+    if control_baseline not in {"mean", "cell"}:
+        raise DAVFScPerturbError("control_baseline must be 'mean' or 'cell'")
+    if max_cells_per_target <= 0 or encoder_batch_size <= 0:
+        raise DAVFScPerturbError("max_cells_per_target and encoder_batch_size must be positive")
+    try:
+        import anndata as ad
+        from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
+    except ImportError as exc:  # pragma: no cover - optional dependency boundary
+        raise ImportError("anndata and scvi-tools are required to build DAVF latent pairs") from exc
+
+    prepared = Path(prepared_path).expanduser().resolve()
+    adata = ad.read_h5ad(prepared)
+    metadata = adata.uns.get("davf_preparation")
+    if not isinstance(metadata, Mapping):
+        raise DAVFScPerturbError("prepared AnnData is missing uns['davf_preparation']")
+    if metadata.get("modality") != modality:
+        raise DAVFScPerturbError(
+            f"prepared AnnData modality={metadata.get('modality')!r} does not match requested {modality!r}"
+        )
+    if adata.n_vars != FORMAL_DAVF_NUM_GENES:
+        raise DAVFScPerturbError(f"prepared AnnData must have {FORMAL_DAVF_NUM_GENES} genes, got {adata.n_vars}")
+    if "davf_target_ensembl" not in adata.obs or "davf_batch" not in adata.obs:
+        raise DAVFScPerturbError("prepared AnnData must contain davf_target_ensembl and davf_batch columns")
+
+    scvi_path = Path(scvi_model_path).expanduser().resolve()
+    adapter = ScVIAdapter.from_trained_model(
+        scvi_path,
+        config=ScVIAdapterConfig(
+            model_path=str(scvi_path),
+            n_latent=FORMAL_DAVF_LATENT_DIM,
+            batch_key="davf_batch",
+            device=device,
+        ),
+        adata=adata,
+    )
+    gene_names = tuple(str(name) for name in adapter.gene_names)
+    adapter.validate_compatibility(
+        expected_latent_dim=FORMAL_DAVF_LATENT_DIM,
+        expected_num_genes=FORMAL_DAVF_NUM_GENES,
+        expected_gene_names=gene_names,
+    )
+    if gene_names != tuple(str(name) for name in adata.var_names):
+        raise DAVFScPerturbError("prepared AnnData gene order does not match the scVI decoder vocabulary")
+    latent = np.asarray(adapter.encode(adata, batch_size=encoder_batch_size), dtype=np.float32)
+    if latent.shape != (adata.n_obs, FORMAL_DAVF_LATENT_DIM) or not np.isfinite(latent).all():
+        raise DAVFScPerturbError(f"scVI encoder returned invalid latent array with shape {latent.shape}")
+
+    target_values = np.asarray(
+        adata.obs["davf_target_ensembl"].astype(object).where(
+            adata.obs["davf_target_ensembl"].notna(), ""
+        ),
+        dtype="U",
+    )
+    batches = np.asarray(
+        adata.obs["davf_batch"].astype(object).where(adata.obs["davf_batch"].notna(), ""),
+        dtype="U",
+    )
+    target_labels = tuple(sorted(set(target_values) - {""}))
+    if split_strategy == "target":
+        label_splits = split_target_labels(
+            target_labels,
+            seed=seed,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+        )
+        target_rows_by_split = {
+            split: {
+                label: np.flatnonzero(target_values == label)
+                for label in labels
+            }
+            for split, labels in label_splits.items()
+        }
+    else:
+        row_splits = split_target_cells(
+            target_values,
+            seed=seed,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+        )
+        target_rows_by_split = {}
+        for split, rows in row_splits.items():
+            grouped_rows: dict[str, list[int]] = {}
+            for index in rows:
+                grouped_rows.setdefault(str(target_values[index]), []).append(int(index))
+            target_rows_by_split[split] = {
+                label: np.asarray(indices, dtype=np.int64)
+                for label, indices in sorted(grouped_rows.items())
+            }
+
+    # Allocate control cells once, independently per batch and split. This
+    # makes the control barcode sets disjoint across the three exported files.
+    split_order = ("train", "val", "test")
+    control_indices: dict[str, dict[str, np.ndarray]] = {split: {} for split in split_order}
+    for batch in sorted(set(batches)):
+        pool = np.flatnonzero((target_values == "") & (batches == batch))
+        if len(pool) < 3:
+            raise DAVFScPerturbError(f"batch {batch!r} has fewer than three control cells")
+        shuffled = pool[np.random.default_rng(seed + sum(map(ord, batch))).permutation(len(pool))]
+        counts = np.floor(np.asarray([train_ratio, val_ratio, test_ratio]) * len(pool)).astype(int)
+        counts = np.maximum(counts, 1)
+        while int(counts.sum()) > len(pool):
+            index = int(np.argmax(counts))
+            counts[index] -= 1
+        while int(counts.sum()) < len(pool):
+            index = int(np.argmax(np.asarray([train_ratio, val_ratio, test_ratio]) - counts / len(pool)))
+            counts[index] += 1
+        start = 0
+        for split, count in zip(split_order, counts, strict=True):
+            stop = start + int(count)
+            control_indices[split][batch] = shuffled[start:stop]
+            start = stop
+
+    output_root = Path(output_dir).expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    direction_code = DIRECTION_CODES[modality]
+    report: dict[str, dict[str, Any]] = {}
+    for split_index, split in enumerate(split_order):
+        rng = np.random.default_rng(seed + 1009 * (split_index + 1))
+        rows_z0: list[np.ndarray] = []
+        rows_z1: list[np.ndarray] = []
+        rows_gene: list[int] = []
+        rows_direction: list[int] = []
+        rows_cell_ids: list[str] = []
+        rows_batches: list[str] = []
+        control_cell_ids: list[str] = []
+        control_batches: list[str] = []
+        pair_control_cell_ids: list[str] = []
+        pair_control_batches: list[str] = []
+        labels = tuple(sorted(target_rows_by_split[split]))
+        split_control_count = sum(len(values) for values in control_indices[split].values())
+        for batch in sorted(control_indices[split]):
+            indices = control_indices[split][batch]
+            control_cell_ids.extend(str(adata.obs_names[index]) for index in indices)
+            control_batches.extend([batch] * len(indices))
+        if len(control_cell_ids) != split_control_count:
+            raise DAVFScPerturbError(f"split {split} control barcode count does not match its allocation")
+        control_means = {
+            batch: latent[indices].mean(axis=0).astype(np.float32)
+            for batch, indices in control_indices[split].items()
+        }
+        for label in labels:
+            target_rows = target_rows_by_split[split][label]
+            if len(target_rows) > max_cells_per_target:
+                target_rows = np.sort(rng.choice(target_rows, size=max_cells_per_target, replace=False))
+            token = embedding_asset.gene_to_token.get(label)
+            if token is None:
+                raise DAVFScPerturbError(f"target {label!r} is absent from the PerturbGen asset")
+            for row in target_rows:
+                batch = batches[row]
+                if batch not in control_means:
+                    raise DAVFScPerturbError(f"target row {row} has no control baseline in batch {batch!r}")
+                control_pool = control_indices[split][batch]
+                if control_baseline == "cell":
+                    control_index = int(rng.choice(control_pool))
+                    baseline = latent[control_index]
+                    pair_control_cell_ids.append(str(adata.obs_names[control_index]))
+                    pair_control_batches.append(batch)
+                else:
+                    baseline = control_means[batch]
+                    pair_control_cell_ids.append("")
+                    pair_control_batches.append(batch)
+                rows_z0.append(baseline)
+                rows_z1.append(latent[row])
+                rows_gene.append(int(token))
+                rows_direction.append(direction_code)
+                rows_cell_ids.append(str(adata.obs_names[row]))
+                rows_batches.append(batch)
+        if not rows_z1:
+            raise DAVFScPerturbError(f"split {split} contains no target cells")
+
+        split_metadata = {
+            "schema_version": "ptm2cellnet.latent-davf-pairs.v1",
+            "scvi": {
+                "model_path": str(scvi_path),
+                "latent_dim": FORMAL_DAVF_LATENT_DIM,
+                "num_genes": FORMAL_DAVF_NUM_GENES,
+                "gene_names": list(gene_names),
+            },
+            "embedding_asset": {
+                "path": str(Path(embedding_asset_path).expanduser().resolve()),
+                "vocab_size": int(embedding_asset.vocab_size),
+                "embedding_dim": int(embedding_asset.embedding_dim),
+                "manifest": dict(embedding_asset.manifest),
+            },
+            "dataset": {
+                "name": "scPerturb prepared AnnData",
+                "modality": modality,
+                "intervention_type": modality,
+                "direction_code": direction_code,
+                "split": split,
+                "split_strategy": split_strategy,
+                "seed": int(seed),
+                "pair_direction": (
+                    "within_batch_control_cell_to_perturbation_cell"
+                    if control_baseline == "cell"
+                    else "within_batch_control_mean_to_perturbation_cell"
+                ),
+                "control_baseline": (
+                    "same_batch_split_disjoint_control_cell"
+                    if control_baseline == "cell"
+                    else "latent_mean_of_split_disjoint_control_cells"
+                ),
+                "target_labels": list(labels),
+                "target_cells": len(rows_z1),
+                "control_cells": int(split_control_count),
+                "target_gene_tokens": {label: int(embedding_asset.gene_to_token[label]) for label in labels},
+                "prepared_anndata": str(prepared),
+            },
+        }
+        output_path = output_root / f"{split}.npz"
+        np.savez_compressed(
+            output_path,
+            metadata_json=np.asarray(json.dumps(split_metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))),
+            z_0=np.asarray(rows_z0, dtype=np.float32),
+            z_1=np.asarray(rows_z1, dtype=np.float32),
+            gene_ids=np.asarray(rows_gene, dtype=np.int64)[:, None],
+            directions=np.asarray(rows_direction, dtype=np.int64)[:, None],
+            attention_mask=np.ones((len(rows_z1), 1), dtype=np.float32),
+            target_cell_ids=np.asarray(rows_cell_ids, dtype="U"),
+            target_batches=np.asarray(rows_batches, dtype="U"),
+            control_cell_ids=np.asarray(control_cell_ids, dtype="U"),
+            control_batches=np.asarray(control_batches, dtype="U"),
+            pair_control_cell_ids=np.asarray(pair_control_cell_ids, dtype="U"),
+            pair_control_batches=np.asarray(pair_control_batches, dtype="U"),
+        )
+        report[split] = {
+            "path": str(output_path),
+            "samples": len(rows_z1),
+            "target_labels": list(labels),
+            "control_cells": int(split_control_count),
+        }
+
+    report_path = output_root / "pair_manifest.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "ptm2cellnet.latent-davf-pairs.v1",
+                "modality": modality,
+                "direction_code": direction_code,
+                "prepared_anndata": str(prepared),
+                "scvi_model": str(scvi_path),
+                "embedding_asset": str(Path(embedding_asset_path).expanduser().resolve()),
+                "splits": report,
+                "split_strategy": split_strategy,
+                "control_baseline": control_baseline,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+__all__ = [
+    "DAVFScPerturbError",
+    "DIRECTION_CODES",
+    "FORMAL_DAVF_LATENT_DIM",
+    "FORMAL_DAVF_NUM_GENES",
+    "build_scperturb_latent_pairs",
+    "prepare_scperturb_anndata",
+    "split_target_cells",
+    "split_target_labels",
+]

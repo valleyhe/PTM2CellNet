@@ -267,6 +267,7 @@ class PTM2CellNetBase(nn.Module):
                 num_genes=davf_config_local.get("num_genes", 5000),
                 gene_vocab_size=davf_config_local.get("gene_vocab_size", 5000),
                 num_steps=davf_config_local.get("num_steps", 50),
+                intervention_type=davf_config_local.get("intervention_type"),
                 device=davf_config_local.get("device", None),
                 embedding_asset_path=davf_config_local.get("embedding_asset_path", None),
             )
