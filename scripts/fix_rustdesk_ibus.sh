@@ -70,6 +70,25 @@ find_rustdesk_cm_pid() {
     '
 }
 
+set_ibus_engine_to_libpinyin() {
+    local ibus_engine_status=0
+    local selected_engine
+
+    # This host can return status 1 even when the engine switch succeeds.
+    if ibus engine libpinyin >/dev/null 2>&1; then
+        :
+    else
+        ibus_engine_status=$?
+    fi
+
+    selected_engine="$(ibus engine)"
+    [ "$selected_engine" = "libpinyin" ] || \
+        die "无法切换到 libpinyin，当前 IBus 引擎是：$selected_engine"
+    if [ "$ibus_engine_status" -ne 0 ]; then
+        printf '提示：ibus engine 返回码为 %s，但当前引擎已确认是 libpinyin，继续执行。\n' "$ibus_engine_status"
+    fi
+}
+
 if [ "$RUN_UID" -eq 0 ]; then
     die "请使用当前桌面用户执行，不要用 root 执行：./$SCRIPT_NAME"
 fi
@@ -108,7 +127,6 @@ gsettings set org.freedesktop.ibus.general.hotkey next-engine-in-menu "['Control
 gsettings set org.freedesktop.ibus.general.hotkey trigger "@as []"
 gsettings set org.freedesktop.ibus.general preload-engines "['libpinyin', 'xkb:us::eng']"
 gsettings set org.freedesktop.ibus.general engines-order "['libpinyin', 'xkb:us::eng']"
-ibus engine libpinyin
 
 dropin_tmp="$(mktemp)"
 printf '%s\n' \
@@ -125,23 +143,18 @@ if sudo test -e "$SYSTEM_DROPIN" && ! sudo cmp -s "$dropin_tmp" "$SYSTEM_DROPIN"
     printf '已备份原 systemd drop-in。\n'
 fi
 sudo install -m 0644 "$dropin_tmp" "$SYSTEM_DROPIN"
+sudo test -s "$SYSTEM_DROPIN" || die "systemd drop-in 写入失败：$SYSTEM_DROPIN"
 
 sudo systemctl daemon-reload
+dropin_paths="$(sudo systemctl show -p DropInPaths --value rustdesk.service)"
+printf '%s\n' "$dropin_paths" | tr ' ' '\n' | grep -Fqx "$SYSTEM_DROPIN" || \
+    die "systemd 未加载 drop-in：$SYSTEM_DROPIN"
 sudo systemctl restart rustdesk.service
 sudo systemctl is-active --quiet rustdesk.service || {
     sudo systemctl --no-pager --full status rustdesk.service || true
     die "rustdesk.service 重启失败"
 }
 
-cm_pid=""
-for _ in $(seq 1 20); do
-    cm_pid="$(find_rustdesk_cm_pid || true)"
-    [ -n "$cm_pid" ] && break
-    sleep 0.5
-done
-[ -n "$cm_pid" ] || die "未找到 RustDesk --cm 进程，无法验证环境"
-
-cm_env="$(tr '\0' '\n' <"/proc/$cm_pid/environ")"
 expected_environment=(
     'GTK_IM_MODULE=ibus'
     'QT_IM_MODULE=ibus'
@@ -149,10 +162,31 @@ expected_environment=(
     "DBUS_SESSION_BUS_ADDRESS=$DBUS_ADDRESS"
 )
 
-for expected in "${expected_environment[@]}"; do
-    printf '%s\n' "$cm_env" | grep -Fqx "$expected" || die "RustDesk --cm 未继承：$expected"
+cm_pid=""
+cm_env=""
+for _ in $(seq 1 20); do
+    candidate_pid="$(find_rustdesk_cm_pid || true)"
+    if [ -n "$candidate_pid" ] && [ -r "/proc/$candidate_pid/environ" ]; then
+        if candidate_env="$(tr '\0' '\n' <"/proc/$candidate_pid/environ" 2>/dev/null)"; then
+            valid_environment=1
+            for expected in "${expected_environment[@]}"; do
+                if ! printf '%s\n' "$candidate_env" | grep -Fqx "$expected"; then
+                    valid_environment=0
+                    break
+                fi
+            done
+            if [ "$valid_environment" -eq 1 ]; then
+                cm_pid="$candidate_pid"
+                cm_env="$candidate_env"
+                break
+            fi
+        fi
+    fi
+    sleep 0.5
 done
+[ -n "$cm_pid" ] || die "未找到继承 IBus 环境的稳定 RustDesk --cm 进程"
 
+set_ibus_engine_to_libpinyin
 final_engine="$(ibus engine)"
 [ "$final_engine" = "libpinyin" ] || die "当前 IBus 引擎不是 libpinyin，而是：$final_engine"
 

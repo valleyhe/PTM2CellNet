@@ -67,6 +67,8 @@ _mamba = [
 ]
 _analysis = [
     "anndata>=0.10,<0.12",
+    "scanpy>=1.10,<2",
+    "scrublet>=0.2.3",
     "sspa>=0.2.0",
     "scvi-tools>=1.2.0",
     "zarr>=2,<3",

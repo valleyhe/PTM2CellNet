@@ -593,6 +593,200 @@ datasets:
     - data/processed/norman_adamson/GSE133344_perturbations.tsv
     - data/processed/norman_adamson/sequence_requests.json
     - data/processed/norman_adamson/import_manifest.json
+- id: gse214695_hc_cd
+  name: GSE214695 healthy-control and Crohn disease cohort
+  category: single_cell_state_cohort
+  status: local
+  source:
+    provider: NCBI Gene Expression Omnibus
+    homepage: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE214695
+    reference: GSE214695 (six healthy controls, six Crohn disease donors; UC samples intentionally excluded)
+    access: public_study_snapshot
+    license: Follow GEO/study-specific terms (academic use)
+  formats:
+  - h5ad
+  - mtx
+  - tsv
+  - csv
+  loader: scripts/prepare_gse_normal_disease.py
+  files:
+  - path: data/raw/gse214695/GSE214695_series.txt
+    format: txt
+    required: true
+    sha256: 442a0e9ee8b894daf7890e0a86769df5cd38869f9b0fea5e2eb44e956aad1a10
+  - path: data/raw/gse214695/GSE214695_cell_annotation.csv.gz
+    format: csv
+    required: true
+    sha256: 8c02705f5384d8530edfa42f8f8152989e31dcf7ec9d484bff652d10b06e45bf
+  - path: data/raw/gse214695/GSM6614348_HC-1_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 33a69e308ff3cb5c3a0fe0dbae623a8a3517c006aa8d141909bdf26e2a4f9586
+  - path: data/raw/gse214695/GSM6614348_HC-1_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: 16b4380519a671a24fe2ccc76d373c4c22a7d6aaa2be2549939ca1aad5b97c6e
+  - path: data/raw/gse214695/GSM6614348_HC-1_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 5ac17001b8f448747bb9d5e80da576d2dc1ab2655f8d47bee194a9466ffa41ba
+  - path: data/raw/gse214695/GSM6614349_HC-2_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 3c2c2bfb177a26a5617ad280c8c04ee798490463f39dd147a8b6fda6752fd859
+  - path: data/raw/gse214695/GSM6614349_HC-2_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: cfcd3f05bef4066733983391a971f34d6b233bc24e0650c9b134b0ab61cb653d
+  - path: data/raw/gse214695/GSM6614349_HC-2_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 2dbfe254983c368a5eb405179b618d1091432278116aa6b23fef381ca64526c4
+  - path: data/raw/gse214695/GSM6614350_HC-3_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: d8f6f330501f2427fcbf0f2f8bd6b60445a0f7606613c06a366467f78abd7a9e
+  - path: data/raw/gse214695/GSM6614350_HC-3_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: be9905de086721189a88c9ad88792933399d3363aaa322bcccac20561d8fce59
+  - path: data/raw/gse214695/GSM6614350_HC-3_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: b7e8ff20218410096901f608d71093b68ed29f0545e1864d698ce68e38dda41a
+  - path: data/raw/gse214695/GSM6614351_HC-4_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 282bfa4f975714a079241baaa67f5e195ebbfe1ec2236c2fd2ead01ae1dd6a9b
+  - path: data/raw/gse214695/GSM6614351_HC-4_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: 8eb9888de1ca9ae05ffca9cdd9ca6c37fb8389d39d8bfe56d049edfd9e670dca
+  - path: data/raw/gse214695/GSM6614351_HC-4_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: e99d24172071f7635b4d34231e02cffd3fe522a3f764cf606a3e700962aa1a63
+  - path: data/raw/gse214695/GSM6614352_HC-5_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: b30db9cf8ca8de771780079df2deda9c7f9cd580e2f094e286610ab293514e3d
+  - path: data/raw/gse214695/GSM6614352_HC-5_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: d19c51c25f2bb0af4aebb2f6d49c46b83976a5134b42b087ff5e2b28c42b7153
+  - path: data/raw/gse214695/GSM6614352_HC-5_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 992a819152bccbf2d358b59f23660431698b5a96fd988b08102f3318a7b0126a
+  - path: data/raw/gse214695/GSM6614353_HC-6_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: c155267021e4c5a851eae0693e318af5cd14bc770cab87e05aee10f6d6d3c087
+  - path: data/raw/gse214695/GSM6614353_HC-6_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: d632a98f402d5edaae9f3e7ed3a496c448126c9c2939fecd37c7b6f4e0c93cc2
+  - path: data/raw/gse214695/GSM6614353_HC-6_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 7842b4c4f54f047dc5da51b5775eea202765ff25b291bcd06fee7ae11790c50e
+  - path: data/raw/gse214695/GSM6614360_CD-1_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: ad8ddb80cc983842c9d64aecf3f0d80db45ac73239b22168d3a2560b0663e331
+  - path: data/raw/gse214695/GSM6614360_CD-1_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: d14637ad28179000dc6aa58549abd21af6951bf3ddcf802b485b04ca2e7fffd0
+  - path: data/raw/gse214695/GSM6614360_CD-1_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 1c5bab6adf74f8896c1e115bb8955ffab128ca3ac0b49f77ab90ac3aeee534fc
+  - path: data/raw/gse214695/GSM6614361_CD-2_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 195dae8934823d35c7f10e987be14b0a18a2f9c72bf474f6db4508648cc7038e
+  - path: data/raw/gse214695/GSM6614361_CD-2_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: f28e8143dd92f7a98d0b67ef72242c26edb5993f06405bfd9463e86aa21b5cba
+  - path: data/raw/gse214695/GSM6614361_CD-2_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 9fade6ff092b7dcd1e52dcaec4b95472cb0ef35a75b9d8327a48abf130980a74
+  - path: data/raw/gse214695/GSM6614362_CD-3_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 22f26f068bd72dbc055db2e6675d1fa62df932f7951f6660c2fc9d5d562a0d62
+  - path: data/raw/gse214695/GSM6614362_CD-3_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: ca4d49b6f924ecb28d13cfd24467df3fe5fdd047d70bfe8ee77c846bc46fe02f
+  - path: data/raw/gse214695/GSM6614362_CD-3_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 1f6ca60ce922ede8e69f17cd22fd3123f77e2b5577af87f11a0082fcbf1aa10d
+  - path: data/raw/gse214695/GSM6614363_CD-4_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: e5e3bda9f6f6372d428aa28fe5587a173fcb0c9b523dac07c82006f6515a52dc
+  - path: data/raw/gse214695/GSM6614363_CD-4_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: f0d38c79ccef85a5c65648cccf9ca9cbf56c4b000d9cfdec6ee93df7d56066aa
+  - path: data/raw/gse214695/GSM6614363_CD-4_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: 51c6bfab44bf46f2d562d9f0d098ec56e83fb8548a6a35b48ac853edc4d554f5
+  - path: data/raw/gse214695/GSM6614364_CD-5_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: af4c2c4d5167d2cfd99fc3171f9cebfdf075c09b70554e7eba4191267138df7f
+  - path: data/raw/gse214695/GSM6614364_CD-5_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: c1f536814155c33d809f1f9037fd2a8ac40ebed9b15a1180ee614d71c6440f2b
+  - path: data/raw/gse214695/GSM6614364_CD-5_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: ebf1d208bf2fd12c8d7e18c1a1741bea06c78e65527535bf84e303e46bd2f5e2
+  - path: data/raw/gse214695/GSM6614365_CD-6_barcodes.tsv.gz
+    format: tsv
+    required: true
+    sha256: 155cf3c1ec7fc4365ed518aaa25bdead895b1d30bfa686e61114e2da9917cd08
+  - path: data/raw/gse214695/GSM6614365_CD-6_features.tsv.gz
+    format: tsv
+    required: true
+    sha256: 6ac877e116b5eaae4f4a8cf887b5445c4e6697b9d19a8a60f2304a58d27426e7
+  - path: data/raw/gse214695/GSM6614365_CD-6_matrix.mtx.gz
+    format: mtx
+    required: true
+    sha256: a8ceaeb5fb806ac69a6705698577e16a2cd18bbe51be4a8810c77e4636c68b5b
+  canonical_schema:
+    required_columns:
+    - gene_id
+    - expression
+    - state
+    - donor
+    optional_columns:
+    - cell_type
+    - sample
+    - dataset_accession
+  quality_requirements:
+    min_rows: 1
+    checks:
+    - raw_counts_layer_present
+    - ensembl_gene_axis_unique
+    - annotation_barcode_match
+    - minimum_three_donors_per_state
+    - ambiguous_annotation_cells_reported
+  preprocessing:
+    version: 1.0.0
+    entrypoint: scripts/prepare_gse_normal_disease.py
+    outputs:
+    - data/processed/gse214695_hc_cd/prepared.h5ad
+    - data/processed/gse214695_hc_cd/prepared.manifest.json
+    - outputs/gse214695_hc_cd/direction_evidence.csv
 - id: replogle
   name: Replogle Perturb-seq datasets
   category: single_cell_perturbation

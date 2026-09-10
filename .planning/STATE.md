@@ -4,8 +4,8 @@ milestone: v2.2
 milestone_name: Cross-Scale Scientific Closure & Reproducible Baseline
 status: complete
 stopped_at: none
-last_updated: "2026-08-08T00:00:00Z"
-last_activity: 2026-08-08 — v2.2 TD-01/TD-02 implementation, verification and technical summary completed
+last_updated: "2026-09-03T02:00:00+08:00"
+last_activity: 2026-09-03 — resumed post-v2.2 DAVF × PerturbGen acceptance track; local Gate-0 audit found no compliant donor cohort
 progress:
   total_phases: 3
   completed_phases: 3
@@ -22,7 +22,7 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core Value**: 提供端到端的蛋白质 PTM 分析与细胞状态预测能力，集成DAVF方向感知模型实现PTM→信号通路效应预测。
 
-**Current Focus**: v2.2 complete — TD-01/TD-02 implementation and verification handed off.
+**Current Focus**: v2.2 complete；post-v2.2 DAVF × PerturbGen acceptance track is active. Engineering bridge is implemented, while formal donor-cohort and scientific acceptance gates remain open.
 
 **Key Constraints**:
 
@@ -30,6 +30,8 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 - v1.0 + v2.0 tests must continue passing
 - Default DAVF model: latent_davf_ibd_norman (10-dim latent, scVI)
 - v2.2 cross-scale model remains opt-in until real assets and biological acceptance tests exist
+- Current KO/KD DAVF route assets are separate schema-v2 `LatentDAVF` checkpoints with 4018 genes and 64-dimensional route-specific scVI coordinates.
+- Formal PerturbGen evidence requires a real `normal/disease` cohort with raw counts, explicit donor identity and at least 3 shared donors; local scPerturb files cannot be reinterpreted to satisfy this contract.
 
 ---
 
@@ -58,7 +60,7 @@ REQUIREMENTS.md Traceability for the criterion revisions.
 ## Current Position
 
 Phase: 20 of 20 (complete)
-Status: v2.2 implementation and verification complete.
+Status: v2.2 implementation complete；post-v2.2 DAVF × PerturbGen acceptance track is pending Gate-0 data availability and Gate-E/Gate-4/Gate-5 validation.
 Progress: [██████████] 100%
 
 ---
@@ -94,13 +96,20 @@ automated acceptance boundary:
 - Real-asset / real-hardware / real-network / real-data acceptance layer (ESM-3, DAVF E2E, distributed, CPTAC) — these require resources not available in CI and are tracked as future opt-in jobs.
 - Production fail-fast for missing API key / empty download allowlist — handled as separate hardening work.
 
+### Post-v2.2 DAVF × PerturbGen acceptance status (2026-09-03)
+
+- `run_davf_perturbgen_e2e.py` now connects real scVI context → route-specific DAVF → direction gate → isolated PerturbGen stage plans.
+- The local Gate-0 audit covered 30 scPerturb H5AD files; 26 were readable and 0 satisfied the formal donor/state/Ensembl contract. Evidence: `outputs/perturbgen/spike/20260903_donor_audit/evidence.json`.
+- DatlingerBock2021 real-data preflight was rejected because `state` and `donor` are absent. It remains an engineering smoke dataset, not formal utility evidence.
+- Next meaningful work is to provide or acquire a compliant paired donor cohort; retraining or rerunning on the existing cell-line files would not close the scientific gate.
+
 ---
 
 ## Session Continuity
 
-Last session: 2026-08-08
-Stopped at: v2.2 Phase 20 verification and technical summary complete.
+Last session: 2026-09-03
+Stopped at: resumed post-v2.2 DAVF × PerturbGen acceptance track; completed local Gate-0 data audit and state synchronization.
 Resume file: None
 
 ---
-*Last updated: 2026-08-08 — v2.2 Phase 18/19/20 completed for TD-01 and TD-02*
+*Last updated: 2026-09-03 — post-v2.2 DAVF × PerturbGen acceptance status synchronized*
