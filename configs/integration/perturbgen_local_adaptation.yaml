@@ -1,0 +1,331 @@
+schema_version: 1
+
+# This configuration is an executable wiring/adaptation run on the checked-in
+# 750-cell Datlinger-Bock subset. It is deliberately separate from the
+# historical normal/disease template: the subset has only control and LCK_2
+# and therefore cannot establish a biological rescue result.
+repo:
+  perturbgen_repo: "ref/Perturbgen-src"
+
+environment:
+  python: "${PTM2CELLNET_PERTURBGEN_PYTHON}"
+  dependency_files:
+    - "pyproject.toml"
+    - "poetry.lock"
+    # Local upstream fix: train.py must take a scalar max over ragged rows.
+    - "perturbgen/train.py"
+  asset_paths:
+    - "perturbgen_ckpt/20250709_1223_cellgen_train_masking_lr_5e-05_wd_1e-06_batch_64_ptime_pos_sin_m_pow_tp_1-2-3_s_42-epoch=00.ckpt"
+    - "ref/Perturbgen-src/perturbgen/pp/token_dict_gftokens_gc95M.pkl"
+    - "ref/Perturbgen-src/perturbgen/pp/ensembl_mapping_dict_gc95M.pkl"
+    - "${PTM2CELLNET_PERTURBGEN_LOCAL_TARGETS}"
+
+pipeline:
+  perturbgen_commit: "a9a9375"
+  random_seed: 42
+  # All paths consumed by the external package are absolute at runtime. The
+  # upstream entry points change cwd to ref/, so project-relative paths would
+  # silently resolve to ref/outputs instead of this project's output root.
+  output_root: "${PTM2CELLNET_PERTURBGEN_LOCAL_OUTPUT_ROOT}"
+  estimated_total_output_bytes: 3000000000
+  stage_versions:
+    tokenise: 3
+    train_mask: 3
+    train_decoder: 3
+    perturb: 3
+    export_gene_embeddings: 2
+    report: 2
+  dry_run_estimates:
+    tokenise:
+      cpu_minutes: 10
+      peak_ram_gb: 16
+    train_mask:
+      gpu_minutes: 30
+      peak_vram_gb: 12
+    train_decoder:
+      gpu_minutes: 30
+      peak_vram_gb: 12
+    perturb:
+      gpu_minutes: 20
+      peak_vram_gb: 12
+    export_gene_embeddings:
+      cpu_minutes: 10
+      peak_ram_gb: 8
+    report:
+      cpu_minutes: 2
+      peak_ram_gb: 1
+
+stages:
+  tokenise:
+    driver: "module"
+    module: "perturbgen"
+    subcommand: "tokenise"
+    output_subdir: "tokenise"
+    timeout_seconds: 7200
+    uses_gpu: false
+    args:
+      h5ad_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_INPUT_H5AD}"
+      dataset: "${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}"
+      # The intervention gene must remain addressable by val.py. The local
+      # smoke subset contains only 750 cells, so the HVG pass can discard LCK;
+      # select HVGs after Geneformer mapping and explicitly retain LCK.
+      gene_filtering_mode: "hvg"
+      hvg_mode: "after_tokenisation"
+      n_hvg: 2000
+      genes_to_include_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_TARGETS}"
+      genes_to_include_min_cells: 0
+      # Downstream count decoding must use the same GF gene axis as the
+      # tokenized datasets, rather than the original 25,904-gene h5ad.
+      exclude_non_GF_genes: true
+      var_list:
+        - "perturbation"
+      pairing_mode: "random"
+      time_obs: "perturbation"
+      main_pairing_obs: "perturbation"
+      nproc: 4
+      reference_time: "control"
+      time_point_order:
+        - "control"
+        - "LCK_2"
+      src_mode: "Geneformer"
+      gene_median_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_GENE_MEDIAN}"
+      token_dict_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_TOKEN_DICT}"
+      gene_mapping_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_GENE_MAPPING}"
+    fingerprint_paths:
+      - "ref/Perturbgen-src/data/perturbgen_m0_smoke/datlinger2021_m0smoke.h5ad"
+      - "ref/Perturbgen-src/perturbgen/pp/gene_median_dict_gftokens_gc95M.pkl"
+      - "ref/Perturbgen-src/perturbgen/pp/token_dict_gftokens_gc95M.pkl"
+      - "ref/Perturbgen-src/perturbgen/pp/ensembl_mapping_dict_gc95M.pkl"
+      - "${PTM2CELLNET_PERTURBGEN_LOCAL_TARGETS}"
+    expected_outputs:
+      - name: "src_dataset"
+        root: "project"
+        path: "ref/T_perturb/tokenized_data/${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}/dataset_2000_hvg_src/control.dataset"
+        kind: "directory"
+      - name: "tgt_dataset_folder"
+        root: "project"
+        path: "ref/T_perturb/tokenized_data/${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}/dataset_2000_hvg_tgt"
+        kind: "directory"
+      - name: "src_h5ad"
+        root: "project"
+        path: "ref/T_perturb/tokenized_data/${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}/h5ad_pairing_2000_hvg_src/control.h5ad"
+        kind: "file"
+      - name: "tgt_h5ad_folder"
+        root: "project"
+        path: "ref/T_perturb/tokenized_data/${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}/h5ad_pairing_2000_hvg_tgt"
+        kind: "directory"
+      - name: "rowid_to_gene_name"
+        root: "project"
+        path: "ref/T_perturb/tokenized_data/${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}/token_id_to_genename_2000_hvg.pkl"
+        kind: "file"
+      - name: "tokenid_to_rowid"
+        root: "project"
+        path: "ref/T_perturb/tokenized_data/${PTM2CELLNET_PERTURBGEN_LOCAL_DATASET}/tokenid_to_rowid_2000_hvg.pkl"
+        kind: "file"
+
+  train_mask:
+    driver: "module"
+    module: "perturbgen"
+    subcommand: "train-mask"
+    output_subdir: "train_mask"
+    timeout_seconds: 21600
+    uses_gpu: true
+    args:
+      train_mode: "masking"
+      output_dir: "${PTM2CELLNET_PERTURBGEN_LOCAL_OUTPUT_ROOT}/train_mask/model"
+      splitting_mode: "stratified"
+      split_obs:
+        - "perturbation"
+      src_dataset: "@artifact:tokenise:src_dataset"
+      tgt_dataset_folder: "@artifact:tokenise:tgt_dataset_folder"
+      src_adata: "@artifact:tokenise:src_h5ad"
+      tgt_adata_folder: "@artifact:tokenise:tgt_h5ad_folder"
+      mapping_dict_path: "@artifact:tokenise:rowid_to_gene_name"
+      tokenid_to_rowid_path: "@artifact:tokenise:tokenid_to_rowid"
+      batch_size: 16
+      epochs: 2
+      # Keep the runner's discovered checkpoint contract unambiguous: two
+      # epochs, one final checkpoint.
+      ckpt_every_n_epochs: 2
+      cellgen_lr: 0.00005
+      cellgen_wd: 0.000001
+      n_workers: 0
+      pred_tps:
+        - 1
+      var_list:
+        - "perturbation"
+      encoder: "scmaskgit"
+      encoder_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_ENCODER_CKPT}"
+      pos_encoding_mode: "time_pos_sin"
+      context_mode: false
+      use_weighted_sampler: false
+      seed: 42
+      wandb_mode: "offline"
+    fingerprint_paths:
+      - "@artifact:tokenise:src_dataset"
+      - "@artifact:tokenise:tgt_dataset_folder"
+      - "@artifact:tokenise:src_h5ad"
+      - "@artifact:tokenise:tokenid_to_rowid"
+      - "perturbgen_ckpt/20250709_1223_cellgen_train_masking_lr_5e-05_wd_1e-06_batch_64_ptime_pos_sin_m_pow_tp_1-2-3_s_42-epoch=00.ckpt"
+    expected_outputs:
+      - name: "checkpoint"
+        path: "model/checkpoints"
+        discover_glob: "*_train_masking_*-epoch=*.ckpt"
+        kind: "file"
+
+  train_decoder:
+    driver: "module"
+    module: "perturbgen"
+    subcommand: "train-decoder"
+    output_subdir: "train_decoder"
+    timeout_seconds: 21600
+    uses_gpu: true
+    args:
+      train_mode: "count"
+      output_dir: "${PTM2CELLNET_PERTURBGEN_LOCAL_OUTPUT_ROOT}/train_decoder/model"
+      splitting_mode: "stratified"
+      split_obs:
+        - "perturbation"
+      ckpt_masking_path: "@artifact:train_mask:checkpoint"
+      src_dataset: "@artifact:tokenise:src_dataset"
+      tgt_dataset_folder: "@artifact:tokenise:tgt_dataset_folder"
+      src_adata: "@artifact:tokenise:src_h5ad"
+      tgt_adata_folder: "@artifact:tokenise:tgt_h5ad_folder"
+      mapping_dict_path: "@artifact:tokenise:rowid_to_gene_name"
+      tokenid_to_rowid_path: "@artifact:tokenise:tokenid_to_rowid"
+      batch_size: 8
+      epochs: 2
+      ckpt_every_n_epochs: 2
+      count_lr: 0.00005
+      count_wd: 0.01
+      loss_mode: "zinb"
+      n_workers: 0
+      pred_tps:
+        - 1
+      var_list:
+        - "perturbation"
+      encoder: "scmaskgit"
+      encoder_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_ENCODER_CKPT}"
+      pos_encoding_mode: "time_pos_sin"
+      context_mode: false
+      seed: 42
+      wandb_mode: "offline"
+    fingerprint_paths:
+      - "@artifact:train_mask:checkpoint"
+      - "@artifact:tokenise:src_dataset"
+      - "@artifact:tokenise:tgt_dataset_folder"
+      - "@artifact:tokenise:src_h5ad"
+      - "@artifact:tokenise:tokenid_to_rowid"
+    expected_outputs:
+      - name: "checkpoint"
+        path: "model/checkpoints"
+        discover_glob: "*_train_count_*-epoch=*.ckpt"
+        kind: "file"
+
+  perturb:
+    driver: "perturb_script"
+    output_subdir: "perturb"
+    timeout_seconds: 14400
+    uses_gpu: true
+    generated_config_path: "generated/perturbation.yaml"
+    perturb_config:
+      data:
+        src_dataset_file: "@artifact:tokenise:src_dataset"
+        tgt_dataset_folder: "@artifact:tokenise:tgt_dataset_folder"
+        src_adata: "@artifact:tokenise:src_h5ad"
+        tgt_adata_folder: "@artifact:tokenise:tgt_h5ad_folder"
+      trainer:
+        use_count_decoder: true
+        output_dir: "${PTM2CELLNET_PERTURBGEN_LOCAL_OUTPUT_ROOT}/perturb/results"
+        mapping_dict_path: "@artifact:tokenise:rowid_to_gene_name"
+        tokenid_to_rowid_path: "@artifact:tokenise:tokenid_to_rowid"
+        encoder: "scmaskgit"
+        encoder_path: "${PTM2CELLNET_PERTURBGEN_LOCAL_ENCODER_CKPT}"
+        perturbation_mode: "mask"
+        genes_to_perturb:
+          - "LCK"
+        validation_mode: "inference"
+        perturbation_sequence:
+          - "src"
+        pred_tps:
+          - 1
+        var_list:
+          - "perturbation"
+        d_model: 768
+        num_heads: 8
+        num_layers: 6
+        d_ff: 64
+        dropout: 0.0
+        loss_mode: "zinb"
+        mask_scheduler: "pow"
+        pos_encoding_mode: "time_pos_sin"
+        context_mode: false
+        n_samples: 1
+        tgt_vocab_size: "auto"
+        max_seq_length: "auto"
+      datamodule:
+        batch_size: 8
+        num_workers: 0
+        max_len: "auto"
+        shuffle: false
+        split: false
+        var_list:
+          - "perturbation"
+        pred_tps:
+          - 1
+      model:
+        precision: 16
+        ckpt_masking_path: "@artifact:train_decoder:checkpoint"
+    fingerprint_paths:
+      - "@artifact:tokenise:src_dataset"
+      - "@artifact:tokenise:src_h5ad"
+      - "@artifact:tokenise:rowid_to_gene_name"
+      - "@artifact:tokenise:tokenid_to_rowid"
+      - "@artifact:train_decoder:checkpoint"
+    expected_outputs:
+      - name: "result_h5ad"
+        path: "results"
+        discover_glob: "*_minference_adata_gLCK_s*_tmask.h5ad"
+        kind: "h5ad"
+        schema:
+          required_layers:
+            - "true_counts"
+            - "pred_counts"
+          required_obs:
+            - "perturbation"
+          required_obsm:
+            - "true_cls"
+            - "perturbed_cls"
+            - "mean_cos_similarity"
+          required_varm:
+            - "gene_cos_similarity"
+
+  export_gene_embeddings:
+    driver: "script"
+    script_root: "project"
+    script_path: "scripts/export_perturbgen_gene_embeddings.py"
+    flag_style: "hyphen"
+    output_subdir: "export_gene_embeddings"
+    timeout_seconds: 7200
+    uses_gpu: false
+    args:
+      checkpoint: "${PTM2CELLNET_PERTURBGEN_LOCAL_ENCODER_CKPT}"
+      tensor_key: "state_dict.transformer.token_embedding.weight"
+      vocabulary: "${PTM2CELLNET_PERTURBGEN_LOCAL_TOKEN_DICT}"
+      output_dir: "${PTM2CELLNET_PERTURBGEN_LOCAL_OUTPUT_ROOT}/export_gene_embeddings/asset"
+    fingerprint_paths:
+      - "perturbgen_ckpt/20250709_1223_cellgen_train_masking_lr_5e-05_wd_1e-06_batch_64_ptime_pos_sin_m_pow_tp_1-2-3_s_42-epoch=00.ckpt"
+      - "ref/Perturbgen-src/perturbgen/pp/token_dict_gftokens_gc95M.pkl"
+    expected_outputs:
+      - path: "asset"
+        kind: "perturbgen_embedding_asset"
+
+  report:
+    driver: "internal_report"
+    output_subdir: "report"
+    timeout_seconds: 300
+    uses_gpu: false
+    fingerprint_paths: []
+    expected_outputs:
+      - path: "pipeline_report.json"
+        kind: "json"

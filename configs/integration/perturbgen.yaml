@@ -8,6 +8,8 @@ environment:
   dependency_files:
     - "pyproject.toml"
     - "poetry.lock"
+    # Local upstream fix: train.py must take a scalar max over ragged rows.
+    - "perturbgen/train.py"
   asset_paths:
     - "${PTM2CELLNET_PERTURBGEN_ENCODER_CKPT}"
     - "${PTM2CELLNET_PERTURBGEN_TOKEN_DICT}"
@@ -122,11 +124,10 @@ stages:
       src_adata: "@artifact:tokenise:src_h5ad"
       tgt_adata_folder: "@artifact:tokenise:tgt_h5ad_folder"
       mapping_dict_path: "@artifact:tokenise:rowid_to_gene_name"
+      tokenid_to_rowid_path: "@artifact:tokenise:tokenid_to_rowid"
       batch_size: 16
-      max_len: 1024
       epochs: 1
       ckpt_every_n_epochs: 1
-      tgt_vocab_size: 2002
       cellgen_lr: 0.0001
       cellgen_wd: 0.0001
       encoder_path: "${PTM2CELLNET_PERTURBGEN_ENCODER_CKPT}"
@@ -159,11 +160,10 @@ stages:
       src_adata: "@artifact:tokenise:src_h5ad"
       tgt_adata_folder: "@artifact:tokenise:tgt_h5ad_folder"
       mapping_dict_path: "@artifact:tokenise:rowid_to_gene_name"
+      tokenid_to_rowid_path: "@artifact:tokenise:tokenid_to_rowid"
       batch_size: 8
-      max_len: 1024
       epochs: 1
       ckpt_every_n_epochs: 1
-      tgt_vocab_size: 2002
       loss_mode: "zinb"
       encoder_path: "${PTM2CELLNET_PERTURBGEN_ENCODER_CKPT}"
       wandb_mode: "offline"
@@ -211,17 +211,16 @@ stages:
           - "${PTM2CELLNET_PERTURBGEN_DONOR_OBS}"
         pred_tps:
           - 1
-        # val.py only takes the explicit branch when BOTH fields are present;
-        # otherwise it derives them via lexicographic max(input_id). The
-        # values here are BASE values: val.py adds +50/+100 buffers itself.
-        tgt_vocab_size: 2002
-        max_seq_length: 1024
+        # train.py derives these BASE values from the tokenized artifacts.
+        # The runner resolves them before val.py; val.py then adds its own
+        # +50/+100 runtime buffers.
+        tgt_vocab_size: "auto"
+        max_seq_length: "auto"
       datamodule:
         batch_size: 8
         num_workers: 4
-        # Base value, must equal trainer.max_seq_length; val.py rewrites it
-        # to the unbuffered base at runtime (val.py:218).
-        max_len: 1024
+        # The runner fills this with the same unbuffered value as trainer.
+        max_len: "auto"
         shuffle: false
         split: false
         var_list:

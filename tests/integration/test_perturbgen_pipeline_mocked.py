@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 
 from src.integration.perturbgen.config_builder import build_stage_plans
+from src.integration.perturbgen.contracts import (
+    CandidateEvidence,
+    DAVFDirectionEvidence,
+)
 from src.integration.perturbgen.env_guard import ExternalEnvironmentReport, validate_repo_roots
+from src.integration.perturbgen.orchestrator import (
+    PerturbGenInvocation,
+    build_candidate_stage_plans,
+)
 from src.integration.perturbgen.runner import PerturbGenResumeError, PerturbGenRunner
 
 pytestmark = pytest.mark.integration
@@ -243,3 +251,71 @@ def test_mocked_pipeline_rejects_tampered_discovered_artifact(tmp_path, monkeypa
 
     with pytest.raises(PerturbGenResumeError, match="upstream artifact train_mask:checkpoint changed"):
         runner.run_pipeline(plans, resume=True)
+
+
+def test_candidate_stage_plans_isolate_both_paths_and_rewrite_target(tmp_path):
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["pert_tps"] = [1]
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["pert_tps"] = [1]
+    config["stages"]["train_mask"]["args"]["output_dir"] = str(
+        Path(config["pipeline"]["output_root"]) / "train_mask" / "model"
+    )
+    candidate = CandidateEvidence(
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        cell_type="K562",
+        ptm_context="STAT3:S12",
+        observed_log2fc=-1.0,
+        observed_fdr=0.01,
+        observed_direction="down",
+        davf_action="oe",
+        davf_score=None,
+        davf_provenance="formal-checkpoint",
+    )
+    evidence = DAVFDirectionEvidence(
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        predicted_direction="down",
+        predicted_delta=-1.0,
+        model_source="davf",
+        checkpoint_provenance="formal-checkpoint",
+        embedding_provenance="formal-embedding",
+    )
+    invocation = PerturbGenInvocation(
+        intervention_type="KO",
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        target_token_id=17,
+        perturbation_mode="overexpress",
+        paths=("source_intervention", "within_state"),
+        candidate=candidate,
+        davf_evidence=evidence,
+    )
+
+    plans = build_candidate_stage_plans(
+        config,
+        invocation,
+        output_root=tmp_path / "candidate-output",
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    assert [plan.name for plan in plans] == [
+        "tokenise",
+        "train_mask",
+        "train_decoder",
+        "source_intervention",
+        "within_state",
+        "export_gene_embeddings",
+        "report",
+    ]
+    source_payload = plans[3].generated_files[0].payload
+    within_payload = plans[4].generated_files[0].payload
+    assert source_payload["trainer"]["genes_to_perturb"] == ["STAT3"]
+    assert source_payload["trainer"]["perturbation_mode"] == "overexpress"
+    assert source_payload["trainer"]["perturbation_sequence"] == ["src"]
+    assert within_payload["trainer"]["perturbation_sequence"] == ["tgt"]
+    assert str(tmp_path / "candidate-output") in plans[1].argv[-1]
+    assert plans[3].output_dir.name == "source_intervention"
+    assert plans[4].output_dir.name == "within_state"

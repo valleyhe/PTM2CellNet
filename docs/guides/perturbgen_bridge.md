@@ -1,7 +1,8 @@
 # PerturbGen 桥接指南（DAVF × PerturbGen 双路径整合）
 
-> **文档版本**：v1.2（2026-09-01，补充 DAVF 方向 gate 与生产接线边界）
+> **文档版本**：v1.4（2026-09-02，补充真实重训练/微调执行结果与 symbol alias 契约）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
+> **详细执行方案**：[`docs/guides/davf_perturbgen_retraining_plan_20260902.md`](davf_perturbgen_retraining_plan_20260902.md)
 > **状态基线**：[`project_analysis_20260901.md`](../../project_analysis_20260901.md)（本报告按代码闭合度评估 DAVF 方向推理 77.0% / PerturbGen runner 68.0%，真实资产与 Gate 另计）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
@@ -17,7 +18,7 @@
 | 工作流 | 内容 | 入口 |
 |---|---|---|
 | A：PerturbGen 双路径扰动模拟 | candidate → preflight → 独立环境训练 → `src`/`tgt` 扰动 → rescue/null/donor 统计 → PASS/FAIL/INCONCLUSIVE | `scripts/run_perturbgen_pipeline.py` |
-| B：DAVF 底座迁移 | PerturbGen encoder ckpt → 静态 gene embedding 资产导出 → schema v2 注入 → DAVF 重训 → Gate-E → 删除 Geneformer 主链 | `scripts/export_perturbgen_gene_embeddings.py` + `scripts/finetune_davf_e2e.py --embedding-asset` |
+| B：DAVF 底座迁移 | PerturbGen encoder ckpt → 静态 gene embedding 资产导出 → schema v2 注入 → 当前 LatentDAVF 重训 → Gate-E | `scripts/export_perturbgen_gene_embeddings.py` + `scripts/train_latent_davf.py` |
 
 主进程与独立环境边界（方案 §4.2，硬约束）：
 
@@ -95,18 +96,91 @@ python scripts/export_perturbgen_gene_embeddings.py \
 `manifest.json` 使用 `schema_version: 1`（含 sha256 与维度）；DAVF 配置文件另使用
 配置 schema v2。主环境加载零 PerturbGen 依赖。
 
+`finetune_davf_e2e.py` 只训练下游 PTM2CellNet 分类头，不能生成正式方向
+checkpoint。当前 DAVF 必须用 flow-matching 入口重训：
+
 ```bash
-# schema v2 注入 + DAVF 重训（参数模板；缺失资产 fail-fast，不随机 fallback）
-python scripts/finetune_davf_e2e.py \
-  --data <ptm_training.csv> \
-  --checkpoint <davf_checkpoint.pt> \
-  --embedding-asset outputs/perturbgen/embedding_asset/
+python scripts/train_latent_davf.py \
+  --train-data <latent-pair-train.npz> \
+  --val-data <latent-pair-val.npz> \
+  --scvi-model checkpoints/scvi/ibd_norman_model \
+  --embedding-asset outputs/perturbgen/embedding_asset_20260822 \
+  --intervention-type <KO|KD|OE> \
+  --output checkpoints/davf/latent_davf_perturbgen_4018
+```
+
+`latent-pair-*.npz` 必须包含 `metadata_json` 以及
+`z_0[N,64]`、`z_1[N,64]`、`gene_ids[N,K]`、`directions[N,K]`、
+`attention_mask[N,K]`。`metadata_json` 必须记录数据 schema、生成所用 scVI
+模型路径与完整有序 `gene_names`，以及 PerturbGen asset 路径、词表大小、维度和
+manifest；训练器会将这些字段与命令行传入的实时 adapter/asset 逐项比对。
+其中 `gene_ids` 只能是 PerturbGen asset 的 token row。缺少真实 latent pair 或
+方向标签时，命令应失败，不能把 gene-space delta 表自动改名后训练。
+
+`metadata_json` 的最小结构如下（`gene_names` 必须是完整的 4018 项，不能用
+PerturbGen token 列表代替）：
+
+```json
+{
+  "schema_version": "ptm2cellnet.latent-davf-pairs.v1",
+  "scvi": {
+    "model_path": "/absolute/path/to/checkpoints/scvi/ibd_norman_model",
+    "latent_dim": 64,
+    "num_genes": 4018,
+    "gene_names": ["...完整的 scVI decoder gene order..."]
+  },
+  "embedding_asset": {
+    "path": "/absolute/path/to/outputs/perturbgen/embedding_asset_20260822",
+    "vocab_size": 18967,
+    "embedding_dim": 768,
+    "manifest": {"...": "与 asset/manifest.json 完全相同"}
+  }
+}
 ```
 
 注入链路：`src/models/davf_inference.py`（`embedding_asset_path` 字段 +
 sha256/schema 校验）→ `LatentDAVF(pretrained_gene_embeddings=...)`；
 旧 `geneformer_path` 配置在 `architectures.py` 迁移闸门直接 ValueError。
 **Gate-E 未过前不删除 Geneformer 主链（M7）**。
+
+### 5.1 DAVF 与 scVI 的连接契约（2026-09-02）
+
+当前本地 `checkpoints/scvi/ibd_norman_model` 的真实 schema 是
+`4018 genes × 64 latent`，并使用 `batch` / `dataset` 协变量。连接时必须使用
+`ScVIAdapter.from_trained_model()`，再调用
+`DAVFInferenceModule.load_scvi_adapter(adata)` 或
+`bind_scvi_adapter(adapter)`；适配器会严格检查 latent 维度、decoder 基因数和
+AnnData 的基因顺序，并从 AnnData 恢复 decoder 协变量。
+
+```python
+adapter = ScVIAdapter.from_trained_model("checkpoints/scvi/ibd_norman_model")
+z_0 = adapter.encode(adata)       # [B, 64]，同时保存 batch/dataset 上下文
+expression = adapter.decode(z_0)  # [B, 4018]
+```
+
+DAVF 配置中的 `num_genes` 指 scVI decoder 的输出维度；PerturbGen asset 的
+Ensembl/token vocabulary 是另一套输入 token 索引，不能直接当作 scVI 的 gene
+index。正式 checkpoint 使用 `schema_version=2`，并记录当前 `LatentDAVF` 完整
+state dict、asset manifest 和 scVI gene vocabulary provenance。运行时的目标 gene
+index 始终由 `adapter.gene_names` 解析；checkpoint 中的 gene vocabulary 只用于
+一致性核验，不能充当索引来源。
+
+当前旧 `latent_davf_ibd_norman` 和 `model_a_4018` checkpoint 仍是 legacy/旧
+`delta_mlp` 架构，没有当前 `LatentDAVF.predict()`，只能用于兼容 feature path，
+不能生成正式 DAVF direction evidence。新的 current checkpoint 已由 Norman latent
+pairs 重训练得到；可用以下命令验证新旧权重：
+
+```bash
+python scripts/validate_latent_davf_checkpoint.py \
+  --checkpoint checkpoints/davf/latent_davf_perturbgen_4018/best_model.pt \
+  --scvi-model checkpoints/scvi/ibd_norman_model \
+  --embedding-asset outputs/perturbgen/embedding_asset_20260822
+```
+
+`gene_names_path` 若配置为 Norman 的两列 `Ensembl ID<TAB>gene symbol` 表，
+DAVF mapper 会把 API symbol 解析成 PerturbGen token；这张表绝不用于生成 scVI
+decoder index，后者仍由 `adapter.gene_names` 解析。重复 symbol 对应多个 ENSG
+时只屏蔽该 symbol，不选择任意一个。
 
 ## 6. 评估、报告与发布证据
 
@@ -131,9 +205,9 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 |---|---|---|
 | Gate-0 M0⑤ | 独立环境 smoke（perturb 51.88s / 1757 MiB / h5ad schema 通过） | ✅ 已过（`outputs/perturbgen/spike/20260823_m0_smoke/evidence.json`） |
 | Gate-0 M0⑥ | ≥3 donor 合规 cohort | ❌ 阻断（0 合规候选，U-01，外部数据依赖） |
-| Gate-1~3 | 契约 / runner / 双路径统计 | ⚠️ 工程组件完成；方向 gate→runner 自动接线仍开放 |
-| Gate-E | DAVF 新底座回归（≥200 PTM 基准 + bootstrap CI + 下游非劣） | ⏸ 等 M4 重训（数据阻断） |
-| Gate-4 | 真实 smoke / 正式 release evidence | ⏸ 等真资产 workflow 运行 |
+| Gate-1~3 | 契约 / runner / 双路径统计 | ⚠️ 工程组件完成；E2E CLI 已接通方向 gate→runner，正式 donor/统计证据仍待补齐 |
+| Gate-E | DAVF 新底座资产/接口回归 | ✅ current checkpoint 与真实 token/decoder 分离测试通过；生物学方向门仍待 held-out 验证 |
+| Gate-4 | 真实 smoke / 正式 release evidence | ⚠️ 本地 Datlinger 750-cell 六阶段 smoke 已通过；正式 donor 队列仍待运行 |
 | Gate-5 | 冻结队列科学验收（3 seeds / held-out / ≥99 null / BH-FDR） | ⏸ 未开始（M6） |
 
 ## 8. 常见陷阱

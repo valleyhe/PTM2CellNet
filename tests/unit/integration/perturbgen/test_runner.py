@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.integration.perturbgen.config_builder import GeneratedFileSpec, OutputCheck, StagePlan
+from src.integration.perturbgen.dimensions import PerturbGenDimensions
 from src.integration.perturbgen.env_guard import ExternalEnvironmentReport, PROJECT_ROOT, validate_repo_roots
 from src.integration.perturbgen.runner import PerturbGenResumeError, PerturbGenRunner, PerturbGenStageError
 
@@ -262,6 +263,55 @@ def test_runner_resolves_upstream_artifact_in_argv_generated_yaml_and_fingerprin
 
     assert manifest["command"][2] == str(checkpoint.resolve())
     assert manifest["fingerprint_material"]["fingerprint_files"][str(checkpoint.resolve())]
+
+
+def test_runner_resolves_auto_perturb_dimensions_from_tokenized_artifacts(tmp_path, monkeypatch):
+    generated_path = tmp_path / "perturb" / "generated" / "config.yaml"
+    payload = {
+        "data": {
+            "src_dataset_file": str(tmp_path / "src.dataset"),
+            "tgt_dataset_folder": str(tmp_path / "tgt"),
+        },
+        "trainer": {
+            "tgt_vocab_size": "auto",
+            "max_seq_length": "auto",
+        },
+        "datamodule": {"max_len": "auto"},
+    }
+    plan = StagePlan(
+        name="perturb",
+        driver="perturb_script",
+        argv=(),
+        cwd=PROJECT_ROOT,
+        output_dir=tmp_path / "perturb",
+        timeout_seconds=5,
+        uses_gpu=False,
+        output_root=tmp_path,
+        external_python=Path(sys.executable),
+        expected_outputs=(),
+        generated_files=(GeneratedFileSpec(generated_path, "yaml", payload),),
+        fingerprint_paths=(),
+        dependency_files=(),
+        asset_paths=(),
+        resource_estimate={},
+        fingerprint_config={},
+        roots=None,
+    )
+    monkeypatch.setattr(
+        "src.integration.perturbgen.runner.derive_perturbgen_dimensions",
+        lambda *args, **kwargs: PerturbGenDimensions(
+            tgt_vocab_size=2005,
+            max_seq_length=248,
+        ),
+    )
+
+    resolved = PerturbGenRunner(gpu_lock_file=tmp_path / "gpu.lock")._resolve_auto_perturb_dimensions(plan)
+
+    generated_payload = resolved.generated_files[0].payload
+    assert generated_payload["trainer"]["tgt_vocab_size"] == 2005
+    assert generated_payload["trainer"]["max_seq_length"] == 248
+    assert generated_payload["datamodule"]["max_len"] == 248
+    assert payload["trainer"]["tgt_vocab_size"] == "auto"
 
 
 def test_runner_rejects_unresolved_upstream_artifact(tmp_path):

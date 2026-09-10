@@ -12,7 +12,7 @@ Direction codes (from BiPerturbEncoder):
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Tuple, Type
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Type
 
 import torch
 
@@ -182,7 +182,8 @@ class PTMDirectionMapperOutput:
     Tensors are compatible with BiPerturbEncoder input signature.
 
     Attributes:
-        gene_ids: [B, K] tensor of gene indices in Geneformer vocabulary (long)
+        gene_ids: [B, K] tensor of gene-token indices in the verified
+            PerturbGen vocabulary (long)
         directions: [B, K] tensor of direction codes: 0=KO, 1=KD, 2=OE (long)
         attention_mask: [B, K] tensor: 1 for valid targets, 0 for padding/masked (float)
     """
@@ -196,7 +197,9 @@ class PTMDirectionMapper:
     Maps PTM modification events to DAVF perturbation inputs.
 
     Converts PTM type strings to direction codes and resolves gene names
-    to Geneformer vocabulary IDs. Unknown genes are masked with attention_mask=0.
+    to verified PerturbGen vocabulary IDs. Unknown genes are masked with
+    attention_mask=0. These IDs are inputs to DAVF only; they are not scVI
+    decoder column indices.
 
     Usage:
         mapper = PTMDirectionMapper(geneformer_loader, gene_mapper)
@@ -467,6 +470,96 @@ class PTMDirectionMapper:
             gene_ids=torch.tensor([padded_gene_ids], dtype=torch.long),
             directions=torch.tensor([padded_directions], dtype=torch.long),
             attention_mask=torch.tensor([padded_masks], dtype=torch.float),
+        )
+
+    def resolve_verified_gene_token(self, gene_name: str) -> int:
+        """Resolve one gene against the verified DAVF/PerturbGen vocabulary.
+
+        The ordinary :meth:`map_ptms` API intentionally masks unknown genes for
+        historical API compatibility.  Formal DAVF direction inference cannot
+        use that behavior: a masked target would make the model condition on a
+        different perturbation (or on no perturbation at all).  This strict
+        boundary therefore requires a verified asset-backed mapping and raises
+        when the target is absent or ambiguous.
+        """
+
+        if self.gene_to_idx is None:
+            raise RuntimeError(
+                "formal DAVF target mapping requires a verified PerturbGen "
+                "gene-token mapping; build the mapper from the embedding asset"
+            )
+        token_id, valid = self._resolve_gene_id(gene_name)
+        if not valid:
+            raise KeyError(
+                f"gene {gene_name!r} is absent or ambiguous in the verified "
+                "PerturbGen vocabulary"
+            )
+        return int(token_id)
+
+    def map_intervention_targets(
+        self,
+        gene_names: Sequence[str],
+        intervention_type: str,
+    ) -> PTMDirectionMapperOutput:
+        """Map explicit KO/KD/OE targets to a formal DAVF input row.
+
+        This method is deliberately separate from :meth:`map_ptms`.  A PTM
+        type describes a biological prior and is not the same thing as the
+        intervention type used to train a DAVF checkpoint.  The caller must
+        therefore provide the checkpoint route explicitly.
+
+        Unlike the legacy mapper, this method never masks or truncates a
+        target.  Formal inference must fail before DAVF runs if the target is
+        not in the verified PerturbGen vocabulary.
+        """
+
+        normalized_type = str(intervention_type).strip().upper()
+        if normalized_type not in {"KO", "KD", "OE"}:
+            raise ValueError("intervention_type must be KO, KD or OE")
+        if not gene_names:
+            raise ValueError("formal DAVF intervention targets must not be empty")
+        if len(gene_names) > self.max_targets:
+            raise ValueError(
+                "formal DAVF intervention target count exceeds max_targets: "
+                f"{len(gene_names)} > {self.max_targets}"
+            )
+
+        token_ids = [self.resolve_verified_gene_token(name) for name in gene_names]
+        direction = {
+            "KO": DIRECTION_KO,
+            "KD": DIRECTION_KD,
+            "OE": DIRECTION_OE,
+        }[normalized_type]
+        padding = self.max_targets - len(token_ids)
+        return PTMDirectionMapperOutput(
+            gene_ids=torch.tensor([token_ids + [0] * padding], dtype=torch.long),
+            directions=torch.tensor(
+                [[direction] * len(token_ids) + [0] * padding],
+                dtype=torch.long,
+            ),
+            attention_mask=torch.tensor(
+                [[1.0] * len(token_ids) + [0.0] * padding],
+                dtype=torch.float,
+            ),
+        )
+
+    def map_intervention_batch(
+        self,
+        batch_gene_names: Sequence[Sequence[str]],
+        intervention_type: str,
+    ) -> PTMDirectionMapperOutput:
+        """Map a batch of explicit targets without allowing silent masking."""
+
+        if not batch_gene_names:
+            raise ValueError("formal DAVF intervention batch must not be empty")
+        rows = [
+            self.map_intervention_targets(gene_names, intervention_type)
+            for gene_names in batch_gene_names
+        ]
+        return PTMDirectionMapperOutput(
+            gene_ids=torch.cat([row.gene_ids for row in rows], dim=0),
+            directions=torch.cat([row.directions for row in rows], dim=0),
+            attention_mask=torch.cat([row.attention_mask for row in rows], dim=0),
         )
 
     def map_batch(

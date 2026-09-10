@@ -34,6 +34,14 @@ __all__ = [
     "evaluate_dual_path_candidate",
     "MainlineDecision",
     "evaluate_davf_perturbgen_candidate",
+    "DAVFPerturbGenE2EError",
+    "DAVFPerturbGenOrchestrator",
+    "DAVFPerturbGenPreparation",
+    "PerturbGenInvocation",
+    "build_candidate_stage_plans",
+    "materialize_candidate_config",
+    "merge_route_preparations",
+    "merge_route_reports",
 ]
 
 # Module-level import error tracking for diagnostic purposes
@@ -84,6 +92,38 @@ def __getattr__(name: str) -> Any:
         "evaluate_davf_perturbgen_candidate": (
             ".perturbgen.mainline",
             "evaluate_davf_perturbgen_candidate",
+        ),
+        "DAVFPerturbGenE2EError": (
+            ".perturbgen.orchestrator",
+            "DAVFPerturbGenE2EError",
+        ),
+        "DAVFPerturbGenOrchestrator": (
+            ".perturbgen.orchestrator",
+            "DAVFPerturbGenOrchestrator",
+        ),
+        "DAVFPerturbGenPreparation": (
+            ".perturbgen.orchestrator",
+            "DAVFPerturbGenPreparation",
+        ),
+        "PerturbGenInvocation": (
+            ".perturbgen.orchestrator",
+            "PerturbGenInvocation",
+        ),
+        "build_candidate_stage_plans": (
+            ".perturbgen.orchestrator",
+            "build_candidate_stage_plans",
+        ),
+        "materialize_candidate_config": (
+            ".perturbgen.orchestrator",
+            "materialize_candidate_config",
+        ),
+        "merge_route_preparations": (
+            ".perturbgen.orchestrator",
+            "merge_route_preparations",
+        ),
+        "merge_route_reports": (
+            ".perturbgen.orchestrator",
+            "merge_route_reports",
         ),
     }
 

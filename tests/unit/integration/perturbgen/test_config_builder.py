@@ -12,6 +12,7 @@ from scripts.run_perturbgen_pipeline import _build_selected_plans
 
 
 TEMPLATE = PROJECT_ROOT / "configs/integration/perturbgen.yaml"
+LOCAL_ADAPTATION_TEMPLATE = PROJECT_ROOT / "configs/integration/perturbgen_local_adaptation.yaml"
 
 
 def _touch(path: Path) -> Path:
@@ -113,6 +114,63 @@ def test_build_stage_plans_from_template_generates_fixed_six_stages(tmp_path, mo
 def test_template_does_not_embed_machine_absolute_paths():
     text = TEMPLATE.read_text(encoding="utf-8")
     assert "/home/scu/" not in text
+
+
+def test_local_adaptation_config_uses_upstream_cli_and_runtime_dimensions(monkeypatch):
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_PYTHON",
+        "/home/scu/anaconda3/envs/perturbgen/bin/python",
+    )
+    local_output = PROJECT_ROOT / "outputs/perturbgen/test_local_adaptation"
+    monkeypatch.setenv("PTM2CELLNET_PERTURBGEN_LOCAL_OUTPUT_ROOT", str(local_output))
+    monkeypatch.setenv("PTM2CELLNET_PERTURBGEN_LOCAL_DATASET", "datlinger2021_test_adaptation")
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_LOCAL_TARGETS",
+        str(PROJECT_ROOT / "configs/integration/perturbgen_targets/lck.csv"),
+    )
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_LOCAL_INPUT_H5AD",
+        str(PROJECT_ROOT / "ref/Perturbgen-src/data/perturbgen_m0_smoke/datlinger2021_m0smoke.h5ad"),
+    )
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_LOCAL_ENCODER_CKPT",
+        str(
+            PROJECT_ROOT
+            / "perturbgen_ckpt/20250709_1223_cellgen_train_masking_lr_5e-05_wd_1e-06_batch_64_ptime_pos_sin_m_pow_tp_1-2-3_s_42-epoch=00.ckpt"
+        ),
+    )
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_LOCAL_GENE_MEDIAN",
+        str(PROJECT_ROOT / "ref/Perturbgen-src/perturbgen/pp/gene_median_dict_gftokens_gc95M.pkl"),
+    )
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_LOCAL_TOKEN_DICT",
+        str(PROJECT_ROOT / "ref/Perturbgen-src/perturbgen/pp/token_dict_gftokens_gc95M.pkl"),
+    )
+    monkeypatch.setenv(
+        "PTM2CELLNET_PERTURBGEN_LOCAL_GENE_MAPPING",
+        str(PROJECT_ROOT / "ref/Perturbgen-src/perturbgen/pp/ensembl_mapping_dict_gc95M.pkl"),
+    )
+    config = load_pipeline_config(LOCAL_ADAPTATION_TEMPLATE)
+    plans = build_stage_plans(config, project_root=PROJECT_ROOT)
+
+    train_mask_argv = plans[1].argv
+    train_decoder_argv = plans[2].argv
+    assert train_mask_argv[train_mask_argv.index("--ckpt_every_n_epochs") + 1] == "2"
+    assert train_decoder_argv[train_decoder_argv.index("--ckpt_every_n_epochs") + 1] == "2"
+    tokenise_argv = plans[0].argv
+    assert tokenise_argv[tokenise_argv.index("--gene_filtering_mode") + 1] == "hvg"
+    assert tokenise_argv[tokenise_argv.index("--hvg_mode") + 1] == "after_tokenisation"
+    assert tokenise_argv[tokenise_argv.index("--genes_to_include_path") + 1].endswith("lck.csv")
+    assert tokenise_argv[tokenise_argv.index("--exclude_non_GF_genes") + 1] == "True"
+    assert "--max_len" not in train_mask_argv
+    assert "--tgt_vocab_size" not in train_mask_argv
+    assert "--max_len" not in train_decoder_argv
+    assert "--tgt_vocab_size" not in train_decoder_argv
+    perturb_payload = plans[3].generated_files[0].payload
+    assert perturb_payload["trainer"]["tgt_vocab_size"] == "auto"
+    assert perturb_payload["trainer"]["max_seq_length"] == "auto"
+    assert perturb_payload["datamodule"]["max_len"] == "auto"
 
 
 def test_cli_both_path_builds_distinct_src_and_tgt_perturb_plans(tmp_path, monkeypatch):
@@ -279,7 +337,10 @@ def test_stage_dimension_consistency_rejects_tgt_vocab_drift(tmp_path, monkeypat
     # trained with fails with a tensor size mismatch (2026-08-23 M0 smoke).
     _template_env(tmp_path, monkeypatch)
     config = load_pipeline_config(TEMPLATE)
+    config["stages"]["train_mask"]["args"]["tgt_vocab_size"] = 2002
     config["stages"]["perturb"]["perturb_config"]["trainer"]["tgt_vocab_size"] = 2004
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["max_seq_length"] = 1024
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["max_len"] = 1024
 
     with pytest.raises(PerturbGenConfigError, match="tgt_vocab_size drift"):
         build_stage_plans(config, project_root=PROJECT_ROOT)

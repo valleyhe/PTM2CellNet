@@ -17,6 +17,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from .config_builder import GeneratedFileSpec, OutputCheck, StagePlan
+from .dimensions import PerturbGenDimensionError, derive_perturbgen_dimensions
 from .env_guard import probe_external_environment, sanitize_text, sha256_file, sha256_path
 
 
@@ -255,6 +256,63 @@ class PerturbGenRunner:
             ),
         )
 
+    def _resolve_auto_perturb_dimensions(self, plan: StagePlan) -> StagePlan:
+        """Resolve token dimensions after upstream tokenization succeeds.
+
+        train.py derives these values from the actual tokenized datasets.
+        The perturbation script must receive the identical BASE values because
+        it adds its own +50 vocabulary and +100 sequence buffers. Computing
+        them from the artifacts here keeps train and inference architectures
+        exactly aligned without importing the external package in PTM2CellNet.
+        """
+
+        if plan.name != "perturb" or not plan.generated_files:
+            return plan
+        generated = plan.generated_files[0]
+        payload = generated.payload
+        if not isinstance(payload, Mapping):
+            return plan
+        trainer = payload.get("trainer")
+        datamodule = payload.get("datamodule")
+        data = payload.get("data")
+        if not isinstance(trainer, Mapping) or not isinstance(datamodule, Mapping):
+            return plan
+        if not isinstance(data, Mapping):
+            return plan
+        dimensions = (trainer.get("tgt_vocab_size"), trainer.get("max_seq_length"))
+        if "auto" not in dimensions and datamodule.get("max_len") != "auto":
+            return plan
+        if dimensions != ("auto", "auto") or datamodule.get("max_len") != "auto":
+            raise PerturbGenStageError(
+                "perturb auto dimensions require trainer.tgt_vocab_size, "
+                "trainer.max_seq_length, and datamodule.max_len all to be 'auto'"
+            )
+        src_dataset = data.get("src_dataset_file")
+        tgt_dataset_folder = data.get("tgt_dataset_folder")
+        if not isinstance(src_dataset, str) or not isinstance(tgt_dataset_folder, str):
+            raise PerturbGenStageError(
+                "perturb auto dimensions require resolved src_dataset_file and tgt_dataset_folder"
+            )
+        try:
+            resolved = derive_perturbgen_dimensions(
+                plan.external_python,
+                src_dataset=src_dataset,
+                tgt_dataset_folder=tgt_dataset_folder,
+                cwd=plan.cwd,
+            )
+        except PerturbGenDimensionError as exc:
+            raise PerturbGenStageError(str(exc)) from exc
+
+        updated_payload = {
+            key: dict(value) if isinstance(value, Mapping) else value
+            for key, value in payload.items()
+        }
+        updated_payload["trainer"]["tgt_vocab_size"] = resolved.tgt_vocab_size
+        updated_payload["trainer"]["max_seq_length"] = resolved.max_seq_length
+        updated_payload["datamodule"]["max_len"] = resolved.max_seq_length
+        updated_generated = replace(generated, payload=updated_payload)
+        return replace(plan, generated_files=(updated_generated,))
+
     def _resolve_discovered_outputs(
         self, outputs: Iterable[OutputCheck]
     ) -> tuple[OutputCheck, ...]:
@@ -321,6 +379,7 @@ class PerturbGenRunner:
         artifact_registry: Mapping[tuple[str, str], Path] | None = None,
     ) -> StageExecutionResult:
         plan = self._resolve_plan_artifact_refs(plan, artifact_registry or {})
+        plan = self._resolve_auto_perturb_dimensions(plan)
         manifest_path = plan.output_dir / STAGE_MANIFEST
         fingerprint_material = self._build_fingerprint_material(plan, env_report)
         fingerprint = _json_digest(fingerprint_material)

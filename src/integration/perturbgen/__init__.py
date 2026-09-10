@@ -19,6 +19,16 @@ from .direction_gate import (
     evaluate_direction_gate,
 )
 from .mainline import MainlineDecision, evaluate_davf_perturbgen_candidate
+from .orchestrator import (
+    DAVFPerturbGenE2EError,
+    DAVFPerturbGenOrchestrator,
+    DAVFPerturbGenPreparation,
+    PerturbGenInvocation,
+    build_candidate_stage_plans,
+    materialize_candidate_config,
+    merge_route_preparations,
+    merge_route_reports,
+)
 
 __all__ = [
     "CandidateEvidence",
@@ -38,4 +48,12 @@ __all__ = [
     "evaluate_direction_gate",
     "MainlineDecision",
     "evaluate_davf_perturbgen_candidate",
+    "DAVFPerturbGenE2EError",
+    "DAVFPerturbGenOrchestrator",
+    "DAVFPerturbGenPreparation",
+    "PerturbGenInvocation",
+    "build_candidate_stage_plans",
+    "materialize_candidate_config",
+    "merge_route_preparations",
+    "merge_route_reports",
 ]

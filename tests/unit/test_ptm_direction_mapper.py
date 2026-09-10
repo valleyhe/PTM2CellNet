@@ -197,6 +197,40 @@ class TestPTMDirectionMapper:
         with pytest.raises(ValueError, match="must have same length"):
             ptm_mapper.map_ptms(ptm_sites, gene_names)
 
+    @pytest.mark.parametrize(
+        ("intervention_type", "expected_direction"),
+        [("KO", 0), ("KD", 1), ("OE", 2)],
+    )
+    def test_formal_intervention_mapping_uses_explicit_route(
+        self, intervention_type, expected_direction
+    ):
+        from src.models.ptm_direction_mapper import PTMDirectionMapper
+
+        mapper = PTMDirectionMapper(gene_to_idx={"TP53": 100})
+        result = mapper.map_intervention_targets(["TP53"], intervention_type)
+
+        assert result.gene_ids[0, 0].item() == 100
+        assert result.directions[0, 0].item() == expected_direction
+        assert result.attention_mask[0, 0].item() == 1.0
+
+    def test_formal_intervention_mapping_does_not_mask_unknown_gene(self):
+        from src.models.ptm_direction_mapper import PTMDirectionMapper
+
+        mapper = PTMDirectionMapper(gene_to_idx={"TP53": 100})
+        with pytest.raises(KeyError, match="absent or ambiguous"):
+            mapper.map_intervention_targets(["UNKNOWNGENE"], "KO")
+
+    def test_formal_intervention_mapping_does_not_silently_truncate_targets(self):
+        from src.models.ptm_direction_mapper import PTMDirectionMapper
+
+        mapper = PTMDirectionMapper(gene_to_idx={"TP53": 100}, max_targets=1)
+        with pytest.raises(ValueError, match="exceeds max_targets"):
+            mapper.map_intervention_targets(["TP53", "TP53"], "KO")
+
+    def test_formal_intervention_mapping_requires_verified_asset(self, ptm_mapper):
+        with pytest.raises(RuntimeError, match="verified PerturbGen gene-token mapping"):
+            ptm_mapper.map_intervention_targets(["TP53"], "KO")
+
 
 class TestPTMDirectionMapperOutput:
     """Tests for PTMDirectionMapperOutput dataclass."""

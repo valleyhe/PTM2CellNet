@@ -347,9 +347,12 @@ def _validate_perturb_candidate_contract(stage_config: Mapping[str, Any]) -> Non
             "perturb model.ckpt_masking_path must be a non-empty string: "
             "upstream val.py silently skips inference when it is None"
         )
-    explicit_dims = {}
+    explicit_dims: dict[str, int | str] = {}
     for field_name in ("tgt_vocab_size", "max_seq_length"):
         value = trainer.get(field_name)
+        if value == "auto":
+            explicit_dims[field_name] = value
+            continue
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise PerturbGenConfigError(
                 f"perturb trainer.{field_name} must be an explicit positive integer: "
@@ -357,12 +360,22 @@ def _validate_perturb_candidate_contract(stage_config: Mapping[str, Any]) -> Non
                 "ragged lists unless BOTH tgt_vocab_size and max_seq_length are set"
             )
         explicit_dims[field_name] = value
+    if len({value == "auto" for value in explicit_dims.values()}) > 1:
+        raise PerturbGenConfigError(
+            "perturb trainer.tgt_vocab_size and trainer.max_seq_length must both be "
+            "positive integers or both be 'auto'"
+        )
     datamodule = perturb_config.get("datamodule", {})
     if isinstance(datamodule, Mapping) and "max_len" in datamodule:
         max_len = datamodule["max_len"]
-        if not isinstance(max_len, int) or isinstance(max_len, bool):
-            raise PerturbGenConfigError("perturb datamodule.max_len must be an integer")
-        if max_len != explicit_dims["max_seq_length"]:
+        if max_len == "auto":
+            if any(value != "auto" for value in explicit_dims.values()):
+                raise PerturbGenConfigError(
+                    "perturb datamodule.max_len='auto' requires both trainer dimensions to be 'auto'"
+                )
+        elif not isinstance(max_len, int) or isinstance(max_len, bool):
+            raise PerturbGenConfigError("perturb datamodule.max_len must be an integer or 'auto'")
+        elif max_len != explicit_dims["max_seq_length"]:
             raise PerturbGenConfigError(
                 "perturb datamodule.max_len must equal trainer.max_seq_length "
                 "(base value; val.py adds the +100/+50 runtime buffer itself)"
