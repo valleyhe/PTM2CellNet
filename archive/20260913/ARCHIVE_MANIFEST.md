@@ -62,4 +62,12 @@ Git 历史或 blob；本轮仅移动文件，未计算文件哈希。归档前 H
 
 - 权威分析改为仓库根目录 `project_analysis_20260913.md`。
 - `docs/CURRENT_STATUS.md`、`AGENTS.md`、`docs/TEST_COVERAGE.md`、`docs/guides/perturbgen_bridge.md`、`API_DOCUMENTATION.md`、`docs/PTM2CellNet_*.md` 指针已刷新。
-- `perturbgen_bridge.md` 的“详细执行方案”改为 `davf_ko_kd_training.md`。
+- `perturbgen_bridge.md` 的”详细执行方案”改为 `davf_ko_kd_training.md`。
+
+## 第三轮增量复核（2026-09-13 晚，HEAD `3e2166d`）
+
+按同一判定标准对全仓未归档文档做对抗性增量复核，结论 **零新增归档对象**：
+`CLAUDE.md`（2026-04-14，AI 协作规范、不描述项目实现状态）、`CHANGELOG.md`
+（2026-08-24，未超 30 天）、`task_plan.md`（历史计划快照，引用仅在已完成条目）、
+`IBD_dataset.md` 等当日已刷新文档均判定保留；`docs/_build` 无跟踪文件。
+逐项依据见 `project_analysis_20260913.md` §3.2。
