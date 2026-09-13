@@ -689,6 +689,8 @@ async def _resolve_variant_sequence(
     if sequence is None and request.uniprot_id:
         try:
             # N01: UniProt fetch 是阻塞网络 I/O，卸载出事件循环。
+            if STATE.variant_workflow is None:
+                raise RuntimeError("variant workflow not initialized")
             sequence = await run_in_threadpool(
                 STATE.variant_workflow.fetch_sequence_from_uniprot,
                 request.uniprot_id,
@@ -811,7 +813,7 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
         )
 
     start_time = time.time()
-    warnings_list = []
+    warnings_list: List[str] = []
 
     try:
         sequence = await _resolve_variant_sequence(request, warnings_list)

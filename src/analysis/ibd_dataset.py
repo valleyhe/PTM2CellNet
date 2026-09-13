@@ -22,7 +22,7 @@ import gzip
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 import pandas as pd
 
@@ -424,7 +424,7 @@ def build_metadata_master(raw_root: Path | str = "data/raw") -> pd.DataFrame:
     if frame["GSM"].duplicated().any():
         duplicates = frame.loc[frame["GSM"].duplicated(keep=False), "GSM"].tolist()
         raise ValueError(f"GEO accessions must be unique across datasets: {duplicates[:10]}")
-    return frame
+    return cast(pd.DataFrame, frame)
 
 
 def write_metadata_outputs(

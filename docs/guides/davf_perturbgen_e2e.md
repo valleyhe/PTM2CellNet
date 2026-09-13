@@ -51,6 +51,22 @@ checkpoint 干预类型。
 要求的协变量；当前 KO/KD 模型要求 `davf_batch`。候选的 symbol/Ensembl pair
 还必须同时存在于 DAVF alias asset 和 verified PerturbGen vocabulary。
 
+正式执行 `--run-perturbgen` 时，`stages.tokenise.args.h5ad_path` 必须是已存在的
+绝对路径，并在解析后与候选清单的 `context_h5ad` 完全相同；不一致直接硬失败。
+tokenise 的 `var_list` 必须按顺序明确声明 cell type、state、donor，且与
+`main_pairing_obs`、`time_obs` 及 `[reference_time, disease_state]` 一致。脚本会
+在调用外部 PerturbGen runner 前，对同一份完整 context 调用
+`prepare_perturbgen_anndata`，验证 raw counts、Ensembl、normal/disease、显式
+donor 和至少 3 个共享 donor。Gate-0 未通过时不会进入任何外部 PerturbGen stage。
+
+当前登记的外部 tokeniser 直接消费 `tokenise.args.h5ad_path`；Gate-0 的
+`prepare_perturbgen_anndata` 返回的是校验副本。登记源码
+`GF_tokenisation.py:223-226,238,301-305` 已静态核对同一原始文件的
+counts→`X`→恢复 counts→重算 `n_counts` 接线，prepared copy 的新增 `n_counts` 不需
+materialize；原始 tokenise 输入中的 Ensembl ID 必须已经是 canonical 值，脚本会在
+进入 stage 前硬失败，不会凭空写入 X/layer 或另造输入文件。本轮未运行真实
+tokenisation。
+
 ## 只执行真实 DAVF 与方向 gate
 
 ```bash
@@ -80,6 +96,12 @@ python scripts/run_davf_perturbgen_e2e.py \
 `<output_root>/<KO|KD>/<Ensembl ID>/` 目录；其中两个 perturb 阶段分别使用
 `source_intervention` 和 `within_state`，公共训练阶段仍由既有
 `PerturbGenRunner` 管理 GPU 锁、artifact 引用、manifest 和 resume。
+
+`configs/integration/perturbgen.yaml` 当前 `pipeline.random_seed` 为 42。E2E
+invocation 会从该 base config 读取并记录该 seed；正式多 seed 仍须显式传入匹配的
+`--seeds`，例如 `--seeds 42,43,44`。直接 runner 会硬校验 report 与当前 base
+config 的 gene/mode/route/seed/path 绑定；不能依赖旧的默认 seed 0 或把任意通过
+report 用于另一份 YAML。
 
 这条命令只代表六阶段执行成功，不自动把缺少 donor/null/FDR 证据的结果标成
 生物学 PASS。最终效用判定仍需使用现有 `results.py`、`dual_path.py` 和

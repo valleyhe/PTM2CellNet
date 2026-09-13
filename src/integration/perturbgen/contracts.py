@@ -69,6 +69,9 @@ class DAVFDirectionEvidence:
     ``davf_action`` is deliberately absent.  Action encoding remains the
     responsibility of :class:`PTMDirectionMapper`; this object records only
     the decoded gene-expression delta used by the direction gate.
+
+    ``confidence`` is a bounded relative effect-size proxy, not a calibrated
+    probability.
     """
 
     gene_symbol: str
@@ -83,9 +86,17 @@ class DAVFDirectionEvidence:
     def __post_init__(self) -> None:
         object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
         object.__setattr__(self, "ensembl_id", normalize_ensembl_id(self.ensembl_id))
-        object.__setattr__(self, "model_source", str(self.model_source).strip())
-        object.__setattr__(self, "checkpoint_provenance", str(self.checkpoint_provenance).strip())
-        object.__setattr__(self, "embedding_provenance", str(self.embedding_provenance).strip())
+        object.__setattr__(self, "model_source", "" if self.model_source is None else str(self.model_source).strip())
+        object.__setattr__(
+            self,
+            "checkpoint_provenance",
+            "" if self.checkpoint_provenance is None else str(self.checkpoint_provenance).strip(),
+        )
+        object.__setattr__(
+            self,
+            "embedding_provenance",
+            "" if self.embedding_provenance is None else str(self.embedding_provenance).strip(),
+        )
         if not math.isfinite(self.predicted_delta):
             raise ValueError("predicted_delta must be finite")
         if self.predicted_direction not in _VALID_DIRECTIONS and self.predicted_direction is not None:
@@ -100,10 +111,14 @@ class DAVFDirectionEvidence:
             raise ValueError("checkpoint_provenance must not be empty")
         if not self.embedding_provenance:
             raise ValueError("embedding_provenance must not be empty")
-        if self.confidence is not None and (
-            not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0
-        ):
-            raise ValueError("confidence must be within [0, 1]")
+        if self.confidence is not None:
+            try:
+                confidence = float(self.confidence)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError("confidence must be within [0, 1]") from exc
+            if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                raise ValueError("confidence must be within [0, 1]")
+            object.__setattr__(self, "confidence", confidence)
 
 
 @dataclass(frozen=True)
@@ -174,7 +189,11 @@ class CandidateEvidence:
         object.__setattr__(self, "ensembl_id", normalize_ensembl_id(self.ensembl_id))
         object.__setattr__(self, "cell_type", str(self.cell_type).strip())
         object.__setattr__(self, "ptm_context", str(self.ptm_context).strip())
-        object.__setattr__(self, "davf_provenance", str(self.davf_provenance).strip())
+        object.__setattr__(
+            self,
+            "davf_provenance",
+            "" if self.davf_provenance is None else str(self.davf_provenance).strip(),
+        )
         object.__setattr__(self, "direction_gate_reasons", tuple(self.direction_gate_reasons))
 
         if not self.cell_type:

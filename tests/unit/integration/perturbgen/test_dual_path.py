@@ -53,7 +53,7 @@ def test_evaluate_path_results_passes_with_strict_majority_and_two_of_three_mode
         },
     )
 
-    decision = evaluate_path_results(rows, observed_direction="up")
+    decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
 
     assert decision.verdict == "pass"
     assert decision.primary_mode == "mask"
@@ -74,7 +74,7 @@ def test_evaluate_path_results_fails_when_donor_consistency_is_not_strict_majori
         _result(path="source_intervention", mode="delete", seed=3, rescue=0.3, donor_consistency=0.5),
     ]
 
-    decision = evaluate_path_results(rows, observed_direction="up")
+    decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
 
     assert decision.verdict == "fail"
     assert "seed_1_donor_consistency_not_strict_majority" in decision.reasons
@@ -90,7 +90,7 @@ def test_evaluate_path_results_fails_if_only_delete_mode_is_positive() -> None:
         },
     )
 
-    decision = evaluate_path_results(rows, observed_direction="up")
+    decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
 
     assert decision.verdict == "fail"
     assert "ko_modes_not_two_of_three_positive" in decision.reasons
@@ -108,7 +108,7 @@ def test_evaluate_path_results_marks_20_null_as_inconclusive_smoke() -> None:
     for row in rows:
         row["metadata"]["matched_null_count"] = 20
 
-    decision = evaluate_path_results(rows, observed_direction="up")
+    decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
 
     assert decision.verdict == "inconclusive"
     assert "seed_1_smoke_only_null" in decision.reasons
@@ -135,6 +135,7 @@ def test_evaluate_dual_path_candidate_requires_both_paths_to_pass() -> None:
     decision = evaluate_dual_path_candidate(
         source_rows + within_rows,
         observed_direction="up",
+        intervention_type="KO",
         q_value=0.01,
         candidate_gene="STAT3",
         unperturbed_quality_status="pass",
@@ -166,6 +167,7 @@ def test_evaluate_dual_path_candidate_fails_when_one_path_is_negative() -> None:
     decision = evaluate_dual_path_candidate(
         source_rows + within_rows,
         observed_direction="up",
+        intervention_type="KO",
         q_value=0.01,
         unperturbed_quality_status="pass",
     )
@@ -196,6 +198,7 @@ def test_evaluate_dual_path_candidate_is_inconclusive_when_a_path_is_not_evaluab
     decision = evaluate_dual_path_candidate(
         source_rows + within_rows,
         observed_direction="up",
+        intervention_type="KO",
         q_value=0.01,
         unperturbed_quality_status="pass",
     )
@@ -212,7 +215,12 @@ def test_dual_path_requires_unperturbed_quality_evidence() -> None:
         "within_state",
         {"mask": (0.5, 0.4, 0.2), "pad": (0.4, 0.3, 0.2), "delete": (0.3, 0.2, 0.1)},
     )
-    decision = evaluate_dual_path_candidate(rows, observed_direction="up", q_value=0.01)
+    decision = evaluate_dual_path_candidate(
+        rows,
+        observed_direction="up",
+        intervention_type="KO",
+        q_value=0.01,
+    )
     assert decision.verdict == "inconclusive"
     assert "unperturbed_quality_inconclusive" in decision.reasons
 
@@ -223,7 +231,7 @@ def test_path_rejects_duplicate_mode_seed_rows() -> None:
         {"mask": (0.5, 0.4, 0.2), "pad": (0.4, 0.3, 0.2), "delete": (0.3, 0.2, 0.1)},
     )
     with pytest.raises(ValueError, match="duplicate"):
-        evaluate_path_results(rows + [dict(rows[0])], observed_direction="up")
+        evaluate_path_results(rows + [dict(rows[0])], observed_direction="up", intervention_type="KO")
 
 
 def test_evaluate_path_results_accepts_equivalent_object_with_top_level_null_fields() -> None:
@@ -248,6 +256,6 @@ def test_evaluate_path_results_accepts_equivalent_object_with_top_level_null_fie
         for seed, rescue in enumerate(rescues, start=1)
     ]
 
-    decision = evaluate_path_results(rows, observed_direction="up")
+    decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
 
     assert decision.verdict == "pass"

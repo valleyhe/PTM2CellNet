@@ -6,7 +6,9 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 from statistics import median
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
+
+from .contracts import PathKind, PerturbationMode
 
 import numpy as np
 import pandas as pd
@@ -268,7 +270,7 @@ def compute_signature_score(
 ) -> float:
     """S(X)=mean(D_up)-mean(D_down)。"""
 
-    values = dict(expression.items()) if isinstance(expression, pd.Series) else dict(expression)
+    values: Mapping[Any, Any] = dict(expression.items()) if isinstance(expression, pd.Series) else dict(expression)
     up_values = [_coerce_float(values, gene) for gene in signature.up_genes]
     down_values = [_coerce_float(values, gene) for gene in signature.down_genes]
     return float(np.mean(up_values) - np.mean(down_values))
@@ -452,7 +454,7 @@ def benjamini_hochberg(pvalues: Sequence[float]) -> list[float]:
         adjusted[idx] = running
     restored = np.empty(n, dtype=float)
     restored[order] = np.clip(adjusted, 0.0, 1.0)
-    return restored.tolist()
+    return [float(value) for value in restored.tolist()]
 
 
 def extract_path_result_from_perturbgen_h5ad(
@@ -461,8 +463,8 @@ def extract_path_result_from_perturbgen_h5ad(
     h5ad_provenance: Mapping[str, Any],
     deg_table: pd.DataFrame | Sequence[Mapping[str, Any]],
     null_distribution: Sequence[float],
-    path: str,
-    mode: str,
+    path: PathKind,
+    mode: PerturbationMode,
     seed: int,
     donor_obs_column: str,
     var_gene_column: str,
@@ -577,7 +579,7 @@ def extract_path_result_from_perturbgen_h5ad(
 
 def _coerce_dataframe(deg_table: pd.DataFrame | Sequence[Mapping[str, Any]]) -> pd.DataFrame:
     if isinstance(deg_table, pd.DataFrame):
-        return deg_table.copy()
+        return cast(pd.DataFrame, deg_table.copy())
     return pd.DataFrame(list(deg_table))
 
 

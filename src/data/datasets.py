@@ -556,6 +556,9 @@ class PTMPlainDataModule:
         return len(self.labels)
 
 
+ESM_TOKEN_CACHE_PRECOMPUTE_ROWS = 200_000
+
+
 class ESMTokenizedDataset(PTMDatasetBase):
     """
     使用ESM tokenizer编码的PTM数据集
@@ -599,11 +602,13 @@ class ESMTokenizedDataset(PTMDatasetBase):
             self._initialize_augmenters_from_config()
 
         # 预 tokenization 缓存：避免每次 __getitem__ 重复调用 tokenizer。
-        # 内存权衡——对大 df 可改用磁盘缓存(DatasetCache)按 sequence 哈希存 token 结果。
-        self._token_cache: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for row_idx in range(len(self.df)):
+        # TD-NEW-10: 超大表不再无条件全量预 tokenize——超过上限时按需惰性
+        # 填充（tokenize 是确定性的，功能等价，只推迟首次访问时机）。
+        self._token_cache: Dict[int, Tuple[torch.Tensor, torch.Tensor]] = {}
+        precompute_rows = min(len(self.df), ESM_TOKEN_CACHE_PRECOMPUTE_ROWS)
+        for row_idx in range(precompute_rows):
             sequence = str(self.df.iloc[row_idx].get("sequence", ""))
-            self._token_cache.append(self._tokenize_sequence(sequence))
+            self._token_cache[row_idx] = self._tokenize_sequence(sequence)
 
     def _initialize_augmenters_from_config(self) -> None:
         """按需从配置构建数据增强器（与 PTMDataset 一致）。"""
@@ -695,8 +700,12 @@ class ESMTokenizedDataset(PTMDatasetBase):
         row = self.df.iloc[idx]
         sequence = str(row.get("sequence", ""))
 
-        # 查表获取预 tokenization 结果（避免每次 __getitem__ 重复调用 tokenizer）
-        input_ids, attention_mask = self._token_cache[idx]
+        # 查表获取 tokenization 结果；未预缓存的行按需 tokenize（TD-NEW-10）
+        cached = self._token_cache.get(idx)
+        if cached is None:
+            cached = self._tokenize_sequence(sequence)
+            self._token_cache[idx] = cached
+        input_ids, attention_mask = cached
         tokenized_length = input_ids.shape[0]
 
         ptm_sites_json = str(row["ptm_sites"]) if "ptm_sites" in row else "[]"

@@ -151,6 +151,8 @@ def build_direction_gated_candidate(
         return gate, None
     if proposal is None or davf_evidence is None or gate.corrective_action is None:
         raise RuntimeError("passing direction gate has incomplete evidence")
+    if observed_direction is None:
+        raise RuntimeError("passing direction gate requires an observed direction")
 
     candidate = CandidateEvidence(
         gene_symbol=proposal.gene_symbol,
@@ -161,7 +163,7 @@ def build_direction_gated_candidate(
         observed_fdr=observed_fdr,
         observed_direction=observed_direction,
         davf_action=gate.corrective_action,
-        davf_score=None,
+        davf_score=davf_evidence.confidence,
         davf_provenance=davf_evidence.checkpoint_provenance,
         proposed_direction=gate.proposed_direction,
         davf_predicted_direction=gate.davf_direction,

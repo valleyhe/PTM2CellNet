@@ -167,7 +167,7 @@ def test_build_direction_gated_candidate_constructs_evidence_after_pass() -> Non
     assert candidate.gene_symbol == "TP53"
     assert candidate.ensembl_id == "ENSG00000141510"
     assert candidate.davf_action == "ko"
-    assert candidate.davf_score is None
+    assert candidate.davf_score == pytest.approx(0.9)
     assert candidate.davf_predicted_delta == pytest.approx(0.8)
     assert candidate.davf_provenance == "checkpoint-v1"
     assert candidate.direction_gate_status == "pass"
@@ -225,6 +225,7 @@ def test_mainline_does_not_produce_dual_path_when_direction_gate_does_not_pass(
         observed_log2fc=1.2,
         observed_fdr=0.01,
         observed_direction="up",
+        intervention_type="KO",
         path_results=(object(),),
         q_value=0.01,
     )

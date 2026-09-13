@@ -77,3 +77,14 @@ def test_derive_dimensions_runs_probe_in_external_environment(tmp_path, monkeypa
     ]
     assert captured["kwargs"]["cwd"] == str(cwd.resolve())
     assert captured["kwargs"]["check"] is False
+
+
+def test_formal_davf_num_genes_has_single_source():
+    """TD-NEW-06: all consumers must share the checkpoint-contract constant."""
+
+    from src.data import davf_scperturb, gse_normal_disease
+    from src.models import davf_checkpoint_contract
+
+    assert davf_scperturb.FORMAL_DAVF_NUM_GENES == davf_checkpoint_contract.FORMAL_DAVF_NUM_GENES
+    assert gse_normal_disease.FORMAL_DAVF_NUM_GENES == davf_checkpoint_contract.FORMAL_DAVF_NUM_GENES
+    assert davf_checkpoint_contract.FORMAL_DAVF_NUM_GENES == 4018

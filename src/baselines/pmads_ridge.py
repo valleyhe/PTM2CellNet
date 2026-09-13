@@ -348,8 +348,16 @@ class PMADSRidgeBaseline:
         if not self.feature_names_:
             raise RuntimeError("Feature schema is not initialized; call fit first")
 
+        if frame.empty:
+            return np.asarray([], dtype=np.float64)
+
+        records = frame.to_dict(orient="records")
+        numeric_values = {
+            column: pd.to_numeric(frame[column], errors="coerce").fillna(0.0).to_numpy(dtype=np.float64)
+            for column in self.numeric_columns_
+        }
         rows: List[List[float]] = []
-        for _, row in frame.iterrows():
+        for row_index, row in enumerate(records):
             sequence = str(row["sequence"])
             length = max(len(sequence), 1)
             counts = {aa: sequence.count(aa) / length for aa in AMINO_ACIDS}
@@ -364,9 +372,7 @@ class PMADSRidgeBaseline:
             )]
             type_set = set(site_features["_types"])
             values += [1.0 if ptm_type in type_set else 0.0 for ptm_type in self.ptm_types_]
-            for column in self.numeric_columns_:
-                numeric = pd.to_numeric(pd.Series([row.get(column)]), errors="coerce").fillna(0.0).iloc[0]
-                values.append(float(numeric))
+            values += [float(numeric_values[column][row_index]) for column in self.numeric_columns_]
             rows.append(values)
         return np.asarray(rows, dtype=np.float64)
 

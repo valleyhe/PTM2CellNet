@@ -605,7 +605,8 @@ def _run_batch_predict(args, model, cell_states, device, logger, preprocess_requ
     ptm_counts = []
     batch_parse_errors = []
     requests = []
-    for idx, row in df.iterrows():
+    # TD-NEW-10: iterrows() 会为每行物化一个 Series；to_dict("records") 快数倍。
+    for idx, row in enumerate(df.to_dict("records")):
         sequence = str(row.get("sequence", ""))
         # P1-1: 解析 CSV 中的 ptm_sites 列，使批量推理真实消费 PTM 位点
         ptm_sites = _parse_batch_ptm_sites(

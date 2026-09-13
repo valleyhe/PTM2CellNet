@@ -14,6 +14,8 @@ from src.models.scvi_adapter import (
     SCVI_AVAILABLE,
     _check_scvi_available,
 )
+from src.models import scvi_adapter as scvi_module
+from src.utils.dependency_check import DependencyStatus, MissingDependencyError
 
 
 class TestScVIAdapterConfig:
@@ -35,20 +37,46 @@ class TestScVIAdapterAvailability:
         assert ScVIAdapter is not None
 
     def test_check_scvi_available_logs_install_command(self, monkeypatch, caplog):
-        real_import = __import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "scvi":
-                raise ModuleNotFoundError("No module named 'pkg_resources'")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", fake_import)
+        monkeypatch.setattr(
+            scvi_module,
+            "check_dependency",
+            lambda name: DependencyStatus(
+                import_name=name,
+                available=False,
+                import_error=ModuleNotFoundError("No module named 'pkg_resources'"),
+            ),
+        )
 
         with caplog.at_level(logging.WARNING, logger="src.models.scvi_adapter"):
             assert _check_scvi_available() is False
 
         assert "pkg_resources" in caplog.text
         assert "scvi-tools>=1.2.0" in caplog.text
+
+    def test_check_scvi_available_accepts_helper_success(self, monkeypatch):
+        monkeypatch.setattr(
+            scvi_module,
+            "check_dependency",
+            lambda name: DependencyStatus(import_name=name, available=True),
+        )
+
+        assert _check_scvi_available() is True
+
+    def test_scvi_call_boundary_preserves_install_hint(self, monkeypatch, tmp_path):
+        status = DependencyStatus(
+            import_name="scvi",
+            available=False,
+            import_error=ModuleNotFoundError("No module named 'scvi'"),
+            extra="analysis",
+            install_name="scvi-tools",
+        )
+
+        def raise_missing(*args, **kwargs):
+            raise MissingDependencyError("scvi missing", [status])
+
+        monkeypatch.setattr(scvi_module, "require_extras", raise_missing)
+        with pytest.raises(ImportError, match=r"scvi-tools>=1\.2\.0"):
+            ScVIAdapter.from_trained_model(tmp_path)
 
 
 class TestScVIAdapterWrappedMock:

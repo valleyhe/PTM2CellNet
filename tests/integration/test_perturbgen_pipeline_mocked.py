@@ -271,8 +271,11 @@ def test_candidate_stage_plans_isolate_both_paths_and_rewrite_target(tmp_path):
         observed_fdr=0.01,
         observed_direction="down",
         davf_action="oe",
-        davf_score=None,
+        davf_score=0.5,
         davf_provenance="formal-checkpoint",
+        proposed_direction="down",
+        davf_predicted_direction="down",
+        direction_gate_status="pass",
     )
     evidence = DAVFDirectionEvidence(
         gene_symbol="STAT3",
@@ -282,6 +285,7 @@ def test_candidate_stage_plans_isolate_both_paths_and_rewrite_target(tmp_path):
         model_source="davf",
         checkpoint_provenance="formal-checkpoint",
         embedding_provenance="formal-embedding",
+        confidence=0.5,
     )
     invocation = PerturbGenInvocation(
         intervention_type="KO",
@@ -319,3 +323,160 @@ def test_candidate_stage_plans_isolate_both_paths_and_rewrite_target(tmp_path):
     assert str(tmp_path / "candidate-output") in plans[1].argv[-1]
     assert plans[3].output_dir.name == "source_intervention"
     assert plans[4].output_dir.name == "within_state"
+
+
+def _ko_mask_invocation():
+    candidate = CandidateEvidence(
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        cell_type="K562",
+        ptm_context="STAT3:S12",
+        observed_log2fc=1.0,
+        observed_fdr=0.01,
+        observed_direction="up",
+        davf_action="ko",
+        davf_score=0.5,
+        davf_provenance="formal-checkpoint",
+        proposed_direction="up",
+        davf_predicted_direction="up",
+        direction_gate_status="pass",
+    )
+    evidence = DAVFDirectionEvidence(
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        predicted_direction="up",
+        predicted_delta=1.0,
+        model_source="davf",
+        checkpoint_provenance="formal-checkpoint",
+        embedding_provenance="formal-embedding",
+        confidence=0.5,
+    )
+    return PerturbGenInvocation(
+        intervention_type="KO",
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        target_token_id=17,
+        perturbation_mode="mask",
+        paths=("source_intervention", "within_state"),
+        candidate=candidate,
+        davf_evidence=evidence,
+    )
+
+
+def test_candidate_stage_plans_fan_out_seeds_and_sensitivity_modes(tmp_path):
+    """§4.7 conditions 4/5: >=3 seeds and KO pad/delete sensitivity plans."""
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["pert_tps"] = [1]
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["pert_tps"] = [1]
+    config["stages"]["train_mask"]["args"]["output_dir"] = str(
+        Path(config["pipeline"]["output_root"]) / "train_mask" / "model"
+    )
+
+    plans = build_candidate_stage_plans(
+        config,
+        _ko_mask_invocation(),
+        output_root=tmp_path / "candidate-output",
+        project_root=Path(__file__).resolve().parents[2],
+        seeds=(0, 1, 2),
+        sensitivity_modes=("pad", "delete"),
+    )
+
+    perturb_plans = [plan for plan in plans if plan.name in ("source_intervention", "within_state")]
+    # 2 paths × (1 primary mask + 2 sensitivity modes) × 3 seeds = 18 plans
+    assert len(perturb_plans) == 18
+    combos = set()
+    for plan in perturb_plans:
+        payload = plan.generated_files[0].payload
+        mode = payload["trainer"]["perturbation_mode"]
+        assert plan.expected_outputs[0].discover_glob == f"*.h5ad" or plan.expected_outputs[0].discover_glob.endswith(
+            f"_t{mode}.h5ad"
+        )
+        argv = list(plan.argv)
+        seed = int(argv[argv.index("--seed") + 1])
+        combos.add((plan.name, mode, seed))
+    assert combos == {
+        (path, mode, seed)
+        for path in ("source_intervention", "within_state")
+        for mode in ("mask", "pad", "delete")
+        for seed in (0, 1, 2)
+    }
+    # Every combination writes into its own isolated directory.
+    output_dirs = {str(plan.output_dir) for plan in perturb_plans}
+    assert len(output_dirs) == 18
+
+
+def test_candidate_stage_plans_reject_sensitivity_for_non_mask_primary(tmp_path):
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+
+    invocation = _ko_mask_invocation()
+    object.__setattr__(invocation, "perturbation_mode", "overexpress")
+    with pytest.raises(ValueError, match="sensitivity modes apply only to KO"):
+        build_candidate_stage_plans(
+            config,
+            invocation,
+            output_root=tmp_path / "candidate-output",
+            sensitivity_modes=("pad",),
+        )
+
+
+def test_candidate_stage_plans_reject_duplicate_seeds(tmp_path):
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+
+    with pytest.raises(ValueError, match="unique non-negative"):
+        build_candidate_stage_plans(
+            config,
+            _ko_mask_invocation(),
+            output_root=tmp_path / "candidate-output",
+            seeds=(0, 0),
+        )
+
+
+def test_sensitivity_invocation_contract_is_ko_only():
+    invocation = _ko_mask_invocation()
+    object.__setattr__(invocation, "perturbation_mode", "pad")
+    object.__setattr__(invocation, "is_sensitivity", True)
+    assert invocation.perturbation_mode == "pad"
+
+    candidate = CandidateEvidence(
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        cell_type="K562",
+        ptm_context="STAT3:S12",
+        observed_log2fc=1.0,
+        observed_fdr=0.01,
+        observed_direction="up",
+        davf_action="ko",
+        davf_score=0.5,
+        davf_provenance="formal-checkpoint",
+        proposed_direction="up",
+        davf_predicted_direction="up",
+        direction_gate_status="pass",
+    )
+    evidence = DAVFDirectionEvidence(
+        gene_symbol="STAT3",
+        ensembl_id="ENSG00000168610",
+        predicted_direction="up",
+        predicted_delta=1.0,
+        model_source="davf",
+        checkpoint_provenance="formal-checkpoint",
+        embedding_provenance="formal-embedding",
+        confidence=0.5,
+    )
+    with pytest.raises(ValueError, match="KO-only"):
+        PerturbGenInvocation(
+            intervention_type="KD",
+            gene_symbol="STAT3",
+            ensembl_id="ENSG00000168610",
+            target_token_id=17,
+            perturbation_mode="pad",
+            paths=("source_intervention", "within_state"),
+            candidate=candidate,
+            davf_evidence=evidence,
+            is_sensitivity=True,
+        )

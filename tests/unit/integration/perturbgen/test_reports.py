@@ -36,6 +36,7 @@ def _decision():
     return evaluate_dual_path_candidate(
         rows,
         observed_direction="up",
+        intervention_type="KO",
         q_value=0.01,
         candidate_gene="STAT3",
         unperturbed_quality_status="pass",

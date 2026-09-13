@@ -307,6 +307,7 @@ class TestRequestsFallbackMapper:
         details_resp.json.return_value = {"jobStatus": "FINISHED"}
         results_resp = Mock()
         results_resp.raise_for_status = Mock()
+        results_resp.links = {}
         results_resp.json.return_value = {
             "results": [
                 {"from": "BRAF", "to": {"primaryAccession": "P15056"}},
@@ -330,6 +331,54 @@ class TestRequestsFallbackMapper:
         assert result.empty
         assert failed == ["BRAF"]
 
+    def test_requests_mapper_paginates_beyond_first_page(self):
+        """TD-NEW-01: >500 ids must follow the Link rel="next" cursor."""
+        mapper = _RequestsUniProtMapper()
+        submit_resp = Mock()
+        submit_resp.text = "job123"
+        submit_resp.raise_for_status = Mock()
+        details_resp = Mock()
+        details_resp.status_code = 200
+        details_resp.json.return_value = {"jobStatus": "FINISHED"}
+        details_resp.links = {}
+
+        page_one = Mock()
+        page_one.raise_for_status = Mock()
+        page_one.json.return_value = {
+            "results": [{"from": f"G{i}", "to": {"primaryAccession": f"P{i:05d}"}} for i in range(500)]
+        }
+        page_one.links = {"next": {"url": "https://rest.uniprot.org/idmapping/results/job123?cursor=c1&size=500"}}
+        page_two = Mock()
+        page_two.raise_for_status = Mock()
+        page_two.json.return_value = {
+            "results": [{"from": "G500", "to": {"primaryAccession": "P50000"}}]
+        }
+        page_two.links = {}
+
+        with patch('src.analysis.gene_mapper.requests.post', return_value=submit_resp), \
+             patch('src.analysis.gene_mapper.requests.get', side_effect=[details_resp, page_one, page_two]):
+            result, failed = mapper.get(ids=[f"G{i}" for i in range(501)])
+        assert len(result) == 501
+        assert failed == []
+        assert result.iloc[500]["From"] == "G500"
+        assert result.iloc[500]["To"] == "P50000"
+
+    def test_requests_mapper_nonhuman_raises_not_implemented(self):
+        mapper = _RequestsUniProtMapper()
+        with pytest.raises(NotImplementedError, match="9606"):
+            mapper.get(ids=["Braf"], organism="10090")
+
+    def test_map_gene_to_uniprot_nonhuman_raises(self):
+        """TD-NEW-03: a non-human organism must fail loudly, not return human IDs."""
+        mapper = GeneMapper()
+        with pytest.raises(NotImplementedError, match="not supported"):
+            mapper.map_gene_to_uniprot("Braf", organism="10090")
+
+    def test_map_genes_batch_nonhuman_raises(self):
+        mapper = GeneMapper()
+        with pytest.raises(NotImplementedError, match="not supported"):
+            mapper.map_genes_batch(["Braf"], organism="10090")
+
 
 class _FakeTime:
     """Deterministic clock: monotonic follows elapsed sleeps."""
@@ -351,6 +400,9 @@ def _poll_response(status_code: int = 200, payload=None, text: str = "job-1"):
     resp.status_code = status_code
     resp.text = text
     resp.json.return_value = payload if payload is not None else {}
+    # requests.Response.links is a plain dict; MagicMock auto-attributes would
+    # otherwise look like a truthy "next" pagination cursor.
+    resp.links = {}
     return resp
 
 

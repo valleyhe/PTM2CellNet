@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
+
+from .contracts import PathStatus, PerturbationMode
 
 import numpy as np
 import pandas as pd
@@ -286,12 +288,17 @@ def screen_candidate_for_perturbation(
     # Overexpression does not require the target token to be present.  Do not
     # apply KO-style expression filtering to observed-down/OE candidates.
 
-    status = "evaluable" if not reasons else "inconclusive"
+    status = cast(PathStatus, "evaluable") if not reasons else cast(PathStatus, "inconclusive")
     return CandidateScreeningResult(
         candidate=replace(candidate),
         status=status,
         reason_codes=tuple(reasons),
-        recommended_mode=_screening_mode_from_direction(candidate.observed_direction) if not reasons else None,
+        recommended_mode=cast(
+            PerturbationMode,
+            _screening_mode_from_direction(candidate.observed_direction),
+        )
+        if not reasons
+        else None,
         evaluable_donors=prepared.report.evaluable_donors,
         matched_gene_symbol=resolved_symbol if not reasons else None,
         matched_ensembl_id=candidate.ensembl_id if not reasons else None,

@@ -349,8 +349,15 @@ class PTMDirectionMapper:
             )
             return 0, 0
 
-        # Check if directly in Geneformer vocabulary
-        gene_to_idx = getattr(self.geneformer_loader, '_gene_to_idx', {})
+        # Check if directly in Geneformer vocabulary (TD-NEW-04: prefer the
+        # public property; fall back to the legacy private attribute only
+        # when it is a real mapping).
+        from collections.abc import Mapping as _Mapping
+
+        gene_to_idx = getattr(self.geneformer_loader, "gene_to_idx", None)
+        if not isinstance(gene_to_idx, _Mapping):
+            legacy = getattr(self.geneformer_loader, "_gene_to_idx", {})
+            gene_to_idx = legacy if isinstance(legacy, _Mapping) else {}
 
         if gene_name in gene_to_idx:
             return gene_to_idx[gene_name], 1

@@ -399,7 +399,8 @@ class BatchPTMPredictor:
             'neutral': 0,
         }
 
-        for _, row in tqdm(variants_df.iterrows(), total=len(variants_df)):
+        # TD-NEW-10: to_dict("records") 替代逐行 Series 构造。
+        for row in tqdm(variants_df.to_dict("records"), total=len(variants_df)):
             protein_id = row['protein_id']
             position = int(row['position'])
             ref_aa = row['ref_aa']

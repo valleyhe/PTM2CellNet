@@ -357,6 +357,12 @@ class DAVFInferenceModule(nn.Module):
 
         return dict(self._embedding_symbol_to_token)
 
+    @property
+    def embedding_symbol_to_ensembl(self) -> Mapping[str, str]:
+        """Return the verified symbol→Ensembl alias asset (TD-NEW-04)."""
+
+        return dict(self._embedding_symbol_to_ensembl)
+
     @staticmethod
     def _load_embedding_symbol_to_ensembl(mapping_path: str | Path) -> dict[str, str]:
         """Load a strict, unambiguous Ensembl-to-symbol table."""
@@ -636,7 +642,7 @@ class DAVFInferenceModule(nn.Module):
         if not isinstance(names, (list, tuple)) or len(names) != self.config.num_genes:
             raise TypeError("scvi_adapter must expose the ordered gene_names vocabulary")
         name_set = {str(name) for name in names}
-        aliases = getattr(self, "_embedding_symbol_to_ensembl", {})
+        aliases = self.embedding_symbol_to_ensembl
         resolved: list[str] = []
         for raw_symbol in target_symbols:
             raw = str(raw_symbol)
@@ -795,6 +801,13 @@ class DAVFInferenceModule(nn.Module):
                     validate_current_davf_checkpoint_payload,
                 )
 
+                from src.models.latent_davf import LatentDAVF as _LatentDAVF
+
+                if not isinstance(self.latent_davf, _LatentDAVF):
+                    raise TypeError(
+                        "current schema-v2 DAVF checkpoints require a LatentDAVF module, "
+                        f"got {type(self.latent_davf).__name__}"
+                    )
                 validate_current_davf_checkpoint_payload(
                     checkpoint,
                     asset=self._embedding_asset,
@@ -1115,7 +1128,14 @@ class DAVFInferenceModule(nn.Module):
                 raise ValueError(
                     f"target gene index {gene_index} is outside decoder vocabulary [0, {baseline_expression.shape[1]})"
                 )
-            delta = float(perturbed_expression[row_index, gene_index] - baseline_expression[row_index, gene_index])
+            baseline_value = float(baseline_expression[row_index, gene_index])
+            perturbed_value = float(perturbed_expression[row_index, gene_index])
+            delta = perturbed_value - baseline_value
+            denominator = abs(perturbed_value) + abs(baseline_value)
+            confidence = 0.0 if denominator == 0.0 else abs(delta) / denominator
+            if not np.isfinite(confidence):
+                raise ValueError("DAVF direction confidence is non-finite")
+            confidence = float(np.clip(confidence, 0.0, 1.0))
             predicted_direction: Literal["up", "down"] | None = None
             if abs(delta) > direction_epsilon:
                 predicted_direction = "up" if delta > 0 else "down"
@@ -1128,6 +1148,7 @@ class DAVFInferenceModule(nn.Module):
                     model_source=self.model_source,
                     checkpoint_provenance=checkpoint_provenance,
                     embedding_provenance=embedding_provenance,
+                    confidence=confidence,
                 )
             )
         return evidence

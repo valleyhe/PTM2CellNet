@@ -1,9 +1,9 @@
 # PerturbGen 桥接指南（DAVF × PerturbGen 双路径整合）
 
-> **文档版本**：v1.4（2026-09-02，补充真实重训练/微调执行结果与 symbol alias 契约）
+> **文档版本**：v1.6（2026-09-13，补充 config binding、route、replay 与 lineage 契约）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
 > **详细执行方案**：[`docs/guides/davf_perturbgen_retraining_plan_20260902.md`](davf_perturbgen_retraining_plan_20260902.md)
-> **状态基线**：[`project_analysis_20260910.md`](../../project_analysis_20260910.md)（本报告按代码闭合度评估 DAVF 方向推理 77.0% / PerturbGen runner 68.0%，真实资产与 Gate 另计）
+> **状态基线**：[`project_analysis_20260910.md`](../../project_analysis_20260910.md)（本报告按源码、测试和真实资产边界逐项审计；工程契约与科学验收分开记账）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。
@@ -26,10 +26,16 @@
 - PerturbGen 独立环境（conda env `perturbgen`，Python 3.11）：官方 tokenisation、masking/count decoder 训练、`src/tgt` 扰动推理、gene embedding 导出。
 - **主进程绝不 `import perturbgen`**；所有跨环境调用为参数数组（禁止 `shell=True`），stage 带 timeout、退出码与输出 schema 校验。
 
-当前 `run_perturbgen_pipeline.py` 只负责六阶段 runner 调度；DAVF 方向 gate 和
-`evaluate_davf_perturbgen_candidate()` 已作为严格库契约实现，但尚未由该 CLI
-自动调用。因此正式 candidate manifest 仍需按未实现项补齐，不能把 mocked
-pipeline 输出当成方向 gate 或真实科学闭环。
+`run_davf_perturbgen_e2e.py` 负责 DAVF→三方方向 gate→invocation；直接调用
+`run_perturbgen_pipeline.py` 的 `perturb` stage 或指定 `--path` 时，必须显式提供
+含通过 candidate/invocation 的 `--e2e-gate-report`，缺失或 gate 非 pass 直接失败。
+`build_dual_path_eval_input.py` 从成功 stage manifest 组装评估输入；新 null
+distribution manifest 按 candidate/path/mode/seed 绑定，不能把 mock 输出当成真实科学闭环。
+direct runner 还会把 report invocation 与当前 base YAML 的 gene、mode、声明的 route/
+Ensembl、`pipeline.random_seed` 和授权 path 子集逐项绑定；`PerturbGenInvocation.to_dict()`
+中的 `paths` 是授权双路径集合，`perturbgen_config_path` 是原始 base config 路径，
+不是 materialized stage YAML。模板 seed 为 42 时，应使用匹配的 report/`--seeds`
+（例如 `--seeds 42,43,44`）；seed 不匹配直接失败。
 
 ## 2. 环境准备（一次性）
 
@@ -60,9 +66,14 @@ donor cohort 硬要求（方案 §4.6-1；lessons.md L-2026-0822-06）：
 python scripts/audit_perturbgen_cohort.py
 ```
 
-**当前状态（2026-09-01）**：30 文件审计 0 合规候选 —— M0⑥ 是全链唯一
-外部数据硬阻断（U-01）。Gate-0 未过时，M4 重训/M6/Gate-4 按方案 §7.3
-有意挂起，不得跳过。
+**历史状态（2026-09-10）**：30 文件审计 0 合规候选 —— M0⑥ 是全链外部
+数据硬阻断（U-01）。
+
+**本轮状态（2026-09-13）**：重新登记的
+`outputs/perturbgen/spike/20260913_donor_audit/evidence.json` 审计 30 个文件、26
+个可读、0 个合规候选；未以旧 2026-09-03 evidence 冒充本轮日期。Gate-0 未过时，
+M4 重训/M6/Gate-E 仍按方案 §7.3 挂起，不得跳过。训练输入 schema/asset 通过也不
+证明 held-out DAVF biology，因为当前训练入口没有显式 donor split 输入。
 
 ## 4. 六阶段 pipeline（工作流 A）
 
@@ -71,13 +82,17 @@ python scripts/run_perturbgen_pipeline.py \
   --config configs/integration/perturbgen.yaml \
   --stages tokenise train_mask train_decoder perturb export_gene_embeddings report \
   --path both \
+  --e2e-gate-report outputs/davf_perturbgen/ko_report.json \
   --dry-run \
   --gpu-lock-file /tmp/pg.gpu.lock
 ```
 
 - stage 顺序固定：`tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；
+- 选中 `perturb` 或指定 `--path` 时必须提供真实存在且包含通过候选/invocation 的 DAVF E2E gate report；训练-only 阶段无需该参数；
 - 产物路径按上游公式 + 唯一 glob 解析后写入 manifest（路径 + hash），**禁止
   latest-mtime 猜测**；零匹配/多匹配/hash 变化直接失败（lessons.md L-2026-0822-04）；
+- N-05 评估组装会从 runner 的 `outputs` 中按 `artifacts.result_h5ad` 的实际路径复制
+  已登记 `sha256` 到 `h5ad_provenance`；assembler 不新算、不猜 h5ad hash；
 - 上例用 `--dry-run` 只打印计划；正式续跑时移除 `--dry-run`，需要从 manifest
   继续时再添加 `--resume`。
 
@@ -188,6 +203,14 @@ decoder index，后者仍由 `adapter.gene_names` 解析。重复 symbol 对应�
 # 双路径评估（rescue/null/FDR/AND 判定）
 python scripts/evaluate_perturbgen_dual_path.py --input-json <candidates.json> --output-dir <outdir>
 
+# 从 DAVF E2E 报告和 stage manifest 生成评估输入；正式 manifest 每个
+# candidate/path/mode/seed 必须有至少 99 个有限 null 值
+python scripts/build_dual_path_eval_input.py \
+    --e2e-report <e2e-report.json> --output <eval-input.json> \
+    --deg-table <deg.csv> --null-distribution-manifest <null-index.json> \
+    --unperturbed-quality-status <pass|fail|inconclusive> \
+    --uniform-candidate-pvalue <p>
+
 # 基准测试（engineering fixture 可离线；real 需真资产）
 python scripts/benchmark_perturbgen.py --config <cfg> --fixture-type engineering|real [--iterations N]
 
@@ -199,7 +222,7 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 两路 rescue 均稳定为正（排除目标基因本身、≥3 donor 方向一致、跨 seed/mask-pad-delete
 模式一致）才进实验验证候选清单。
 
-## 7. 门禁状态速查（截至 2026-09-01）
+## 7. 门禁状态速查（截至 2026-09-10）
 
 | Gate | 内容 | 状态 |
 |---|---|---|
@@ -208,7 +231,7 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 | Gate-1~3 | 契约 / runner / 双路径统计 | ⚠️ 工程组件完成；E2E CLI 已接通方向 gate→runner，正式 donor/统计证据仍待补齐 |
 | Gate-E | DAVF 新底座资产/接口回归 | ✅ current checkpoint 与真实 token/decoder 分离测试通过；生物学方向门仍待 held-out 验证 |
 | Gate-4 | 真实 smoke / 正式 release evidence | ⚠️ 本地 Datlinger 750-cell 六阶段 smoke 已通过；正式 donor 队列仍待运行 |
-| Gate-5 | 冻结队列科学验收（3 seeds / held-out / ≥99 null / BH-FDR） | ⏸ 未开始（M6） |
+| Gate-5 | 冻结队列科学验收（3 seeds / held-out / ≥99 null / BH-FDR） | ⚠️ 工具与独立重算入口已具备；真实 cohort 到位前未执行 |
 
 ## 8. 常见陷阱
 

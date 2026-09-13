@@ -40,6 +40,7 @@ def test_mocked_dual_path_pipeline_passes_and_writes_replayable_report(tmp_path)
     decision = evaluate_dual_path_candidate(
         _path_rows("source_intervention", 99, 0.6) + _path_rows("within_state", 99, 0.5),
         observed_direction="up",
+        intervention_type="KO",
         q_value=q_value,
         candidate_gene="STAT3",
         unperturbed_quality_status="pass",
@@ -65,6 +66,7 @@ def test_mocked_dual_path_pipeline_marks_smoke_only_null_as_inconclusive() -> No
     decision = evaluate_dual_path_candidate(
         _path_rows("source_intervention", 20, 0.6) + _path_rows("within_state", 20, 0.5),
         observed_direction="up",
+        intervention_type="KO",
         q_value=q_value,
         candidate_gene="STAT3",
         unperturbed_quality_status="pass",

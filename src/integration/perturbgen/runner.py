@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, cast
 
 import yaml
 
@@ -266,7 +266,7 @@ class PerturbGenRunner:
         exactly aligned without importing the external package in PTM2CellNet.
         """
 
-        if plan.name != "perturb" or not plan.generated_files:
+        if plan.driver != "perturb_script" or not plan.generated_files:
             return plan
         generated = plan.generated_files[0]
         payload = generated.payload
@@ -430,6 +430,7 @@ class PerturbGenRunner:
             if plan.driver == "internal_report":
                 stdout, stderr = self._write_report(plan)
                 returncode = 0
+                # widened by the except branch below
             else:
                 stdout, stderr, returncode = self._execute_subprocess(plan, env_report)
             resolved_outputs = self._resolve_discovered_outputs(plan.expected_outputs)
@@ -440,8 +441,9 @@ class PerturbGenRunner:
         except Exception as exc:
             stdout = ""
             stderr = str(exc)
-            returncode = getattr(exc, "returncode", None)
+            fallback_returncode = cast(int | None, getattr(exc, "returncode", None))
             status = "failed"
+            returncode = fallback_returncode if fallback_returncode is not None else -1
             error_payload = {"type": exc.__class__.__name__, "message": str(exc)}
             self._write_manifest(
                 manifest_path,
@@ -534,11 +536,12 @@ class PerturbGenRunner:
             "timeout": plan.timeout_seconds,
             "shell": False,
         }
+        run_kwargs = cast(Mapping[str, Any], kwargs)
         if plan.uses_gpu:
             with _gpu_lock(self._gpu_lock_file):
-                completed = subprocess.run(list(plan.argv), **kwargs)
+                completed = subprocess.run(list(plan.argv), **run_kwargs)
         else:
-            completed = subprocess.run(list(plan.argv), **kwargs)
+            completed = subprocess.run(list(plan.argv), **run_kwargs)
 
         stdout = sanitize_text(completed.stdout, env_report.roots)
         stderr = sanitize_text(completed.stderr, env_report.roots)

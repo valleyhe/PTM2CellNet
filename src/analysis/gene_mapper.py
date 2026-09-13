@@ -16,6 +16,10 @@ _POLL_BACKOFF_FACTOR = 1.5
 _POLL_MAX_INTERVAL = 3.0
 _POLL_BUDGET_S = 60.0
 _EXTERNAL_MAPPER_TIMEOUT_S = 90.0
+# TD-NEW-01 (2026-09-10): REST idmapping results 单页默认 500 条，必须跟随
+# Link rel="next" 游标拉全页，否则 >500 基因的映射被静默截断。
+_RESULTS_PAGE_SIZE = 500
+_HUMAN_TAX_ID = "9606"
 
 try:
     from UniProtMapper import ProtMapper
@@ -46,9 +50,18 @@ class _RequestsUniProtMapper:
         ids: List[str],
         from_db: str = "Gene_Name",
         to_db: str = "UniProtKB",
+        organism: str = _HUMAN_TAX_ID,
     ) -> "tuple[pd.DataFrame, List[str]]":
         if not ids:
             return pd.DataFrame(columns=["From", "To"]), []
+        # TD-NEW-03: the REST ID-mapping service cannot filter by taxonomy,
+        # so a non-human request must fail loudly instead of silently
+        # returning human accessions.
+        if str(organism).strip() != _HUMAN_TAX_ID:
+            raise NotImplementedError(
+                f"organism {organism!r} is not supported: the UniProt REST "
+                "ID-mapping fallback only resolves human (9606) mappings"
+            )
 
         # Submit the ID-mapping job.
         try:
@@ -103,27 +116,31 @@ class _RequestsUniProtMapper:
             logger.warning("UniProt ID-mapping job %s did not complete", job_id)
             return pd.DataFrame(columns=["From", "To"]), list(ids)
 
-        # Fetch the mapped results.
-        try:
-            results_response = requests.get(
-                f"{self._ID_MAPPING_URL}/results/{job_id}",
-                params={"size": 500},
-                timeout=30,
-            )
-            results_response.raise_for_status()
-        except requests.RequestException as exc:
-            logger.error("UniProt ID-mapping results fetch failed: %s", exc)
-            return pd.DataFrame(columns=["From", "To"]), list(ids)
-
-        try:
-            results_payload = results_response.json()
-        except ValueError as exc:
-            logger.error("UniProt ID-mapping results are not JSON: %s", exc)
-            return pd.DataFrame(columns=["From", "To"]), list(ids)
+        # Fetch the mapped results, following the Link rel="next" cursor until
+        # every page has been consumed (TD-NEW-01: >500 ids previously lost
+        # everything past the first page without any warning).
+        next_url: Optional[str] = (
+            f"{self._ID_MAPPING_URL}/results/{job_id}?size={_RESULTS_PAGE_SIZE}"
+        )
+        entries: List[Dict[str, Any]] = []
+        while next_url:
+            try:
+                results_response = requests.get(next_url, timeout=30)
+                results_response.raise_for_status()
+            except requests.RequestException as exc:
+                logger.error("UniProt ID-mapping results fetch failed: %s", exc)
+                return pd.DataFrame(columns=["From", "To"]), list(ids)
+            try:
+                results_payload = results_response.json()
+            except ValueError as exc:
+                logger.error("UniProt ID-mapping results are not JSON: %s", exc)
+                return pd.DataFrame(columns=["From", "To"]), list(ids)
+            entries.extend(results_payload.get("results", []))
+            next_url = results_response.links.get("next", {}).get("url")
 
         rows: List[Dict[str, Any]] = []
         mapped_from: set = set()
-        for entry in results_payload.get("results", []):
+        for entry in entries:
             from_id = entry.get("from")
             to_obj = entry.get("to")
             to_id = (
@@ -211,13 +228,25 @@ class GeneMapper:
     def _get_mapper_results(
         self,
         ids: List[str],
+        organism: str = _HUMAN_TAX_ID,
     ) -> Any:
-        """Get mappings while bounding calls to the optional dependency."""
+        """Get mappings while bounding calls to the optional dependency.
+
+        TD-NEW-03: ``organism`` is forwarded to the mapper.  Both backends
+        only resolve human (9606) mappings; a non-human taxonomy raises
+        ``NotImplementedError`` instead of returning human accessions.
+        """
+        if str(organism).strip() != _HUMAN_TAX_ID:
+            raise NotImplementedError(
+                f"organism {organism!r} is not supported: gene mapping only "
+                "resolves human (9606) UniProt accessions"
+            )
         if isinstance(self._mapper, _RequestsUniProtMapper):
             return self._mapper.get(
                 ids=ids,
                 from_db="Gene_Name",
                 to_db="UniProtKB",
+                organism=organism,
             )
         return _call_external_mapper(
             self._mapper,
@@ -245,7 +274,7 @@ class GeneMapper:
             return self._gene_cache[gene_symbol]
 
         try:
-            result, failed = self._get_mapper_results([gene_symbol])
+            result, failed = self._get_mapper_results([gene_symbol], organism=organism)
 
             if failed:
                 logger.warning(f"Failed to map gene {gene_symbol}: {failed}")
@@ -302,7 +331,7 @@ class GeneMapper:
             return results
 
         try:
-            mapper_results, failed = self._get_mapper_results(uncached_genes)
+            mapper_results, failed = self._get_mapper_results(uncached_genes, organism=organism)
 
             # Process successful mappings
             if not mapper_results.empty:

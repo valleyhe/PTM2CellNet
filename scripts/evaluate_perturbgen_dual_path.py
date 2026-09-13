@@ -7,10 +7,11 @@ import argparse
 from dataclasses import asdict, is_dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sys
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence, cast
 
 import pandas as pd
 
@@ -28,6 +29,7 @@ from src.integration.perturbgen.results import (  # noqa: E402
     benjamini_hochberg,
     extract_path_result_from_perturbgen_h5ad,
 )
+from src.integration.perturbgen.null_selection import load_null_distribution_manifest  # noqa: E402
 
 INPUT_SCHEMA_VERSION = "perturbgen_dual_path_eval/v1"
 MANIFEST_SCHEMA_VERSION = "perturbgen_dual_path_manifest/v1"
@@ -35,6 +37,9 @@ _VALID_PATHS = {"source_intervention", "within_state"}
 _VALID_MODES = {"mask", "pad", "delete", "overexpress"}
 _VALID_QUALITY = {"pass", "fail", "inconclusive"}
 _VALID_DIRECTIONS = {"up", "down"}
+_VALID_INTERVENTION_TYPES = {"KO", "KD"}
+LiteralPath = Literal["source_intervention", "within_state"]
+LiteralMode = Literal["mask", "pad", "delete", "overexpress"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -110,6 +115,10 @@ def _evaluate_candidate(
         candidate.get("gene_symbol") or candidate.get("candidate_gene"),
         name="candidate.gene_symbol",
     )
+    intervention_type = _require_intervention_type(
+        candidate.get("intervention_type"),
+        name="candidate.intervention_type",
+    )
     observed_direction = _require_choice(
         candidate_spec.get("observed_direction"),
         valid_values=_VALID_DIRECTIONS,
@@ -128,10 +137,19 @@ def _evaluate_candidate(
     if not isinstance(runs, Sequence) or isinstance(runs, (str, bytes)) or not runs:
         raise ValueError("candidate runs must be a non-empty sequence")
 
-    extracted_runs = [_extract_run(run_spec, input_base_dir=input_base_dir) for run_spec in runs]
+    candidate_ensembl_id = candidate.get("ensembl_id")
+    extracted_runs = [
+        _extract_run(
+            run_spec,
+            input_base_dir=input_base_dir,
+            candidate_ensembl_id=candidate_ensembl_id,
+        )
+        for run_spec in runs
+    ]
     decision = evaluate_dual_path_candidate(
         [item["path_result"] for item in extracted_runs],
         observed_direction=observed_direction,
+        intervention_type=intervention_type,
         q_value=q_value,
         candidate_gene=candidate_gene,
         unperturbed_quality_status=unperturbed_quality_status,
@@ -159,6 +177,7 @@ def _evaluate_candidate(
     artifacts = save_report_artifacts(payload, candidate_dir)
     return payload, {
         "candidate_gene": candidate_gene,
+        "intervention_type": intervention_type,
         "candidate_index": candidate_index,
         "candidate_pvalue": candidate_pvalue,
         "q_value": q_value,
@@ -167,13 +186,25 @@ def _evaluate_candidate(
         "report_dir": str(candidate_dir),
         "artifacts": artifacts,
         "input_runs": extracted_runs,
+        "replay": manifest["replay"],
     }
 
 
-def _extract_run(run_spec: Any, *, input_base_dir: Path) -> dict[str, Any]:
+def _extract_run(
+    run_spec: Any,
+    *,
+    input_base_dir: Path,
+    candidate_ensembl_id: Any = None,
+) -> dict[str, Any]:
     run = _require_mapping(run_spec, name="run")
-    path = _require_choice(run.get("path"), valid_values=_VALID_PATHS, name="path")
-    mode = _require_choice(run.get("mode"), valid_values=_VALID_MODES, name="mode")
+    path = cast(
+        LiteralPath,
+        _require_choice(run.get("path"), valid_values=_VALID_PATHS, name="path"),
+    )
+    mode = cast(
+        LiteralMode,
+        _require_choice(run.get("mode"), valid_values=_VALID_MODES, name="mode"),
+    )
     seed = _require_non_negative_int(run.get("seed"), name="seed")
     output_h5ad = _resolve_input_path(
         input_base_dir,
@@ -187,53 +218,135 @@ def _extract_run(run_spec: Any, *, input_base_dir: Path) -> dict[str, Any]:
             _require_non_empty_string(raw_provenance.get("stage_manifest"), name="h5ad_provenance.stage_manifest"),
         )
     )
+    h5ad_provenance["tokenise_stage_manifest"] = str(
+        _resolve_input_path(
+            input_base_dir,
+            _require_non_empty_string(
+                raw_provenance.get("tokenise_stage_manifest"),
+                name="h5ad_provenance.tokenise_stage_manifest",
+            ),
+        )
+    )
     donor_obs_column = _require_non_empty_string(run.get("donor_obs_column"), name="donor_obs_column")
     var_gene_column = _require_non_empty_string(run.get("var_gene_column"), name="var_gene_column")
     deg_table_path = _resolve_input_path(
         input_base_dir,
         _require_non_empty_string(run.get("deg_table_path"), name="deg_table_path"),
     )
-    null_distribution_path = _resolve_input_path(
-        input_base_dir,
-        _require_non_empty_string(run.get("null_distribution_path"), name="null_distribution_path"),
-    )
+    inline_null_distribution = run.get("null_distribution")
+    null_manifest_value = run.get("null_distribution_manifest_path")
+    if inline_null_distribution is not None:
+        if run.get("null_distribution_path") is not None:
+            raise ValueError("provide either null_distribution or null_distribution_path, not both")
+        if null_manifest_value is None:
+            raise ValueError(
+                "inline null_distribution must include null_distribution_manifest_path from the N-05 assembler"
+            )
+        candidate_id = _require_non_empty_string(
+            candidate_ensembl_id,
+            name="candidate.ensembl_id for inline null_distribution",
+        )
+        null_manifest_path = _resolve_input_path(
+            input_base_dir,
+            _require_non_empty_string(null_manifest_value, name="null_distribution_manifest_path"),
+        )
+        try:
+            distribution = load_null_distribution_manifest(
+                null_manifest_path,
+                candidate_ensembl_id=candidate_id,
+                path_name=path,
+                mode=mode,
+                seed=seed,
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"inline null_distribution binding does not match {candidate_id}/{path}/{mode}/{seed}: {exc}"
+            ) from exc
+        null_distribution = _validate_inline_null_distribution(inline_null_distribution)
+        if null_distribution != distribution["values"]:
+            raise ValueError("inline null_distribution does not equal the N-05 manifest-bound values")
+        null_distribution_manifest_path = null_manifest_path
+        null_distribution_path = None
+    else:
+        if null_manifest_value is not None:
+            raise ValueError(
+                "null_distribution_manifest_path is only valid with N-05 assembler embedded null_distribution"
+            )
+        null_distribution_path = _resolve_input_path(
+            input_base_dir,
+            _require_non_empty_string(run.get("null_distribution_path"), name="null_distribution_path"),
+        )
+        null_distribution = _load_null_distribution(null_distribution_path)
+        null_distribution_manifest_path = None
+
+    target_gene = _optional_non_empty_string(run.get("target_gene"))
+    deg_donor_column = _require_non_empty_string(run.get("deg_donor_column"), name="deg_donor_column")
+    deg_gene_column = _require_non_empty_string(run.get("deg_gene_column"), name="deg_gene_column")
+    deg_effect_column = _require_non_empty_string(run.get("deg_effect_column"), name="deg_effect_column")
+    deg_fdr_column = _require_non_empty_string(run.get("deg_fdr_column"), name="deg_fdr_column")
+    fdr_threshold = float(run.get("fdr_threshold", 0.05))
+    min_training_donors = int(run.get("min_training_donors", 2))
+    min_evaluable_donors = int(run.get("min_evaluable_donors", 3))
+    top_k = int(run.get("top_k", 50))
+    bootstrap_iterations = int(run.get("bootstrap_iterations", 1000))
+    if run.get("bootstrap_seed") is None:
+        raise ValueError("bootstrap_seed must be explicitly recorded for deterministic formal replay")
+    bootstrap_seed = _require_non_negative_int(run.get("bootstrap_seed"), name="bootstrap_seed")
 
     extraction = extract_path_result_from_perturbgen_h5ad(
         output_h5ad=output_h5ad,
         h5ad_provenance=h5ad_provenance,
         deg_table=_load_deg_table(deg_table_path),
-        null_distribution=_load_null_distribution(null_distribution_path),
+        null_distribution=null_distribution,
         path=path,
         mode=mode,
         seed=seed,
         donor_obs_column=donor_obs_column,
         var_gene_column=var_gene_column,
-        target_gene=_optional_non_empty_string(run.get("target_gene")),
-        donor_column=_require_non_empty_string(run.get("deg_donor_column"), name="deg_donor_column"),
-        gene_column=_require_non_empty_string(run.get("deg_gene_column"), name="deg_gene_column"),
-        effect_column=_require_non_empty_string(run.get("deg_effect_column"), name="deg_effect_column"),
-        fdr_column=_require_non_empty_string(run.get("deg_fdr_column"), name="deg_fdr_column"),
-        fdr_threshold=float(run.get("fdr_threshold", 0.05)),
-        min_training_donors=int(run.get("min_training_donors", 2)),
-        min_evaluable_donors=int(run.get("min_evaluable_donors", 3)),
-        top_k=int(run.get("top_k", 50)),
-        bootstrap_iterations=int(run.get("bootstrap_iterations", 1000)),
-        bootstrap_seed=None if run.get("bootstrap_seed") is None else int(run["bootstrap_seed"]),
+        target_gene=target_gene,
+        donor_column=deg_donor_column,
+        gene_column=deg_gene_column,
+        effect_column=deg_effect_column,
+        fdr_column=deg_fdr_column,
+        fdr_threshold=fdr_threshold,
+        min_training_donors=min_training_donors,
+        min_evaluable_donors=min_evaluable_donors,
+        top_k=top_k,
+        bootstrap_iterations=bootstrap_iterations,
+        bootstrap_seed=bootstrap_seed,
     )
-    return {
+    result = {
         "path": path,
         "mode": mode,
         "seed": seed,
         "output_h5ad": str(output_h5ad.expanduser().resolve(strict=True)),
         "deg_table_path": str(deg_table_path.expanduser().resolve(strict=True)),
-        "null_distribution_path": str(null_distribution_path.expanduser().resolve(strict=True)),
         "h5ad_provenance": _to_plain_object(h5ad_provenance),
+        "target_gene": target_gene,
+        "donor_obs_column": donor_obs_column,
+        "var_gene_column": var_gene_column,
+        "deg_donor_column": deg_donor_column,
+        "deg_gene_column": deg_gene_column,
+        "deg_effect_column": deg_effect_column,
+        "deg_fdr_column": deg_fdr_column,
+        "fdr_threshold": fdr_threshold,
+        "min_training_donors": min_training_donors,
+        "min_evaluable_donors": min_evaluable_donors,
+        "top_k": top_k,
+        "bootstrap_iterations": bootstrap_iterations,
+        "bootstrap_seed": bootstrap_seed,
         "baseline_matrix": extraction.baseline_matrix,
         "perturbed_matrix": extraction.perturbed_matrix,
         "bootstrap_ci": list(extraction.bootstrap_ci) if extraction.bootstrap_ci is not None else None,
         "donor_scores": _to_plain_object(extraction.donor_scores),
         "path_result": _to_plain_object(extraction.path_result),
     }
+    if null_distribution_path is not None:
+        result["null_distribution_path"] = str(null_distribution_path.expanduser().resolve(strict=True))
+    else:
+        result["null_distribution"] = null_distribution
+        result["null_distribution_manifest_path"] = str(null_distribution_manifest_path)
+    return result
 
 
 def _validate_top_level_spec(spec: Any) -> None:
@@ -264,12 +377,33 @@ def _load_deg_table(path: Path) -> pd.DataFrame:
 
 
 def _load_null_distribution(path: Path) -> list[float]:
-    resolved = path.expanduser().resolve(strict=True)
-    payload = json.loads(resolved.read_text(encoding="utf-8"))
-    values = payload.get("values") if isinstance(payload, Mapping) else payload
-    if not isinstance(values, list) or not values:
-        raise ValueError("null_distribution_path must contain a non-empty JSON array")
-    return [float(item) for item in values]
+    try:
+        payload = load_null_distribution_manifest(path, required_count=1)
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            "null_distribution_path must contain non-empty finite values: "
+            f"{path}: {exc}"
+        ) from exc
+    return payload["values"]
+
+
+def _validate_inline_null_distribution(values: Any) -> list[float]:
+    if not isinstance(values, list):
+        raise ValueError("null_distribution must be a list")
+    if len(values) < 99:
+        raise ValueError("inline null_distribution must contain at least 99 values")
+    converted: list[float] = []
+    for value in values:
+        if isinstance(value, bool):
+            raise ValueError("inline null_distribution values must be numeric")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("inline null_distribution values must be numeric") from exc
+        if not math.isfinite(number):
+            raise ValueError("inline null_distribution values must be finite")
+        converted.append(number)
+    return converted
 
 
 def _resolve_input_path(base_dir: Path, value: str) -> Path:
@@ -294,7 +428,7 @@ def _slug(value: str) -> str:
 
 def _to_plain_object(value: Any) -> Any:
     if is_dataclass(value):
-        return asdict(value)
+        return asdict(cast(Any, value))
     if isinstance(value, Mapping):
         return {str(key): _to_plain_object(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -326,6 +460,13 @@ def _require_choice(value: Any, *, valid_values: set[str], name: str) -> str:
     text = _require_non_empty_string(value, name=name)
     if text not in valid_values:
         raise ValueError(f"{name} must be one of {sorted(valid_values)}, got {text!r}")
+    return text
+
+
+def _require_intervention_type(value: Any, *, name: str) -> str:
+    text = _require_non_empty_string(value, name=name).upper()
+    if text not in _VALID_INTERVENTION_TYPES:
+        raise ValueError(f"{name} must be explicitly KO or KD, got {text!r}")
     return text
 
 

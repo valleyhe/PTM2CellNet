@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts.evaluate_perturbgen_dual_path import INPUT_SCHEMA_VERSION, main
+from scripts.evaluate_perturbgen_dual_path import INPUT_SCHEMA_VERSION, _extract_run, main
 
 
 def _deg_table() -> pd.DataFrame:
@@ -69,6 +69,7 @@ def _build_provenance(tmp_path: Path, output_h5ad: Path, *, stage: str) -> dict[
     resolved_h5ad = output_h5ad.resolve(strict=True)
     sha256 = hashlib.sha256(resolved_h5ad.read_bytes()).hexdigest()
     stage_manifest = tmp_path / f"{stage}_stage_manifest.json"
+    tokenise_stage_manifest = tmp_path / "tokenise_stage_manifest.json"
     stage_manifest.write_text(
         json.dumps(
             {
@@ -81,7 +82,21 @@ def _build_provenance(tmp_path: Path, output_h5ad: Path, *, stage: str) -> dict[
         ),
         encoding="utf-8",
     )
-    return {"stage_manifest": str(stage_manifest), "sha256": sha256}
+    tokenise_stage_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "stage": "tokenise",
+                "status": "success",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "stage_manifest": str(stage_manifest),
+        "tokenise_stage_manifest": str(tokenise_stage_manifest),
+        "sha256": sha256,
+    }
 
 
 def _build_run(
@@ -120,6 +135,70 @@ def _write_input_json(tmp_path: Path, spec: dict) -> Path:
     return path
 
 
+def _write_bound_null_manifest(
+    path: Path,
+    *,
+    candidate_ensembl_id: str = "ENSG00000168610",
+    path_kind: str = "source_intervention",
+    mode: str = "mask",
+    seed: int = 1,
+    values: list[float] | None = None,
+) -> Path:
+    values = [0.1] * 99 if values is None else values
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "perturbgen_null_distribution/v1",
+                "candidate_ensembl_id": candidate_ensembl_id,
+                "path": path_kind,
+                "mode": mode,
+                "seed": seed,
+                "required_count": 99,
+                "values": values,
+                "null_ensembl_ids": [f"ENSG999{i:08d}" for i in range(len(values))],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_inline_null_distribution_requires_n05_manifest_binding(tmp_path: Path) -> None:
+    output_h5ad = _write_perturbgen_h5ad(tmp_path)
+    deg_table_path = tmp_path / "deg.csv"
+    _deg_table().to_csv(deg_table_path, index=False)
+    legacy_null_path = tmp_path / "legacy.json"
+    legacy_null_path.write_text(json.dumps([0.1] * 99), encoding="utf-8")
+    run = _build_run(
+        output_h5ad=output_h5ad,
+        deg_table_path=deg_table_path,
+        null_distribution_path=legacy_null_path,
+        path="source_intervention",
+        mode="mask",
+        seed=1,
+    )
+    run.pop("null_distribution_path")
+    run["null_distribution"] = [0.1] * 99
+    with pytest.raises(ValueError, match="N-05 assembler"):
+        _extract_run(run, input_base_dir=tmp_path, candidate_ensembl_id="ENSG00000168610")
+
+    manifest_path = _write_bound_null_manifest(tmp_path / "bound.json")
+    run["null_distribution_manifest_path"] = str(manifest_path)
+    result = _extract_run(run, input_base_dir=tmp_path, candidate_ensembl_id="ENSG00000168610")
+    assert result["null_distribution"] == [0.1] * 99
+    assert result["null_distribution_manifest_path"] == str(manifest_path.resolve())
+
+    run["null_distribution"] = [0.2] * 99
+    with pytest.raises(ValueError, match="does not equal"):
+        _extract_run(run, input_base_dir=tmp_path, candidate_ensembl_id="ENSG00000168610")
+
+    run["null_distribution"] = [0.1] * 99
+    mismatch_manifest = _write_bound_null_manifest(tmp_path / "mismatch.json", path_kind="within_state")
+    run["null_distribution_manifest_path"] = str(mismatch_manifest)
+    with pytest.raises(ValueError, match="binding"):
+        _extract_run(run, input_base_dir=tmp_path, candidate_ensembl_id="ENSG00000168610")
+
+
 def test_cli_computes_bh_qvalues_and_writes_manifest(tmp_path: Path) -> None:
     output_h5ad = _write_perturbgen_h5ad(tmp_path)
     deg_table_path = tmp_path / "deg.csv"
@@ -147,14 +226,14 @@ def test_cli_computes_bh_qvalues_and_writes_manifest(tmp_path: Path) -> None:
             "run_id": "dual-path-001",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
                     "runs": runs,
                 },
                 {
-                    "candidate": {"gene_symbol": "JUN"},
+                    "candidate": {"gene_symbol": "JUN", "intervention_type": "KO"},
                     "candidate_pvalue": 0.04,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
@@ -206,14 +285,14 @@ def test_cli_marks_20_null_as_inconclusive_and_99_null_as_formal(tmp_path: Path)
             "run_id": "dual-path-002",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "SMOKE"},
+                    "candidate": {"gene_symbol": "SMOKE", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
                     "runs": build_runs(null_20_path),
                 },
                 {
-                    "candidate": {"gene_symbol": "FORMAL"},
+                    "candidate": {"gene_symbol": "FORMAL", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
@@ -254,7 +333,7 @@ def test_cli_fail_fast_on_missing_fields_and_invalid_path_mode_seed_provenance(t
             "run_id": "dual-path-003",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
@@ -282,7 +361,7 @@ def test_cli_fail_fast_on_missing_fields_and_invalid_path_mode_seed_provenance(t
             "run_id": "dual-path-004",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
@@ -310,7 +389,7 @@ def test_cli_fail_fast_on_missing_fields_and_invalid_path_mode_seed_provenance(t
             "run_id": "dual-path-005",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
@@ -329,7 +408,7 @@ def test_cli_fail_fast_on_missing_fields_and_invalid_path_mode_seed_provenance(t
             "run_id": "dual-path-006",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
                     "runs": [
@@ -376,7 +455,7 @@ def test_cli_marks_missing_dual_path_as_inconclusive(tmp_path: Path) -> None:
             "run_id": "dual-path-007",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",
@@ -416,6 +495,7 @@ def test_cli_resolves_relative_paths_and_rejects_tampered_manifest_and_nonempty_
         seed=1,
         h5ad_provenance={
             "stage_manifest": Path(provenance["stage_manifest"]).name,
+            "tokenise_stage_manifest": Path(provenance["tokenise_stage_manifest"]).name,
             "sha256": provenance["sha256"],
         },
     )
@@ -428,6 +508,7 @@ def test_cli_resolves_relative_paths_and_rejects_tampered_manifest_and_nonempty_
         seed=1,
         h5ad_provenance={
             "stage_manifest": Path(within_provenance["stage_manifest"]).name,
+            "tokenise_stage_manifest": Path(within_provenance["tokenise_stage_manifest"]).name,
             "sha256": within_provenance["sha256"],
         },
     )
@@ -438,7 +519,7 @@ def test_cli_resolves_relative_paths_and_rejects_tampered_manifest_and_nonempty_
             "run_id": "dual-path-008",
             "candidates": [
                 {
-                    "candidate": {"gene_symbol": "STAT3"},
+                    "candidate": {"gene_symbol": "STAT3", "intervention_type": "KO"},
                     "candidate_pvalue": 0.01,
                     "observed_direction": "up",
                     "unperturbed_quality_status": "pass",

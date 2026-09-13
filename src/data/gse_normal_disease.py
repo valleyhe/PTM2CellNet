@@ -16,7 +16,7 @@ import gzip
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -24,12 +24,12 @@ import scipy.sparse as sp
 from scipy.io import mmread
 from scipy.stats import ttest_ind
 
+from src.models.davf_checkpoint_contract import FORMAL_DAVF_NUM_GENES  # noqa: F401 - re-exported contract constant
 from src.models.gene_vocabulary import normalize_ensembl_id
 
 
 GSE_NORMAL_DISEASE_SCHEMA_VERSION = "ptm2cellnet.gse-normal-disease.v1"
 GSE_COUNTS_LAYER = "counts"
-FORMAL_DAVF_NUM_GENES = 4018
 DEFAULT_TARGET_COUNT_SCALE = 10_000.0
 
 
@@ -293,9 +293,9 @@ def build_gse_sample_specs(
                     donor=key,
                     state=state,
                     accession=accession,
-                    matrix_path=files["matrix"],
-                    features_path=files["features"],
-                    barcodes_path=files["barcodes"],
+                    matrix_path=Path(str(files["matrix"])),
+                    features_path=Path(str(files["features"])),
+                    barcodes_path=Path(str(files["barcodes"])),
                     # The filename label is a sample identifier, not tissue
                     # metadata.  Do not silently infer biological attributes.
                     tissue="",
@@ -345,7 +345,7 @@ def _read_annotation(path: str | Path) -> pd.DataFrame:
     annotation.attrs["ambiguous_cells"] = {
         sample: list(sorted(cell_ids)) for sample, cell_ids in sorted(ambiguous_by_sample.items())
     }
-    return annotation
+    return cast(pd.DataFrame, annotation)
 
 
 def _select_genes(
@@ -444,22 +444,22 @@ def prepare_gse_normal_disease(
     first_symbols = dict(zip(first.gene_ids, first.gene_symbols, strict=True))
     matrices: list[sp.csr_matrix] = []
     obs_rows: list[dict[str, str]] = []
-    for sample in loaded:
-        index_by_gene = {gene_id: index for index, gene_id in enumerate(sample.gene_ids)}
+    for loaded_sample in loaded:
+        index_by_gene = {gene_id: index for index, gene_id in enumerate(loaded_sample.gene_ids)}
         indices = [index_by_gene[gene_id] for gene_id in selected_gene_ids]
-        matrices.append(sample.matrix[:, indices].tocsr())
-        cell_types = _annotation_for_sample(annotation, sample.spec, sample.barcodes)
-        for _barcode, cell_type in zip(sample.barcodes, cell_types, strict=True):
+        matrices.append(loaded_sample.matrix[:, indices].tocsr())
+        cell_types = _annotation_for_sample(annotation, loaded_sample.spec, loaded_sample.barcodes)
+        for _barcode, cell_type in zip(loaded_sample.barcodes, cell_types, strict=True):
             obs_rows.append(
                 {
-                    "sample": sample.spec.sample,
-                    "sample_accession": sample.spec.accession,
-                    "donor": sample.spec.donor,
-                    "state": sample.spec.state,
+                    "sample": loaded_sample.spec.sample,
+                    "sample_accession": loaded_sample.spec.accession,
+                    "donor": loaded_sample.spec.donor,
+                    "state": loaded_sample.spec.state,
                     "cell_type": cell_type,
-                    "tissue": sample.spec.tissue,
+                    "tissue": loaded_sample.spec.tissue,
                     "dataset": dataset_accession,
-                    "davf_batch": sample.spec.sample,
+                    "davf_batch": loaded_sample.spec.sample,
                 }
             )
     combined = sp.vstack(matrices, format="csr", dtype=np.float32)
@@ -597,7 +597,7 @@ def _bh_adjust(p_values: np.ndarray) -> np.ndarray:
     return result
 
 
-def _donor_log2_means(counts: Any, indices: Sequence[int]) -> np.ndarray:
+def _donor_log2_means(counts: Any, indices: Iterable[int] | np.ndarray) -> np.ndarray:
     subset = counts[list(indices)]
     library = np.asarray(subset.sum(axis=1)).ravel().astype(np.float64)
     if np.any(library <= 0):
@@ -607,7 +607,7 @@ def _donor_log2_means(counts: Any, indices: Sequence[int]) -> np.ndarray:
         normalized.data = np.log2(normalized.data + 1.0)
         return np.asarray(normalized.mean(axis=0)).ravel()
     normalized_dense = np.asarray(subset, dtype=np.float64) * (DEFAULT_TARGET_COUNT_SCALE / library[:, None])
-    return np.log2(normalized_dense + 1.0).mean(axis=0)
+    return np.asarray(np.log2(normalized_dense + 1.0).mean(axis=0))
 
 
 def summarize_normal_disease_directions(

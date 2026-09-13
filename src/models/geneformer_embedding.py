@@ -10,8 +10,10 @@ Embedding dimension: 1152 (Geneformer V1)
 
 import logging
 import hashlib
+import json
 import os
 import warnings
+from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -19,6 +21,15 @@ import torch
 logger = logging.getLogger(__name__)
 
 _geneformer_is_fallback = False
+
+
+class GeneformerVocabularyError(RuntimeError):
+    """Weights loaded but the gene token vocabulary is missing or invalid.
+
+    This is a data-correctness failure, not a load failure: falling back to
+    random embeddings here would silently strip every gene lookup of its
+    semantics, so the error is never downgraded to the random fallback.
+    """
 
 
 class GeneformerEmbeddingLoader:
@@ -38,6 +49,11 @@ class GeneformerEmbeddingLoader:
     def embedding_dim(self) -> int:
         """Return the embedding dimension (1152 for Geneformer V1)."""
         return self._embedding_dim
+
+    @property
+    def gene_to_idx(self) -> Dict[str, int]:
+        """Public read-only view of the token vocabulary (TD-NEW-04)."""
+        return dict(self._gene_to_idx)
 
     def __init__(
         self,
@@ -75,8 +91,90 @@ class GeneformerEmbeddingLoader:
         self._gene_to_idx: dict[str, int] = {}
         self._idx_to_gene: dict[int, str] = {}
         self._vocab_size = 0
+        # TD-NEW-02: True only when the token vocabulary carries gene
+        # semantics (vocab.json was found next to the loaded weights).
+        self._vocabulary_is_semantic = False
 
         self._load_model()
+
+    def _load_vocabulary(self, candidate_dirs: List[Path], model_path_for_hub: Optional[str] = None) -> None:
+        """TD-NEW-02: build the real gene vocabulary or fail fast.
+
+        The token matrix only has gene semantics when ``vocab.json`` is
+        available next to the weights (or from the hub for a remote repo).
+        A successfully loaded model without a vocabulary is a silent
+        data-correctness hazard — every gene lookup would miss — so this
+        raises instead of leaving an integer-string vocabulary in place.
+        """
+        candidates: List[Path] = [directory / "vocab.json" for directory in candidate_dirs]
+        for vocab_path in candidates:
+            if vocab_path.is_file():
+                payload = json.loads(vocab_path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict) or not payload:
+                    raise GeneformerVocabularyError(
+                        f"Invalid vocab.json (must be a non-empty object): {vocab_path}"
+                    )
+                self._gene_to_idx = {str(token): int(index) for token, index in payload.items()}
+                self._idx_to_gene = {index: token for token, index in self._gene_to_idx.items()}
+                out_of_range = [token for token, index in self._gene_to_idx.items() if index >= self._vocab_size]
+                if out_of_range:
+                    raise GeneformerVocabularyError(
+                        f"vocab.json contains {len(out_of_range)} tokens outside the embedding "
+                        f"matrix range [0, {self._vocab_size}): {vocab_path}"
+                    )
+                self._vocabulary_is_semantic = True
+                logger.info(
+                    "Loaded gene vocabulary from %s (%d tokens)", vocab_path, len(self._gene_to_idx)
+                )
+                return
+
+        if model_path_for_hub and not Path(model_path_for_hub).is_dir():
+            # The official ctheodoris/Geneformer repository stores its token
+            # vocabulary as a pickled dict under geneformer/, not as a root
+            # vocab.json; both locations are tried in order.
+            hub_candidates = ("vocab.json", "geneformer/token_dictionary_gc104M.pkl")
+            for filename in hub_candidates:
+                try:
+                    from huggingface_hub import hf_hub_download
+                    hub_path = Path(
+                        hf_hub_download(repo_id=model_path_for_hub, filename=filename)
+                    )
+                except Exception:  # noqa: BLE001 - try the next known location
+                    continue
+                if hub_path.suffix == ".json":
+                    payload = json.loads(hub_path.read_text(encoding="utf-8"))
+                else:
+                    import pickle
+
+                    with hub_path.open("rb") as handle:
+                        payload = pickle.load(handle)  # noqa: S301 - official repo artifact
+                if not isinstance(payload, dict) or not payload:
+                    raise GeneformerVocabularyError(
+                        f"Invalid vocabulary file downloaded for {model_path_for_hub!r}: {filename}"
+                    )
+                self._gene_to_idx = {str(token): int(index) for token, index in payload.items()}
+                self._idx_to_gene = {index: token for token, index in self._gene_to_idx.items()}
+                self._vocabulary_is_semantic = True
+                logger.info(
+                    "Loaded gene vocabulary from hub for %s (%s, %d tokens)",
+                    model_path_for_hub,
+                    filename,
+                    len(self._gene_to_idx),
+                )
+                return
+            raise GeneformerVocabularyError(
+                f"Geneformer weights loaded from {model_path_for_hub!r} but none of the "
+                f"known vocabulary files {hub_candidates} could be located or read. "
+                "Without the real token vocabulary every gene lookup would silently "
+                "miss; provide vocab.json next to the weights."
+            )
+
+        raise GeneformerVocabularyError(
+            "Geneformer weights loaded but no vocab.json was found in "
+            f"{[str(directory) for directory in candidate_dirs]}. Without the real "
+            "token vocabulary every gene lookup would silently miss; provide "
+            "vocab.json next to the weights."
+        )
 
     def _load_model(self):
         """Load Geneformer model and extract gene embeddings."""
@@ -143,9 +241,12 @@ class GeneformerEmbeddingLoader:
                 self._vocab_size = self._embeddings.shape[0]
                 self._embedding_dim = self._embeddings.shape[1]
 
-                # Build gene index mappings (using integer indices as Geneformer uses hash-based mapping)
-                self._gene_to_idx = {str(i): i for i in range(self._vocab_size)}
-                self._idx_to_gene = {i: str(i) for i in range(self._vocab_size)}
+                # TD-NEW-02: the vocabulary must come from vocab.json; the
+                # embedding row indices alone carry no gene semantics.
+                vocab_dirs = [Path(local_safetensors_path).parent]
+                if os.path.isdir(self.model_path):
+                    vocab_dirs.append(Path(self.model_path))
+                self._load_vocabulary(vocab_dirs)
 
                 self._embeddings = self._embeddings.to(self.device)
                 logger.info(f"Geneformer loaded. Vocab: {self._vocab_size}, Dim: {self.embedding_dim}")
@@ -173,9 +274,8 @@ class GeneformerEmbeddingLoader:
                 self._vocab_size = self._embeddings.shape[0]
                 self._embedding_dim = self._embeddings.shape[1]
 
-                # Build gene index mappings
-                self._gene_to_idx = {str(i): i for i in range(self._vocab_size)}
-                self._idx_to_gene = {i: str(i) for i in range(self._vocab_size)}
+                vocab_dirs = [Path(safetensors_path).parent]
+                self._load_vocabulary(vocab_dirs)
 
                 self._embeddings = self._embeddings.to(self.device)
                 logger.info(f"Geneformer loaded. Vocab: {self._vocab_size}, Dim: {self.embedding_dim}")
@@ -222,10 +322,10 @@ class GeneformerEmbeddingLoader:
                 self._vocab_size = self._embeddings.shape[0]
                 self._embedding_dim = self._embeddings.shape[1]
 
-                # Build gene index mappings
-                # Geneformer uses ENSEMBL IDs internally, indexed 0 to vocab_size-1
-                self._gene_to_idx = {str(i): i for i in range(self._vocab_size)}
-                self._idx_to_gene = {i: str(i) for i in range(self._vocab_size)}
+                # Geneformer ships its gene tokens in vocab.json; the row
+                # indices alone carry no gene semantics (TD-NEW-02).
+                vocab_dirs = [Path(self.model_path)] if os.path.isdir(self.model_path) else []
+                self._load_vocabulary(vocab_dirs, model_path_for_hub=self.model_path)
 
                 logger.info(
                     f"Geneformer loaded successfully. "
@@ -233,6 +333,10 @@ class GeneformerEmbeddingLoader:
                 )
 
         except (OSError, ValueError, RuntimeError) as e:
+            if isinstance(e, GeneformerVocabularyError):
+                # A missing/invalid vocabulary is a data-correctness failure;
+                # it must never be downgraded to random fallback embeddings.
+                raise
             if self.strict:
                 raise RuntimeError(
                     f"Geneformer model '{self.model_path}' failed to load "
@@ -291,18 +395,21 @@ class GeneformerEmbeddingLoader:
         indices = []
         for gene_id in gene_ids:
             if isinstance(gene_id, str):
-                # Try to parse as ENSEMBL ID or use as-is
-                # Geneformer internally maps all genes to indices 0..vocab_size-1
-                # We use a simple hash-based mapping for unknown genes
                 if gene_id in self._gene_to_idx:
                     indices.append(self._gene_to_idx[gene_id])
+                elif self._vocabulary_is_semantic:
+                    # TD-NEW-02: with a real vocabulary an unknown gene is an
+                    # error; hashing it onto a random row would fabricate an
+                    # embedding and polluting the vocabulary would hide the
+                    # miss from every later lookup.
+                    raise KeyError(
+                        f"Gene id {gene_id!r} is not in the Geneformer vocabulary"
+                    )
                 else:
-                    # Stable hash fallback for genes not in vocabulary.
-                    gene_hash = self._stable_gene_index(gene_id)
-                    indices.append(gene_hash)
-                    if gene_id not in self._gene_to_idx:
-                        self._gene_to_idx[gene_id] = gene_hash
-                        self._idx_to_gene[gene_hash] = gene_id
+                    # Explicit non-production fallback mode (random weights,
+                    # loud warning, provenance flag): keep shape compatibility
+                    # via a stable hash, but never write it back.
+                    indices.append(self._stable_gene_index(gene_id))
             else:
                 # Already an integer index
                 idx = int(gene_id)
@@ -346,9 +453,12 @@ class GeneformerEmbeddingLoader:
         for gene in dataset_genes:
             if gene in self._gene_to_idx:
                 mapping[gene] = self._gene_to_idx[gene]
+            elif self._vocabulary_is_semantic:
+                raise KeyError(
+                    f"Gene id {gene!r} is not in the Geneformer vocabulary"
+                )
             else:
-                gene_hash = self._stable_gene_index(gene)
-                mapping[gene] = gene_hash
+                mapping[gene] = self._stable_gene_index(gene)
 
         return mapping
 

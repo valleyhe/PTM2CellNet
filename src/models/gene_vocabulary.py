@@ -16,6 +16,12 @@ _ENSEMBL_RE = re.compile(r"^ENSG\d+$")
 _ENSEMBL_VERSION_RE = re.compile(r"\.\d+$")
 
 
+def _require_non_null(value: str | None) -> str:
+    if value is None:  # pragma: no cover - guarded by caller validation
+        raise ValueError("ensembl_id must be provided when gene_symbol is absent")
+    return value
+
+
 def normalize_ensembl_id(value: str) -> str:
     """Return canonical ENSG identifier without version suffix."""
     normalized = str(value).strip()
@@ -129,11 +135,11 @@ class GeneVocabularyResolver:
         entries: list[GeneVocabularyEntry] = []
         for row_index, (_, row) in enumerate(var.iterrows()):
             if symbol_col is None:
-                gene_symbol = row.name
+                gene_symbol = str(row.name)
             else:
                 if symbol_col not in var.columns:
                     raise ValueError(f"var must contain column {symbol_col!r}")
-                gene_symbol = row[symbol_col]
+                gene_symbol = str(row[symbol_col])
 
             token_id: int | None = None
             canonical_ensembl = normalize_ensembl_id(row[ensembl_col])
@@ -205,7 +211,7 @@ class GeneVocabularyResolver:
         canonical_ensembl = (
             self.resolve_symbol(gene_symbol)
             if gene_symbol is not None
-            else normalize_ensembl_id(ensembl_id)
+            else normalize_ensembl_id(_require_non_null(ensembl_id))
         )
         try:
             return self._ensembl_to_token[canonical_ensembl]
@@ -227,5 +233,5 @@ class GeneVocabularyResolver:
         if gene_symbol is not None:
             canonical_ensembl = self.resolve_symbol(gene_symbol)
             return self.resolve_ensembl(canonical_ensembl), canonical_ensembl
-        canonical_ensembl = normalize_ensembl_id(ensembl_id)
+        canonical_ensembl = normalize_ensembl_id(_require_non_null(ensembl_id))
         return self.resolve_ensembl(canonical_ensembl), canonical_ensembl

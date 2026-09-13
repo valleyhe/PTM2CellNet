@@ -38,6 +38,7 @@ class VariantEffectWorkflow:
         self,
         model_path: str,
         ptm_types: Optional[List[str]] = None,
+        checkpoint_base_dir: Optional[Union[str, "os.PathLike[str]"]] = None,
     ):
         """
         Initialize workflow.
@@ -45,11 +46,22 @@ class VariantEffectWorkflow:
         Args:
             model_path: Path to trained model
             ptm_types: List of PTM types to predict (default: all supported)
+            checkpoint_base_dir: Root holding per-PTM-type ``<type>/checkpoints``
+                directories.  Defaults to ``<project root>/outputs/ptm_pretrain``
+                so resolution never depends on the current working directory
+                (TD-NEW-09); pass an explicit directory in tests.
         """
         self.parser = HGVSVariantParser()
         self.gene_mapper = GeneMapper()
         self.network_analyzer = _create_network_analyzer()
         self.model_path = model_path
+        if checkpoint_base_dir is None:
+            checkpoint_base_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "outputs",
+                "ptm_pretrain",
+            )
+        self.checkpoint_base_dir = os.path.abspath(checkpoint_base_dir)
 
         # Initialize predictors for each PTM type
         self.ptm_types = ptm_types or [
@@ -69,22 +81,26 @@ class VariantEffectWorkflow:
                 logger.warning(f"Failed to load predictor for {ptm_type}: {e}")
 
     def _resolve_model_path(self, ptm_type: str) -> str:
-        """Resolve model path specific to PTM type, with fallback to default."""
-        type_specific_path = os.path.join(
-            "outputs", "ptm_pretrain", ptm_type, "checkpoints", "best_model.pt"
-        )
-        if os.path.exists(type_specific_path):
-            logger.info("Using PTM-type-specific model for %s: %s", ptm_type, type_specific_path)
-            return type_specific_path
-        type_specific_path_alt = os.path.join(
-            "outputs", "ptm_pretrain", ptm_type, "checkpoints", "best.pt"
-        )
-        if os.path.exists(type_specific_path_alt):
-            logger.info("Using PTM-type-specific model for %s: %s", ptm_type, type_specific_path_alt)
-            return type_specific_path_alt
+        """Resolve the per-PTM-type checkpoint anchored at ``checkpoint_base_dir``.
+
+        TD-NEW-09: candidate paths are resolved from the explicitly anchored
+        base directory (project root by default), never probed relative to
+        the current working directory.  Only the two documented checkpoint
+        names are accepted; when neither exists the workflow falls back to
+        the explicitly constructed ``model_path`` with a loud warning.
+        """
+        checkpoints_dir = os.path.join(self.checkpoint_base_dir, ptm_type, "checkpoints")
+        for filename in ("best_model.pt", "best.pt"):
+            candidate = os.path.join(checkpoints_dir, filename)
+            if os.path.exists(candidate):
+                logger.info("Using PTM-type-specific model for %s: %s", ptm_type, candidate)
+                return candidate
         logger.warning(
-            "No PTM-type-specific checkpoint found for %s at %s, falling back to default: %s",
-            ptm_type, type_specific_path, self.model_path,
+            "No PTM-type-specific checkpoint for %s under %s; falling back to the "
+            "explicitly provided model_path: %s",
+            ptm_type,
+            checkpoints_dir,
+            self.model_path,
         )
         return self.model_path
 

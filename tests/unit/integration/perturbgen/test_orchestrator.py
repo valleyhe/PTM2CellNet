@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -41,6 +42,10 @@ class _FakeDAVF:
         self.predicted_direction = predicted_direction
         self.last_mapper_output = None
 
+    @property
+    def embedding_symbol_to_ensembl(self):
+        return dict(self._embedding_symbol_to_ensembl)
+
     def build_perturbgen_direction_mapper(self):
         return PTMDirectionMapper(gene_to_idx={GENE: 17})
 
@@ -67,6 +72,7 @@ class _FakeDAVF:
                 model_source="davf",
                 checkpoint_provenance="checkpoints/davf/formal.pt",
                 embedding_provenance="outputs/perturbgen/asset",
+                confidence=0.5,
             )
             for symbol, ensembl_id in zip(
                 target_gene_symbols, target_ensembl_ids, strict=True
@@ -94,6 +100,23 @@ def test_prepare_candidate_uses_explicit_ko_route_not_ptm_type_direction():
     assert preparation.invocation.target_token_id == 17
     assert preparation.invocation.perturbation_mode == "overexpress"
     assert davf.last_mapper_output.directions[0, 0].item() == 0
+
+
+def test_invocation_rejects_davf_score_that_is_not_bound_to_confidence():
+    davf = _FakeDAVF("KO")
+    preparation = DAVFPerturbGenOrchestrator(davf_module=davf).prepare_candidate(
+        _proposal(),
+        torch.zeros((1, 64)),
+        cell_type="K562",
+        ptm_context="STAT3:S12",
+        observed_log2fc=-1.0,
+        observed_fdr=0.01,
+        observed_direction="down",
+    )
+    assert preparation.invocation is not None
+    candidate = replace(preparation.invocation.candidate, davf_score=0.4)
+    with pytest.raises(ValueError, match="exactly match"):
+        replace(preparation.invocation, candidate=candidate)
 
 
 def test_prepare_candidate_blocks_perturbgen_when_direction_gate_fails():
@@ -186,7 +209,7 @@ def test_materialize_candidate_config_rewrites_target_and_records_route(tmp_path
     assert materialized["pipeline"]["candidate_ensembl_id"] == ENSEMBL
     assert perturb["perturb_config"]["trainer"]["genes_to_perturb"] == [GENE]
     assert perturb["perturb_config"]["trainer"]["perturbation_mode"] == "overexpress"
-    assert perturb["expected_outputs"][0]["discover_glob"] == "*_gSTAT3_s*_tmask.h5ad"
+    assert perturb["expected_outputs"][0]["discover_glob"] == "*_gSTAT3_s*_toverexpress.h5ad"
 
 
 def test_merge_route_preparations_merges_only_by_ensembl_id():

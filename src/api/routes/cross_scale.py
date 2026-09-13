@@ -463,6 +463,8 @@ def _prepare_batch(
         batch["sequence"] = [sample.sequence]
         protein_node_count = len(sample.sequence)
     else:
+        if sample.embedding_ref is None:
+            raise ValueError("cross-scale request requires either sequence or embedding_ref")
         batch.update(_load_embedding_inputs(sample.embedding_ref, sample.sample_index, model))
         first_embedding = next(iter(batch.values()))
         protein_node_count = int(first_embedding.shape[1])
@@ -701,7 +703,9 @@ def _predict_plain_sequence_chunk_sync(
     """组批推理一组"纯序列 + 无 PTM"样本（模型原生支持序列列表）。"""
     model = CROSS_SCALE_STATE.model
     assert model is not None
-    sequences = [sample.sequence for sample in chunk]
+    sequences = [str(sample.sequence) for sample in chunk if sample.sequence is not None]
+    if len(sequences) != len(chunk):
+        raise ValueError("sequence-only batch prediction requires every sample to carry a sequence")
     batch: Dict[str, Any] = {"sequence": sequences}
     node_count = max(len(sequence) for sequence in sequences)
     _apply_default_graph(batch, node_count)

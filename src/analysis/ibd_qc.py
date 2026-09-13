@@ -9,12 +9,13 @@ would make provenance and failure recovery difficult.
 from __future__ import annotations
 
 import gzip
+import io
 import logging
 import shutil
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
+from typing import IO, Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -22,28 +23,23 @@ from scipy import sparse
 from scipy.io import mmread
 
 from .ibd_dataset import load_metadata
+from src.utils.dependency_check import require_extras
 
 
 LOGGER = logging.getLogger(__name__)
 
 
 def _require_anndata():
-    try:
-        import anndata as ad
-    except ImportError as exc:  # pragma: no cover - depends on environment
-        raise RuntimeError(
-            "IBD matrix processing requires anndata; install requirements-analysis.txt"
-        ) from exc
+    require_extras(["anndata"], feature="IBD matrix processing")
+    import anndata as ad
+
     return ad
 
 
 def _require_scanpy():
-    try:
-        import scanpy as sc
-    except ImportError as exc:  # pragma: no cover - depends on environment
-        raise RuntimeError(
-            "GSE282122/scVI integration requires scanpy; install requirements-analysis.txt"
-        ) from exc
+    require_extras(["scanpy"], feature="GSE282122/scVI integration")
+    import scanpy as sc
+
     return sc
 
 
@@ -51,19 +47,19 @@ def _strip_gzip_suffix(name: str) -> str:
     return name[:-3] if name.endswith(".gz") else name
 
 
-def _read_gzip_text(stream: BinaryIO) -> str:
+def _read_gzip_text(stream: IO[bytes]) -> str:
     with gzip.GzipFile(fileobj=stream, mode="rb") as handle:
         return handle.read().decode("utf-8", errors="replace")
 
 
-def _read_tsv_gzip(path_or_stream: Path | BinaryIO) -> pd.DataFrame:
+def _read_tsv_gzip(path_or_stream: Path | IO[bytes]) -> pd.DataFrame:
     if isinstance(path_or_stream, Path):
         return pd.read_csv(path_or_stream, sep="\t", header=None, dtype=str, compression="gzip")
-    with gzip.GzipFile(fileobj=path_or_stream, mode="rb") as handle:
-        return pd.read_csv(handle, sep="\t", header=None, dtype=str)
+    text = _read_gzip_text(path_or_stream)
+    return pd.read_csv(io.StringIO(text), sep="\t", header=None, dtype=str)
 
 
-def _read_matrix_gzip(path_or_stream: Path | BinaryIO) -> sparse.csr_matrix:
+def _read_matrix_gzip(path_or_stream: Path | IO[bytes]) -> sparse.csr_matrix:
     if isinstance(path_or_stream, Path):
         with gzip.open(path_or_stream, "rb") as handle:
             matrix = mmread(handle)
@@ -90,7 +86,7 @@ def _feature_columns(features: pd.DataFrame) -> Tuple[pd.Index, pd.Index, pd.Ser
     return pd.Index(gene_ids), pd.Index(gene_symbols), feature_type
 
 
-def _make_unique(values: Sequence[str]) -> pd.Index:
+def _make_unique(values: Iterable[Any]) -> pd.Index:
     """Make feature names unique using the same suffix convention as Scanpy."""
 
     counts: Dict[str, int] = {}
@@ -103,7 +99,7 @@ def _make_unique(values: Sequence[str]) -> pd.Index:
     return pd.Index(result)
 
 
-def _record_obs(metadata_row: Mapping[str, Any], barcodes: Sequence[str]) -> pd.DataFrame:
+def _record_obs(metadata_row: Mapping[str, Any], barcodes: Iterable[Any]) -> pd.DataFrame:
     sample_id = str(metadata_row["sample_id"])
     obs = pd.DataFrame(index=pd.Index([f"{sample_id}:{barcode}" for barcode in barcodes]))
     obs["barcode"] = list(map(str, barcodes))
@@ -199,16 +195,23 @@ def _member_by_suffix(tar: tarfile.TarFile, gsm: str, suffix: str) -> tarfile.Ta
     return candidates[0]
 
 
-def _read_gse231993_sample(tar: tarfile.TarFile, row: Mapping[str, Any]):
+
+def _extract_stream(tar: tarfile.TarFile, member: tarfile.TarInfo) -> IO[bytes]:
+    stream = tar.extractfile(member)
+    if stream is None:
+        raise ValueError(f"tar member {member.name} has no byte stream")
+    return stream
+
+def _read_gse231993_sample(tar: tarfile.TarFile, row: Mapping[Any, Any]):
     gsm = str(row["GSM"])
     barcode_member = _member_by_suffix(tar, gsm, "-barcodes.tsv.gz")
     feature_member = _member_by_suffix(tar, gsm, "-features.tsv.gz")
     matrix_member = _member_by_suffix(tar, gsm, "-matrix.mtx.gz")
-    with tar.extractfile(barcode_member) as handle:
+    with _extract_stream(tar, barcode_member) as handle:
         barcodes = _read_tsv_gzip(handle).iloc[:, 0].astype(str).tolist()
-    with tar.extractfile(feature_member) as handle:
+    with _extract_stream(tar, feature_member) as handle:
         features = _read_tsv_gzip(handle)
-    with tar.extractfile(matrix_member) as handle:
+    with _extract_stream(tar, matrix_member) as handle:
         matrix = _read_matrix_gzip(handle)
     return _build_adata_from_components(
         matrix=matrix,
@@ -218,7 +221,7 @@ def _read_gse231993_sample(tar: tarfile.TarFile, row: Mapping[str, Any]):
     )
 
 
-def _read_gse266616_sample(tar: tarfile.TarFile, row: Mapping[str, Any]):
+def _read_gse266616_sample(tar: tarfile.TarFile, row: Mapping[Any, Any]):
     gsm = str(row["GSM"])
     outer_candidates = [
         member for member in tar.getmembers() if Path(member.name).name.startswith(gsm)
@@ -243,11 +246,11 @@ def _read_gse266616_sample(tar: tarfile.TarFile, row: Mapping[str, Any]):
                     continue
                 with handle:
                     if base == "barcodes.tsv.gz":
-                        barcodes = _read_tsv_gzip(handle).iloc[:, 0].astype(str).tolist()
+                        barcodes = _read_tsv_gzip(cast(IO[bytes], handle)).iloc[:, 0].astype(str).tolist()
                     elif base == "features.tsv.gz":
-                        features = _read_tsv_gzip(handle)
+                        features = _read_tsv_gzip(cast(IO[bytes], handle))
                     elif base == "matrix.mtx.gz":
-                        matrix = _read_matrix_gzip(handle)
+                        matrix = _read_matrix_gzip(cast(IO[bytes], handle))
     if matrix is None or features is None or barcodes is None:
         raise ValueError(f"Incomplete nested 10x archive for {gsm}")
     return _build_adata_from_components(
@@ -258,7 +261,7 @@ def _read_gse266616_sample(tar: tarfile.TarFile, row: Mapping[str, Any]):
     )
 
 
-def _read_gse282122_sample(tar: tarfile.TarFile, row: Mapping[str, Any]):
+def _read_gse282122_sample(tar: tarfile.TarFile, row: Mapping[Any, Any]):
     sc = _require_scanpy()
     archive_member = str(row["archive_member"])
     expected = f"filtered_processed_data/{archive_member}/filtered_feature_bc_matrix.h5"
@@ -302,12 +305,12 @@ def _gse214695_annotations(raw_dir: Path) -> pd.DataFrame:
     missing = required.difference(annotation.columns)
     if missing:
         raise ValueError(f"GSE214695 annotation missing columns: {sorted(missing)}")
-    return annotation.set_index("cell_id", drop=False)
+    return cast(pd.DataFrame, annotation.set_index("cell_id", drop=False))
 
 
 def _read_gse214695_sample(
     raw_dir: Path,
-    row: Mapping[str, Any],
+    row: Mapping[Any, Any],
     annotations: pd.DataFrame,
 ):
     matrix_path = raw_dir / str(row["archive_member"])
@@ -352,14 +355,14 @@ def _selected_rows(metadata: pd.DataFrame, scope: str) -> pd.DataFrame:
         raise ValueError(
             f"Unknown IBD scope {scope!r}; use core, validation, core_plus_validation, or all"
         )
-    return selected.sort_values(["dataset", "GSM"], kind="stable").reset_index(drop=True)
+    return cast(pd.DataFrame, selected.sort_values(["dataset", "GSM"], kind="stable").reset_index(drop=True))
 
 
 def iter_sample_adatas(
     metadata: pd.DataFrame,
     raw_root: Path | str = "data/raw",
     scope: str = "core",
-) -> Iterator[Tuple[Mapping[str, Any], Any]]:
+) -> Iterator[Tuple[Mapping[Any, Any], Any]]:
     """Yield one ``(metadata_row, AnnData)`` pair at a time."""
 
     rows = _selected_rows(metadata, scope)
@@ -495,16 +498,10 @@ def add_sample_qc_metrics(adata: Any) -> Dict[str, Dict[str, float]]:
 
 
 def _run_scrublet_by_sample(adata: Any) -> str:
-    """Run Scrublet per sample when installed; return an explicit status."""
+    """Run Scrublet per sample."""
 
-    try:
-        import scrublet as scr
-    except ImportError:
-        adata.uns["doublet_detection"] = {
-            "status": "skipped_dependency_missing",
-            "method": "Scrublet",
-        }
-        return "skipped_dependency_missing"
+    require_extras(["scrublet"], feature="IBD Scrublet doublet detection")
+    import scrublet as scr
 
     statuses: Dict[str, str] = {}
     for sample_id, indices in _group_positions(adata.obs["sample_id"]):
@@ -642,10 +639,8 @@ def integrate_scvi(
     """
 
     sc = _require_scanpy()
-    try:
-        import scvi
-    except ImportError as exc:  # pragma: no cover - depends on environment
-        raise RuntimeError("scVI integration requires scvi-tools") from exc
+    require_extras(["scvi"], feature="IBD scVI integration")
+    import scvi
 
     integration = _subsample_by_sample(adata, max_cells_per_sample, seed)
     integration.layers["counts"] = integration.X.copy()

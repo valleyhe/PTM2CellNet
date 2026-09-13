@@ -199,6 +199,9 @@ class TestOptionalBackendPreflight:
         assert dc.OPTIONAL_DEPENDENCIES["lion_pytorch"][0] == "mamba"
 
     def test_genki_extra_registered_in_optional_dependencies(self):
-        """torch_geometric / scanpy map to the genki extra (install hint source)."""
+        """torch_geometric maps to the genki extra (install hint source)."""
         assert dc.OPTIONAL_DEPENDENCIES["torch_geometric"][0] == "genki"
-        assert dc.OPTIONAL_DEPENDENCIES["scanpy"][0] == "genki"
+
+    def test_analysis_extra_registered_for_single_cell_dependencies(self):
+        assert dc.OPTIONAL_DEPENDENCIES["scanpy"][0] == "analysis"
+        assert dc.OPTIONAL_DEPENDENCIES["scrublet"][0] == "analysis"

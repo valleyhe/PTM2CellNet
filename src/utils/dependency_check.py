@@ -65,8 +65,9 @@ class DependencyStatus:
 OPTIONAL_DEPENDENCIES: Dict[str, tuple] = {
     "scvi": ("analysis", "scvi-tools"),
     "anndata": ("analysis", "anndata"),
+    "scanpy": ("analysis", "scanpy"),
+    "scrublet": ("analysis", "scrublet"),
     "torch_geometric": ("genki", "torch-geometric"),
-    "scanpy": ("genki", "scanpy"),
     "mamba_ssm": ("mamba", "mamba-ssm"),
     "lion_pytorch": ("mamba", "lion-pytorch"),
     "transformers": ("pretrained", "transformers"),

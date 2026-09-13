@@ -25,6 +25,7 @@ def build_candidate_report_payload(
     return {
         "candidate": dict(candidate_payload),
         "candidate_gene": dual_payload.get("candidate_gene") or candidate_payload.get("gene_symbol"),
+        "intervention_type": dual_payload.get("intervention_type"),
         "verdict": payload.get("verdict"),
         "q_value": dual_payload.get("q_value"),
         "reasons": list(payload.get("reasons", [])),
@@ -158,7 +159,7 @@ def save_report_artifacts(
 
 
 def _to_plain_object(value: Any) -> Any:
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     if isinstance(value, Mapping):
         return {str(key): _to_plain_object(item) for key, item in value.items()}

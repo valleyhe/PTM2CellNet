@@ -43,6 +43,8 @@ from typing import Any, List, Optional, Union
 import numpy as np
 import torch
 
+from src.utils.dependency_check import MissingDependencyError, check_dependency, require_extras
+
 logger = logging.getLogger(__name__)
 
 _SCVI_INSTALL_COMMAND = "pip install 'setuptools>=68.0,<81' 'anndata>=0.10,<0.12' 'scvi-tools>=1.2.0'"
@@ -60,19 +62,30 @@ def _format_scvi_installation_message(exc: BaseException, *, action: str) -> str
 def _check_scvi_available() -> bool:
     """Return True if ``scvi-tools`` can be imported in the current env."""
     global _SCVI_IMPORT_ERROR
-    try:
-        import scvi  # noqa: F401
-
+    status = check_dependency("scvi")
+    if status.available:
         _SCVI_IMPORT_ERROR = None
         return True
-    except ImportError as e:  # pragma: no cover - environment dependent
-        _SCVI_IMPORT_ERROR = e
-        logger.warning(
-            "scvi-tools import failed; scVI-dependent features are disabled: %s. Install with: %s",
-            e,
-            _SCVI_INSTALL_COMMAND,
-        )
-        return False
+
+    _SCVI_IMPORT_ERROR = status.import_error or ModuleNotFoundError("scvi import check failed")
+    logger.warning(
+        "scvi-tools import failed; scVI-dependent features are disabled: %s. Install with: %s",
+        _SCVI_IMPORT_ERROR,
+        _SCVI_INSTALL_COMMAND,
+    )
+    return False
+
+
+def _require_scvi(action: str) -> None:
+    """Fail at the scVI call boundary with the established install prompt."""
+    global _SCVI_IMPORT_ERROR
+    try:
+        require_extras(["scvi"], feature=f"scVI {action}")
+    except MissingDependencyError as exc:
+        missing = next((status for status in exc.statuses if not status.available), None)
+        _SCVI_IMPORT_ERROR = missing.import_error if missing and missing.import_error else exc
+        raise ImportError(_format_scvi_installation_message(_SCVI_IMPORT_ERROR, action=action)) from exc
+    _SCVI_IMPORT_ERROR = None
 
 
 #: Runtime flag mirroring the ``SSPA_AVAILABLE`` pattern.
@@ -228,7 +241,7 @@ class ScVIAdapter:
         from scipy import sparse
 
         matrix = getattr(adata, "X", None)
-        if not sparse.issparse(matrix) or matrix.nnz != 0:
+        if matrix is None or not sparse.issparse(matrix) or matrix.nnz != 0:
             return adata
         obsm = getattr(adata, "obsm", {})
         has_latent_params = "_scvi_latent_qzm" in obsm and "_scvi_latent_qzv" in obsm
@@ -274,14 +287,7 @@ class ScVIAdapter:
             ImportError: If ``scvi-tools`` is not available.
             FileNotFoundError: If ``model_path`` does not exist.
         """
-        if not SCVI_AVAILABLE:
-            raise ImportError(
-                _format_scvi_installation_message(
-                    _SCVI_IMPORT_ERROR or ModuleNotFoundError("scvi import check failed"),
-                    action="load a trained scVI model",
-                )
-            )
-        import scvi  # noqa: F401  (lazy import)
+        _require_scvi("load a trained scVI model")
 
         model_path = Path(model_path)
         if not model_path.exists():
@@ -375,13 +381,7 @@ class ScVIAdapter:
         Returns:
             A configured :class:`ScVIAdapter` wrapping the trained model.
         """
-        if not SCVI_AVAILABLE:
-            raise ImportError(
-                _format_scvi_installation_message(
-                    _SCVI_IMPORT_ERROR or ModuleNotFoundError("scvi import check failed"),
-                    action="build a scVI model",
-                )
-            )
+        _require_scvi("build a scVI model")
         from scvi.model import SCVI
 
         SCVI.setup_anndata(adata)
@@ -428,13 +428,7 @@ class ScVIAdapter:
             # AnnData is the one supported path that works in both cases.
             model_path = self.config.model_path
             if model_path is not None:
-                if not SCVI_AVAILABLE:
-                    raise ImportError(
-                        _format_scvi_installation_message(
-                            _SCVI_IMPORT_ERROR or ModuleNotFoundError("scvi import check failed"),
-                            action="bind AnnData to a trained scVI model",
-                        )
-                    )
+                _require_scvi("bind AnnData to a trained scVI model")
                 from scvi.model import SCVI
 
                 self.model = SCVI.load(
@@ -455,7 +449,7 @@ class ScVIAdapter:
         # reaches PyTorch DataLoader in scvi-tools 1.4.x and raises an
         # unexpected-keyword error. The schema check above ensures the input
         # AnnData matches that saved setup before inference starts.
-        loader_kwargs = {} if batch_size is None else {"batch_size": int(batch_size)}
+        loader_kwargs: dict[str, int] = {} if batch_size is None else {"batch_size": int(batch_size)}
         representation = self.model.get_latent_representation(adata, **loader_kwargs)
         representation = np.asarray(representation)
         if representation.ndim != 2:

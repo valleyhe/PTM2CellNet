@@ -49,6 +49,105 @@ def test_feature_extraction_and_split_are_deterministic():
     assert "label" not in model.numeric_columns_
 
 
+def test_feature_matrix_matches_fixed_golden_values_and_empty_behavior():
+    frame = prepare_pmads_frame(
+        pd.DataFrame(
+            {
+                "sequence": ["ACAX", "GG"],
+                "ptm_sites": [
+                    [
+                        {"position": 2, "type": "phosphorylation"},
+                        {"position": None, "type": "acetylation"},
+                        {"position": "bad", "type": "ubiquitination"},
+                    ],
+                    None,
+                ],
+                "label": [0, 1],
+                "measurement": [1.5, np.nan],
+            }
+        )
+    )
+    model = PMADSRidgeBaseline()
+    model.target_col = "label"
+    model._fit_feature_schema(frame, "label")
+
+    expected = np.array(
+        [
+            [
+                4.0,
+                0.5,
+                0.25,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                3.0,
+                0.5,
+                0.0,
+                0.5,
+                0.5,
+                1.0,
+                1.0,
+                1.5,
+            ],
+            [
+                2.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        ],
+        dtype=np.float64,
+    )
+
+    actual = model._feature_matrix(frame)
+    np.testing.assert_allclose(actual, expected)
+    assert actual.dtype == np.float64
+
+    empty = model._feature_matrix(frame.iloc[:0])
+    assert empty.shape == (0,)
+    assert empty.dtype == np.float64
+
+
 def test_classification_baseline_runs_and_reports_metrics():
     result = run_pmads_ridge(
         _frame(),

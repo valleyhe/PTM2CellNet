@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 from .contracts import (
+    DualPathVerdictValue,
     CandidateEvidence,
     DAVFDirectionEvidence,
     DirectionGateResult,
@@ -40,6 +41,7 @@ def evaluate_davf_perturbgen_candidate(
     observed_log2fc: float,
     observed_fdr: float,
     observed_direction: ObservedDirection | None,
+    intervention_type: str,
     path_results: Sequence[Mapping[str, Any] | object] = (),
     q_value: float | None = None,
     unperturbed_quality_status: str = "inconclusive",
@@ -50,6 +52,8 @@ def evaluate_davf_perturbgen_candidate(
 ) -> MainlineDecision:
     """Run the agreed mainline decision sequence.
 
+    ``intervention_type`` is the explicit DAVF route (KO or KD); it is not
+    inferred from ``observed_direction`` or the candidate's corrective action.
     PerturbGen evaluation is never called for a direction-gate failure or an
     inconclusive DAVF/normal-disease evidence set.  This is the central
     semantic boundary that keeps downstream utility from rescuing an invalid
@@ -88,8 +92,9 @@ def evaluate_davf_perturbgen_candidate(
         )
 
     dual_path = evaluate_dual_path_candidate(
-        path_results,
+        cast(Sequence[Mapping[str, Any]], path_results),
         observed_direction=observed_direction,
+        intervention_type=intervention_type,
         q_value=q_value,
         candidate_gene=candidate.gene_symbol,
         formal_null_min=formal_null_min,
@@ -98,7 +103,7 @@ def evaluate_davf_perturbgen_candidate(
         unperturbed_quality_status=unperturbed_quality_status,
     )
     return MainlineDecision(
-        verdict=dual_path.verdict,
+        verdict=cast(DualPathVerdictValue, dual_path.verdict),
         direction_gate=gate,
         candidate=candidate,
         dual_path=dual_path,

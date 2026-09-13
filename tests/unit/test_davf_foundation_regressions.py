@@ -11,20 +11,22 @@ from src.models.geneformer_embedding import GeneformerEmbeddingLoader
 
 
 class TestGeneformerEmbeddingLoaderRegressions:
-    def test_stable_gene_hash_matches_sha256_mapping(self):
+    def test_fallback_hash_lookup_does_not_pollute_vocabulary(self):
+        """TD-NEW-02: fallback hashes stay stable but are never written back."""
         loader = GeneformerEmbeddingLoader.__new__(GeneformerEmbeddingLoader)
         loader._vocab_size = 30000
         loader._gene_to_idx = {}
         loader._idx_to_gene = {}
         loader._embeddings = torch.randn(loader._vocab_size, 8)
         loader.device = torch.device("cpu")
+        loader._vocabulary_is_semantic = False
 
         gene_id = "ENSG00000139618"
         embeddings = loader.get_gene_embedding([gene_id])
 
         expected_idx = int(hashlib.sha256(gene_id.encode("utf-8")).hexdigest(), 16) % loader._vocab_size
 
-        assert loader._gene_to_idx[gene_id] == expected_idx
+        assert gene_id not in loader._gene_to_idx
         assert torch.equal(embeddings, loader._embeddings[torch.tensor([expected_idx])])
 
 

@@ -7,6 +7,9 @@ import math
 from typing import Any, Mapping, Protocol, Sequence
 
 
+_VALID_INTERVENTION_TYPES = {"KO", "KD"}
+
+
 class SupportsPathResult(Protocol):
     status: str
     path: str
@@ -50,6 +53,7 @@ class PathDecision:
 class DualPathDecision:
     verdict: str
     q_value: float | None
+    intervention_type: str
     reasons: tuple[str, ...]
     path_decisions: tuple[PathDecision, ...]
     candidate_gene: str | None = None
@@ -62,12 +66,14 @@ def evaluate_path_results(
     path_results: Sequence[SupportsPathResult | Mapping[str, Any]],
     *,
     observed_direction: str,
+    intervention_type: str,
     formal_null_min: int = 99,
     smoke_null_count: int = 20,
     expected_seed_count: int = 3,
 ) -> PathDecision:
     """单路径门控。数据不齐直接 inconclusive，数据齐但未达门才 fail。"""
 
+    route = _normalize_intervention_type(intervention_type)
     if not path_results:
         raise ValueError("path_results must not be empty")
     normalized = [_normalize_result(item) for item in path_results]
@@ -82,7 +88,13 @@ def evaluate_path_results(
         raise ValueError("observed_direction must be 'up' or 'down'")
 
     primary_mode = "mask" if observed_direction == "up" else "overexpress"
-    required_modes = ("mask", "pad", "delete") if observed_direction == "up" else ("overexpress",)
+    required_modes = (
+        ("mask", "pad", "delete")
+        if route == "KO" and observed_direction == "up"
+        else ("mask",)
+        if observed_direction == "up"
+        else ("overexpress",)
+    )
     reasons: list[str] = []
     has_inconclusive = False
     has_fail = False
@@ -178,7 +190,7 @@ def evaluate_path_results(
         median_rescue = _median(evaluable_rescue)
         mode_direction_support[mode_name] = median_rescue is not None and median_rescue > 0
 
-    if observed_direction == "up":
+    if route == "KO" and observed_direction == "up":
         positive_modes = [mode_name for mode_name, supported in mode_direction_support.items() if supported]
         if "mask" in mode_direction_support and not mode_direction_support["mask"]:
             has_fail = True
@@ -221,6 +233,7 @@ def evaluate_dual_path_candidate(
     path_results: Sequence[SupportsPathResult | Mapping[str, Any]],
     *,
     observed_direction: str,
+    intervention_type: str,
     q_value: float | None,
     candidate_gene: str | None = None,
     formal_null_min: int = 99,
@@ -230,6 +243,7 @@ def evaluate_dual_path_candidate(
 ) -> DualPathDecision:
     """双路径严格 AND。"""
 
+    route = _normalize_intervention_type(intervention_type)
     if not path_results:
         raise ValueError("path_results must not be empty")
     if unperturbed_quality_status not in {"pass", "fail", "inconclusive"}:
@@ -272,6 +286,7 @@ def evaluate_dual_path_candidate(
         decision = evaluate_path_results(
             grouped[path_name],
             observed_direction=observed_direction,
+            intervention_type=route,
             formal_null_min=formal_null_min,
             smoke_null_count=smoke_null_count,
             expected_seed_count=expected_seed_count,
@@ -307,10 +322,18 @@ def evaluate_dual_path_candidate(
     return DualPathDecision(
         verdict=verdict,
         q_value=q_value,
+        intervention_type=route,
         reasons=tuple(dict.fromkeys(reasons)),
         path_decisions=tuple(path_decisions),
         candidate_gene=candidate_gene,
     )
+
+
+def _normalize_intervention_type(value: Any) -> str:
+    route = str(value).strip().upper()
+    if route not in _VALID_INTERVENTION_TYPES:
+        raise ValueError("intervention_type must be explicitly 'KO' or 'KD'; no route default is allowed")
+    return route
 
 
 def _normalize_result(result: SupportsPathResult | Mapping[str, Any]) -> dict[str, Any]:

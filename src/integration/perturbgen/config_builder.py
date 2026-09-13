@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 import yaml
 
@@ -108,7 +108,7 @@ def load_pipeline_config(path: str | Path) -> dict[str, Any]:
     missing = [stage for stage in STAGE_ORDER if stage not in stages]
     if missing:
         raise PerturbGenConfigError(f"config missing required stages: {', '.join(missing)}")
-    return payload
+    return cast(dict[str, Any], payload)
 
 
 def _ensure_under(path: Path, root: Path, *, label: str) -> Path:
@@ -567,6 +567,14 @@ def build_stage_plans(
                 "--config",
                 str(generated_files[0].path),
             )
+            raw_seed = stage_config.get("seed")
+            if raw_seed is not None:
+                seed_value = int(raw_seed)
+                if seed_value < 0:
+                    raise PerturbGenConfigError(f"{stage_name}.seed must be >= 0")
+                # Upstream val.py natively supports --seed; multi-seed formal
+                # verdicts (proposal §4.7) rely on it.
+                argv = (*argv, "--seed", str(seed_value))
         elif driver == "script":
             script_root = str(stage_config.get("script_root", "project"))
             prefer_repo = script_root == "perturbgen"

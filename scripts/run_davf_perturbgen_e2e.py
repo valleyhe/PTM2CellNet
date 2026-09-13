@@ -33,11 +33,12 @@ the isolated six-stage external pipeline for every gated candidate.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -51,8 +52,15 @@ from src.integration.perturbgen.orchestrator import (  # noqa: E402
     merge_route_preparations,
 )
 from src.integration.perturbgen.runner import PerturbGenRunner  # noqa: E402
-from src.integration.perturbgen.contracts import PTMSiteDirectionProposal  # noqa: E402
+from src.integration.perturbgen.contracts import (  # noqa: E402
+    PTMSiteDirectionProposal,
+    PerturbGenDataSpec,
+)
+from src.integration.perturbgen.data_prep import (  # noqa: E402
+    prepare_perturbgen_anndata,
+)
 from src.models.davf_inference import DAVFInferenceConfig, DAVFInferenceModule  # noqa: E402
+from src.models.gene_vocabulary import normalize_ensembl_id  # noqa: E402
 
 
 def _load_davf_config(path: str | Path) -> DAVFInferenceConfig:
@@ -143,6 +151,132 @@ def _serialize(value: Any) -> Any:
     return value
 
 
+def _validate_perturbgen_tokenise_input(
+    config: Mapping[str, Any],
+    context_path: Path,
+) -> tuple[PerturbGenDataSpec, Path]:
+    """Bind the PerturbGen tokenise input and metadata to the E2E context."""
+
+    try:
+        stages = config["stages"]
+        tokenise = stages["tokenise"]
+        tokenise_args = tokenise["args"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError("PerturbGen config must declare stages.tokenise.args") from exc
+    if not isinstance(stages, Mapping) or not isinstance(tokenise, Mapping) or not isinstance(tokenise_args, Mapping):
+        raise ValueError("PerturbGen stages.tokenise.args must be mappings")
+
+    raw_input = tokenise_args.get("h5ad_path")
+    if not isinstance(raw_input, str) or not raw_input.strip():
+        raise ValueError("PerturbGen tokenise.args.h5ad_path must be a non-empty path")
+    tokenise_path = Path(raw_input).expanduser()
+    if not tokenise_path.is_absolute():
+        raise ValueError("PerturbGen tokenise.args.h5ad_path must be absolute")
+    tokenise_path = tokenise_path.resolve(strict=True)
+    if tokenise_path != context_path:
+        raise ValueError(
+            f"PerturbGen tokenise input must be the exact candidate context_h5ad: {tokenise_path} != {context_path}"
+        )
+
+    raw_var_list = tokenise_args.get("var_list")
+    if not isinstance(raw_var_list, Sequence) or isinstance(raw_var_list, (str, bytes)):
+        raise ValueError("PerturbGen tokenise.args.var_list must list cell_type, state, and donor columns")
+    if len(raw_var_list) != 3 or any(not isinstance(value, str) or not value.strip() for value in raw_var_list):
+        raise ValueError("PerturbGen tokenise.args.var_list must contain exactly three non-empty columns")
+    cell_type_col, state_col, donor_col = (value.strip() for value in raw_var_list)
+    if len({cell_type_col, state_col, donor_col}) != 3:
+        raise ValueError("PerturbGen tokenise.args.var_list columns must be distinct")
+    if tokenise_args.get("main_pairing_obs") != cell_type_col:
+        raise ValueError("PerturbGen tokenise main_pairing_obs must match var_list cell_type column")
+    if tokenise_args.get("time_obs") != state_col:
+        raise ValueError("PerturbGen tokenise time_obs must match var_list state column")
+
+    reference_state = tokenise_args.get("reference_time")
+    time_point_order = tokenise_args.get("time_point_order")
+    if not isinstance(reference_state, str) or not reference_state.strip():
+        raise ValueError("PerturbGen tokenise reference_time must be explicit")
+    if not isinstance(time_point_order, Sequence) or isinstance(time_point_order, (str, bytes)):
+        raise ValueError("PerturbGen tokenise time_point_order must be an explicit two-state sequence")
+    if (
+        len(time_point_order) != 2
+        or any(not isinstance(value, str) or not value.strip() for value in time_point_order)
+        or time_point_order[0].strip() != reference_state.strip()
+        or time_point_order[0].strip() == time_point_order[1].strip()
+    ):
+        raise ValueError("PerturbGen tokenise time_point_order must be [reference_time, disease_state]")
+
+    return (
+        PerturbGenDataSpec(
+            cell_type_col=cell_type_col,
+            state_col=state_col,
+            donor_col=donor_col,
+            normal_state=reference_state.strip(),
+            disease_state=time_point_order[1].strip(),
+        ),
+        tokenise_path,
+    )
+
+
+def _preflight_perturbgen_context(
+    context_adata: Any,
+    context_path: Path,
+    candidates: Sequence[dict[str, Any]],
+    *,
+    spec: PerturbGenDataSpec,
+    tokenise_path: Path,
+) -> dict[str, Any]:
+    """Run Gate-0 on the exact cohort path declared for tokenisation.
+
+    The prepared AnnData is a validation copy.  The registered external
+    tokeniser reads ``tokenise_path`` itself, so versioned Ensembl IDs in the
+    original context are rejected instead of silently relying on the copy's
+    normalisation.
+    """
+
+    _validate_original_tokenise_ensembl(context_adata, spec)
+    reports: dict[str, Any] = {}
+    for row, candidate in enumerate(candidates):
+        cell_type = candidate.get("cell_type")
+        if not isinstance(cell_type, str) or not cell_type.strip():
+            raise ValueError(f"candidate {row} cell_type must be a non-empty string")
+        cell_type = cell_type.strip()
+        if cell_type not in reports:
+            prepared = prepare_perturbgen_anndata(context_adata, cell_type=cell_type, spec=spec)
+            reports[cell_type] = prepared.report
+
+        context_index = int(candidate["context_cell_index"])
+        observed_cell_type = str(context_adata.obs.iloc[context_index][spec.cell_type_col]).strip()
+        if observed_cell_type != cell_type:
+            raise ValueError(
+                f"candidate {row} context cell {context_index} has cell_type {observed_cell_type!r}, not {cell_type!r}"
+            )
+
+    return {
+        "status": "pass",
+        "context_h5ad": str(context_path),
+        "tokenise_h5ad": str(tokenise_path),
+        "data_spec": _serialize(spec),
+        "cell_types": {cell_type: _serialize(report) for cell_type, report in reports.items()},
+    }
+
+
+def _validate_original_tokenise_ensembl(context_adata: Any, spec: PerturbGenDataSpec) -> None:
+    """Require original tokeniser input IDs to already be canonical ENSG values."""
+
+    var = getattr(context_adata, "var", None)
+    columns = getattr(var, "columns", None)
+    if columns is None or spec.ensembl_id_col not in columns:
+        return
+    for value in var[spec.ensembl_id_col]:
+        raw = str(value).strip()
+        canonical = normalize_ensembl_id(raw)
+        if raw != canonical:
+            raise ValueError(
+                "Gate-0 tokenise input must already contain canonical Ensembl IDs in the original "
+                f"context_h5ad; {raw!r} would only be normalized on the prepared copy"
+            )
+
+
 def _run(args: argparse.Namespace) -> dict[str, Any]:
     davf_config = _load_davf_config(args.davf_config)
     context_path, raw_candidates = _load_candidate_spec(args.candidate_spec)
@@ -157,9 +291,33 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     for row, candidate in enumerate(raw_candidates):
         missing = [key for key in downstream_required if key not in candidate]
         if missing:
-            raise ValueError(
-                f"candidate {row} is missing direction-gate fields: {', '.join(missing)}"
-            )
+            raise ValueError(f"candidate {row} is missing direction-gate fields: {', '.join(missing)}")
+    perturbgen_config: dict[str, Any] | None = None
+    perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None = None
+    perturbgen_pipeline_seed = 0
+    if args.run_perturbgen:
+        if args.perturbgen_config is None:
+            raise ValueError("--run-perturbgen requires --perturbgen-config")
+        seeds = tuple(int(item.strip()) for item in args.seeds.split(",") if item.strip())
+        if not seeds or len(set(seeds)) != len(seeds) or any(seed < 0 for seed in seeds):
+            raise ValueError("--seeds must be unique non-negative integers")
+        sensitivity_modes = tuple(item.strip() for item in args.sensitivity_modes.split(",") if item.strip())
+        if any(mode not in ("pad", "delete") for mode in sensitivity_modes):
+            raise ValueError("--sensitivity-modes only accepts pad/delete")
+        perturbgen_config = load_pipeline_config(args.perturbgen_config)
+        pipeline = perturbgen_config.get("pipeline")
+        if not isinstance(pipeline, Mapping):
+            raise ValueError("PerturbGen config must declare pipeline.random_seed")
+        raw_pipeline_seed = pipeline.get("random_seed")
+        if isinstance(raw_pipeline_seed, bool) or not isinstance(raw_pipeline_seed, int) or raw_pipeline_seed < 0:
+            raise ValueError("PerturbGen config pipeline.random_seed must be a non-negative integer")
+        perturbgen_pipeline_seed = int(raw_pipeline_seed)
+        perturbgen_gate0_contract = _validate_perturbgen_tokenise_input(
+            perturbgen_config,
+            context_path,
+        )
+    elif args.perturbgen_config is not None:
+        raise ValueError("--perturbgen-config requires --run-perturbgen")
     try:
         import anndata as ad
     except ImportError as exc:
@@ -171,6 +329,16 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         raise IndexError(
             "candidate context_cell_index is outside the context AnnData row range: "
             f"n_obs={context_adata.n_obs}, indices={context_indices}"
+        )
+    perturbgen_gate0 = None
+    if perturbgen_gate0_contract is not None:
+        spec, tokenise_path = perturbgen_gate0_contract
+        perturbgen_gate0 = _preflight_perturbgen_context(
+            context_adata,
+            context_path,
+            raw_candidates,
+            spec=spec,
+            tokenise_path=tokenise_path,
         )
     # Copying the selected rows makes the row alignment explicit and avoids
     # relying on anndata backed slicing internals during scVI decoding.
@@ -186,12 +354,13 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         z_0,
         cell_type=[candidate.get("cell_type", "") for candidate in raw_candidates],
         ptm_context=[candidate.get("ptm_context", "") for candidate in raw_candidates],
-        observed_log2fc=[candidate.get("observed_log2fc") for candidate in raw_candidates],
-        observed_fdr=[candidate.get("observed_fdr") for candidate in raw_candidates],
+        observed_log2fc=[float(candidate["observed_log2fc"]) for candidate in raw_candidates],
+        observed_fdr=[float(candidate["observed_fdr"]) for candidate in raw_candidates],
         observed_direction=[candidate.get("observed_direction") for candidate in raw_candidates],
         scvi_adapter=scvi_adapter,
         scvi_context=selected_context,
         perturbgen_config_path=args.perturbgen_config,
+        seed=perturbgen_pipeline_seed,
     )
 
     payload: dict[str, Any] = {
@@ -203,11 +372,10 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         "merged_gated_routes": merge_route_preparations(preparations),
         "perturbgen_runs": [],
     }
+    if perturbgen_gate0 is not None:
+        payload["perturbgen_gate0"] = perturbgen_gate0
 
     if args.run_perturbgen:
-        if args.perturbgen_config is None:
-            raise ValueError("--run-perturbgen requires --perturbgen-config")
-        load_pipeline_config(args.perturbgen_config)
         runner = PerturbGenRunner(gpu_lock_file=args.gpu_lock_file)
         base_output = (
             Path(args.perturbgen_output_root).expanduser().resolve()
@@ -218,15 +386,17 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             if preparation.invocation is None:
                 continue
             invocation = preparation.invocation
-            candidate_root = base_output / davf_config.intervention_type / invocation.ensembl_id
+            candidate_root = base_output / orchestrator.intervention_type / invocation.ensembl_id
             stage_results = orchestrator.run_perturbgen(
                 invocation,
-                args.perturbgen_config,
+                cast(dict[str, Any], perturbgen_config),
                 runner=runner,
                 output_root=candidate_root,
                 resume=args.resume,
                 dry_run=args.dry_run,
                 project_root=PROJECT_ROOT,
+                seeds=seeds,
+                sensitivity_modes=sensitivity_modes,
             )
             payload["perturbgen_runs"].append(
                 {
@@ -254,6 +424,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-perturbgen", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--seeds",
+        default="0",
+        help="comma-separated random seeds for the perturb stages (formal verdicts need >=3)",
+    )
+    parser.add_argument(
+        "--sensitivity-modes",
+        default="",
+        help="comma-separated KO sensitivity modes (pad,delete) analysed besides the primary mask mode",
+    )
     args = parser.parse_args(argv)
 
     payload = _run(args)

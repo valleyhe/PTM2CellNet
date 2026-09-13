@@ -135,6 +135,42 @@ class PTMDatabaseLoaderMixin:
             logger.error("解析 PhosphoSitePlus 数据失败: %s", exc)
             return self._empty_or_raise(self._empty_phosphositeplus_df(), "PhosphoSitePlus")
 
+    def _load_generic_ptm_table(
+        self,
+        file_path_or_url: str,
+        *,
+        source: str,
+        ptm_type: str,
+        accession_candidates: List[str],
+        position_candidates: List[str],
+        amino_acid_candidates: List[str],
+        sep: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Shared download/parse/fallback body of the external PTM loaders (TD-NEW-08)."""
+
+        try:
+            local_path = self._download_if_url(file_path_or_url)
+        except requests.RequestException as exc:
+            logger.error("下载 %s 数据失败: %s", source, exc)
+            return self._empty_or_raise(self._empty_ptm_df(), source)
+
+        try:
+            if sep is None:
+                df = self._read_tabular_file(local_path)
+            else:
+                df = self._read_tabular_file(local_path, sep=sep)
+            return self._build_ptm_dataframe(
+                df=df,
+                accession_candidates=accession_candidates,
+                position_candidates=position_candidates,
+                amino_acid_candidates=amino_acid_candidates,
+                source=source,
+                ptm_type=ptm_type,
+            )
+        except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
+            logger.error("解析 %s 数据失败: %s", source, exc)
+            return self._empty_or_raise(self._empty_ptm_df(), source)
+
     def load_from_dbptm(
         self, file_path_or_url: str, ptm_type: str = "phosphorylation"
     ) -> pd.DataFrame:
@@ -149,31 +185,20 @@ class PTMDatabaseLoaderMixin:
             DataFrame with columns ``protein_accession``, ``position``, ``ptm_type``,
             ``amino_acid`` and ``source``.
         """
-        try:
-            local_path = self._download_if_url(file_path_or_url)
-        except requests.RequestException as exc:
-            logger.error("下载 dbPTM 数据失败: %s", exc)
-            return self._empty_or_raise(self._empty_ptm_df(), "dbPTM")
-
-        try:
-            df = self._read_tabular_file(local_path)
-            return self._build_ptm_dataframe(
-                df=df,
-                accession_candidates=[
-                    "UniProtKB Accession",
-                    "UniProt Accession",
-                    "protein_accession",
-                    "ACC_ID",
-                    "accession",
-                ],
-                position_candidates=["Position", "Site Position", "site", "pos"],
-                amino_acid_candidates=["Residue", "Amino Acid", "AA", "amino_acid"],
-                source="dbPTM",
-                ptm_type=ptm_type,
-            )
-        except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-            logger.error("解析 dbPTM 数据失败: %s", exc)
-            return self._empty_or_raise(self._empty_ptm_df(), "dbPTM")
+        return self._load_generic_ptm_table(
+            file_path_or_url,
+            source="dbPTM",
+            ptm_type=ptm_type,
+            accession_candidates=[
+                "UniProtKB Accession",
+                "UniProt Accession",
+                "protein_accession",
+                "ACC_ID",
+                "accession",
+            ],
+            position_candidates=["Position", "Site Position", "site", "pos"],
+            amino_acid_candidates=["Residue", "Amino Acid", "AA", "amino_acid"],
+        )
 
     def load_from_epsd(self, file_path_or_url: str, ptm_type: str = "phosphorylation") -> pd.DataFrame:
         """
@@ -192,32 +217,22 @@ class PTMDatabaseLoaderMixin:
             DataFrame with columns ``protein_accession``, ``position``, ``ptm_type``,
             ``amino_acid`` and ``source``.
         """
-        try:
-            local_path = self._download_if_url(file_path_or_url)
-        except requests.RequestException as exc:
-            logger.error("下载 EPSD 数据失败: %s", exc)
-            return self._empty_or_raise(self._empty_ptm_df(), "EPSD")
-
-        try:
-            df = self._read_tabular_file(local_path, sep="\t")
-            return self._build_ptm_dataframe(
-                df=df,
-                accession_candidates=[
-                    "UniProt ID",
-                    "UniProt Accession",
-                    "UniProtKB Accession",
-                    "protein_accession",
-                    "ACC_ID",
-                    "accession",
-                ],
-                position_candidates=["Position", "Site Position", "site", "pos"],
-                amino_acid_candidates=["Amino Acid", "Residue", "AA", "amino_acid"],
-                source="EPSD",
-                ptm_type=ptm_type,
-            )
-        except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-            logger.error("解析 EPSD 数据失败: %s", exc)
-            return self._empty_or_raise(self._empty_ptm_df(), "EPSD")
+        return self._load_generic_ptm_table(
+            file_path_or_url,
+            source="EPSD",
+            ptm_type=ptm_type,
+            sep="\t",
+            accession_candidates=[
+                "UniProt ID",
+                "UniProt Accession",
+                "UniProtKB Accession",
+                "protein_accession",
+                "ACC_ID",
+                "accession",
+            ],
+            position_candidates=["Position", "Site Position", "site", "pos"],
+            amino_acid_candidates=["Amino Acid", "Residue", "AA", "amino_acid"],
+        )
 
     def load_from_cplm(self, file_path_or_url: str, ptm_type: str = "cysteine") -> pd.DataFrame:
         """
@@ -231,28 +246,18 @@ class PTMDatabaseLoaderMixin:
             DataFrame with columns ``protein_accession``, ``position``, ``ptm_type``,
             ``amino_acid`` and ``source``.
         """
-        try:
-            local_path = self._download_if_url(file_path_or_url)
-        except requests.RequestException as exc:
-            logger.error("下载 CPLM 数据失败: %s", exc)
-            return self._empty_or_raise(self._empty_ptm_df(), "CPLM")
-
-        try:
-            df = self._read_tabular_file(local_path, sep="\t")
-            return self._build_ptm_dataframe(
-                df=df,
-                accession_candidates=[
-                    "UniProt Accession",
-                    "UniProtKB Accession",
-                    "protein_accession",
-                    "ACC_ID",
-                    "accession",
-                ],
-                position_candidates=["Position", "Site Position", "site", "pos"],
-                amino_acid_candidates=["Amino Acid", "Residue", "AA", "amino_acid"],
-                source="CPLM",
-                ptm_type=ptm_type,
-            )
-        except (FileNotFoundError, OSError, ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-            logger.error("解析 CPLM 数据失败: %s", exc)
-            return self._empty_or_raise(self._empty_ptm_df(), "CPLM")
+        return self._load_generic_ptm_table(
+            file_path_or_url,
+            source="CPLM",
+            ptm_type=ptm_type,
+            sep="\t",
+            accession_candidates=[
+                "UniProt Accession",
+                "UniProtKB Accession",
+                "protein_accession",
+                "ACC_ID",
+                "accession",
+            ],
+            position_candidates=["Position", "Site Position", "site", "pos"],
+            amino_acid_candidates=["Amino Acid", "Residue", "AA", "amino_acid"],
+        )

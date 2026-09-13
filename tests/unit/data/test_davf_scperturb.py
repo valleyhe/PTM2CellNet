@@ -8,8 +8,10 @@ from pathlib import Path
 import anndata as ad
 import numpy as np
 import pandas as pd
+import pytest
 import scipy.sparse as sp
 
+from src.data import davf_scperturb as davf
 from src.data.davf_scperturb import (
     DAVFScPerturbError,
     build_scperturb_latent_pairs,
@@ -17,6 +19,7 @@ from src.data.davf_scperturb import (
     split_target_cells,
     split_target_labels,
 )
+from src.utils.dependency_check import DependencyStatus, MissingDependencyError
 
 
 def _write_source(path: Path, *, modality: str = "KO") -> None:
@@ -159,7 +162,6 @@ def test_pair_builder_requires_matching_prepared_modality(tmp_path):
         embedding_manifest={"schema_version": 1},
     )
 
-    import pytest
     from types import SimpleNamespace
 
     with pytest.raises(DAVFScPerturbError, match="modality"):
@@ -171,3 +173,28 @@ def test_pair_builder_requires_matching_prepared_modality(tmp_path):
             output_dir=tmp_path / "pairs",
             modality="KD",
         )
+
+
+def test_optional_preflight_accepts_available_anndata(monkeypatch):
+    calls = []
+    monkeypatch.setattr(davf, "require_extras", lambda names, **kwargs: calls.append((names, kwargs)))
+
+    assert davf._require_anndata() is ad
+    assert calls == [(["anndata"], {"feature": "DAVF scPerturb data preparation"})]
+
+
+def test_optional_preflight_hard_fails_with_install_hint(monkeypatch):
+    status = DependencyStatus(
+        import_name="anndata",
+        available=False,
+        import_error=ModuleNotFoundError("No module named 'anndata'"),
+        extra="analysis",
+        install_name="anndata",
+    )
+
+    def raise_missing(*args, **kwargs):
+        raise MissingDependencyError('pip install -e ".[analysis]"', [status])
+
+    monkeypatch.setattr(davf, "require_extras", raise_missing)
+    with pytest.raises(MissingDependencyError, match=r"\.\[analysis\]"):
+        davf._require_anndata()

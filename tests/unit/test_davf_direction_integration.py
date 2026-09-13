@@ -46,6 +46,7 @@ def _evidence(direction: str = "down") -> DAVFDirectionEvidence:
         model_source="davf",
         checkpoint_provenance="checkpoints/davf/best_model.pt",
         embedding_provenance="outputs/embedding_asset",
+        confidence=0.5,
     )
 
 
@@ -76,6 +77,7 @@ def test_mainline_requires_direction_agreement_before_perturbgen() -> None:
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        intervention_type="KO",
         path_results=_overexpress_path("source_intervention") + _overexpress_path("within_state"),
         q_value=0.01,
         unperturbed_quality_status="pass",
@@ -96,6 +98,7 @@ def test_mainline_passes_direction_gate_then_evaluates_both_paths() -> None:
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        intervention_type="KO",
         path_results=_overexpress_path("source_intervention") + _overexpress_path("within_state"),
         q_value=0.01,
         unperturbed_quality_status="pass",
@@ -121,6 +124,7 @@ def test_mainline_report_keeps_direction_gate_and_candidate_evidence() -> None:
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        intervention_type="KO",
         q_value=0.01,
         unperturbed_quality_status="pass",
     )
@@ -296,6 +300,7 @@ def _bare_direction_module(*, loaded: bool = True, with_assets: bool = True) -> 
     )
     module._checkpoint_loaded = loaded
     module._current_checkpoint_contract_valid = loaded
+    module._embedding_symbol_to_ensembl = {}
     module._checkpoint_contract = {
         "scvi": {
             "model_path": str(Path("checkpoints/scvi/model").resolve()),
@@ -329,6 +334,7 @@ def test_davf_decodes_gene_delta_into_direction_evidence() -> None:
     assert len(evidence) == 1
     assert evidence[0].predicted_direction == "up"
     assert evidence[0].predicted_delta == pytest.approx(2.0)
+    assert evidence[0].confidence == pytest.approx(1.0)
     assert evidence[0].model_source == "davf"
 
 

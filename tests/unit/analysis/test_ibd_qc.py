@@ -7,7 +7,9 @@ from scipy import sparse
 
 ad = pytest.importorskip("anndata")
 
+from src.analysis import ibd_qc
 from src.analysis.ibd_qc import _build_adata_from_components, run_qc_on_adata
+from src.utils.dependency_check import DependencyStatus, MissingDependencyError
 
 
 def test_build_adata_transposes_feature_by_cell_matrix_and_selects_rows():
@@ -56,3 +58,37 @@ def test_qc_groups_by_sample_index_not_obs_labels():
     assert all("doublet_cells" in values for values in summary.values())
     assert result.obs["qc_pass"].dtype == bool
     assert result.obs["analysis_pass"].all()
+
+
+def test_optional_preflight_accepts_available_anndata(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ibd_qc, "require_extras", lambda names, **kwargs: calls.append((names, kwargs)))
+
+    assert ibd_qc._require_anndata() is ad
+    assert calls == [(["anndata"], {"feature": "IBD matrix processing"})]
+
+
+def test_optional_preflight_hard_fails_with_install_hint(monkeypatch):
+    status = DependencyStatus(
+        import_name="scanpy",
+        available=False,
+        import_error=ModuleNotFoundError("No module named 'scanpy'"),
+        extra="analysis",
+        install_name="scanpy",
+    )
+
+    def raise_missing(*args, **kwargs):
+        raise MissingDependencyError('pip install -e ".[analysis]"', [status])
+
+    monkeypatch.setattr(ibd_qc, "require_extras", raise_missing)
+    with pytest.raises(MissingDependencyError, match=r"\.\[analysis\]"):
+        ibd_qc._require_scanpy()
+
+
+def test_scrublet_boundary_does_not_silently_skip_missing_dependency(monkeypatch):
+    def raise_missing(*args, **kwargs):
+        raise MissingDependencyError("scrublet missing", [])
+
+    monkeypatch.setattr(ibd_qc, "require_extras", raise_missing)
+    with pytest.raises(MissingDependencyError, match="scrublet missing"):
+        ibd_qc._run_scrublet_by_sample(object())

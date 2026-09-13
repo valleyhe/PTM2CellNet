@@ -20,9 +20,10 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import json
-from numbers import Integral
+import math
+from numbers import Integral, Real
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from src.models.gene_vocabulary import normalize_ensembl_id, normalize_gene_symbol
 from src.models.ptm_direction_mapper import PTMDirectionMapper, PTMDirectionMapperOutput
@@ -49,6 +50,9 @@ _ACTION_TO_MODE: dict[DavfAction, PerturbationMode] = {
     "ko": "mask",
     "oe": "overexpress",
 }
+# §4.7 condition 5: KO conclusions are drawn from the primary ``mask`` mode;
+# pad/delete only serve as sensitivity analyses and never replace it.
+_KO_SENSITIVITY_MODES: tuple[PerturbationMode, ...] = ("pad", "delete")
 
 
 class DAVFPerturbGenE2EError(RuntimeError):
@@ -69,6 +73,8 @@ class PerturbGenInvocation:
     davf_evidence: DAVFDirectionEvidence
     perturbgen_config_path: Path | None = None
     output_root: Path | None = None
+    seed: int = 0
+    is_sensitivity: bool = False
 
     def __post_init__(self) -> None:
         route = str(self.intervention_type).strip().upper()
@@ -83,7 +89,15 @@ class PerturbGenInvocation:
             or self.target_token_id < 0
         ):
             raise ValueError("target_token_id must be a non-negative integer")
-        if self.perturbation_mode not in {"mask", "overexpress"}:
+        if self.seed < 0:
+            raise ValueError("seed must be >= 0")
+        if self.is_sensitivity:
+            if self.intervention_type != "KO" or self.perturbation_mode not in _KO_SENSITIVITY_MODES:
+                raise ValueError(
+                    "sensitivity invocations are KO-only pad/delete analyses of a "
+                    "primary mask conclusion"
+                )
+        elif self.perturbation_mode not in {"mask", "overexpress"}:
             raise ValueError("formal DAVF/PerturbGen bridge supports mask or overexpress actions")
         paths = tuple(self.paths)
         if not paths:
@@ -99,6 +113,40 @@ class PerturbGenInvocation:
             raise ValueError("DAVF evidence gene_symbol does not match invocation")
         if self.davf_evidence.ensembl_id != self.ensembl_id:
             raise ValueError("DAVF evidence ensembl_id does not match invocation")
+        if self.candidate.direction_gate_status != "pass":
+            raise ValueError("candidate.direction_gate_status must be 'pass'")
+        if self.candidate.proposed_direction != self.davf_evidence.predicted_direction:
+            raise ValueError("candidate.proposed_direction must match davf_evidence.predicted_direction")
+        if self.candidate.davf_predicted_direction != self.davf_evidence.predicted_direction:
+            raise ValueError(
+                "candidate.davf_predicted_direction must match davf_evidence.predicted_direction"
+            )
+        score = self.candidate.davf_score
+        if (
+            score is None
+            or isinstance(score, bool)
+            or not isinstance(score, Real)
+            or not math.isfinite(float(score))
+            or not 0.0 <= float(score) <= 1.0
+        ):
+            raise ValueError("candidate.davf_score must be finite and within [0, 1]")
+        confidence = self.davf_evidence.confidence
+        if (
+            confidence is None
+            or isinstance(confidence, bool)
+            or not isinstance(confidence, Real)
+            or not math.isfinite(float(confidence))
+            or not 0.0 <= float(confidence) <= 1.0
+        ):
+            raise ValueError("davf_evidence.confidence must be finite and within [0, 1]")
+        if float(score) != float(confidence):
+            raise ValueError("candidate.davf_score must exactly match davf_evidence.confidence")
+        if not self.candidate.davf_provenance:
+            raise ValueError("candidate.davf_provenance is required")
+        if not self.davf_evidence.checkpoint_provenance:
+            raise ValueError("davf_evidence.checkpoint_provenance is required")
+        if not self.davf_evidence.embedding_provenance:
+            raise ValueError("davf_evidence.embedding_provenance is required")
         if self.perturbgen_config_path is not None:
             object.__setattr__(
                 self,
@@ -126,6 +174,8 @@ class PerturbGenInvocation:
                 else None
             ),
             "output_root": str(self.output_root) if self.output_root is not None else None,
+            "seed": self.seed,
+            "is_sensitivity": self.is_sensitivity,
         }
 
 
@@ -200,6 +250,7 @@ class DAVFPerturbGenOrchestrator:
         n_samples: int = 1,
         perturbgen_config_path: str | Path | None = None,
         output_root: str | Path | None = None,
+        seed: int = 0,
     ) -> tuple[DAVFPerturbGenPreparation, ...]:
         """Infer DAVF directions and gate a batch of PTM candidates.
 
@@ -212,6 +263,8 @@ class DAVFPerturbGenOrchestrator:
         proposal_batch = tuple(proposals)
         if not proposal_batch:
             raise ValueError("proposals must not be empty")
+        if isinstance(seed, bool) or not isinstance(seed, Integral) or seed < 0:
+            raise ValueError("seed must be a non-negative integer")
         if any(not isinstance(item, PTMSiteDirectionProposal) for item in proposal_batch):
             raise TypeError("proposals must contain PTMSiteDirectionProposal objects")
         batch_size = len(proposal_batch)
@@ -286,6 +339,7 @@ class DAVFPerturbGenOrchestrator:
                         else None
                     ),
                     output_root=Path(output_root) if output_root is not None else None,
+                    seed=int(seed),
                 )
             preparations.append(
                 DAVFPerturbGenPreparation(
@@ -322,12 +376,14 @@ class DAVFPerturbGenOrchestrator:
         resume: bool = False,
         dry_run: bool = False,
         project_root: str | Path | None = None,
+        seeds: Sequence[int] | None = None,
+        sensitivity_modes: Sequence[PerturbationMode] = (),
     ) -> list[Any]:
         """Execute the isolated PerturbGen stages for one gated candidate.
 
         The runner still owns environment checks, GPU locking, manifests and
         resume fingerprints.  This method only materializes the candidate
-        target and the two path-specific perturb plans.
+        target and the path/mode/seed perturb plans.
         """
 
         if invocation.intervention_type != self.intervention_type:
@@ -340,13 +396,21 @@ class DAVFPerturbGenOrchestrator:
             invocation,
             output_root=output_root,
             project_root=project_root,
+            seeds=seeds,
+            sensitivity_modes=sensitivity_modes,
         )
-        return runner.run_pipeline(plans, resume=resume, dry_run=dry_run)
+        return cast(list[Any], runner.run_pipeline(plans, resume=resume, dry_run=dry_run))
 
     def _validate_target_identity(self, proposal: PTMSiteDirectionProposal) -> None:
         """Reject a symbol/Ensembl pair that disagrees with the verified asset."""
 
-        aliases = getattr(self.davf_module, "_embedding_symbol_to_ensembl", {})
+        resolver = getattr(self.davf_module, "embedding_symbol_to_ensembl", None)
+        if resolver is None:
+            raise DAVFPerturbGenE2EError(
+                "formal DAVF target identity requires a module exposing the public "
+                "'embedding_symbol_to_ensembl' alias asset"
+            )
+        aliases = resolver
         if not isinstance(aliases, Mapping) or not aliases:
             raise DAVFPerturbGenE2EError(
                 "formal DAVF target identity requires the configured Ensembl-to-symbol "
@@ -400,6 +464,7 @@ def materialize_candidate_config(
             raise ValueError("base genes_to_perturb target must not be empty")
     trainer["genes_to_perturb"] = [invocation.gene_symbol]
     trainer["perturbation_mode"] = invocation.perturbation_mode
+    pipeline["random_seed"] = invocation.seed
     old_root_value = pipeline.get("output_root")
     root_value = output_root if output_root is not None else old_root_value
     if not isinstance(root_value, (str, Path)) or not str(root_value):
@@ -423,6 +488,10 @@ def materialize_candidate_config(
     expected_outputs = perturb_stage.get("expected_outputs")
     if expected_outputs is not None and old_target is not None:
         perturb_stage["expected_outputs"] = _replace_target(expected_outputs, old_target, invocation.gene_symbol)
+    if perturb_stage.get("expected_outputs") is not None:
+        perturb_stage["expected_outputs"] = _replace_perturbation_mode(
+            perturb_stage["expected_outputs"], invocation.perturbation_mode
+        )
     return materialized
 
 
@@ -433,8 +502,17 @@ def build_candidate_stage_plans(
     output_root: str | Path | None = None,
     project_root: str | Path | None = None,
     paths: Sequence[PathKind] | None = None,
+    seeds: Sequence[int] | None = None,
+    sensitivity_modes: Sequence[PerturbationMode] = (),
 ) -> tuple[StagePlan, ...]:
-    """Build common training plans plus isolated source/within-state plans."""
+    """Build common training plans plus per-path perturb plans.
+
+    ``seeds`` fans the perturb stages out over the requested random seeds
+    (§4.7 condition 4) and ``sensitivity_modes`` adds KO pad/delete analyses
+    (§4.7 condition 5).  Common stages (tokenise/training) are planned once;
+    every (path, mode, seed) combination gets an isolated output directory
+    so artifact discovery stays unique.
+    """
 
     if isinstance(config_or_path, Mapping):
         config = deepcopy(dict(config_or_path))
@@ -445,6 +523,23 @@ def build_candidate_stage_plans(
         raise ValueError("paths must not be empty")
     if len(set(selected_paths)) != len(selected_paths) or any(path not in _PATHS for path in selected_paths):
         raise ValueError("paths must contain unique source_intervention/within_state values")
+    selected_seeds = tuple(seeds) if seeds is not None else (invocation.seed,)
+    if not selected_seeds:
+        raise ValueError("seeds must not be empty")
+    if len(set(selected_seeds)) != len(selected_seeds) or any(int(seed) < 0 for seed in selected_seeds):
+        raise ValueError("seeds must be unique non-negative integers")
+    for mode in sensitivity_modes:
+        if mode not in _KO_SENSITIVITY_MODES:
+            raise ValueError(f"sensitivity mode must be one of {_KO_SENSITIVITY_MODES}, got {mode!r}")
+    plan_modes: tuple[PerturbationMode, ...] = (invocation.perturbation_mode,)
+    if sensitivity_modes:
+        if invocation.intervention_type != "KO" or invocation.perturbation_mode != "mask":
+            raise ValueError(
+                "sensitivity modes apply only to KO candidates whose primary mode is mask"
+            )
+        plan_modes = plan_modes + tuple(sensitivity_modes)
+    multi_combo = len(selected_seeds) > 1 or len(plan_modes) > 1
+
     config = materialize_candidate_config(config, invocation, output_root=output_root)
     base_plans = build_stage_plans(config, project_root=project_root)
     by_name = {plan.name: plan for plan in base_plans}
@@ -455,22 +550,36 @@ def build_candidate_stage_plans(
 
     plans: list[StagePlan] = [by_name[name] for name in common_names]
     for path in selected_paths:
-        path_config = deepcopy(config)
-        _apply_path(path_config, path)
-        stage = path_config["stages"]["perturb"]
-        stage["output_subdir"] = f"perturb/{path}"
-        trainer = stage["perturb_config"]["trainer"]
-        trainer["output_dir"] = str(
-            Path(path_config["pipeline"]["output_root"]) / "perturb" / path / "results"
-        )
-        perturb_plan = next(
-            plan
-            for plan in build_stage_plans(path_config, project_root=project_root)
-            if plan.name == "perturb"
-        )
-        plans.append(replace(perturb_plan, name=path))
+        for mode in plan_modes:
+            for seed in selected_seeds:
+                path_config = deepcopy(config)
+                _apply_path(path_config, path)
+                _apply_mode_and_seed(path_config, mode, seed)
+                stage = path_config["stages"]["perturb"]
+                combo_subdir = f"{mode}_seed{seed}" if multi_combo else ""
+                stage["output_subdir"] = f"perturb/{path}" + (f"/{combo_subdir}" if combo_subdir else "")
+                trainer = stage["perturb_config"]["trainer"]
+                trainer_output = Path(path_config["pipeline"]["output_root"]) / "perturb" / path
+                if combo_subdir:
+                    trainer_output = trainer_output / combo_subdir
+                trainer["output_dir"] = str(trainer_output / "results")
+                perturb_plan = next(
+                    plan
+                    for plan in build_stage_plans(path_config, project_root=project_root)
+                    if plan.name == "perturb"
+                )
+                plans.append(replace(perturb_plan, name=path))
     plans.extend(by_name[name] for name in ("export_gene_embeddings", "report"))
     return tuple(plans)
+
+
+def _apply_mode_and_seed(config: dict[str, Any], mode: PerturbationMode, seed: int) -> None:
+    stage = config["stages"]["perturb"]
+    stage["perturb_config"]["trainer"]["perturbation_mode"] = mode
+    if stage.get("expected_outputs") is not None:
+        stage["expected_outputs"] = _replace_perturbation_mode(stage["expected_outputs"], mode)
+    stage["seed"] = int(seed)
+    config["pipeline"]["random_seed"] = int(seed)
 
 
 def merge_route_preparations(
@@ -611,6 +720,21 @@ def _replace_target(value: Any, old_target: str, new_target: str) -> Any:
             key: _replace_target(item, old_target, new_target)
             for key, item in value.items()
         }
+    return value
+
+
+def _replace_perturbation_mode(value: Any, mode: PerturbationMode) -> Any:
+    if isinstance(value, str):
+        updated = value
+        for old_mode in ("mask", "pad", "delete", "overexpress"):
+            updated = updated.replace(f"_t{old_mode}.h5ad", f"_t{mode}.h5ad")
+        return updated
+    if isinstance(value, list):
+        return [_replace_perturbation_mode(item, mode) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_replace_perturbation_mode(item, mode) for item in value)
+    if isinstance(value, dict):
+        return {key: _replace_perturbation_mode(item, mode) for key, item in value.items()}
     return value
 
 

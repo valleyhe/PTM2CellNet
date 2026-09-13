@@ -27,17 +27,25 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from src.models.davf_checkpoint_contract import FORMAL_DAVF_NUM_GENES  # noqa: F401 - re-exported contract constant
 from src.models.gene_vocabulary import normalize_ensembl_id, normalize_gene_symbol
+from src.utils.dependency_check import require_extras
 
 
 FORMAL_DAVF_LATENT_DIM = 64
-FORMAL_DAVF_NUM_GENES = 4018
 DIRECTION_CODES = {"KO": 0, "KD": 1, "OE": 2}
 CONTROL_LABELS = frozenset({"control", "control_", "non-targeting", "non_targeting", "nt"})
 
 
 class DAVFScPerturbError(ValueError):
     """Raised when a supported scPerturb input cannot satisfy the DAVF contract."""
+
+
+def _require_anndata():
+    require_extras(["anndata"], feature="DAVF scPerturb data preparation")
+    import anndata as ad
+
+    return ad
 
 
 @dataclass
@@ -136,6 +144,7 @@ def _resolve_cell_target(
         raw = _text(value)
         if not raw or _is_control_label(raw):
             continue
+        candidate_id: str | None
         try:
             candidate_id = normalize_ensembl_id(raw)
         except ValueError:
@@ -156,13 +165,13 @@ def _feature_scores(adata: Any) -> np.ndarray:
 
     for column in ("ncells", "ncounts"):
         if column in adata.var.columns:
-            values = pd.to_numeric(adata.var[column], errors="coerce").to_numpy(dtype=np.float64)
+            values = np.asarray(pd.to_numeric(adata.var[column], errors="coerce").to_numpy(dtype=np.float64))
             if np.isfinite(values).all() and (values >= 0).all():
                 return values
 
     matrix = adata.X
     if sp.issparse(matrix):
-        return np.asarray((matrix > 0).sum(axis=0)).ravel().astype(np.float64)
+        return np.asarray(np.asarray((matrix > 0).sum(axis=0)).ravel().astype(np.float64))
     dense = np.asarray(matrix)
     return np.asarray((dense > 0).sum(axis=0), dtype=np.float64)
 
@@ -182,10 +191,7 @@ def _prepare_source(
     modality: str,
     asset_gene_to_token: Mapping[str, int],
 ) -> _PreparedSource:
-    try:
-        import anndata as ad
-    except ImportError as exc:  # pragma: no cover - optional dependency boundary
-        raise ImportError("anndata is required to prepare DAVF scPerturb data") from exc
+    ad = _require_anndata()
 
     if not path.is_file():
         raise FileNotFoundError(f"scPerturb AnnData not found: {path}")
@@ -370,10 +376,7 @@ def prepare_scperturb_anndata(
         )
         selected_sources.append(selected)
 
-    try:
-        import anndata as ad
-    except ImportError as exc:  # pragma: no cover - optional dependency boundary
-        raise ImportError("anndata is required to concatenate DAVF inputs") from exc
+    ad = _require_anndata()
     combined = ad.concat(
         selected_sources,
         axis=0,
@@ -468,7 +471,7 @@ def split_target_labels(
 
 
 def split_target_cells(
-    target_values: Sequence[str],
+    target_values: Sequence[Any] | np.ndarray,
     *,
     seed: int,
     train_ratio: float = 0.8,
@@ -552,11 +555,8 @@ def build_scperturb_latent_pairs(
         raise DAVFScPerturbError("control_baseline must be 'mean' or 'cell'")
     if max_cells_per_target <= 0 or encoder_batch_size <= 0:
         raise DAVFScPerturbError("max_cells_per_target and encoder_batch_size must be positive")
-    try:
-        import anndata as ad
-        from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
-    except ImportError as exc:  # pragma: no cover - optional dependency boundary
-        raise ImportError("anndata and scvi-tools are required to build DAVF latent pairs") from exc
+    ad = _require_anndata()
+    from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
 
     prepared = Path(prepared_path).expanduser().resolve()
     adata = ad.read_h5ad(prepared)
@@ -572,6 +572,7 @@ def build_scperturb_latent_pairs(
     if "davf_target_ensembl" not in adata.obs or "davf_batch" not in adata.obs:
         raise DAVFScPerturbError("prepared AnnData must contain davf_target_ensembl and davf_batch columns")
 
+    require_extras(["scvi"], feature="DAVF latent-pair construction")
     scvi_path = Path(scvi_model_path).expanduser().resolve()
     adapter = ScVIAdapter.from_trained_model(
         scvi_path,
