@@ -6,6 +6,6 @@
 请以以下当前资料为准：
 
 - [`CURRENT_STATUS.md`](CURRENT_STATUS.md)
-- 仓库根目录 [`project_analysis_20260824.md`](../project_analysis_20260824.md)
+- 仓库根目录 [`project_analysis_20260913.md`](../project_analysis_20260913.md)
 - [`guides/installation.md`](guides/installation.md) 等指南
 - 根目录 `AGENTS.md` 的“实际代码现状映射”（如本地存在）

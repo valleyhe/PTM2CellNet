@@ -3,15 +3,16 @@
 **Last updated: 2026-09-13（追加本轮真实修复状态；2026-09-10 历史检查基线保留）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260910.md`](../project_analysis_20260910.md)。
-2026-09-01 及更早的综合分析、docs/ 下 7 个 2026-08 初点时报告已归档：
-`archive/20260910/reports/`（含 20260901 权威报告）、`archive/20260901/reports/`、
-`archive/20260827/reports/` 等；各批次清单见对应 `archive/YYYYMMDD/MANIFEST.md`。
+[`project_analysis_20260913.md`](../project_analysis_20260913.md)。
+2026-09-10 综合分析与修复日志、2026-09-01 及更早报告、根目录 2026-08 stub 已归档：
+`archive/20260913/`（含 20260910 权威报告）、`archive/20260910/reports/`（含 20260901）、
+`archive/20260901/reports/`、`archive/20260827/reports/` 等；各批次清单见对应
+`archive/YYYYMMDD/MANIFEST.md` 或 `ARCHIVE_MANIFEST.md`。
 
 ## Quick Reference
 
 - **验证环境**：主进程 Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；PerturbGen 独立环境 conda `perturbgen`（Python 3.11.15）已于 2026-08-23 完全建立并通过 GPU 实测（evidence 见 `outputs/perturbgen/env_evidence_20260823.json`，复现入口 `scripts/setup_perturbgen_env.sh` + `scripts/download_perturbgen_wheels.sh`）。
-- **测试基线（2026-09-10 更新）**：最终离线回归 **2573 passed / 15 skipped / 7 deselected / 55 warnings / exit 0（805.68s）**（命令排除 `slow`、`gpu`、`real_assets`；含 9 月批次和本次 G-1/G-2/G-3/N-05/技术债回归）。此前 2026-09-02 聚焦回归 157 passed、真实资产 CUDA 桥接 3 passed 的记录不变。
+- **测试基线（2026-09-10 历史）**：离线回归 **2573 passed / 15 skipped / 7 deselected / 55 warnings / exit 0（805.68s）**（当时排除 `slow`、`gpu`、`real_assets`）。**2026-09-13 实测（AGENTS 口径）**：**2578 passed / 21 skipped / 69 warnings / 798.65s / exit 0**（`not slow and not gpu`，timeout 300）。此前 2026-09-02 聚焦回归 157 passed、真实资产 CUDA 桥接 3 passed 的记录不变。
 - **静态/构建质量（2026-09-10）**：`compileall` 通过；`ruff check src scripts tests` 全绿；`mypy src` **0 errors / 161 files**；requirements consistency 通过；全仓 `ruff format --check` 仍有 329 个文件需要格式化，未在本轮批量改写；`python -m pip check` 当前有 3 个环境冲突（ptm2cellnet/NumPy、scgpt/scvi-tools、ssh-unit/torchaudio），详见权威分析和验证章节。
 - **技术债闭环（本轮确认，提交 `63ebf75`）**：
   - **TD-N-24（高）已修复**：`src/analysis/gene_mapper.py:150-186` 新增 `_call_external_mapper`——外部 `UniProtMapper` 调用包裹 daemon 线程 + `_EXTERNAL_MAPPER_TIMEOUT_S` 硬超时，超时转既有异常分支；生产 `/predict` 挂死风险解除。回归锚点 `tests/unit/analysis/test_gene_mapper.py`（TD-N-33 合并后单一入口）。
@@ -30,8 +31,9 @@
 ## 2026-09-13 本轮修复状态
 
 本节只记录 2026-09-13 的源码审计、修复和检查；上方 2026-09-10 的回归数字与
-历史检查日期不因本轮未运行真实资产而改写。详细记录见
-[`project_repair_report_20260913.md`](../project_repair_report_20260913.md)。
+历史检查日期不因本轮未运行真实资产而改写。修复细节见
+[`project_repair_report_20260913.md`](../project_repair_report_20260913.md)；
+综合对抗分析见 [`project_analysis_20260913.md`](../project_analysis_20260913.md)。
 
 - `scripts/run_perturbgen_pipeline.py` 现要求通过的 E2E report invocation 与当前
   base YAML 的 gene、mode、声明的 Ensembl ID/route、`pipeline.random_seed` 和授权
@@ -70,7 +72,7 @@
 ## 文档入口
 
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)、[真实资产验收](guides/real_assets_acceptance.md)
-- [项目代码与文档综合分析（2026-09-10，当前权威）](../project_analysis_20260910.md)、[归档清单（2026-09-01）](../archive/20260901/MANIFEST.md)
+- [项目代码与文档综合分析（2026-09-13，当前权威）](../project_analysis_20260913.md)、[归档清单（2026-09-13）](../archive/20260913/ARCHIVE_MANIFEST.md)
 - [PerturbGen 双路径整合方案（v2.0，现行需求基线）](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)
 - [测试覆盖率治理](TEST_COVERAGE.md)
 

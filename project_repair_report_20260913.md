@@ -19,7 +19,7 @@ Volta 已完成冻结 verifier/OE/replay 的工程接线和其针对性检查；
 
 ## 2. 事实来源与章节引用
 
-- 最新根目录分析是 [`project_analysis_20260910.md`](project_analysis_20260910.md)。本报告具体更正其 §4“从训练到推理的 E2E 链路审计”和 §9“最终结论”中过强的 G-3/完整闭环/唯一外部阻塞表述；不改写其 9/10 检查日期和历史命令结果。
+- 本修复完成时的根目录分析是 [`project_analysis_20260910.md`](archive/20260913/reports/project_analysis_20260910.md)（现已归档）。本报告具体更正其 §4“从训练到推理的 E2E 链路审计”和 §9“最终结论”中过强的 G-3/完整闭环/唯一外部阻塞表述；不改写其 9/10 检查日期和历史命令结果。当前权威分析是 [`project_analysis_20260913.md`](project_analysis_20260913.md)。
 - [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) 的 `Quick Reference`、`解释测试结果的边界` 保留 9/10 基线；新增 `2026-09-13 本轮修复状态` 提供本报告入口及本轮边界。该文件没有按不存在的 §1–§4 章节引用。
 - [`lessons.md`](lessons.md) 的 L-2026-0821-01、L-2026-0822-04～06、L-2026-0901-01、L-2026-0902-01～03 分别约束双路径主线、manifest 绑定、单次自洽证据、真实 donor cohort、DAVF/PerturbGen 分工、LatentDAVF/scVI/asset schema、串联 gate 和“真实桥接不等于生物学验收”。
 - [`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md) §4.1/§4.3/§4.6/§4.7、§5.1/§5.4、§7.2/§7.3 是本轮 E2E、donor、rescue/null、Gate-E 和 M3/M4/M6 判断依据。
