@@ -2,14 +2,14 @@
 
 - **日期**：2026-09-13
 - **仓库**：`/home/scu/PTM2CellNet`
-- **Git/编译状态（2026-09-13 执行代理真实结果）**：pre HEAD 为 `f3374d223a11749edd76a3ee6ad83e9b84b8ebdf`；`git fetch origin main` 成功，远程 `main` 为 `c76fff881f268f9bd0b39d68db8ba547115ec4cf`，`main...origin/main` 为 `59 0`。本轮内容提交为 `520e99249e41ba837965ccd4cbb33f0eac1e2cdf`，不需要 merge（`merge=no-op`）。compileall、sdist/wheel、Ruff check、mypy 和 requirements consistency 通过；format check 退出 1；pytest/业务训练按任务规则未运行。详见 §2。
+- **Git/编译状态（2026-09-13 执行代理真实结果）**：pre HEAD 为 `f3374d223a11749edd76a3ee6ad83e9b84b8ebdf`；`git fetch origin main` 成功，远程 `main` 为 `c76fff881f268f9bd0b39d68db8ba547115ec4cf`，**提交前** `main...origin/main` 为 `59 0`。本轮内容提交为 `520e99249e41ba837965ccd4cbb33f0eac1e2cdf`，不需要 merge（`merge=no-op`）。compileall、sdist/wheel、Ruff check、mypy 和 requirements consistency 通过；format check 退出 1；pytest/业务训练按任务规则未运行。详见 §2。
 - **事实来源**：当前代码、测试、CI、`docs/CURRENT_STATUS.md`、`lessons.md` 最新条目、`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`。历史报告只作背景。
 - **可视化**：[project-analysis-20260913 canvas](/home/scu/.cursor/projects/home-scu-PTM2CellNet/canvases/project-analysis-20260913.canvas.tsx)
 
 ## 目录
 
 - [1. 执行摘要](#1-执行摘要)
-- [2. Phase 1：Git 与验证记录（历史背景；当前待回填）](#2-phase-1git-与验证记录历史背景当前待回填)
+- [2. Phase 1：Git、编译与验证记录](#2-phase-1git编译与验证记录)
 - [3. Phase 2：归档记录](#3-phase-2归档记录)
   - [3.1 stale_docs 只读清单与保留边界](#31-staledocs-只读清单与保留边界)
 - [4. Task 1：未实现功能与后续验收缺口](#4-task-1未实现功能与后续验收缺口)
@@ -54,7 +54,7 @@
 
 ### 2.1 版本标识（历史快照，不代表当前 VCS）
 
-> 下表来自既有审计/修复记录；本报告整合没有重跑 `git status`、fetch、编译或提交检查。当前 VCS 状态待后续执行代理回填。
+> 下表来自既有审计/修复记录，仅作历史背景；当前真实 VCS、编译和验证结果见 §2“Git、编译与验证记录”。
 
 | 项 | 值 |
 |---|---|
@@ -132,7 +132,7 @@ python scripts/check_requirements_consistency.py
 
 ### 3.1 stale_docs 只读清单与保留边界
 
-本节引用本轮 `stale_docs_audit` 的只读盘点（清单时间 2026-09-13，盘点时 HEAD 为 `6a194a1`）；本报告整合期间没有移动、删除或归档文件。盘点共建议处理 **17 个已跟踪过时入口**：根目录 202608* 的分析/修复 stub 12 个、2026-09-10 的分析与修复报告 2 个、日期化 guide 3 个。它们的正文分别已经在 `archive/20260910/` 或 `archive/20260913/`，根目录和 docs 下的同名入口仍可能把旧文档说成当前权威，需后续由专门执行代理按清单处理。
+本节引用本轮 `stale_docs_audit` 的只读盘点（清单时间 2026-09-13；**tracked 文件归档基线**为 `6a194a1`，**ignored 文件追加移动前 HEAD** 为 `f3374d2`）；本报告整合期间没有移动、删除或归档文件。盘点共建议处理 **17 个已跟踪过时入口**：根目录 202608* 的分析/修复 stub 12 个、2026-09-10 的分析与修复报告 2 个、日期化 guide 3 个。它们的正文分别已经在 `archive/20260910/` 或 `archive/20260913/`，根目录和 docs 下的同名入口仍可能把旧文档说成当前权威，需后续由专门执行代理按清单处理。
 
 已经归档、应视为历史证据的目录包括 `archive/20260816`～`archive/20260824` 的分析/修复正文以及 `archive/20260910/reports/project_analysis_20260901.md`；`archive/20260913/` 中已有的 reports/guides/stubs 也只作历史追溯。建议后续归档的具体路径为 `project_analysis_20260910.md`、`project_repair_report_20260910.md`，以及 `docs/guides/davf_perturbgen_e2e_execution_report_20260902.md`、`docs/guides/davf_perturbgen_retraining_plan_20260902.md`、`docs/guides/davf_cell_baseline_training_plan_20260904.md`。后两份计划已自声明被现行 KO/KD 指南取代；E2E 点时报告不能反映 9/13 契约。
 
@@ -505,12 +505,12 @@ flowchart LR
 
 ## 8. 子代理调用统计
 
-本节只统计本次已完成审计代理实际发出的 `functions.exec` 调用；并行读取在同一个外层工具调用中的每个执行仍按实际 exec 次数计，拒绝后未执行的请求不计入次数。耗时按代理首尾时间，只有明确给出的时段按秒计算；`约`表示编排元数据或总时长估算。报告编辑阶段的读取/补丁调用不混入以下审计代理数字。
+本节只统计本次已完成审计代理实际发出的 `functions.exec` 调用；并行读取在同一个外层工具调用中的每个执行仍按实际 exec 次数计，拒绝后未执行的请求不计入次数。耗时按代理首尾时间，只有明确给出的时段按秒计算；`约`表示编排元数据或总时长估算。`apply_patch` 调用另计，不并入下表的 `functions.exec` 次数；报告维护调用也与审计代理阶段分开记录。
 
 | 审计代理 | exec 次数 | 时间（CST） | 平均耗时 | 主要范围与口径说明 |
 |---|---:|---|---:|---|
-| `vcs_recon` | 11 | 约 4 分钟 | 约 21.8 秒/次 | 含 1 次被拒绝且未执行的请求；执行次数仍按 11 次已记录 exec 统计，未将拒绝请求另加。 |
-| `stale_docs_audit` | 约 21 | 18:25:41–18:34 | 约 23.8 秒/次（近似） | 平均值按约 8 分 19 秒总时长除以约 21 次估算；结果是只读 stale_docs 清单。 |
-| `code_requirements_audit` | 41 | 18:25:44–18:37:47 | 约 17.6 秒/次 | 只读需求/代码/文档审计；12 分 03 秒 ÷ 41，未运行测试/业务命令。 |
+| `vcs_recon` | 22 | 约 9 分 10 秒 | 约 25.0 秒/次 | 11 次初盘点 + 1 次 fetch + 10 次 VCS/编译；其中 1 次命令被拒绝未执行。 |
+| `stale_docs_audit` | 约 28 | 约 10 分 22 秒（近似） | 约 22.2 秒/次（近似） | 21 次初审计 + 5 次归档 + 2 次指南修订；初次数字为约数，耗时按累计总时长估算。 |
+| `code_requirements_audit` | 61 | 约 21 分 48 秒 | 约 21.4 秒/次 | 41 次需求/代码审计 + 16 次报告编辑 + 4 次最终复核；报告编辑阶段未运行测试/业务命令。 |
 
-审计代理合计约 **73 次已执行 exec**（11 + 约21 + 41）；这是工具调用统计，不是测试次数、代码行数或子代理数量。当前 VCS/编译/测试状态仍由后续执行代理回填，本节不据这些调用推断通过与否。
+审计代理合计约 **111 次已执行 functions.exec**（22 + 约28 + 61）；这是工具调用统计，不是测试次数、代码行数或子代理数量。VCS/编译真实结果见 §2；pytest/业务训练未运行，本节不据调用次数推断通过与否。
