@@ -43,6 +43,7 @@
 | 提交前 HEAD | `2cb77d8330699a1caa02d47603f460c6c9f4c320` |
 | `origin/main` | `c76fff881f268f9bd0b39d68db8ba547115ec4cf`（本地祖先；fetch 成功；本地超前，**未 push**） |
 | 修复提交 | `6a194a111ecc3bab5441763358f178f39c963019` |
+| 分析+归档提交 | `6e3feaf1b82f7ee116231954205121f814707ac6` |
 | 合并 | 已在 `main`，无需 merge commit |
 | 标签 | `v2.0`、`v1.0`（本轮未打新 tag） |
 | 工作树状态（提交修复后、本报告前） | clean except 后续归档/报告 |
@@ -215,7 +216,7 @@ flowchart TD
 | DAVF LatentDAVF / scVI / asset | 75.0 | partial but usable | `predict_expression_direction` 要求 schema v2 + embedding asset（`:1001-1018`）；训练 CLI 无 donor split |
 | 三方 gate + orchestrator | 76.0 | partial but usable | `build_direction_gated_candidate` 仅 pass 才建 candidate；`PerturbGenInvocation.__post_init__` 拒绝非 pass（`orchestrator.py:116-117`）。`corrective_action` 在 observed-up 时写 `ko`，KD route 仍走 mask |
 | PerturbGen runner/manifest | 80.0 | partial but usable | 六阶段、disk/GPU lock、`env_guard.py`；Datlinger smoke ≠ donor cohort |
-| Dual-path 评价 | 59.5 | implemented but defective | AND + route-aware 已实现（`dual_path.py:90-97`）；外部/uniform p 可改 q（`eval_assembly.py:364-426`，`evaluate_perturbgen_dual_path.py:61-63`） |
+| Dual-path 评价 | 59.5 | implemented but defective | AND + route-aware 已实现（`dual_path.py:90-97`）；外部/uniform p 可改 q（`eval_assembly.py:364-426`，`evaluate_perturbgen_dual_path.py:61-63`）。`test_dual_path.py` 断言全部传 `intervention_type="KO"`，无已提交的 KD/up mask-only 通过或 KO/up 仅 mask inconclusive 用例 |
 | Frozen / M6 verifier | 66.0 | partial but usable | `frozen_cohort.py` leakage audit；synthetic verify；无真实 M6 |
 | Gate-E | 57.0 | partial but usable | `MIN_BENCHMARK_SAMPLES=200` 硬失败；单元测试用 3 行 CSV + `min_samples=3` |
 | Cross-scale（opt-in） | 61.0 | partial but usable | 合成 fixture；replogle/scgenescope 未验 |
@@ -271,13 +272,18 @@ flowchart TD
   2. 只在 frozen verify 比对训练 manifest 的 donor SHA。**1.0 人日**，但要先有训练写出该字段。
   3. 维持现状、文档禁止声称 held-out biology。已部分做到。**0 人日**，科学声明仍禁。
 
-#### TD-13-04 遗留 Geneformer hash/random fallback — SECURITY_HOTSPOT / architecture，高
+#### TD-13-04 Geneformer mapper 与 PerturbGen asset 身份错配 — BUG / SECURITY_HOTSPOT，高
 
-- **问题**：`get_gene_embedding` 在非 semantic vocab 时 hash（`geneformer_embedding.py:408-412`）；load 失败 random（`:346-351`）。正式方向路径已要求 PerturbGen asset，但 API 融合路径仍可能碰到。
+- **问题**：
+  1. `scripts/finetune_davf_e2e.py` 的 `build_model` 把 `embedding_asset_path` 写入 DAVF，却无条件 `PTMDirectionMapper()`（`:205-225`）。默认 mapper 走 `get_geneformer_loader()`；token ID 再去索引 PerturbGen `gene_embed_table`，静默错配。
+  2. `PTM2CellNetBase` 在无 asset 时仍建 Geneformer mapper（`architectures.py:276-279`）。
+  3. `get_gene_embedding` 在非 semantic vocab 时 hash（`geneformer_embedding.py:353-356`）；load 失败可 random（`:358-376`）。正式 orchestrator 已要求 PerturbGen vocab，但 finetune/API 融合路径没有。
+- **场景**：`--embedding-asset` 的 e2e finetune、或 `use_davf=True` 且未配 asset 的 `/predict`。
 - **方案**：
-  1. 非 `PTM2CELLNET_STRICT_MODEL_ASSETS` 也禁止 random/hash，缺词表即失败。优点：与 gene_vocabulary 一致。缺点：无权重的 demo 会挂。**0.5–1.0 人日**。
-  2. 仅 API/fusion 拒绝 fallback；loader 测试夹具保留。**1.0 人日**。
-  3. Gate-E 过后再删文件（M7）。正确顺序，不能提前。
+  1. `build_model` 在 asset 存在时必须 `davf_module.build_perturbgen_direction_mapper()`；否则硬失败，禁止 Geneformer 默认。优点：堵住错配。缺点：依赖 Geneformer 的 demo 会挂。**0.5–1.0 人日**。
+  2. 校验 mapper vocab 来源与 asset 一致（gene_to_idx hash），不一致即失败。优点：可检测混用。缺点：仍允许纯 Geneformer 跑。**0.5 人日**。
+  3. Gate-E 过后再删 `geneformer_embedding.py`（M7）。正确顺序，不能提前。
+- **风险**：用混用 ID 训出的旧 finetune checkpoint 无法只靠改 mapper 挽救。
 
 ### 6.2 中
 
