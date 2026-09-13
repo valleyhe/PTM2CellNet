@@ -20,6 +20,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.integration.perturbgen.dual_path import evaluate_dual_path_candidate  # noqa: E402
+from src.integration.perturbgen.empirical_pvalue import (  # noqa: E402
+    EmpiricalPvalueError,
+    aggregate_candidate_empirical_pvalues,
+)
 from src.integration.perturbgen.reports import (  # noqa: E402
     build_candidate_report_payload,
     build_candidate_summary_dataframe,
@@ -38,6 +42,8 @@ _VALID_MODES = {"mask", "pad", "delete", "overexpress"}
 _VALID_QUALITY = {"pass", "fail", "inconclusive"}
 _VALID_DIRECTIONS = {"up", "down"}
 _VALID_INTERVENTION_TYPES = {"KO", "KD"}
+_VALID_EVALUATION_MODES = {"engineering", "formal"}
+_SYNTHETIC_PVALUE_SOURCES = {"uniform", "hand_filled", "external_table"}
 LiteralPath = Literal["source_intervention", "within_state"]
 LiteralMode = Literal["mask", "pad", "delete", "overexpress"]
 
@@ -56,25 +62,91 @@ def main(argv: list[str] | None = None) -> int:
 
     spec = json.loads(input_path.read_text(encoding="utf-8"))
     _validate_top_level_spec(spec)
+    evaluation_mode = str(spec.get("evaluation_mode", "engineering")).strip().lower()
+    if evaluation_mode not in _VALID_EVALUATION_MODES:
+        raise ValueError(f"evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}")
 
     candidates = list(spec["candidates"])
-    q_values = benjamini_hochberg(
-        [_coerce_probability(item.get("candidate_pvalue"), name="candidate_pvalue") for item in candidates]
-    )
+    extracted: list[tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]] = []
+    pvalues: list[float] = []
+    for candidate_spec in candidates:
+        candidate_mapping = _require_mapping(candidate_spec, name="candidate spec")
+        pvalue_kind = str(
+            candidate_mapping.get("pvalue_source") or spec.get("pvalue_source") or "unspecified"
+        ).strip()
+        if evaluation_mode == "formal":
+            if pvalue_kind in _SYNTHETIC_PVALUE_SOURCES or "candidate_pvalue" in candidate_mapping:
+                raise ValueError(
+                    "formal evaluation rejects uniform/hand-filled/external candidate_pvalue; "
+                    "q_value must come from aggregate_candidate_empirical_pvalues"
+                )
+            quality = candidate_mapping.get("unperturbed_quality")
+            if (
+                not isinstance(quality, Mapping)
+                or quality.get("source") != "extract_unperturbed_quality_from_h5ad"
+            ):
+                raise ValueError(
+                    "formal evaluation requires unperturbed_quality extracted from h5ad "
+                    "(source=extract_unperturbed_quality_from_h5ad)"
+                )
+        candidate = _require_mapping(candidate_mapping.get("candidate"), name="candidate")
+        runs = candidate_mapping.get("runs")
+        if not isinstance(runs, Sequence) or isinstance(runs, (str, bytes)) or not runs:
+            raise ValueError("candidate runs must be a non-empty sequence")
+        extracted_runs = [
+            _extract_run(
+                run_spec,
+                input_base_dir=input_path.parent,
+                candidate_ensembl_id=candidate.get("ensembl_id"),
+            )
+            for run_spec in runs
+        ]
+        aggregation = None
+        if evaluation_mode == "formal":
+            try:
+                aggregation = aggregate_candidate_empirical_pvalues(
+                    extracted_runs,
+                    _require_intervention_type(
+                        candidate.get("intervention_type"),
+                        name="candidate.intervention_type",
+                    ),
+                    _require_choice(
+                        candidate_mapping.get("observed_direction"),
+                        valid_values=_VALID_DIRECTIONS,
+                        name="observed_direction",
+                    ),
+                    ensembl_id=str(candidate.get("ensembl_id", "")),
+                )
+            except EmpiricalPvalueError as exc:
+                raise ValueError(f"formal empirical p aggregation failed: {exc}") from exc
+            pvalues.append(float(aggregation["pvalue"]))
+        else:
+            pvalues.append(
+                _coerce_probability(candidate_mapping.get("candidate_pvalue"), name="candidate_pvalue")
+            )
+        extracted.append((dict(candidate_mapping), extracted_runs, aggregation))
+
+    q_values = benjamini_hochberg(pvalues)
 
     payloads: list[dict[str, Any]] = []
     candidate_entries: list[dict[str, Any]] = []
     run_id = _require_non_empty_string(spec.get("run_id", input_path.stem), name="run_id")
 
-    for index, (candidate_spec, q_value) in enumerate(zip(candidates, q_values, strict=True), start=1):
+    for index, ((candidate_spec, extracted_runs, aggregation), q_value) in enumerate(
+        zip(extracted, q_values, strict=True), start=1
+    ):
         payload, manifest_entry = _evaluate_candidate(
             candidate_spec=candidate_spec,
             q_value=q_value,
             candidate_index=index,
             input_path=input_path,
-            input_base_dir=input_path.parent,
             output_dir=output_dir,
             run_id=run_id,
+            extracted_runs=extracted_runs,
+            evaluation_mode=evaluation_mode,
+            empirical_aggregation=aggregation,
+            spec_pvalue_source=str(spec.get("pvalue_source", "")).strip() or None,
+            spec_evidence_class=str(spec.get("evidence_class", "")).strip() or None,
         )
         payloads.append(payload)
         candidate_entries.append(manifest_entry)
@@ -106,9 +178,13 @@ def _evaluate_candidate(
     q_value: float,
     candidate_index: int,
     input_path: Path,
-    input_base_dir: Path,
     output_dir: Path,
     run_id: str,
+    extracted_runs: Sequence[Mapping[str, Any]],
+    evaluation_mode: str,
+    empirical_aggregation: Mapping[str, Any] | None,
+    spec_pvalue_source: str | None,
+    spec_evidence_class: str | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     candidate = _require_mapping(candidate_spec.get("candidate"), name="candidate")
     candidate_gene = _require_non_empty_string(
@@ -129,23 +205,23 @@ def _evaluate_candidate(
         valid_values=_VALID_QUALITY,
         name="unperturbed_quality_status",
     )
-    candidate_pvalue = _coerce_probability(
-        candidate_spec.get("candidate_pvalue"),
-        name="candidate_pvalue",
-    )
-    runs = candidate_spec.get("runs")
-    if not isinstance(runs, Sequence) or isinstance(runs, (str, bytes)) or not runs:
+    if not extracted_runs:
         raise ValueError("candidate runs must be a non-empty sequence")
-
-    candidate_ensembl_id = candidate.get("ensembl_id")
-    extracted_runs = [
-        _extract_run(
-            run_spec,
-            input_base_dir=input_base_dir,
-            candidate_ensembl_id=candidate_ensembl_id,
+    pvalue_kind = str(candidate_spec.get("pvalue_source") or spec_pvalue_source or "unspecified").strip()
+    if evaluation_mode == "formal":
+        if empirical_aggregation is None:
+            raise ValueError("formal evaluation requires empirical p aggregation provenance")
+        candidate_pvalue = float(empirical_aggregation["pvalue"])
+        evidence_class = "empirical_null"
+        pvalue_kind = "empirical_aggregated"
+    else:
+        candidate_pvalue = _coerce_probability(
+            candidate_spec.get("candidate_pvalue"),
+            name="candidate_pvalue",
         )
-        for run_spec in runs
-    ]
+        evidence_class = spec_evidence_class or (
+            "synthetic" if pvalue_kind in _SYNTHETIC_PVALUE_SOURCES else "unspecified"
+        )
     decision = evaluate_dual_path_candidate(
         [item["path_result"] for item in extracted_runs],
         observed_direction=observed_direction,
@@ -153,6 +229,9 @@ def _evaluate_candidate(
         q_value=q_value,
         candidate_gene=candidate_gene,
         unperturbed_quality_status=unperturbed_quality_status,
+        evaluation_mode=evaluation_mode,
+        evidence_class=evidence_class,
+        pvalue_source=pvalue_kind,
     )
 
     candidate_dir = output_dir / f"{candidate_index:03d}_{_slug(candidate_gene)}"
@@ -162,6 +241,10 @@ def _evaluate_candidate(
         "candidate_index": candidate_index,
         "candidate_pvalue": candidate_pvalue,
         "candidate_qvalue": q_value,
+        "evaluation_mode": evaluation_mode,
+        "evidence_class": evidence_class,
+        "pvalue_source": pvalue_kind,
+        "empirical_aggregation": _to_plain_object(empirical_aggregation) if empirical_aggregation else None,
         "replay": {
             "candidate": _to_plain_object(candidate),
             "observed_direction": observed_direction,
@@ -183,6 +266,9 @@ def _evaluate_candidate(
         "q_value": q_value,
         "verdict": decision.verdict,
         "reasons": list(decision.reasons),
+        "scientific_acceptance": decision.scientific_acceptance,
+        "evaluation_mode": decision.evaluation_mode,
+        "evidence_class": decision.evidence_class,
         "report_dir": str(candidate_dir),
         "artifacts": artifacts,
         "input_runs": extracted_runs,
@@ -335,6 +421,7 @@ def _extract_run(
         "top_k": top_k,
         "bootstrap_iterations": bootstrap_iterations,
         "bootstrap_seed": bootstrap_seed,
+        "empirical_pvalue": extraction.path_result.empirical_pvalue,
         "baseline_matrix": extraction.baseline_matrix,
         "perturbed_matrix": extraction.perturbed_matrix,
         "bootstrap_ci": list(extraction.bootstrap_ci) if extraction.bootstrap_ci is not None else None,

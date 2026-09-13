@@ -14,6 +14,7 @@
 
 from pathlib import Path
 from typing import Any, Dict, Optional, Union, cast
+import os
 
 import torch
 import yaml
@@ -68,6 +69,7 @@ class ModelInfo(TypedDict, total=False):
     freeze_encoder: bool
     use_davf: bool
     davf_feature_dim: int
+    davf_path_class: Optional[str]
     davf_config: Optional[Dict[str, Any]]
     total_params: int
     trainable_params: int
@@ -235,6 +237,7 @@ class PTM2CellNetBase(nn.Module):
         self.davf_module: Optional[DAVFInferenceModule] = None
         self.ptm_mapper: Optional[PTMDirectionMapper] = None
         self.davf_feature_dim: int = 0
+        self.davf_path_class: Optional[str] = None
 
         if use_davf:
             # ``self.davf_config`` is Optional[Dict[str, Any]]; when DAVF is
@@ -275,8 +278,19 @@ class PTM2CellNetBase(nn.Module):
             self.davf_module = DAVFInferenceModule(davf_inference_config)
             if davf_inference_config.embedding_asset_path is not None:
                 self.ptm_mapper = self.davf_module.build_perturbgen_direction_mapper()
+                self.davf_path_class = "formal_schema_v2"
             else:
+                if os.environ.get("PTM2CELLNET_ENV", "").strip().lower() == "production":
+                    raise ValueError(
+                        "production PTM2CELLNET_ENV forbids use_davf=True without embedding_asset_path "
+                        "(schema v2 LatentDAVF 64×4018). Legacy fusion 10×5000 is demo-only."
+                    )
+                logger.warning(
+                    "DAVF fusion path has no embedding_asset_path; using Geneformer mapper "
+                    "(legacy_fusion_demo). This is not the formal LatentDAVF 64×4018 contract."
+                )
                 self.ptm_mapper = PTMDirectionMapper()
+                self.davf_path_class = "legacy_fusion_demo"
             self.davf_feature_dim = davf_inference_config.feature_dim
 
             # 用扩展后的输入维度重建 predictor（D-04）。
@@ -556,6 +570,7 @@ class PTM2CellNetBase(nn.Module):
             "freeze_encoder": self.freeze_encoder,
             "use_davf": self.use_davf,
             "davf_feature_dim": self.davf_feature_dim if self.use_davf else 0,
+            "davf_path_class": self.davf_path_class,
             "davf_config": dict(self.davf_config) if self.use_davf else None,
             "total_params": param_stats["total_params"],
             "trainable_params": param_stats["trainable_params"],

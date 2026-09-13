@@ -1,6 +1,6 @@
 # PerturbGen 桥接指南（DAVF × PerturbGen 双路径整合）
 
-> **文档版本**：v1.6（2026-09-13，补充 config binding、route、replay 与 lineage 契约）
+> **文档版本**：v1.7（2026-09-13，补充研究边界、公共准备生命周期与六阶段入口）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
 > **详细执行方案**：[`docs/guides/davf_ko_kd_training.md`](davf_ko_kd_training.md)
 > **状态基线**：[`project_analysis_20260913.md`](../../project_analysis_20260913.md)（本报告按源码、测试和真实资产边界逐项审计；工程契约与科学验收分开记账）
@@ -8,6 +8,11 @@
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。
 **所有命令均为当前仓库真实存在的脚本与参数**（未实现的项明确标注）。
+
+研究主线是 `PTM site presence → 外部提出的候选方向/位点覆盖 → DAVF 方向证据
+→ 独立表达方向证据 → 三方 gate → PerturbGen invocation → 双路径效用评估`。
+PTM classifier 只判断位点是否存在；`proposed_direction` 必须来自外部假设或
+site-level override，不能由原始 PTM site 自动变成干预表达方向。
 
 ---
 
@@ -17,7 +22,7 @@
 
 | 工作流 | 内容 | 入口 |
 |---|---|---|
-| A：PerturbGen 双路径扰动模拟 | candidate → preflight → 独立环境训练 → `src`/`tgt` 扰动 → rescue/null/donor 统计 → PASS/FAIL/INCONCLUSIVE | `scripts/run_perturbgen_pipeline.py` |
+| A：PerturbGen 双路径效用 | 通过三方 gate 的 invocation → 公共数据/模型准备 → `src`/`tgt` 扰动 → rescue/null/donor 统计 → 双路径判定 | `scripts/run_davf_perturbgen_e2e.py` + `scripts/run_perturbgen_pipeline.py` |
 | B：DAVF 底座迁移 | PerturbGen encoder ckpt → 静态 gene embedding 资产导出 → schema v2 注入 → 当前 LatentDAVF 重训 → Gate-E | `scripts/export_perturbgen_gene_embeddings.py` + `scripts/train_latent_davf.py` |
 
 主进程与独立环境边界（方案 §4.2，硬约束）：
@@ -26,16 +31,36 @@
 - PerturbGen 独立环境（conda env `perturbgen`，Python 3.11）：官方 tokenisation、masking/count decoder 训练、`src/tgt` 扰动推理、gene embedding 导出。
 - **主进程绝不 `import perturbgen`**；所有跨环境调用为参数数组（禁止 `shell=True`），stage 带 timeout、退出码与输出 schema 校验。
 
-`run_davf_perturbgen_e2e.py` 负责 DAVF→三方方向 gate→invocation；直接调用
+`run_davf_perturbgen_e2e.py` 默认只生成 DAVF→三方方向 gate→invocation；只有显式
+`--run-perturbgen` 才调用外部六阶段。直接调用
 `run_perturbgen_pipeline.py` 的 `perturb` stage 或指定 `--path` 时，必须显式提供
 含通过 candidate/invocation 的 `--e2e-gate-report`，缺失或 gate 非 pass 直接失败。
 `build_dual_path_eval_input.py` 从成功 stage manifest 组装评估输入；新 null
 distribution manifest 按 candidate/path/mode/seed 绑定，不能把 mock 输出当成真实科学闭环。
-direct runner 还会把 report invocation 与当前 base YAML 的 gene、mode、声明的 route/
+`scripts/run_perturbgen_pipeline.py` CLI 还会把 report invocation 与当前 base YAML 的 gene、mode、声明的 route/
 Ensembl、`pipeline.random_seed` 和授权 path 子集逐项绑定；`PerturbGenInvocation.to_dict()`
 中的 `paths` 是授权双路径集合，`perturbgen_config_path` 是原始 base config 路径，
 不是 materialized stage YAML。模板 seed 为 42 时，应使用匹配的 report/`--seeds`
 （例如 `--seeds 42,43,44`）；seed 不匹配直接失败。
+
+这里的三方方向目前是工程准入检查：代码只比较 proposal、DAVF decode delta 与
+observed direction 的同号关系。`observed_direction` 是 donor-level
+`disease - normal`，DAVF 方向是“干预后 decode - 当前 context decode”，两者的
+context、干预、对比基准和目标（病程关联、复现或逆转）尚未由当前实现统一定义。
+因此不能自动取反，也不能把同号 gate 解释为已解决的科学因果 gate；正式研究须把
+这些轴和来源隔离写入可追溯资产。
+
+六阶段的当前事实与研究目标必须分开看：
+
+| 阶段 | 当前代码事实 | 研究目标/解读 |
+|---|---|---|
+| `tokenise`、`train_mask`、`train_decoder` | E2E 目前对每个通过 gate 的候选重复规划和执行；没有跨候选 reuse 入口 | 固定 cohort、词表、训练配置和资产版本后只做一次公共准备 |
+| `perturb` | 按 `source_intervention=[src]` 和 `within_state=[tgt]+pert_tps` 生成候选效用运行 | 候选阶段只运行两条研究场景并保留路径身份 |
+| `export_gene_embeddings` | 使用配置中的基础 encoder checkpoint；不读取候选阶段训练 checkpoint，也不回灌当前 DAVF | 静态冻结 embedding 资产属于 Workflow B 生命周期 |
+| `report` | 汇总 stage manifest 和产物状态 | 仅 manifest 汇总；成功不等于正式生物学 PASS |
+
+当前代码没有“公共准备后跨候选复用”的 CLI；不要把目标流程写成已有能力，也不
+要用 `--resume` 代替跨候选 reuse。`--resume` 只在同一输出目录内恢复既有 stage。
 
 ## 2. 环境准备（一次性）
 
@@ -73,9 +98,25 @@ python scripts/audit_perturbgen_cohort.py
 `outputs/perturbgen/spike/20260913_donor_audit/evidence.json` 审计 30 个文件、26
 个可读、0 个合规候选；未以旧 2026-09-03 evidence 冒充本轮日期。Gate-0 未过时，
 M4 重训/M6/Gate-E 仍按方案 §7.3 挂起，不得跳过。训练输入 schema/asset 通过也不
-证明 held-out DAVF biology，因为当前训练入口没有显式 donor split 输入。
+证明 held-out DAVF biology，因为来源隔离和训练/E2E donor split 仍须由 manifest
+逐值追溯。正式验收还必须同时满足真实 `normal/disease` raw counts、显式 donor、
+至少 3 个共享 donor、canonical Ensembl、scVI gene order、冻结 embedding 与
+manifest；smoke、synthetic 和 bridge 通过都不算生物学 PASS。
 
 ## 4. 六阶段 pipeline（工作流 A）
+
+训练-only 规划可以按实际 `--stages` 语法跳过 `perturb`，因此不需要 gate report：
+
+```bash
+python scripts/run_perturbgen_pipeline.py \
+  --config configs/integration/perturbgen.yaml \
+  --stages tokenise train_mask train_decoder \
+  --dry-run \
+  --gpu-lock-file /tmp/pg.gpu.lock
+```
+
+这只表示公共准备阶段的计划/执行；不产生候选效用，也不能替代通过 gate 的
+invocation。`--path` 即使只想规划路径也会触发 gate-report 要求。
 
 ```bash
 python scripts/run_perturbgen_pipeline.py \
@@ -89,12 +130,18 @@ python scripts/run_perturbgen_pipeline.py \
 
 - stage 顺序固定：`tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；
 - 选中 `perturb` 或指定 `--path` 时必须提供真实存在且包含通过候选/invocation 的 DAVF E2E gate report；训练-only 阶段无需该参数；
+- `source_intervention` 只表示在状态转移前对 `src` 施加扰动，`within_state` 表示在目标状态对 `tgt` 施加扰动并使用 `pert_tps`；两条路径的正式效用结论必须同时成立。单路结果只适用于对应研究场景，不能称为正式双路径 PASS 或普遍治疗疗效；
 - 产物路径按上游公式 + 唯一 glob 解析后写入 manifest（路径 + hash），**禁止
   latest-mtime 猜测**；零匹配/多匹配/hash 变化直接失败（lessons.md L-2026-0822-04）；
 - N-05 评估组装会从 runner 的 `outputs` 中按 `artifacts.result_h5ad` 的实际路径复制
   已登记 `sha256` 到 `h5ad_provenance`；assembler 不新算、不猜 h5ad hash；
 - 上例用 `--dry-run` 只打印计划；正式续跑时移除 `--dry-run`，需要从 manifest
   继续时再添加 `--resume`。
+
+`PerturbGenRunner` 本身只执行 `StagePlan`，不自校验 DAVF gate。正式候选入口应先
+由 E2E 产生通过的 invocation；直接 pipeline CLI 只有在选中 `perturb` 或 `--path`
+时才按当前 report binding 校验 gate。把任意 StagePlan 交给 runner 不能当作科学
+准入流程。
 
 ## 5. 嵌入资产导出与 DAVF 注入（工作流 B）
 
@@ -109,7 +156,9 @@ python scripts/export_perturbgen_gene_embeddings.py \
 
 产出 `gene_embeddings.safetensors + vocabulary.json + manifest.json`。其中嵌入资产
 `manifest.json` 使用 `schema_version: 1`（含 sha256 与维度）；DAVF 配置文件另使用
-配置 schema v2。主环境加载零 PerturbGen 依赖。
+配置 schema v2。主环境加载零 PerturbGen 依赖。该导出属于 Workflow B：资产从基础
+encoder checkpoint 静态生成并冻结；六阶段中的 `export_gene_embeddings` 不消费
+候选结果或阶段训练 checkpoint，也不把导出结果回灌正在运行的 DAVF。
 
 `finetune_davf_e2e.py` 只训练下游 PTM2CellNet 分类头，不能生成正式方向
 checkpoint。当前 DAVF 必须用 flow-matching 入口重训：
@@ -121,8 +170,17 @@ python scripts/train_latent_davf.py \
   --scvi-model checkpoints/scvi/ibd_norman_model \
   --embedding-asset outputs/perturbgen/embedding_asset_20260822 \
   --intervention-type <KO|KD|OE> \
-  --output checkpoints/davf/latent_davf_perturbgen_4018
+  --output checkpoints/davf/latent_davf_perturbgen_4018 \
+  --train-donors <d1,d2> \
+  --held-out-donors <d3,d4,d5> \
+  --require-donor-split \
+  --frozen-cohort-manifest path/to/frozen-cohort.json
 ```
+
+上面的 donor 参数是正式 held-out 训练的要求；没有真实、可追溯的 donor split 时，
+只能把该命令作为工程 smoke，并在 `training_metrics.json` 中接受
+`donor_split_status=unspecified`，不能声称训练/验证未泄漏。`OE` 可用于独立模型
+训练，但当前串联 E2E orchestrator 的正式 route 是 `KO`/`KD`。
 
 `latent-pair-*.npz` 必须包含 `metadata_json` 以及
 `z_0[N,64]`、`z_1[N,64]`、`gene_ids[N,K]`、`directions[N,K]`、
@@ -200,7 +258,7 @@ decoder index，后者仍由 `adapter.gene_names` 解析。重复 symbol 对应�
 ## 6. 评估、报告与发布证据
 
 ```bash
-# 双路径评估（rescue/null/FDR/AND 判定）
+# 双路径评估（rescue/null/FDR/AND 判定；formal 由输入中的 empirical null runs 聚合 q）
 python scripts/evaluate_perturbgen_dual_path.py --input-json <candidates.json> --output-dir <outdir>
 
 # 从 DAVF E2E 报告和 stage manifest 生成评估输入；正式 manifest 每个
@@ -209,20 +267,57 @@ python scripts/build_dual_path_eval_input.py \
     --e2e-report <e2e-report.json> --output <eval-input.json> \
     --deg-table <deg.csv> --null-distribution-manifest <null-index.json> \
     --unperturbed-quality-status <pass|fail|inconclusive> \
+    --evaluation-mode engineering \
     --uniform-candidate-pvalue <p>
 
-# 基准测试（engineering fixture 可离线；real 需真资产）
-python scripts/benchmark_perturbgen.py --config <cfg> --fixture-type engineering|real [--iterations N]
+# 正式评估输入：不写 candidate p；最终 evaluator 从每条 path/mode/seed 的 empirical null 聚合 q
+python scripts/build_dual_path_eval_input.py \
+    --e2e-report <e2e-report.json> --output <eval-input.json> \
+    --deg-table <deg.csv> --null-distribution-manifest <null-index.json> \
+    --evaluation-mode formal \
+    --unperturbed-quality <unperturbed_quality.json>
+
+# 匹配 null 的 batch 计划 / 已提取记录汇总（不伪造 candidate invocation）
+python scripts/run_matched_null_stages.py \
+    --selection-manifest <selection.json> --e2e-report <e2e-report.json> \
+    --path source_intervention --mode mask --seed 0 \
+    --output-root <null-root> --output <plan-or-distribution.json> --dry-run
+
+# 只 benchmark 公共准备阶段（候选 perturb 必须由已有 gate invocation 入口触发）
+python scripts/benchmark_perturbgen.py \
+    --config path/to/perturbgen.yaml \
+    --stages tokenise train_mask train_decoder \
+    --fixture-type engineering --iterations 1
 
 # Gate-4 发布证据校验（单次运行自洽，不接受多次残缺 benchmark 的并集）
 python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [--benchmark-json <bench.json>] [--mode formal|smoke]
 ```
 
-判定口径（lessons.md L-2026-0821-01）：双路径 **AND** 标准——`src` 与 `tgt`
-两路 rescue 均稳定为正（排除目标基因本身、≥3 donor 方向一致、跨 seed/mask-pad-delete
-模式一致）才进实验验证候选清单。
+`engineering` 入口允许 uniform 或外部表格 p，只能标记 synthetic；`formal` 入口
+要求 `extract_unperturbed_quality_from_h5ad` 的 JSON，并由
+`evaluate_perturbgen_dual_path.py` 对每条路径/seed 的有限 empirical p 使用
+`conservative_max_required_runs` 聚合，再做候选层 BH-FDR。E2E 尚未自动接续这条
+统计闭环，不能只凭六阶段 report 生成正式 q。
 
-## 7. 门禁状态速查（截至 2026-09-10）
+判定口径（lessons.md L-2026-0821-01）：正式双路径 **AND** 标准——`src` 与 `tgt`
+两路 rescue 均稳定为正（排除目标基因本身、≥3 donor 方向一致、跨要求的 seed 复核）
+才进实验验证候选清单。模式覆盖按当前 route-specific `dual_path.py`：
+`observed_direction=up` 且 route=KO 时检查 `mask`、`pad`、`delete`；up 且 route=KD
+时只检查 `mask`；`observed_direction=down` 时使用 `overexpress`。这些是路径内的
+方向/敏感性检查，不新增路径，也不把 mode 集合扩展成额外的双路径 AND 场景。
+`--uniform-candidate-pvalue` 与手填
+`--unperturbed-quality-status` 只能用于 `evaluation_mode=engineering`；报告会
+标记 `evidence_class=synthetic` 且 `scientific_acceptance=false`。formal 模式
+要求 `extract_unperturbed_quality_from_h5ad` 产物，以及
+`conservative_max_required_runs` 聚合后的 empirical p。pathway/GSEA 是次级证据，
+不写入 dual-path 硬 PASS；单路通过只支持相应 path 的研究场景。
+
+## 7. 门禁状态历史快照（截至 2026-09-10）
+
+> 下表保留 2026-09-10 的工程快照，表内旧测试日期不代表 2026-09-13 本次验证。
+> 当前执行依据是 [`docs/CURRENT_STATUS.md`](../CURRENT_STATUS.md) 与
+> [`DAVF/PerturbGen 中央方案`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)；
+> 本页前文的 2026-09-13 donor audit 仅按当前登记结果更新。
 
 | Gate | 内容 | 状态 |
 |---|---|---|

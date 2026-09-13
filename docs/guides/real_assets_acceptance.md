@@ -16,6 +16,50 @@ services**.
 | External services (F-05) | UniProt/KEGG/Reactome have fallbacks | The non-fallback path is asserted when the network is genuinely available |
 | Cross-scale pLM/graph release | Synthetic embeddings and graph fixtures only | Local pLM completeness plus versioned graph/perturbation snapshots are checked before training |
 
+## DAVF × PerturbGen acceptance boundary
+
+The mainline is `PTM site presence → externally supplied PTM direction proposal →
+DAVF direction evidence → donor-level observed expression evidence → direction
+gate → PerturbGen invocation`. The PTM classifier only predicts site presence;
+`proposed_direction` must come from a user hypothesis or site override. A gate
+record is an engineering admission record until its comparison axis is defined.
+
+The observed and DAVF direction fields use different contrasts: observed GSE direction is
+donor-level `disease - normal`, while DAVF direction is intervention decode minus
+current-context decode. A formal run must record context, intervention, baseline,
+objective (disease association, reproduction, or reversal), and source split.
+The current gate compares direction strings and does not align or invert these
+axes automatically.
+
+Formal acceptance requires all of the following:
+
+- a real normal/disease cohort with raw counts, explicit donor metadata, at least
+  three shared donors, and canonical Ensembl IDs;
+- an explicit canonical Ensembl mapping for joins; PerturbGen token indices remain
+  separate from scVI decoder indices;
+- route-specific LatentDAVF/scVI assets with the frozen embedding manifest, exact
+  scVI gene order, and a traceable donor split (at least two train and three held
+  out donors when claimed);
+- data-source and training-split manifests proving that the GSE observed cohort and
+  donors are independent of the DAVF training cohort/donors. Current code does not
+  automatically validate that isolation;
+- a passing direction-gated invocation before any candidate perturb stage;
+- both `source_intervention=[src]` (before state transition) and
+  `within_state=[tgt]+pert_tps` (within the target state), with at least three
+  seeds, matched empirical nulls (at least 99 per required run), extracted
+  unperturbed quality, and candidate-level BH-FDR;
+- independent replayable manifests for the candidate and null outputs.
+
+The six stages are `tokenise`, `train_mask`, `train_decoder`, `perturb`,
+`export_gene_embeddings`, and `report`. `report` only aggregates manifests and
+never establishes a biological PASS. The E2E command runs only gate/invocation
+by default; `--run-perturbgen` is required to call the external stages. The
+current implementation repeats the common preparation stages per candidate and
+has no cross-candidate reuse CLI; fixed public preparation is a research target,
+not an available command. The 2026-09-13 cohort audit has zero formal candidates,
+so existing smoke, synthetic, bridge, and checkpoint checks remain engineering
+evidence only.
+
 ## How to run them
 
 These tests are **opt-in**. They never run in default CI.

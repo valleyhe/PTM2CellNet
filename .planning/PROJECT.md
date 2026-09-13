@@ -79,10 +79,29 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 ### Active Follow-up
 
 - [ ] DAVF 端到端微调：属于 2026-08-21 PerturbGen 后续方案 M4，当前状态见
-  `project_analysis_20260901.md` 的 U-02；不属于已完成的 v2.2 工程契约验收。
+  `project_analysis_20260913.md` 的 A-02/A-03；不属于已完成的 v2.2 工程契约验收。
 - [ ] 真实数据/权重/图的科学验收：属于后续 Gate-0、Gate-E、Gate-4、Gate-5，
-  不用 synthetic fixture 代替，当前状态见综合报告任务 1。
-- [ ] 文档持续维护：以 `docs/CURRENT_STATUS.md` 和当前综合报告为活动入口。
+  不用 synthetic fixture 代替，当前状态见 `docs/CURRENT_STATUS.md` 和
+  `project_analysis_20260913.md`。
+- [ ] 文档持续维护：以 `docs/CURRENT_STATUS.md` 和
+  `project_analysis_20260913.md` 为活动入口；历史报告只作追溯。
+
+### Current DAVF × PerturbGen acceptance contract (2026-09-13)
+
+当前研究主线分为三个终点：
+
+1. 候选准入：外部 `PTM proposal/candidate_spec` → scVI/PTM 映射 → DAVF
+   方向与置信证据 → 独立 donor-level 表达方向三方 gate → evidence/invocation。
+   classifier 只预测 site presence；候选方向来自外部假设或逐 site override，不能写成 rawsite 自动因果表达推断。
+2. PerturbGen 准备与运行：六阶段为
+   `tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；
+   E2E 默认只导出报告，只有显式 `--run-perturbgen` 才执行这条准备/执行链，不能把它写成另一条 PTM 推理入口。
+   `source_intervention=[src]` 与 `within_state=[tgt]+pert_tps` 是两个实验场景；正式候选要求两场景 AND。当前编排器仍按候选重复准备和运行，公共 cohort/词表/训练配置/资产版本 prepare 后候选只跑 perturb/效用是待实现目标。
+3. 统计验收：现有 matched-null、候选 empirical-p 聚合、formal 输入隔离、未扰动质量和 donor split 接口均已存在；E2E 尚未自动接续。正式结果必须绑定真实 normal/disease raw counts、显式 donor、≥3 共享 donor、canonical Ensembl、scVI/embedding manifest、真实 null/质量/双场景统计，不得将 smoke、synthetic、mock、bridge 或四队列规划写成生物学 PASS。
+
+方向记录必须包含 `context`、`intervention`、比较基准、研究目标（关联、复现或逆转）、来源及训练/held-out 划分。观测 donor-level disease−normal、DAVF 干预后 decode−当前 context decode 和 PerturbGen 效用预测保持不同语义；不采用全局同号/取反，不把病程签名或 normal/disease 对比作为 KO/KD ground truth，也不把结果升级为治疗因果或临床疗效。
+
+Workflow A 是 gate 后效用评估；Workflow B 是固定基础 encoder → 冻结 embedding asset → LatentDAVF 重训 → Gate-E 的独立资产生命周期。基础 export 不消费候选结果、不训练本次新 checkpoint、不回灌本次 DAVF。正式 CLI 选择 `perturb`/`--path` 时继续要求绑定通过的 E2E gate report；invocation 拒绝 non-pass，但低层 runner 当前只执行 StagePlan。
 
 ### Cancelled
 
@@ -140,4 +159,4 @@ graph files or controlled datasets must be explicit in provenance; no synthetic
 fallback is accepted as evidence of biological validity.
 
 ---
-*Last updated: 2026-09-01 after the DAVF direction-gate implementation and follow-up status refresh*
+*Last updated: 2026-09-13 after the DAVF × PerturbGen research contract review; current evidence is in `docs/CURRENT_STATUS.md` and `project_analysis_20260913.md`*

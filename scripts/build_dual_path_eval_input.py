@@ -40,10 +40,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--unperturbed-quality-status",
         choices=("pass", "fail", "inconclusive"),
-        required=True,
+        default=None,
+        help="hand-filled quality status; engineering only. Formal mode requires --unperturbed-quality",
+    )
+    parser.add_argument(
+        "--unperturbed-quality",
+        type=Path,
+        help="JSON produced by extract_unperturbed_quality_from_h5ad (required for --evaluation-mode formal)",
     )
     parser.add_argument("--candidate-pvalues", type=Path, help="CSV of ensembl_id,pvalue")
     parser.add_argument("--uniform-candidate-pvalue", type=float)
+    parser.add_argument(
+        "--evaluation-mode",
+        choices=("engineering", "formal"),
+        default="engineering",
+        help="formal rejects uniform/external p-values and hand-filled quality",
+    )
     parser.add_argument("--run-id")
     parser.add_argument("--donor-obs-column", default="donor")
     parser.add_argument("--var-gene-column", default="__index__")
@@ -58,15 +70,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.candidate_pvalues and args.uniform_candidate_pvalue is not None:
         raise SystemExit("provide either --candidate-pvalues or --uniform-candidate-pvalue, not both")
+    quality_payload = None
+    if args.unperturbed_quality is not None:
+        loaded = json.loads(args.unperturbed_quality.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise SystemExit("--unperturbed-quality must be a JSON object")
+        quality_payload = loaded
+    if args.evaluation_mode == "formal":
+        if args.uniform_candidate_pvalue is not None or args.candidate_pvalues is not None:
+            raise SystemExit(
+                "formal evaluation-mode rejects --uniform-candidate-pvalue and --candidate-pvalues; "
+                "q_value is aggregated from empirical null runs after extraction"
+            )
+        if quality_payload is None:
+            raise SystemExit("formal evaluation-mode requires --unperturbed-quality JSON from h5ad extraction")
+    elif args.unperturbed_quality_status is None and quality_payload is None:
+        raise SystemExit("engineering evaluation-mode requires --unperturbed-quality-status or --unperturbed-quality")
     report = load_e2e_report(args.e2e_report)
     payload = build_eval_input_payload(
         report,
         deg_table_path=args.deg_table,
         null_distribution_path=args.null_distribution,
         null_distribution_manifest_path=args.null_distribution_manifest,
-        unperturbed_quality_status=args.unperturbed_quality_status,
+        unperturbed_quality_status=args.unperturbed_quality_status or "inconclusive",
         candidate_pvalues=(load_candidate_pvalues(args.candidate_pvalues) if args.candidate_pvalues else None),
         uniform_candidate_pvalue=args.uniform_candidate_pvalue,
+        evaluation_mode=args.evaluation_mode,
+        unperturbed_quality=quality_payload,
         run_id=args.run_id or args.e2e_report.stem,
         donor_obs_column=args.donor_obs_column,
         var_gene_column=args.var_gene_column,

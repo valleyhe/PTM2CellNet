@@ -49,6 +49,11 @@ from src.models.davf_checkpoint_contract import (
 from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
 from src.models.perturbgen_embedding import load_perturbgen_embedding_asset
 from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
+from src.integration.perturbgen.donor_split import (
+    DonorSplitError,
+    bind_frozen_donor_split,
+    optional_donor_split_from_args,
+)
 
 logger = logging.getLogger("train_latent_davf")
 
@@ -95,6 +100,26 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None, help="cpu, cuda, or cuda:N; default auto")
+    parser.add_argument(
+        "--train-donors",
+        default=None,
+        help="comma-separated training donor IDs; required with --held-out-donors",
+    )
+    parser.add_argument(
+        "--held-out-donors",
+        default=None,
+        help="comma-separated held-out donor IDs; required with --train-donors",
+    )
+    parser.add_argument(
+        "--frozen-cohort-manifest",
+        default=None,
+        help="optional frozen M6 manifest whose train/held-out lists must match this split",
+    )
+    parser.add_argument(
+        "--require-donor-split",
+        action="store_true",
+        help="fail if train/held-out donor lists are omitted",
+    )
     return parser.parse_args(argv)
 
 
@@ -282,6 +307,19 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
     _set_seed(args.seed)
     device = _resolve_device(args.device)
+    try:
+        donor_split = optional_donor_split_from_args(
+            train_donors=args.train_donors,
+            held_out_donors=args.held_out_donors,
+            require=bool(args.require_donor_split or args.frozen_cohort_manifest),
+        )
+    except DonorSplitError as exc:
+        raise ValueError(str(exc)) from exc
+    if donor_split is not None and args.frozen_cohort_manifest:
+        from src.integration.perturbgen.frozen_cohort import load_frozen_manifest
+
+        frozen = load_frozen_manifest(args.frozen_cohort_manifest)
+        bind_frozen_donor_split(donor_split, frozen)
     asset = load_perturbgen_embedding_asset(args.embedding_asset)
     adapter = ScVIAdapter.from_trained_model(
         args.scvi_model,
@@ -328,6 +366,16 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         split="val",
         intervention_type=args.intervention_type,
     )
+    for split_name, dataset in (("train", train_dataset), ("val", val_dataset)):
+        metadata_split = dataset.metadata.get("donor_split") if isinstance(dataset.metadata, dict) else None
+        if donor_split is not None and isinstance(metadata_split, dict):
+            from src.integration.perturbgen.donor_split import load_donor_split
+
+            recorded = load_donor_split(metadata_split)
+            if recorded.sha256 != donor_split.sha256:
+                raise ValueError(
+                    f"{split_name} NPZ donor_split sha256 {recorded.sha256} does not match CLI split {donor_split.sha256}"
+                )
     loader_generator = torch.Generator().manual_seed(args.seed)
     train_loader = DataLoader(
         train_dataset,
@@ -440,6 +488,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                     "gene_embeddings_frozen": True,
                     "intervention_type": args.intervention_type,
                     "direction_code": {"KO": 0, "KD": 1, "OE": 2}[args.intervention_type],
+                    "donor_split": None if donor_split is None else donor_split.to_payload(),
+                    "donor_split_status": "bound" if donor_split is not None else "unspecified",
                 },
             )
             torch.save(payload, checkpoint_path)
@@ -475,6 +525,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "embedding_asset": str(Path(args.embedding_asset).expanduser().resolve()),
         "asset_shape": [asset.vocab_size, asset.embedding_dim],
         "scvi_shape": [adapter.n_genes, adapter.n_latent],
+        "donor_split": None if donor_split is None else donor_split.to_payload(),
+        "donor_split_status": "bound" if donor_split is not None else "unspecified",
         "metrics": metrics,
     }
     (output_dir / "training_metrics.json").write_text(

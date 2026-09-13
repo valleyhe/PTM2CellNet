@@ -547,3 +547,93 @@ def test_cli_resolves_relative_paths_and_rejects_tampered_manifest_and_nonempty_
     tampered_manifest.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="sha256"):
         main(["--input-json", str(input_json), "--output-dir", str(tmp_path / "reports_tampered")])
+
+
+def test_formal_cli_rejects_hand_filled_candidate_pvalue(tmp_path: Path) -> None:
+    input_json = _write_input_json(
+        tmp_path,
+        {
+            "schema_version": INPUT_SCHEMA_VERSION,
+            "run_id": "formal-reject",
+            "evaluation_mode": "formal",
+            "candidates": [
+                {
+                    "candidate": {
+                        "gene_symbol": "STAT3",
+                        "ensembl_id": "ENSG00000168610",
+                        "intervention_type": "KO",
+                    },
+                    "candidate_pvalue": 0.01,
+                    "observed_direction": "up",
+                    "unperturbed_quality_status": "pass",
+                    "unperturbed_quality": {
+                        "source": "extract_unperturbed_quality_from_h5ad",
+                        "status": "pass",
+                    },
+                    "runs": [
+                        {
+                            "path": "source_intervention",
+                            "mode": "mask",
+                            "seed": 1,
+                            "output_h5ad": str(tmp_path / "missing.h5ad"),
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    with pytest.raises(ValueError, match="formal evaluation rejects"):
+        main(["--input-json", str(input_json), "--output-dir", str(tmp_path / "formal_reject")])
+
+
+def test_formal_cli_aggregates_empirical_p_for_kd_mask(tmp_path: Path) -> None:
+    output_h5ad = _write_perturbgen_h5ad(tmp_path)
+    deg_table_path = tmp_path / "deg.csv"
+    _deg_table().to_csv(deg_table_path, index=False)
+    null_distribution_path = tmp_path / "null_99.json"
+    null_distribution_path.write_text(json.dumps([0.1] * 99), encoding="utf-8")
+    runs = [
+        _build_run(
+            output_h5ad=output_h5ad,
+            deg_table_path=deg_table_path,
+            null_distribution_path=null_distribution_path,
+            path=path_name,
+            mode="mask",
+            seed=seed,
+        )
+        for path_name in ("source_intervention", "within_state")
+        for seed in (1, 2, 3)
+    ]
+    input_json = _write_input_json(
+        tmp_path,
+        {
+            "schema_version": INPUT_SCHEMA_VERSION,
+            "run_id": "formal-kd",
+            "evaluation_mode": "formal",
+            "candidates": [
+                {
+                    "candidate": {
+                        "gene_symbol": "STAT3",
+                        "ensembl_id": "ENSG00000168610",
+                        "intervention_type": "KD",
+                    },
+                    "observed_direction": "up",
+                    "unperturbed_quality_status": "pass",
+                    "unperturbed_quality": {
+                        "source": "extract_unperturbed_quality_from_h5ad",
+                        "status": "pass",
+                    },
+                    "runs": runs,
+                }
+            ],
+        },
+    )
+    output_dir = tmp_path / "formal_reports"
+    assert main(["--input-json", str(input_json), "--output-dir", str(output_dir)]) == 0
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    entry = manifest["candidates"][0]
+    assert entry["verdict"] == "pass"
+    assert entry["scientific_acceptance"] is True
+    assert entry["evaluation_mode"] == "formal"
+    assert entry["evidence_class"] == "empirical_null"
+    assert 0.0 < entry["candidate_pvalue"] <= 1.0

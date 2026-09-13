@@ -248,6 +248,11 @@ class TestBuildEvalInputPayload:
         assert candidate["observed_direction"] == "down"
         assert candidate["unperturbed_quality_status"] == "pass"
         assert candidate["candidate_pvalue"] == 0.04
+        assert payload["evaluation_mode"] == "engineering"
+        assert payload["evidence_class"] == "synthetic"
+        assert payload["pvalue_source"] == "uniform"
+        assert candidate["pvalue_source"] == "uniform"
+        assert candidate["unperturbed_quality_source"] == "hand_filled"
         runs = {run["path"]: run for run in candidate["runs"]}
         assert set(runs) == {"source_intervention", "within_state"}
         src = runs["source_intervention"]
@@ -399,6 +404,49 @@ class TestBuildEvalInputPayload:
                 deg_and_null,
                 null_distribution_path=None,
                 null_distribution_manifest_path=manifest_path,
+            )
+
+    def test_formal_mode_rejects_uniform_pvalue(self, tmp_path, run_root, deg_and_null):
+        with pytest.raises(EvalAssemblyError, match="rejects uniform_candidate_pvalue"):
+            self._payload(
+                tmp_path,
+                run_root,
+                deg_and_null,
+                evaluation_mode="formal",
+                uniform_candidate_pvalue=0.04,
+            )
+
+    def test_formal_mode_requires_extracted_quality_and_omits_candidate_pvalue(
+        self, tmp_path, run_root, deg_and_null
+    ):
+        payload = self._payload(
+            tmp_path,
+            run_root,
+            deg_and_null,
+            evaluation_mode="formal",
+            uniform_candidate_pvalue=None,
+            unperturbed_quality={
+                "source": "extract_unperturbed_quality_from_h5ad",
+                "status": "pass",
+            },
+        )
+        assert payload["evaluation_mode"] == "formal"
+        assert payload["evidence_class"] == "empirical_null"
+        assert payload["pvalue_source"] == "empirical_pending_extraction"
+        (candidate,) = payload["candidates"]
+        assert "candidate_pvalue" not in candidate
+        assert candidate["unperturbed_quality_source"] == "extract_unperturbed_quality_from_h5ad"
+        assert candidate["pvalue_source"] == "empirical_pending_extraction"
+
+    def test_formal_mode_rejects_hand_filled_quality(self, tmp_path, run_root, deg_and_null):
+        with pytest.raises(EvalAssemblyError, match="extracted from h5ad"):
+            self._payload(
+                tmp_path,
+                run_root,
+                deg_and_null,
+                evaluation_mode="formal",
+                uniform_candidate_pvalue=None,
+                unperturbed_quality_status="pass",
             )
 
 

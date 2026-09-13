@@ -27,6 +27,9 @@ def build_candidate_report_payload(
         "candidate_gene": dual_payload.get("candidate_gene") or candidate_payload.get("gene_symbol"),
         "intervention_type": dual_payload.get("intervention_type"),
         "verdict": payload.get("verdict"),
+        "scientific_acceptance": dual_payload.get("scientific_acceptance", False),
+        "evaluation_mode": dual_payload.get("evaluation_mode"),
+        "evidence_class": dual_payload.get("evidence_class"),
         "q_value": dual_payload.get("q_value"),
         "reasons": list(payload.get("reasons", [])),
         "paths": list(path_decisions),
@@ -47,6 +50,8 @@ def build_candidate_summary_dataframe(payloads: Sequence[Mapping[str, Any]]) -> 
             {
                 "candidate_gene": payload.get("candidate_gene"),
                 "verdict": payload.get("verdict"),
+                "scientific_acceptance": payload.get("scientific_acceptance", False),
+                "evaluation_mode": payload.get("evaluation_mode"),
                 "q_value": payload.get("q_value"),
                 "source_verdict": source.get("verdict"),
                 "within_state_verdict": within.get("verdict"),

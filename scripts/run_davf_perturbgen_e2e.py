@@ -59,6 +59,11 @@ from src.integration.perturbgen.contracts import (  # noqa: E402
 from src.integration.perturbgen.data_prep import (  # noqa: E402
     prepare_perturbgen_anndata,
 )
+from src.integration.perturbgen.donor_split import (  # noqa: E402
+    DonorSplitError,
+    bind_frozen_donor_split,
+    optional_donor_split_from_args,
+)
 from src.models.davf_inference import DAVFInferenceConfig, DAVFInferenceModule  # noqa: E402
 from src.models.gene_vocabulary import normalize_ensembl_id  # noqa: E402
 
@@ -374,6 +379,28 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     }
     if perturbgen_gate0 is not None:
         payload["perturbgen_gate0"] = perturbgen_gate0
+    try:
+        donor_split = optional_donor_split_from_args(
+            train_donors=args.train_donors,
+            held_out_donors=args.held_out_donors,
+            require=bool(args.require_donor_split or args.frozen_cohort_manifest),
+        )
+    except DonorSplitError as exc:
+        raise ValueError(str(exc)) from exc
+    if donor_split is not None and args.frozen_cohort_manifest is not None:
+        from src.integration.perturbgen.frozen_cohort import load_frozen_manifest
+
+        frozen = load_frozen_manifest(args.frozen_cohort_manifest)
+        bind_frozen_donor_split(donor_split, frozen)
+    if donor_split is not None:
+        payload["donor_split"] = donor_split.to_payload()
+        if perturbgen_config is not None:
+            pipeline_section = perturbgen_config.setdefault("pipeline", {})
+            if not isinstance(pipeline_section, dict):
+                raise ValueError("PerturbGen config pipeline must be a mapping")
+            pipeline_section["donor_split"] = donor_split.to_payload()
+            pipeline_section["train_donors"] = list(donor_split.train_donors)
+            pipeline_section["held_out_donors"] = list(donor_split.held_out_donors)
 
     if args.run_perturbgen:
         runner = PerturbGenRunner(gpu_lock_file=args.gpu_lock_file)
@@ -433,6 +460,27 @@ def main(argv: list[str] | None = None) -> int:
         "--sensitivity-modes",
         default="",
         help="comma-separated KO sensitivity modes (pad,delete) analysed besides the primary mask mode",
+    )
+    parser.add_argument(
+        "--train-donors",
+        default=None,
+        help="comma-separated training donor IDs bound into the E2E report and pipeline fingerprint",
+    )
+    parser.add_argument(
+        "--held-out-donors",
+        default=None,
+        help="comma-separated held-out donor IDs; must be disjoint from --train-donors",
+    )
+    parser.add_argument(
+        "--frozen-cohort-manifest",
+        type=Path,
+        default=None,
+        help="optional frozen M6 manifest; donor lists must match exactly including SHA",
+    )
+    parser.add_argument(
+        "--require-donor-split",
+        action="store_true",
+        help="fail if train/held-out donor lists are omitted",
     )
     args = parser.parse_args(argv)
 

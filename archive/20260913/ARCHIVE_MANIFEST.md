@@ -45,6 +45,19 @@
 | `project_repair_report_20260823.md` | `1f31c6e50e99` | 修复 stub |
 | `project_repair_report_20260824.md` | `a62b3b82dfc2` | 曾指向 20260910 |
 
+### 本轮追加：无 Git 历史文件
+
+以下文件在归档前均被 `.gitignore:6` 忽略，未进入 Git index，因此没有可保留的
+Git 历史或 blob；本轮仅移动文件，未计算文件哈希。归档前 HEAD：
+`f3374d223a11749edd76a3ee6ad83e9b84b8ebdf`。
+
+| 文件 | 原路径 | 目标路径 | Git 历史 | 原因 |
+|---|---|---|---|---|
+| `coding-guide.txt` | `coding-guide.txt` | `archive/20260913/guides/coding-guide.txt` | 无（ignored/untracked） | 2026-03 通用旧流程，无活动入口引用；与当前项目规范不再同步。 |
+| `codex_mcp_prompt.md` | `codex_mcp_prompt.md` | `archive/20260913/guides/codex_mcp_prompt.md` | 无（ignored/untracked） | 2026-08-09 旧任务模板，无仓内引用；保留作历史追溯。 |
+| `findings.md` | `findings.md` | `archive/20260913/planning/findings.md` | 无（ignored/untracked） | 2026-09-01 历史审计追踪，仍指向已归档的旧权威分析。 |
+| `progress.md` | `progress.md` | `archive/20260913/planning/progress.md` | 无（ignored/untracked） | 2026-09-10 历史收口记录，仍指向已归档的旧权威分析。 |
+
 ## 同步修改
 
 - 权威分析改为仓库根目录 `project_analysis_20260913.md`。

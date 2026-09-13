@@ -143,6 +143,8 @@ def test_evaluate_dual_path_candidate_requires_both_paths_to_pass() -> None:
 
     assert decision.verdict == "pass"
     assert decision.candidate_gene == "STAT3"
+    assert decision.scientific_acceptance is False
+    assert decision.evaluation_mode == "engineering"
     assert len(decision.path_decisions) == 2
 
 
@@ -259,3 +261,56 @@ def test_evaluate_path_results_accepts_equivalent_object_with_top_level_null_fie
     decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
 
     assert decision.verdict == "pass"
+
+
+def test_kd_up_mask_only_passes_without_sensitivity_modes() -> None:
+    rows = []
+    for path_name, rescues in (
+        ("source_intervention", (0.5, 0.4, 0.2)),
+        ("within_state", (0.6, 0.5, 0.3)),
+    ):
+        for seed, rescue in enumerate(rescues, start=1):
+            rows.append(_result(path=path_name, mode="mask", seed=seed, rescue=rescue))
+    decision = evaluate_dual_path_candidate(
+        rows,
+        observed_direction="up",
+        intervention_type="KD",
+        q_value=0.01,
+        unperturbed_quality_status="pass",
+    )
+    assert decision.verdict == "pass"
+    assert all(item.primary_mode == "mask" for item in decision.path_decisions)
+
+
+def test_ko_up_mask_only_is_inconclusive() -> None:
+    rows = [
+        _result(path="source_intervention", mode="mask", seed=seed, rescue=rescue)
+        for seed, rescue in enumerate((0.5, 0.4, 0.2), start=1)
+    ]
+    path_decision = evaluate_path_results(rows, observed_direction="up", intervention_type="KO")
+    assert path_decision.verdict == "inconclusive"
+    assert "missing_mode_pad" in path_decision.reasons
+
+
+def test_formal_mode_rejects_uniform_pvalue_even_when_paths_pass() -> None:
+    rows = _ko_path(
+        "source_intervention",
+        {"mask": (0.5, 0.4, 0.2), "pad": (0.4, 0.3, 0.2), "delete": (0.3, 0.2, 0.1)},
+    ) + _ko_path(
+        "within_state",
+        {"mask": (0.6, 0.5, 0.3), "pad": (0.4, 0.4, 0.2), "delete": (0.2, 0.2, 0.1)},
+    )
+    decision = evaluate_dual_path_candidate(
+        rows,
+        observed_direction="up",
+        intervention_type="KO",
+        q_value=0.01,
+        unperturbed_quality_status="pass",
+        evaluation_mode="formal",
+        evidence_class="synthetic",
+        pvalue_source="uniform",
+    )
+    assert decision.verdict == "inconclusive"
+    assert decision.scientific_acceptance is False
+    assert "formal_rejects_synthetic_pvalue" in decision.reasons
+    assert "formal_requires_empirical_null" in decision.reasons

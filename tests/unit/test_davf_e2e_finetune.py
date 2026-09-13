@@ -124,6 +124,20 @@ class TestDAVFE2EScript:
         for expected in ("parse_args", "load_data", "create_dataloaders",
                          "build_model", "train_epoch", "evaluate", "main"):
             assert expected in func_names, f"Missing expected function: {expected}"
+        assert "embedding_asset_path" in source
+        assert "build_perturbgen_direction_mapper" in source
+        assert "PTMDirectionMapper()" not in source
+
+    def test_parse_args_requires_embedding_asset(self, monkeypatch):
+        from scripts.finetune_davf_e2e import parse_args
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["finetune_davf_e2e.py", "--data", "train.csv", "--checkpoint", "ckpt.pt"],
+        )
+        with pytest.raises(SystemExit):
+            parse_args()
 
     def test_optimizer_step_reduces_loss(self):
         """Verify that an optimizer step can reduce loss on a simple problem."""

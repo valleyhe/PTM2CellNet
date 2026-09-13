@@ -30,7 +30,7 @@ class SeedModeSummary:
     evaluable_donors: int
     donor_consistency: float | None
     matched_null_count: int | None
-    empirical_pvalue: float | None
+    empirical_pvalue: float | None  # provenance only; path AND does not use this field
     reason_code: str | None
 
 
@@ -57,6 +57,10 @@ class DualPathDecision:
     reasons: tuple[str, ...]
     path_decisions: tuple[PathDecision, ...]
     candidate_gene: str | None = None
+    evaluation_mode: str = "engineering"
+    evidence_class: str = "unspecified"
+    pvalue_source: str | None = None
+    scientific_acceptance: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,7 +75,12 @@ def evaluate_path_results(
     smoke_null_count: int = 20,
     expected_seed_count: int = 3,
 ) -> PathDecision:
-    """单路径门控。数据不齐直接 inconclusive，数据齐但未达门才 fail。"""
+    """单路径门控。数据不齐直接 inconclusive，数据齐但未达门才 fail。
+
+    ``empirical_pvalue`` is copied onto seed summaries for candidate-level
+    aggregation (U-02).  Path AND still uses rescue, donor consistency, and
+    matched-null *count*; a per-run p never flips this verdict by itself.
+    """
 
     route = _normalize_intervention_type(intervention_type)
     if not path_results:
@@ -240,6 +249,9 @@ def evaluate_dual_path_candidate(
     smoke_null_count: int = 20,
     expected_seed_count: int = 3,
     unperturbed_quality_status: str = "inconclusive",
+    evaluation_mode: str = "engineering",
+    evidence_class: str = "unspecified",
+    pvalue_source: str | None = None,
 ) -> DualPathDecision:
     """双路径严格 AND。"""
 
@@ -250,6 +262,11 @@ def evaluate_dual_path_candidate(
         raise ValueError("unperturbed_quality_status must be pass/fail/inconclusive")
     if q_value is not None and (not math.isfinite(q_value) or not 0.0 <= q_value <= 1.0):
         raise ValueError("q_value must be finite and within [0, 1]")
+    mode = str(evaluation_mode).strip().lower()
+    if mode not in {"engineering", "formal"}:
+        raise ValueError("evaluation_mode must be 'engineering' or 'formal'")
+    evidence = str(evidence_class).strip() or "unspecified"
+    source = None if pvalue_source is None else str(pvalue_source).strip()
 
     normalized = [_normalize_result(item) for item in path_results]
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -313,12 +330,21 @@ def evaluate_dual_path_candidate(
         has_fail = True
         reasons.append("unperturbed_quality_fail")
 
+    if mode == "formal":
+        if evidence != "empirical_null":
+            has_inconclusive = True
+            reasons.append("formal_requires_empirical_null")
+        if source in {"uniform", "hand_filled", "external_table"}:
+            has_inconclusive = True
+            reasons.append("formal_rejects_synthetic_pvalue")
+
     verdict = "pass"
     if has_inconclusive:
         verdict = "inconclusive"
     elif has_fail:
         verdict = "fail"
 
+    scientific_acceptance = verdict == "pass" and mode == "formal" and evidence == "empirical_null"
     return DualPathDecision(
         verdict=verdict,
         q_value=q_value,
@@ -326,6 +352,10 @@ def evaluate_dual_path_candidate(
         reasons=tuple(dict.fromkeys(reasons)),
         path_decisions=tuple(path_decisions),
         candidate_gene=candidate_gene,
+        evaluation_mode=mode,
+        evidence_class=evidence,
+        pvalue_source=source,
+        scientific_acceptance=scientific_acceptance,
     )
 
 

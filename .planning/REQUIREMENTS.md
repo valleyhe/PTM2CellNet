@@ -90,7 +90,39 @@ is a follow-up implementation proposal, not an additional completed requirement
 in the 24-item v2.1/v2.2 acceptance set above. Its M0--M7 gates remain separately
 tracked because Gate-0 needs owner-supplied donor data and Gate-E/Gate-4/Gate-5
 need real assets and scientific acceptance. The dated status and evidence are
-maintained in the repository-root `project_analysis_20260901.md`.
+maintained in `docs/CURRENT_STATUS.md` and the repository-root
+`project_analysis_20260913.md`; the older `project_analysis_20260901.md` reference
+is historical and is not an active execution source.
+
+## Active DAVF × PerturbGen acceptance track (2026-09-13)
+
+This track updates the pending research contract without reopening the completed
+24-item v2.1/v2.2 engineering requirements. Code facts and scientific evidence
+remain separate: an existing interface or smoke run is not a biological PASS.
+
+| ID | Active requirement | Status / evidence |
+|---|---|---|
+| A-01 | Gate-0 must use a real `normal/disease` raw-count cohort with explicit donor identity, canonical Ensembl IDs, frozen scVI gene order/embedding manifest and at least 3 shared donors. | **Open / blocked**: the 2026-09-13 audit found 0 compliant cohorts among 30 local scPerturb H5AD files (`outputs/perturbgen/spike/20260913_donor_audit/evidence.json`). The four-cohort IBD plan is a source design, not proof of eligibility. |
+| A-02 | Training-only and held-out donor lists must be explicit, disjoint, provenance-bound and sufficient for the frozen M6 acceptance. | **Interface present, evidence open**: `train_latent_davf.py`, E2E and `donor_split.py` accept/bind donor lists; real lists, historical checkpoint provenance and held-out metrics are not verified. |
+| A-03 | Direction evidence must record `context`, `intervention`, comparison baseline, research objective (`association`/`replication`/`reversal`) and source/cohort split. Classifier site presence, external candidate direction, observed donor-level disease−normal and DAVF intervention delta are separate fields. | **Open / contract update**: current bridge is `candidate_spec → scVI/PTMDirectionMapper → DAVF direction → three-way gate → evidence/invocation`; E2E defaults to report export and only explicit `--run-perturbgen` runs the six-stage preparation/execution chain; no global same-sign/flip rule and no claim that disease signature is intervention ground truth. |
+| A-04 | Formal PerturbGen evaluation must keep `source_intervention=[src]` and `within_state=[tgt]+pert_tps` as two scenes and require both scenes for the existing AND verdict. | **Engineering interface present; formal evidence open**: one scene is only scene-specific exploration/utility, not universal treatment efficacy. |
+| A-05 | E2E must automatically continue existing matched-null generation, candidate empirical-p aggregation, formal input isolation, unperturbed quality extraction and dual-path statistics, with lineage in the report. | **Interfaces present; orchestration open**: current report aggregates `stage_manifest` only and does not yet auto-run the statistical chain. |
+| A-06 | Public prepare/reuse must be specified around a fixed cohort, vocabulary, training configuration and asset versions; candidate loops then run only the two perturbation/utility scenes. | **Open**: current `orchestrator.py` repeats tokenise/training/perturb/export/report per candidate and E2E uses independent candidate directories; same-directory resume is not cross-candidate reuse. Do not add a new hash/scheduler/compatibility framework to imply completion. |
+| A-07 | Workflow A (gate → utility) and Workflow B (fixed encoder → frozen embedding asset → LatentDAVF retraining → Gate-E) must remain separate asset lifecycles. | **Open**: current base encoder export is fixed, does not consume candidate results or retrain a candidate checkpoint, and is not fed back into the current DAVF run. |
+| A-08 | Formal release evidence requires real donor-level null, quality, dual-scene statistics plus Gate-E/Gate-4/Gate-5 evidence; smoke, synthetic, mock and bridge results remain engineering evidence. | **Open**: Gate-E ≥200 benchmark and formal real evidence have not been executed. |
+
+### Active dependency order
+
+1. Freeze direction semantics, research objective, evidence sources and
+   train-only/held-out donor design.
+2. Implement the public prepare/reuse and formal invocation boundary described in
+   the proposal; the runner continues to execute a `StagePlan`, while the formal
+   CLI requires an E2E report bound to a passing invocation.
+3. Connect the existing null, quality, empirical-p/q and dual-scene interfaces to
+   E2E reporting with complete lineage.
+4. With owner-supplied assets, run Gate-0, donor-held-out DAVF/M6, Gate-E and
+   Gate-4/Gate-5 real acceptance. Until then, report only engineering or
+   scene-specific exploratory utility.
 
 ## Cancelled Requirements
 
@@ -153,4 +185,4 @@ always the literal original wording:
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-09-01 — v2.2 formal requirements remain complete; supplemental PerturbGen proposal gates remain open as documented above*
+*Last updated: 2026-09-13 — v2.2 formal requirements remain complete; active DAVF × PerturbGen acceptance track and its open evidence gates are documented above*

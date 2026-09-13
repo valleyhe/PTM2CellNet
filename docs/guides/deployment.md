@@ -4,6 +4,11 @@
 
 本指南介绍如何将PTM2CellNet部署到生产环境。
 
+生产 API 中的 `use_davf=True` 只表示在线 DAVF 推理及其资产校验，不会执行候选
+方向 gate、PerturbGen invocation 或六阶段流程。候选研究执行请参阅
+[`DAVF × PerturbGen 串联式 E2E 流程`](davf_perturbgen_e2e.md)；PerturbGen 仍在独立
+环境中运行，不经同步 API。
+
 ## Docker部署 (推荐)
 
 ### 1. 构建镜像
@@ -56,6 +61,12 @@ curl -X POST http://localhost:8000/api/v1/predict \
 | `PTM2CELLNET_CONFIG` | 模型配置路径；未设置时可从 checkpoint sibling config 发现 | — |
 | `PTM2CELLNET_API_PREFIX` | API 路由前缀 | `/api/v1` |
 | `PTM2CELLNET_API_KEY` | 生产环境 API key；未设置时不启用兼容认证中间件 | — |
+| `PTM2CELLNET_ENV` | 设为 `production` 时启用生产 fail-fast：缺 `PTM2CELLNET_API_KEY` 或空下载白名单会拒绝启动；`use_davf=True` 且无 schema v2 `embedding_asset_path` 也会拒绝 | 非 production |
+| `PTM2CELLNET_ALLOW_UNAUTHED_PROD` | 仅当必须在 production 下无 API key 启动时显式 opt-out（仍记 SECURITY 日志，`/ready` 可降级） | 未设置 |
+| `PTM2CELLNET_ALLOW_INSECURE_PROD` | 关闭 production fail-fast，改为 warning + degraded | 未设置 |
+| `PTM2CELLNET_ALLOW_UNRESTRICTED_DOWNLOADS` | 允许 production 空下载白名单（不推荐） | 未设置 |
+| `PTM2CELLNET_GENEFORMER_VOCAB_SHA256` | 遗留 Geneformer pickle 词表的允许 sha256；production/strict 未设置时拒绝 `pickle.load` | — |
+| `PTM2CELLNET_ALLOW_GENEFORMER_PICKLE` | 显式允许未钉扎的官方 pickle 词表（`1`/`true`）；生产应改用 sha pin 或 `vocab.json` | 未设置 |
 | `PTM2CELLNET_RATE_LIMIT_RPM` | 每进程每分钟请求上限；`0` 表示关闭 | `600` |
 | `HF_ENDPOINT` | Hugging Face镜像 | `https://hf-mirror.com` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |

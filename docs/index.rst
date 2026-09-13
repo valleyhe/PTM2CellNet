@@ -23,6 +23,16 @@ perturbations at single-cell resolution.
 
 .. toctree::
    :maxdepth: 2
+   :caption: DAVF and PerturbGen Research
+
+   DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21
+   guides/davf_perturbgen_e2e
+   guides/perturbgen_bridge
+   guides/davf_ko_kd_training
+   guides/gse_normal_disease_davf_plan_20260904
+
+.. toctree::
+   :maxdepth: 2
    :caption: API Reference
 
    api/index

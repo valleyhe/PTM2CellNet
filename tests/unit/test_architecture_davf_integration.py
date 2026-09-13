@@ -128,6 +128,17 @@ class TestDAVFArchitectureIntegration:
         assert model.ptm_mapper is not None
         assert model.davf_module is not None
         assert model.davf_feature_dim == 128
+        assert model.davf_path_class == "legacy_fusion_demo"
+
+    def test_production_use_davf_without_asset_fails(self, monkeypatch):
+        monkeypatch.setenv("PTM2CELLNET_ENV", "production")
+        with pytest.raises(ValueError, match="embedding_asset_path"):
+            PTM2CellNet(
+                encoder_type="transformer",
+                embed_dim=128,
+                num_classes=4,
+                use_davf=True,
+            )
 
     def test_davf_expands_predictor_input_dim(self):
         model = PTM2CellNet(
@@ -163,6 +174,7 @@ class TestDAVFArchitectureIntegration:
         }
         assert model.ptm_mapper is not None
         assert model.ptm_mapper.gene_to_idx == model.davf_module.embedding_gene_to_token
+        assert model.davf_path_class == "formal_schema_v2"
 
     def test_davf_config_rejects_removed_geneformer_path(self):
         """Schema v2: geneformer_path must fail loudly, not silently degrade."""

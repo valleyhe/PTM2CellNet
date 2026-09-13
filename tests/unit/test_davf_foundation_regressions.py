@@ -20,6 +20,7 @@ class TestGeneformerEmbeddingLoaderRegressions:
         loader._embeddings = torch.randn(loader._vocab_size, 8)
         loader.device = torch.device("cpu")
         loader._vocabulary_is_semantic = False
+        loader.strict = False
 
         gene_id = "ENSG00000139618"
         embeddings = loader.get_gene_embedding([gene_id])

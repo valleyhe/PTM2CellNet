@@ -74,3 +74,36 @@ Fixtures are engineering tests only. A green Ridge smoke test proves that the
 pipeline is deterministic and operational; it does not prove PMADS coverage,
 biological validity or superiority of the cross-scale model. Those claims need
 authorized real assets and a separate scientific acceptance review.
+
+## 5. DAVF × PerturbGen acceptance boundary (2026-09-13)
+
+Data refresh for the active research track has two separate outputs:
+
+1. a manifest source registration with provider, release, license, file format,
+   canonical Ensembl mapping and allowed use; and
+2. a formal cohort evidence record proving real `normal/disease` raw counts,
+   explicit donor identity, at least 3 shared donors, frozen scVI gene order and
+   embedding manifest, plus train-only/held-out donor provenance. The current
+   formal cohort is 0; PerturbGen token indices and scVI decoder indices are
+   separate spaces and must be aligned through canonical Ensembl IDs and the
+   frozen manifest.
+
+The four-cohort IBD plan is a candidate source and analysis-role plan. It does
+not satisfy Gate-0 merely because files are downloaded or merged; the current
+formal cohort is 0. Observed donor-level disease−normal is an observed direction
+contrast and cannot be used as KO/KD intervention ground truth; its source reuse
+with the DAVF training cohort and donor/train split must be recorded. Without
+that evidence, same-sign results cannot be called three independent evidence.
+Each run must record `context`,
+`intervention`, comparison baseline, research objective, source reuse and donor
+split; do not fill missing semantics with a global sign flip.
+
+The current code already provides matched-null generation, candidate empirical-p
+aggregation, formal input isolation, unperturbed quality extraction, donor split
+and dual-path AND interfaces. This workflow must connect those interfaces to the
+E2E report before calling the output formal evidence; a report that only lists a
+`stage_manifest` is an engineering record.
+
+Execution references are [`CURRENT_STATUS`](CURRENT_STATUS.md), the [central
+dual-path plan](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md), and
+[`task_plan.md`](../task_plan.md).

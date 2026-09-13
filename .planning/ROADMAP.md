@@ -11,17 +11,41 @@
 
 The following items are no longer project requirements and must not appear as future implementation phases: real-time mass-spec streaming, custom PTM database support, GUI, and new API-key feature work. Existing compatibility code may remain, but roadmap and plan documents should treat these as cancelled/out-of-scope.
 
-## Post-v2.2 acceptance boundary (2026-09-01)
+## Post-v2.2 acceptance boundary (2026-09-13)
 
 The v2.2 engineering milestone is complete. The separate DAVF × PerturbGen
 follow-up proposal remains an acceptance track rather than a completed roadmap
 phase: Gate-0 donor eligibility, Gate-E real DAVF retraining, Gate-4 release
 evidence and Gate-5 scientific validation are still open. See
-`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md` and the current
-root audit report for evidence. The direction-gate library is implemented, but
-the production pipeline still does not invoke it automatically. Synthetic
-fixtures and opt-in code paths must
-not be described as real biological validation.
+`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`,
+`docs/CURRENT_STATUS.md` and `project_analysis_20260913.md` for current evidence;
+the older `project_analysis_20260901.md` reference is historical only. The E2E
+bridge now performs candidate direction gating and creates a passing invocation;
+E2E defaults to report export and only explicit `--run-perturbgen` runs the
+six-stage preparation/execution chain;
+formal CLI paths require a bound E2E gate report, while the lower-level runner
+currently executes a `StagePlan` and does not independently re-check the gate.
+Synthetic fixtures, smoke, bridges and opt-in code paths must not be described as
+real biological validation.
+
+## Active DAVF × PerturbGen acceptance track (2026-09-13)
+
+This is the current work order outside the completed v1.0–v2.2 phase history.
+`src/tgt` are two PerturbGen experiment scenes, not two separate preparation
+chains. The existing formal verdict remains AND: both scenes must pass before a
+candidate enters the experimental validation list.
+
+| Order | Work package | Status | Dependency / completion condition |
+|---|---|---|---|
+| 1 | Direction semantics and independent evidence | **Open** | Freeze `context`, `intervention`, comparison baseline, research objective, source/cohort and train-only/held-out donor records; keep classifier site presence, external candidate direction, observed donor disease−normal and DAVF decode delta distinct. |
+| 2 | Public prepare/reuse and invocation boundary | **Partly implemented** | Specify one fixed cohort/vocabulary/training configuration/asset preparation and candidate-only dual-scene perturb/utility calls. Current orchestrator repeats preparation per candidate; runner executes StagePlan; formal CLI remains bound to passing E2E invocation. |
+| 3 | Statistical continuation | **Interfaces implemented; wiring open** | Connect existing matched-null generation, empirical-p aggregation, formal isolation, unperturbed quality and dual-path AND to E2E report with lineage. Do not re-plan these modules as new from-scratch features. |
+| 4 | Real cohort and formal evidence | **Blocked** | Owner-supplied real normal/disease raw counts, explicit donor, ≥3 shared donors, canonical Ensembl, scVI/embedding manifests, real null/quality/dual-scene statistics and Gate-E/Gate-4/Gate-5 evidence. The four-cohort IBD plan is source planning only. |
+
+No new hash, scheduler, feature flag or compatibility layer is part of this
+track. Workflow A is gate → PerturbGen utility; Workflow B is fixed encoder →
+frozen embedding asset → LatentDAVF retraining → Gate-E, with no candidate-result
+feedback into that export.
 
 ## Phases
 
@@ -190,6 +214,12 @@ Phases execute in numeric order: 15 → 16 → 17 → 18 → 19 → 20
 | 19. Cross-Scale Scientific Model | v2.2 | 1/1 | Complete | 2026-08-08 |
 | 20. Verification & Technical Summary | v2.2 | 1/1 | Complete | 2026-08-08 |
 
+The table above is the historical v1.0–v2.2 phase record. The active
+DAVF × PerturbGen acceptance order is the four work packages in the 2026-09-13
+section above; it is not represented as a completed phase. Current Gate-0
+evidence is 0 compliant real cohorts, and no smoke/synthetic/bridge result
+closes Gate-E, Gate-4 or Gate-5.
+
 ---
 *Created: 2026-03-30*
-*Updated: 2026-08-08 — v2.2 Phase 18/19/20 completed for TD-01 and TD-02*
+*Updated: 2026-09-13 — v2.2 phase history retained; active DAVF × PerturbGen acceptance order documented above*

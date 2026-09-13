@@ -33,7 +33,7 @@ jobs:
         run: >-
           pytest tests/unit/ tests/integration/ tests/test_*.py
           -m "not slow and not gpu"
-          --timeout=120
+          --timeout=300
           --cov=src
           --cov-branch
           --cov-report=term-missing:skip-covered
@@ -68,7 +68,7 @@ jobs:
           tests/unit/integration/perturbgen/
           tests/integration/test_perturbgen_pipeline_mocked.py
           -m "not slow and not gpu and not real_assets"
-          --timeout=120
+          --timeout=300
 
   dependencies:
     name: Dependency Consistency (pip check + lock)

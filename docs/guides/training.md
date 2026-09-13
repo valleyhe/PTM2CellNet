@@ -4,6 +4,11 @@
 
 本指南介绍如何训练、调优和评估PTM2CellNet模型。
 
+这里的 PTM classifier 只学习 PTM site 是否存在，不输出干预后的表达方向。主线
+候选需把外部提出的 `proposed_direction`（可由 site-level override 提供）与
+donor-level observed direction、DAVF decode direction 分开记录，再进入三方 gate；
+具体串联入口见 [DAVF × PerturbGen E2E 指南](davf_perturbgen_e2e.md)。
+
 ## 训练流程
 
 ### 1. 准备数据

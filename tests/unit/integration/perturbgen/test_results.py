@@ -156,6 +156,58 @@ def test_unperturbed_quality_gate_uses_three_seed_median_worst_and_correlation()
     assert inconclusive.status == "inconclusive"
 
 
+def test_extract_unperturbed_quality_from_h5ad_stamps_source(tmp_path) -> None:
+    from src.integration.perturbgen.results import extract_unperturbed_quality_from_h5ad
+
+    ad = pytest.importorskip("anndata")
+    h5ad_by_seed: dict[int, Path] = {}
+    for seed, up_shift in ((1, 0.0), (2, 0.2), (3, -0.2)):
+        pred = np.asarray(
+            [
+                [8.0 + up_shift, 1.0, 5.0],
+                [7.0 + up_shift, 2.0, 5.0],
+                [9.0 + up_shift, 0.5, 5.0],
+            ],
+            dtype=float,
+        )
+        true = pred + np.asarray(
+            [
+                [0.2, -0.1, 0.0],
+                [0.1, 0.1, 0.0],
+                [-0.1, 0.0, 0.0],
+            ],
+            dtype=float,
+        )
+        adata = ad.AnnData(
+            X=np.ones_like(pred),
+            obs=pd.DataFrame({"donor": ["D1", "D2", "D3"]}, index=["c1", "c2", "c3"]),
+            var=pd.DataFrame({"gene": ["UP_A", "DOWN_A", "TARGET"]}),
+        )
+        adata.layers["true_counts"] = true
+        adata.layers["pred_counts"] = pred
+        adata.obsm["true_cls"] = np.ones((3, 2))
+        adata.obsm["perturbed_cls"] = np.ones((3, 2))
+        adata.obsm["mean_cos_similarity"] = np.ones((3, 1))
+        adata.varm["gene_cos_similarity"] = np.ones((3, 1))
+        path = tmp_path / f"unperturbed_seed{seed}.h5ad"
+        adata.write_h5ad(path)
+        h5ad_by_seed[seed] = path
+
+    result = extract_unperturbed_quality_from_h5ad(
+        h5ad_by_seed,
+        _deg_table(),
+        donor_obs_column="donor",
+        var_gene_column="gene",
+        target_gene="TARGET",
+    )
+    assert result.source == "extract_unperturbed_quality_from_h5ad"
+    assert result.status == "pass"
+    assert result.seeds == 3
+    assert result.median_deg_direction_recovery == 1.0
+    assert result.minimum_signature_correlation is not None
+    assert result.minimum_signature_correlation > 0
+
+
 def _write_perturbgen_h5ad(
     tmp_path,
     *,

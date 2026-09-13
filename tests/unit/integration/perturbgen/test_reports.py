@@ -53,6 +53,8 @@ def test_build_candidate_report_payload_keeps_manifest_for_replay() -> None:
     assert payload["candidate_gene"] == "STAT3"
     assert payload["manifest"]["run_id"] == "run-001"
     assert payload["verdict"] == "pass"
+    assert payload["scientific_acceptance"] is False
+    assert payload["evaluation_mode"] == "engineering"
 
 
 def test_build_candidate_summary_dataframe_extracts_both_paths() -> None:

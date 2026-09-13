@@ -1,5 +1,9 @@
 # DAVF × PerturbGen 串联式 E2E 流程
 
+主线入口是 `PTM site presence → 外部候选方向/位点覆盖 → DAVF 方向证据 → 独立
+表达方向 → 三方 gate → PerturbGen invocation → 六阶段运行与双路径评估`。PTM
+classifier 只输出位点存在概率；它不从原始 PTM site 自动产生表达方向。
+
 ## 核心原则
 
 KO 和 KD 使用各自的 DAVF checkpoint 与各自的 scVI 坐标系，不能合并 latent
@@ -51,6 +55,14 @@ checkpoint 干预类型。
 要求的协变量；当前 KO/KD 模型要求 `davf_batch`。候选的 symbol/Ensembl pair
 还必须同时存在于 DAVF alias asset 和 verified PerturbGen vocabulary。
 
+候选中的 `proposed_direction` 是外部用户假设或 `--proposal-direction-map` 的
+site-level override；`observed_direction` 若来自 GSE，含义是 donor-level
+`disease - normal`。DAVF 的 `predicted_direction` 则来自“干预后 decode - 当前
+context decode”。当前 gate 代码只比较三者是否同号，没有对齐参考轴；因此不能把
+病程方向当作干预标签或统一取反。正式研究必须显式记录 context、干预、对比基准和
+目标（病程关联、复现或逆转），当前 gate 通过仍只是工程准入，不能宣称科学因果
+gate 已解决。
+
 正式执行 `--run-perturbgen` 时，`stages.tokenise.args.h5ad_path` 必须是已存在的
 绝对路径，并在解析后与候选清单的 `context_h5ad` 完全相同；不一致直接硬失败。
 tokenise 的 `var_list` 必须按顺序明确声明 cell type、state、donor，且与
@@ -89,23 +101,43 @@ python scripts/run_davf_perturbgen_e2e.py \
   --perturbgen-config configs/integration/perturbgen.yaml \
   --perturbgen-output-root outputs/perturbgen/e2e \
   --run-perturbgen \
+  --seeds 42,43,44 \
+  --train-donors D1,D2 \
+  --held-out-donors D3,D4,D5 \
+  --require-donor-split \
+  --frozen-cohort-manifest path/to/frozen-cohort.json \
   --output outputs/davf_perturbgen/ko_report.json
 ```
 
 每个通过 gate 的候选会获得独立的
 `<output_root>/<KO|KD>/<Ensembl ID>/` 目录；其中两个 perturb 阶段分别使用
-`source_intervention` 和 `within_state`，公共训练阶段仍由既有
-`PerturbGenRunner` 管理 GPU 锁、artifact 引用、manifest 和 resume。
+`source_intervention=[src]`（状态转移前）和 `within_state=[tgt]+pert_tps`
+（目标状态内）。当前实现会为每个通过 gate 的候选重新执行
+`tokenise/train_mask/train_decoder`，再执行两条路径的扰动、导出和 report；没有跨
+候选公共准备 reuse 的 CLI。`PerturbGenRunner` 负责 GPU 锁、artifact 引用、manifest
+和同目录 resume。单路结果只支持对应研究场景，只有两路都通过才可进入正式 AND
+判定，不能解释成普遍治疗疗效。
 
 `configs/integration/perturbgen.yaml` 当前 `pipeline.random_seed` 为 42。E2E
 invocation 会从该 base config 读取并记录该 seed；正式多 seed 仍须显式传入匹配的
-`--seeds`，例如 `--seeds 42,43,44`。直接 runner 会硬校验 report 与当前 base
-config 的 gene/mode/route/seed/path 绑定；不能依赖旧的默认 seed 0 或把任意通过
+`--seeds`，例如 `--seeds 42,43,44`。`scripts/run_perturbgen_pipeline.py` CLI 会硬校验 report 与当前 YAML 的
+gene/mode/route/seed/path 绑定；不能依赖旧的默认 seed 0 或把任意通过
 report 用于另一份 YAML。
 
-这条命令只代表六阶段执行成功，不自动把缺少 donor/null/FDR 证据的结果标成
-生物学 PASS。最终效用判定仍需使用现有 `results.py`、`dual_path.py` 和
-`mainline.py`，并满足双路径严格 AND。
+训练与 tokenise 的 donor 身份现已可显式绑定。正式 held-out 声明必须同时提供
+`--train-donors` 与 `--held-out-donors`（≥2 / ≥3、互斥），可选
+`--frozen-cohort-manifest` 按 SHA 逐值核对；缺列表时 `donor_split_status` 为
+`unspecified`，不能声称 held-out 细胞未进入 DAVF/PerturbGen 训练。参数绑定不会
+替代对 cohort 来源和 DAVF 训练 donor 的独立性审计。匹配 null 的
+batch 生成入口是 `scripts/run_matched_null_stages.py`（`--dry-run` 或
+`--records-json`）；GPU 执行必须经 Python API 提供 `rescue_extractor`，本模块
+不猜测 DEG 列。
+
+这条命令只代表六阶段 stage/manifest 执行成功；`report` 只是 manifest 汇总，不
+自动把缺少 donor/null/FDR/未扰动质量或方向轴定义的结果标成生物学 PASS。E2E
+尚未自动接续 `build_dual_path_eval_input.py`、matched-null 提取和
+`evaluate_perturbgen_dual_path.py` 的统计闭环；最终 formal 结论仍需显式组装、
+经验 p 聚合和双路径严格 AND。
 
 ## 独立 KO/KD 报告合并
 

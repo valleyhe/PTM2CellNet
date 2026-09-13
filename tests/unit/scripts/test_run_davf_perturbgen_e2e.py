@@ -224,6 +224,10 @@ def test_run_perturbgen_formal_path_executes_gate0_before_runner(tmp_path, monke
         dry_run=True,
         seeds="0",
         sensitivity_modes="",
+        train_donors=None,
+        held_out_donors=None,
+        frozen_cohort_manifest=None,
+        require_donor_split=False,
     )
 
     payload = e2e._run(args)

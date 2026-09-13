@@ -89,6 +89,20 @@ python scripts/predict_cross_scale.py \
 仓库中的跨尺度测试使用 synthetic fixtures，仅证明工程契约、checkpoint
 round-trip 和批量输出可运行，不代表真实扰动数据或生物学效果已验收。
 
+### DAVF × PerturbGen 研究路径（按需）
+
+这条研究路径有三个需要分别验收的终点：
+
+1. **候选准入（推理桥接）**：`PTM proposal/candidate_spec → scVI/PTMDirectionMapper → DAVF decode 方向 → 三方方向 gate → CandidateEvidence → PerturbGenInvocation`。PTM classifier 只预测位点是否存在；候选的 proposed direction 来自用户假设或逐位点 override。当前 E2E 接收候选 JSON 的目标基因和方向，不会从原始位点自动推出表达方向或因果方向。默认 E2E 只生成 gate/invocation，显式加 `--run-perturbgen` 才运行外部阶段。
+2. **准备与运行**：PerturbGen 的六阶段是 `tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`。当前每个候选都会重新执行 `tokenise/train_mask/train_decoder`、两条扰动路径和 `export_gene_embeddings/report`，跨候选复用仍是目标。`source_intervention=[src]` 表示状态转移前干预，`within_state=[tgt]+pert_tps` 表示目标状态内干预；它们是实验场景，正式双路径结论仍要求两条路径同时通过。
+3. **统计验收**：report 只汇总 `stage_manifest`；E2E 不会自动把匹配 null、候选 empirical-p/q、未扰动质量和双路径统计接续成正式结论。相关生成与评估代码可用，但真实 null、质量、效用统计及正式资产仍需完成。
+
+普通 CLI 选择 `perturb` 或 `--path` 时必须提供 `--e2e-gate-report`，并绑定通过的 invocation；底层 runner 只执行 `StagePlan`，不代替外层 gate。具体资产、数据和验收步骤见 [当前状态](docs/CURRENT_STATUS.md)、[双路径整合方案](docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md) 和 [真实资产验收指南](docs/guides/real_assets_acceptance.md)。
+
+基础 encoder → 冻结 embedding asset → LatentDAVF 重训/Gate-E 是独立的 Workflow B，不消费候选 perturb 结果，也不回灌当前 DAVF；正式合并仍须使用 canonical Ensembl ID，并保持 PerturbGen token index 与 scVI decoder index 分离。
+
+方向解释必须同时记录当前 context、intervention、比较基准和研究目标：观测方向是 donor-level disease−normal，DAVF 方向是 `decode(z_intervened)−decode(z_context)`。当前 gate 直接比较 up/down，统一参考轴仍是待完成的研究任务；病程一致性、状态逆转和治疗因果性不可互换，也不能用全局同号/取反或硬编码符号替代参考轴。正式验收还要求真实 `normal/disease` raw counts、canonical Ensembl ID、显式 donor、至少 3 个共享 donor、冻结 scVI gene order/embedding manifest 以及可追溯的 null/质量/效用统计；synthetic、smoke 和 bridge 结果只证明工程链路。
+
 ### 运行全部测试
 
 ```bash
@@ -113,8 +127,9 @@ PTM2CellNet/
 │   │   └── routes/             # predictions / state / model_info
 │   ├── data/                   # 数据集、预处理、特征提取、增强、验证
 │   ├── evaluation/             # 评估指标、可解释性、可视化
-│   ├── integration/            # GenKI 图扰动、PTM-基因映射、虚拟扰动
-│   │   └── genki/              # graph_utils / perturbation / significance
+│   ├── integration/            # GenKI、DAVF × PerturbGen 桥接与虚拟扰动
+│   │   ├── genki/              # graph_utils / perturbation / significance
+│   │   └── perturbgen/         # 候选 gate、六阶段 runner、双路径与统计接口
 │   ├── models/                 # 编码器、DAVF、注意力、预测头、信号网络
 │   ├── training/               # Lightning模块、损失函数、优化器、回调、PEFT
 │   └── utils/                  # 配置、日志、IO、运行时工具
@@ -348,6 +363,7 @@ print(output["probabilities"])
 | `src/models/variant_effect.py` | 变异效应预测 |
 | `src/analysis/variant_workflow.py` | 变异解析完整工作流 |
 | `src/integration/genki/` | GenKI 图扰动与显著性分析 |
+| `src/integration/perturbgen/` | DAVF 候选准入、PerturbGen runner、双路径与统计接口 |
 | `src/training/lightning_module.py` | PyTorch Lightning 训练模块 |
 | `src/training/peft_config.py` | LoRA/PEFT 参数高效微调配置 |
 

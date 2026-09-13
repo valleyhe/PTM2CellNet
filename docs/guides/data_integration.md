@@ -46,6 +46,9 @@ PTM_O00115,MVAMAAGPSG...,"[{""position"":20,""type"":""phosphorylation""}]",O001
 
 无论你是用上面的整合脚本生成数据，还是自带真实数据，**训练/推理消费的 CSV 必须满足以下列契约**。`DataPreprocessor` 与 `PTMDataset` 据此读取：
 
+这些 PTM CSV 只承载位点存在与基础样本字段，不承载干预后的表达方向；DAVF 主线
+的候选方向必须作为带来源的外部假设或 site-level override 单独输入。
+
 | 列名 | 是否必填 | 类型 | 说明 |
 |---|---|---|---|
 | `sequence` | ✅ 必填 | string | 蛋白质氨基酸序列（单字母大写）。非标准字符（U/X/J/B/Z/O）会被自动标准化。 |

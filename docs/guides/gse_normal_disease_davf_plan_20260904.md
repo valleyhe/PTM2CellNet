@@ -9,7 +9,9 @@ GSE214695 的 GEO 设计包含 6 个健康对照、6 个 Crohn 病例和 6 个 U
 
 因此本数据只能承担两件事：
 
-1. 提供独立的 normal/disease 表达方向证据，检验 DAVF 对候选基因方向的预测是否与真实疾病方向一致；
+1. 提供 donor-level normal/disease 观察方向证据，作为候选方向的观测数据来源；是否
+   与 DAVF 训练 donor 真正独立，必须由来源和划分 manifest 证明，当前训练入口不会
+   自动验证 donor 重叠；
 2. 建立一个带 `latent_dim=64`、固定 4018 个 Ensembl 基因轴的 GSE 专用 scVI 坐标资产，用于该数据集内部的状态分析。
 
 它不能承担以下任务：
@@ -20,6 +22,18 @@ GSE214695 的 GEO 设计包含 6 个健康对照、6 个 Crohn 病例和 6 个 U
   `checkpoints/scvi/davf_kd_nadig` 的 latent 混用。
 
 KO/KD DAVF 的正式训练仍使用现有真实 Perturb-seq 数据和各自独立的 scVI 坐标；GSE 方向结果通过 canonical Ensembl ID 与 DAVF 结果合并。
+
+这里的“方向”有两个不同对比轴，不能直接互换：GSE 的
+`observed_direction` 是 donor-level `disease - normal`；DAVF 的
+`predicted_direction` 是“干预后 decode - 当前 context decode”。当前
+`direction_gate.py` 只比较三者方向字符串是否同号，没有定义两轴的参考基准或
+是否要表达病程关联、预测复现或干预逆转。因此不把病程方向当作干预标签，也不
+统一取反；正式研究须在候选/报告中显式记录 context、intervention、对比基准、
+目标和来源隔离。当前同号 gate 只能作为工程准入，不能宣称科学因果 gate 已解决。
+
+PTM classifier 只输出 site presence。`build_candidate_spec.py` 的
+`--proposed-direction` 是外部用户假设，`--proposal-direction-map` 可逐位点覆盖；
+它不会从 raw PTM site 或 observed expression 自动生成干预方向。
 
 ## 2. 数据来源与落盘约定
 
@@ -52,14 +66,17 @@ KO/KD DAVF 的正式训练仍使用现有真实 Perturb-seq 数据和各自独�
 
 ## 4. 执行顺序
 
-1. 下载并检查 12 个样本的原始 10x 三件套和细胞注释。
+1. 下载并检查 12 个样本的原始 10x 三件套和细胞注释，同时登记 GSE donor 与 DAVF
+   训练 donor 的来源、重叠检查和可追溯划分。
 2. 运行 GSE 准备 CLI，确认最终 H5AD 是 cell × 4018 gene，`layers["counts"]` 为整数型非负 raw counts；GEO 未注释 barcode 不进入结果。
 3. 运行离线单元测试、`compileall`、Ruff 和定向集成测试。
 4. 在本机 GPU 上以短 epoch 训练 GSE 专用 scVI smoke checkpoint；确认 `ScVIAdapter` 能重载、输出 `[N, 64]` latent，且 gene order 与 H5AD 完全一致。
 5. 运行 donor-level normal/disease 方向汇总，生成独立证据 CSV/JSON。
 6. 重新生成 Norman KO latent pair 并用严格 loader 校验；必要时再按完整 epoch 训练正式当前 `LatentDAVF` checkpoint。
 7. 验证真实 scVI decoder context、当前 DAVF checkpoint 和 PerturbGen token/decoder 双索引路径；不把全零 context 的载入修复扩展成数据伪造。
-8. 只有上述检查通过后，才把 GSE 结果作为 DAVF 方向 gate 的 observed evidence；不把它写入 KO/KD DAVF checkpoint 的训练 NPZ。
+8. 只有上述检查通过后，才把 GSE 结果作为 DAVF 方向 gate 的 observed evidence；
+   该 evidence 仍需先定义与 DAVF 干预方向的对比目标，不把它写入 KO/KD DAVF
+   checkpoint 的训练 NPZ。
 
 ## 5. 处理与训练命令
 
@@ -120,7 +137,7 @@ python scripts/train_latent_davf.py \
 |---|---|
 | `prepared.h5ad` | 数据入口通过；有 raw counts、Ensembl、donor/state/cell_type |
 | GSE scVI checkpoint | GSE 专用状态坐标可用；本轮 GPU smoke 已验证；不是 KO/KD DAVF checkpoint |
-| direction evidence CSV | 可作为独立 observed direction，按 cell type、gene、donor 复核 |
+| direction evidence CSV | donor-level observed direction，按 cell type、gene、donor 复核；是否独立于 DAVF 训练需由 manifest 证明 |
 | Norman KO pair/checkpoint | v2 pair 已通过 strict loader；1 epoch 当前 LatentDAVF smoke checkpoint 已通过 checkpoint contract；这不是完整训练质量结论 |
 | 现有 KO/KD DAVF checkpoint | 不因 GSE 下载而自动改变；继续绑定各自 scVI model 和 embedding asset |
 | PerturbGen 正式双路径 | GSE214695 本轮不通过共享 donor gate；仍需真正配对 normal/disease donor 队列 |
@@ -141,4 +158,4 @@ python scripts/train_latent_davf.py \
 | scVI/DAVF/PerturbGen 真实桥接 | 真实集成与 real-assets 测试 `5 passed`；token index 与 scVI decoder index 分离校验通过 |
 | 静态与单元测试 | 变更 Python 文件 Ruff/compileall 通过；变更相关定向单元测试 `69 passed, 2 skipped`；完整 `tests/unit` 为 `2205 passed, 6 skipped` |
 
-上述 smoke 产物只证明数据契约、模型维度和调用链可运行；正式模型仍需按完整训练计划重新训练并以独立 donor/perturbation holdout 评估。
+上述 smoke 产物只证明数据契约、模型维度和调用链可运行；正式模型仍需按完整训练计划重新训练并以独立 donor/perturbation holdout 评估。GSE 的观察方向与 DAVF 的干预后方向属于不同 estimand，不能因字符串同号就称为三方独立因果证据。

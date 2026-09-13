@@ -28,6 +28,7 @@ EVAL_INPUT_SCHEMA_VERSION = "perturbgen_dual_path_eval/v1"
 _VALID_PATHS = ("source_intervention", "within_state")
 _VALID_QUALITY = ("pass", "fail", "inconclusive")
 _VALID_INTERVENTION_TYPES = {"KO", "KD"}
+_VALID_EVALUATION_MODES = {"engineering", "formal"}
 _PERTURB_TO_TOKENISE_ARTIFACTS = {
     "src_dataset_file": "src_dataset",
     "src_adata": "src_h5ad",
@@ -339,6 +340,8 @@ def build_eval_input_payload(
     unperturbed_quality_status: str,
     candidate_pvalues: Mapping[str, float] | None = None,
     uniform_candidate_pvalue: float | None = None,
+    evaluation_mode: str = "engineering",
+    unperturbed_quality: Mapping[str, Any] | None = None,
     run_id: str | None = None,
     donor_obs_column: str = "donor",
     var_gene_column: str = "__index__",
@@ -359,17 +362,52 @@ def build_eval_input_payload(
         raise EvalAssemblyError("null_distribution_path or null_distribution_manifest_path must be supplied")
     if null_distribution_path is not None and null_distribution_manifest_path is not None:
         raise EvalAssemblyError("provide only one null distribution source")
+    mode = str(evaluation_mode).strip().lower()
+    if mode not in _VALID_EVALUATION_MODES:
+        raise EvalAssemblyError(f"evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}")
+    quality_payload: Mapping[str, Any] | None = None
+    if unperturbed_quality is not None:
+        if not isinstance(unperturbed_quality, Mapping):
+            raise EvalAssemblyError("unperturbed_quality must be a mapping")
+        if unperturbed_quality.get("source") != "extract_unperturbed_quality_from_h5ad":
+            raise EvalAssemblyError(
+                "unperturbed_quality.source must be extract_unperturbed_quality_from_h5ad"
+            )
+        quality_status = str(unperturbed_quality.get("status", "")).strip()
+        if quality_status not in _VALID_QUALITY:
+            raise EvalAssemblyError("unperturbed_quality.status must be pass/fail/inconclusive")
+        unperturbed_quality_status = quality_status
+        quality_payload = dict(unperturbed_quality)
     if unperturbed_quality_status not in _VALID_QUALITY:
         raise EvalAssemblyError(f"unperturbed_quality_status must be one of {_VALID_QUALITY}")
-    pvalue_source: Mapping[str, float] | None = candidate_pvalues
-    if pvalue_source is None:
-        if uniform_candidate_pvalue is None:
+    if mode == "formal":
+        if uniform_candidate_pvalue is not None or candidate_pvalues is not None:
             raise EvalAssemblyError(
-                "candidate p-values must be provided (table or uniform value); "
-                "the E2E report does not carry empirical null calibration"
+                "formal evaluation_mode rejects uniform_candidate_pvalue and external candidate_pvalues; "
+                "candidate p must be aggregated from empirical null runs after extraction"
             )
-        if not math.isfinite(uniform_candidate_pvalue) or not 0.0 <= uniform_candidate_pvalue <= 1.0:
-            raise EvalAssemblyError("uniform candidate p-value must be within [0, 1]")
+        if quality_payload is None:
+            raise EvalAssemblyError(
+                "formal evaluation_mode requires unperturbed_quality extracted from h5ad; "
+                "hand-filled unperturbed_quality_status is not accepted"
+            )
+        pvalue_source = None
+        pvalue_kind = "empirical_pending_extraction"
+        evidence_class = "empirical_null"
+    else:
+        pvalue_source = candidate_pvalues
+        if pvalue_source is None:
+            if uniform_candidate_pvalue is None:
+                raise EvalAssemblyError(
+                    "engineering evaluation_mode still needs candidate p-values (table or uniform); "
+                    "the E2E report does not carry empirical null calibration"
+                )
+            if not math.isfinite(uniform_candidate_pvalue) or not 0.0 <= uniform_candidate_pvalue <= 1.0:
+                raise EvalAssemblyError("uniform candidate p-value must be within [0, 1]")
+            pvalue_kind = "uniform"
+        else:
+            pvalue_kind = "external_table"
+        evidence_class = "synthetic"
 
     deg_path = str(Path(deg_table_path).expanduser().resolve(strict=True))
     null_path = (
@@ -421,6 +459,8 @@ def build_eval_input_payload(
             if ensembl_id not in pvalue_source:
                 raise EvalAssemblyError(f"no candidate p-value provided for {ensembl_id} ({gene_symbol})")
             candidate_pvalue = float(pvalue_source[ensembl_id])
+        elif mode == "formal":
+            candidate_pvalue = None
         else:
             assert uniform_candidate_pvalue is not None
             candidate_pvalue = float(uniform_candidate_pvalue)
@@ -491,16 +531,26 @@ def build_eval_input_payload(
                 },
                 "observed_direction": observed_direction,
                 "unperturbed_quality_status": unperturbed_quality_status,
-                "candidate_pvalue": candidate_pvalue,
+                "unperturbed_quality_source": (
+                    "extract_unperturbed_quality_from_h5ad" if quality_payload is not None else "hand_filled"
+                ),
+                "pvalue_source": pvalue_kind,
                 "runs": run_records,
             }
         )
+        if candidate_pvalue is not None:
+            candidates[-1]["candidate_pvalue"] = candidate_pvalue
+        if quality_payload is not None:
+            candidates[-1]["unperturbed_quality"] = dict(quality_payload)
 
     if not candidates:
         raise EvalAssemblyError("no evaluable perturbgen runs found in the E2E report")
     return {
         "schema_version": EVAL_INPUT_SCHEMA_VERSION,
         "run_id": run_id or f"e2e-{len(candidates)}-candidates",
+        "evaluation_mode": mode,
+        "evidence_class": evidence_class,
+        "pvalue_source": pvalue_kind,
         "candidates": candidates,
     }
 

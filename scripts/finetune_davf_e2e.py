@@ -102,10 +102,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--embedding-asset",
         type=str,
-        default=None,
+        required=True,
         help="PerturbGen embedding asset 目录 (manifest.json + vocabulary.json + "
-        "gene_embeddings.safetensors, schema v2)。设置后冻结矩阵注入 LatentDAVF；"
-        "目录缺失或校验失败将直接报错",
+        "gene_embeddings.safetensors, schema v2)。必须提供；禁止回退到 Geneformer mapper。",
     )
     parser.add_argument("--dropout", type=float, default=0.1, help="分类头 dropout")
     parser.add_argument("--device", type=str, default=None, help="设备 (cuda/cpu)")
@@ -206,9 +205,15 @@ def build_model(
     checkpoint_path: str,
     feature_dim: int,
     device: torch.device,
-    embedding_asset_path: Optional[str] = None,
+    embedding_asset_path: str,
 ) -> tuple[DAVFInferenceModule, PTMDirectionMapper]:
-    """Build DAVF inference module and PTM direction mapper."""
+    """Build DAVF inference module and a PerturbGen-locked direction mapper."""
+    if not str(embedding_asset_path).strip():
+        raise ValueError(
+            "finetune_davf_e2e.build_model requires embedding_asset_path; "
+            "the default Geneformer PTMDirectionMapper is forbidden because token IDs "
+            "must not index a PerturbGen gene_embed_table"
+        )
     davf_config = DAVFInferenceConfig(
         checkpoint_path=checkpoint_path,
         freeze=True,  # Start frozen for stage 1
@@ -218,10 +223,8 @@ def build_model(
     )
     davf_module = DAVFInferenceModule(davf_config).to(device)
     logger.info("DAVFInferenceModule 已加载 (model_source=%s)", davf_module.model_source)
-
-    mapper = PTMDirectionMapper()
-    logger.info("PTMDirectionMapper 已初始化")
-
+    mapper = davf_module.build_perturbgen_direction_mapper()
+    logger.info("PTMDirectionMapper locked to PerturbGen embedding asset vocabulary")
     return davf_module, mapper
 
 

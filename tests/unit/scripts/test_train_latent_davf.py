@@ -106,3 +106,33 @@ def test_parser_uses_endpoint_loss_by_default() -> None:
 
     assert args.endpoint_loss_weight == 1.0
     assert args.direction_loss_weight == 1.0
+    assert args.train_donors is None
+    assert args.held_out_donors is None
+    assert args.require_donor_split is False
+
+
+def test_parser_accepts_explicit_donor_split_flags() -> None:
+    args = parse_args(
+        [
+            "--train-data",
+            "train.npz",
+            "--val-data",
+            "val.npz",
+            "--scvi-model",
+            "scvi",
+            "--intervention-type",
+            "KO",
+            "--embedding-asset",
+            "asset",
+            "--output",
+            "output",
+            "--train-donors",
+            "D1,D2",
+            "--held-out-donors",
+            "D3,D4,D5",
+            "--require-donor-split",
+        ]
+    )
+    assert args.train_donors == "D1,D2"
+    assert args.held_out_donors == "D3,D4,D5"
+    assert args.require_donor_split is True

@@ -77,6 +77,9 @@ class UnperturbedQualityResult:
     minimum_signature_correlation: float | None
     seeds: int
     reasons: tuple[str, ...]
+    source: str = "evaluate_unperturbed_quality"
+    h5ad_paths: tuple[str, ...] = ()
+    seed_metrics: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -134,6 +137,117 @@ def evaluate_unperturbed_quality(
         minimum_signature_correlation=minimum_correlation,
         seeds=int(recovery.size),
         reasons=tuple(reasons),
+        source="evaluate_unperturbed_quality",
+    )
+
+
+def extract_unperturbed_quality_from_h5ad(
+    h5ad_by_seed: Mapping[int, str | Path],
+    deg_table: pd.DataFrame | Sequence[Mapping[str, Any]],
+    *,
+    donor_obs_column: str,
+    var_gene_column: str,
+    target_gene: str | None = None,
+    donor_column: str = "donor",
+    gene_column: str = "gene",
+    effect_column: str = "log2fc",
+    fdr_column: str = "fdr",
+    fdr_threshold: float = 0.05,
+    min_training_donors: int = 2,
+    top_k: int = 50,
+    required_seeds: int = 3,
+    median_recovery_threshold: float = 0.60,
+    worst_recovery_threshold: float = 0.50,
+) -> UnperturbedQualityResult:
+    """Compute §5.4 unperturbed quality from pred_counts vs true_counts.
+
+    DEG direction recovery (per seed)
+        Among significant DEGs excluding the target, the fraction whose
+        predicted mean (pred_counts) sits on the same side of the transcriptome
+        median as the observed median log2fc sign.
+
+    Signature correlation (per seed)
+        Pearson correlation of held-out signature scores S(pred) vs S(true)
+        across donors.  The signature itself is built from training donors
+        exactly as in :func:`build_held_out_signature`.
+    """
+
+    if isinstance(h5ad_by_seed, (str, bytes)) or not isinstance(h5ad_by_seed, Mapping) or not h5ad_by_seed:
+        raise ValueError("h5ad_by_seed must map seed integers to h5ad paths")
+    seeds = sorted(h5ad_by_seed)
+    if any(isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 for seed in seeds):
+        raise ValueError("h5ad_by_seed keys must be non-negative integers")
+
+    frame = _coerce_dataframe(deg_table)
+    _require_columns(frame, donor_column, gene_column, effect_column, fdr_column)
+    observed_signs = _significant_gene_signs(
+        frame,
+        gene_column=gene_column,
+        effect_column=effect_column,
+        fdr_column=fdr_column,
+        fdr_threshold=fdr_threshold,
+        target_gene=target_gene,
+    )
+    recoveries: list[float] = []
+    correlations: list[float] = []
+    seed_metrics: list[dict[str, Any]] = []
+    resolved_paths: list[str] = []
+    for seed in seeds:
+        output_path = Path(h5ad_by_seed[seed]).expanduser().resolve(strict=True)
+        resolved_paths.append(str(output_path))
+        validate_perturbgen_h5ad_schema(
+            output_path,
+            required_layers=("true_counts", "pred_counts"),
+            required_obs=(donor_obs_column,),
+            required_var=() if var_gene_column == "__index__" else (var_gene_column,),
+        )
+        pred_by_donor, true_by_donor = _aggregate_unperturbed_expression_from_h5ad(
+            output_h5ad=output_path,
+            donor_obs_column=donor_obs_column,
+            var_gene_column=var_gene_column,
+        )
+        recovery = _deg_direction_recovery(pred_by_donor, observed_signs)
+        correlation = _signature_score_correlation(
+            pred_by_donor,
+            true_by_donor,
+            frame,
+            target_gene=target_gene,
+            donor_column=donor_column,
+            gene_column=gene_column,
+            effect_column=effect_column,
+            fdr_column=fdr_column,
+            fdr_threshold=fdr_threshold,
+            min_training_donors=min_training_donors,
+            top_k=top_k,
+        )
+        recoveries.append(recovery)
+        correlations.append(correlation)
+        seed_metrics.append(
+            {
+                "seed": seed,
+                "deg_direction_recovery": recovery,
+                "signature_correlation": correlation,
+                "h5ad": str(output_path),
+            }
+        )
+
+    result = evaluate_unperturbed_quality(
+        recoveries,
+        correlations,
+        required_seeds=required_seeds,
+        median_recovery_threshold=median_recovery_threshold,
+        worst_recovery_threshold=worst_recovery_threshold,
+    )
+    return UnperturbedQualityResult(
+        status=result.status,
+        median_deg_direction_recovery=result.median_deg_direction_recovery,
+        worst_deg_direction_recovery=result.worst_deg_direction_recovery,
+        minimum_signature_correlation=result.minimum_signature_correlation,
+        seeds=result.seeds,
+        reasons=result.reasons,
+        source="extract_unperturbed_quality_from_h5ad",
+        h5ad_paths=tuple(resolved_paths),
+        seed_metrics=tuple(seed_metrics),
     )
 
 
@@ -748,3 +862,156 @@ def _mean_vector(matrix: Any, *, matrix_name: str) -> np.ndarray:
     if not np.isfinite(array).all():
         raise ValueError(f"{matrix_name} mean vector must be finite")
     return array
+
+
+def _significant_gene_signs(
+    frame: pd.DataFrame,
+    *,
+    gene_column: str,
+    effect_column: str,
+    fdr_column: str,
+    fdr_threshold: float,
+    target_gene: str | None,
+) -> dict[str, float]:
+    significant = frame.loc[frame[fdr_column] <= fdr_threshold].copy()
+    if target_gene is not None:
+        significant = significant.loc[significant[gene_column] != target_gene]
+    if significant.empty:
+        raise ValueError("no significant DEG genes remain after target exclusion")
+    signs: dict[str, float] = {}
+    for gene_name, gene_frame in significant.groupby(gene_column, sort=False):
+        median_effect = float(np.median(gene_frame[effect_column].astype(float).to_numpy()))
+        if median_effect == 0 or not np.isfinite(median_effect):
+            continue
+        signs[str(gene_name)] = float(np.sign(median_effect))
+    if not signs:
+        raise ValueError("significant DEG genes have no non-zero median log2fc")
+    return signs
+
+
+def _donor_gene_means(by_donor: Mapping[str, Mapping[str, float]]) -> dict[str, float]:
+    genes: set[str] = set()
+    for values in by_donor.values():
+        genes.update(values)
+    means: dict[str, float] = {}
+    for gene in genes:
+        collected = [float(values[gene]) for values in by_donor.values() if gene in values]
+        if collected:
+            means[gene] = float(np.mean(collected))
+    return means
+
+
+def _deg_direction_recovery(
+    pred_by_donor: Mapping[str, Mapping[str, float]],
+    observed_signs: Mapping[str, float],
+) -> float:
+    pred_means = _donor_gene_means(pred_by_donor)
+    if not pred_means:
+        raise ValueError("pred_counts donor means are empty")
+    transcriptome_median = float(np.median(list(pred_means.values())))
+    recovered = 0
+    total = 0
+    for gene, observed_sign in observed_signs.items():
+        if gene not in pred_means:
+            raise KeyError(f"DEG gene {gene!r} is missing from pred_counts")
+        predicted_sign = float(np.sign(pred_means[gene] - transcriptome_median))
+        if predicted_sign == 0:
+            continue
+        total += 1
+        if predicted_sign == observed_sign:
+            recovered += 1
+    if total == 0:
+        raise ValueError("no DEG genes had a non-zero predicted offset from the transcriptome median")
+    return float(recovered / total)
+
+
+def _signature_score_correlation(
+    pred_by_donor: Mapping[str, Mapping[str, float]],
+    true_by_donor: Mapping[str, Mapping[str, float]],
+    deg_table: pd.DataFrame,
+    *,
+    target_gene: str | None,
+    donor_column: str,
+    gene_column: str,
+    effect_column: str,
+    fdr_column: str,
+    fdr_threshold: float,
+    min_training_donors: int,
+    top_k: int,
+) -> float:
+    common_donors = sorted(set(pred_by_donor) & set(true_by_donor))
+    pred_scores: list[float] = []
+    true_scores: list[float] = []
+    for donor in common_donors:
+        try:
+            signature = build_held_out_signature(
+                deg_table,
+                held_out_donor=donor,
+                target_gene=target_gene,
+                donor_column=donor_column,
+                gene_column=gene_column,
+                effect_column=effect_column,
+                fdr_column=fdr_column,
+                fdr_threshold=fdr_threshold,
+                min_training_donors=min_training_donors,
+                top_k=top_k,
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+        pred_scores.append(compute_signature_score(pred_by_donor[donor], signature))
+        true_scores.append(compute_signature_score(true_by_donor[donor], signature))
+    if len(pred_scores) < 2:
+        raise ValueError("signature correlation requires at least two held-out donors")
+    pred_array = np.asarray(pred_scores, dtype=float)
+    true_array = np.asarray(true_scores, dtype=float)
+    if np.allclose(pred_array, pred_array[0]) or np.allclose(true_array, true_array[0]):
+        return 0.0
+    correlation = float(np.corrcoef(pred_array, true_array)[0, 1])
+    if not np.isfinite(correlation):
+        raise ValueError("signature correlation must be finite")
+    return correlation
+
+
+def _aggregate_unperturbed_expression_from_h5ad(
+    *,
+    output_h5ad: str | Path,
+    donor_obs_column: str,
+    var_gene_column: str,
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
+    try:
+        import anndata as ad
+    except ImportError as exc:
+        raise ImportError("anndata is required to extract unperturbed quality") from exc
+
+    output_path = Path(output_h5ad).expanduser().resolve(strict=True)
+    adata = ad.read_h5ad(output_path, backed="r")
+    try:
+        if donor_obs_column not in adata.obs.columns:
+            raise KeyError(f"missing required obs column: {donor_obs_column}")
+        if var_gene_column == "__index__":
+            gene_index = [str(item).strip() for item in adata.var_names.tolist()]
+        else:
+            if var_gene_column not in adata.var.columns:
+                raise KeyError(f"missing required var column: {var_gene_column}")
+            gene_index = [str(item).strip() for item in adata.var[var_gene_column].tolist()]
+        raw_donor_series = adata.obs[donor_obs_column]
+        if raw_donor_series.isna().any():
+            raise ValueError(f"obs column {donor_obs_column!r} must not contain missing donors")
+        donor_series = raw_donor_series.astype(str).str.strip()
+        pred_by_donor: dict[str, dict[str, float]] = {}
+        true_by_donor: dict[str, dict[str, float]] = {}
+        for donor in sorted(donor_series.unique()):
+            mask = donor_series.to_numpy() == donor
+            donor_view = adata[mask]
+            pred_vector = _mean_vector(donor_view.layers["pred_counts"], matrix_name="pred_counts")
+            true_vector = _mean_vector(donor_view.layers["true_counts"], matrix_name="true_counts")
+            pred_by_donor[str(donor)] = {
+                gene: float(value) for gene, value in zip(gene_index, pred_vector, strict=True)
+            }
+            true_by_donor[str(donor)] = {
+                gene: float(value) for gene, value in zip(gene_index, true_vector, strict=True)
+            }
+        return pred_by_donor, true_by_donor
+    finally:
+        if adata.file is not None:
+            adata.file.close()

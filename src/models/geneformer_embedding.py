@@ -144,10 +144,7 @@ class GeneformerEmbeddingLoader:
                 if hub_path.suffix == ".json":
                     payload = json.loads(hub_path.read_text(encoding="utf-8"))
                 else:
-                    import pickle
-
-                    with hub_path.open("rb") as handle:
-                        payload = pickle.load(handle)  # noqa: S301 - official repo artifact
+                    payload = self._load_official_pickle_vocab(hub_path)
                 if not isinstance(payload, dict) or not payload:
                     raise GeneformerVocabularyError(
                         f"Invalid vocabulary file downloaded for {model_path_for_hub!r}: {filename}"
@@ -175,6 +172,47 @@ class GeneformerEmbeddingLoader:
             "token vocabulary every gene lookup would silently miss; provide "
             "vocab.json next to the weights."
         )
+
+    def _load_official_pickle_vocab(self, path: Path) -> dict:
+        """Load the official Geneformer pickle vocab only with an explicit SHA pin."""
+
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        expected = os.environ.get("PTM2CELLNET_GENEFORMER_VOCAB_SHA256", "").strip().lower()
+        allow = os.environ.get("PTM2CELLNET_ALLOW_GENEFORMER_PICKLE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        production = os.environ.get("PTM2CELLNET_ENV", "").strip().lower() == "production"
+        strict = bool(getattr(self, "strict", False))
+        if expected:
+            if digest != expected:
+                raise GeneformerVocabularyError(
+                    f"Geneformer pickle vocab sha256 mismatch for {path}: got {digest}, expected {expected}"
+                )
+        elif not allow and (production or strict):
+            raise GeneformerVocabularyError(
+                "refusing pickle.load of Geneformer vocabulary without "
+                "PTM2CELLNET_GENEFORMER_VOCAB_SHA256 or PTM2CELLNET_ALLOW_GENEFORMER_PICKLE=1; "
+                "provide vocab.json instead (M7 still requires Gate-E before deleting this loader)"
+            )
+        elif not allow:
+            logger.warning(
+                "Loading unpinned Geneformer pickle vocabulary %s (sha256=%s). "
+                "This is forbidden when PTM2CELLNET_ENV=production or strict=True; "
+                "pin PTM2CELLNET_GENEFORMER_VOCAB_SHA256 or provide vocab.json.",
+                path,
+                digest,
+            )
+        import pickle
+
+        with path.open("rb") as handle:
+            payload = pickle.load(handle)  # noqa: S301 - pinned official artifact or explicit opt-in
+        if not isinstance(payload, dict):
+            raise GeneformerVocabularyError(f"Geneformer pickle vocab must be a dict: {path}")
+        logger.warning("Loaded Geneformer vocabulary from pickle %s (sha256=%s)", path, digest)
+        return payload
 
     def _load_model(self):
         """Load Geneformer model and extract gene embeddings."""
@@ -406,6 +444,10 @@ class GeneformerEmbeddingLoader:
                         f"Gene id {gene_id!r} is not in the Geneformer vocabulary"
                     )
                 else:
+                    if self.strict:
+                        raise KeyError(
+                            f"Gene id {gene_id!r} cannot be hashed onto a Geneformer row in strict mode"
+                        )
                     # Explicit non-production fallback mode (random weights,
                     # loud warning, provenance flag): keep shape compatibility
                     # via a stable hash, but never write it back.
@@ -456,6 +498,10 @@ class GeneformerEmbeddingLoader:
             elif self._vocabulary_is_semantic:
                 raise KeyError(
                     f"Gene id {gene!r} is not in the Geneformer vocabulary"
+                )
+            elif self.strict:
+                raise KeyError(
+                    f"Gene id {gene!r} cannot be hashed onto a Geneformer row in strict mode"
                 )
             else:
                 mapping[gene] = self._stable_gene_index(gene)
