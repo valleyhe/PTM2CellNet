@@ -39,6 +39,7 @@ from .contracts import (
     PTMSiteDirectionProposal,
     PathKind,
     PerturbationMode,
+    SemanticContext,
 )
 from .direction_gate import build_direction_gated_candidate
 
@@ -71,6 +72,7 @@ class PerturbGenInvocation:
     paths: tuple[PathKind, ...]
     candidate: CandidateEvidence
     davf_evidence: DAVFDirectionEvidence
+    semantic_context: SemanticContext | Mapping[str, Any] | None = None
     perturbgen_config_path: Path | None = None
     output_root: Path | None = None
     seed: int = 0
@@ -83,6 +85,17 @@ class PerturbGenInvocation:
         object.__setattr__(self, "intervention_type", route)
         object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
         object.__setattr__(self, "ensembl_id", normalize_ensembl_id(self.ensembl_id))
+        if self.semantic_context is None:
+            raise ValueError("formal PerturbGenInvocation requires semantic_context")
+        if isinstance(self.semantic_context, Mapping):
+            semantic_context = SemanticContext.from_mapping(self.semantic_context)
+        else:
+            semantic_context = self.semantic_context
+        if not isinstance(semantic_context, SemanticContext):
+            raise ValueError("semantic_context must be a SemanticContext or mapping")
+        object.__setattr__(self, "semantic_context", semantic_context)
+        if semantic_context.intervention != route:
+            raise ValueError("semantic_context.intervention must match invocation intervention_type")
         if (
             isinstance(self.target_token_id, bool)
             or not isinstance(self.target_token_id, Integral)
@@ -109,6 +122,10 @@ class PerturbGenInvocation:
             raise ValueError("candidate gene_symbol does not match invocation")
         if self.candidate.ensembl_id != self.ensembl_id:
             raise ValueError("candidate ensembl_id does not match invocation")
+        if self.candidate.semantic_context is None:
+            raise ValueError("formal invocation candidate requires semantic_context")
+        if self.candidate.semantic_context != self.semantic_context:
+            raise ValueError("candidate semantic_context does not match invocation")
         if self.davf_evidence.gene_symbol != self.gene_symbol:
             raise ValueError("DAVF evidence gene_symbol does not match invocation")
         if self.davf_evidence.ensembl_id != self.ensembl_id:
@@ -166,6 +183,7 @@ class PerturbGenInvocation:
             "target_token_id": self.target_token_id,
             "perturbation_mode": self.perturbation_mode,
             "paths": list(self.paths),
+            "semantic_context": _to_plain(self.semantic_context),
             "candidate": _to_plain(self.candidate),
             "davf_evidence": _to_plain(self.davf_evidence),
             "perturbgen_config_path": (
@@ -243,6 +261,7 @@ class DAVFPerturbGenOrchestrator:
         observed_log2fc: float | Sequence[float],
         observed_fdr: float | Sequence[float] | None,
         observed_direction: ObservedDirection | Sequence[ObservedDirection | None] | None,
+        semantic_context: SemanticContext | Mapping[str, Any] | Sequence[SemanticContext | Mapping[str, Any]] | None = None,
         scvi_adapter: Any | None = None,
         scvi_context: Any | None = None,
         library_size: float | None = None,
@@ -273,6 +292,7 @@ class DAVFPerturbGenOrchestrator:
         log2fcs = _as_batch(observed_log2fc, batch_size, "observed_log2fc")
         fdrs = _as_batch(observed_fdr, batch_size, "observed_fdr")
         directions = _as_batch(observed_direction, batch_size, "observed_direction")
+        semantic_contexts = _as_batch(semantic_context, batch_size, "semantic_context")
 
         for proposal in proposal_batch:
             self._validate_target_identity(proposal)
@@ -311,6 +331,7 @@ class DAVFPerturbGenOrchestrator:
                 observed_log2fc=log2fcs[row],
                 observed_fdr=fdrs[row],
                 observed_direction=directions[row],
+                semantic_context=semantic_contexts[row],
             )
             invocation = None
             if gate.status == "pass":
@@ -333,6 +354,7 @@ class DAVFPerturbGenOrchestrator:
                     paths=_PATHS,
                     candidate=candidate,
                     davf_evidence=davf_evidence,
+                    semantic_context=candidate.semantic_context,
                     perturbgen_config_path=(
                         Path(perturbgen_config_path)
                         if perturbgen_config_path is not None

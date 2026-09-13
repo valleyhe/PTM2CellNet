@@ -9,6 +9,17 @@ from src.integration.perturbgen.contracts import CandidateEvidence, DAVFDirectio
 from src.integration.perturbgen.orchestrator import PerturbGenInvocation
 
 
+SEMANTIC_CONTEXT = {
+    "context": "disease",
+    "intervention": "KO",
+    "comparison_baseline": "normal",
+    "reference_axis": "disease-minus-normal",
+    "research_objective": "replication",
+    "evidence_source": "donor_expression+davf_decode",
+    "cohort": "formal",
+}
+
+
 def _config():
     return {
         "stages": {
@@ -88,6 +99,7 @@ def _valid_gate_record(config_path):
         davf_predicted_direction="down",
         davf_predicted_delta=-1.0,
         direction_gate_status="pass",
+        semantic_context=SEMANTIC_CONTEXT,
     )
     invocation = PerturbGenInvocation(
         intervention_type="KO",
@@ -98,6 +110,7 @@ def _valid_gate_record(config_path):
         paths=("source_intervention", "within_state"),
         candidate=candidate,
         davf_evidence=evidence,
+        semantic_context=SEMANTIC_CONTEXT,
         perturbgen_config_path=config_path,
         seed=42,
     )
@@ -157,6 +170,36 @@ def test_e2e_gate_report_rejects_unbound_davf_score(tmp_path):
     report.write_text(json.dumps({"candidates": [record]}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="exactly match"):
+        pipeline._validate_e2e_gate_report(
+            report,
+            expected_binding=pipeline._config_gate_binding(
+                _config(), path=None, config_path=tmp_path / "config.yaml"
+            ),
+        )
+
+
+def test_e2e_gate_report_rejects_missing_semantic_context(tmp_path):
+    record = _valid_gate_record(tmp_path / "config.yaml")
+    record["invocation"].pop("semantic_context")
+    report = tmp_path / "missing-semantic-context.json"
+    report.write_text(json.dumps({"candidates": [record]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="semantic_context"):
+        pipeline._validate_e2e_gate_report(
+            report,
+            expected_binding=pipeline._config_gate_binding(
+                _config(), path=None, config_path=tmp_path / "config.yaml"
+            ),
+        )
+
+
+def test_e2e_gate_report_rejects_invalid_semantic_objective(tmp_path):
+    record = _valid_gate_record(tmp_path / "config.yaml")
+    record["invocation"]["semantic_context"]["research_objective"] = "causal"
+    report = tmp_path / "invalid-semantic-objective.json"
+    report.write_text(json.dumps({"candidates": [record]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="research_objective"):
         pipeline._validate_e2e_gate_report(
             report,
             expected_binding=pipeline._config_gate_binding(

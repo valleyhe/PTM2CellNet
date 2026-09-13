@@ -52,6 +52,7 @@ from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
 from src.integration.perturbgen.donor_split import (
     DonorSplitError,
     bind_frozen_donor_split,
+    load_donor_split,
     optional_donor_split_from_args,
 )
 
@@ -293,6 +294,43 @@ def _validate_intervention_direction(dataset: Any, *, split: str, intervention_t
         )
 
 
+def _validate_donor_split_metadata(dataset: Any, split_name: str, donor_split: Any) -> None:
+    if donor_split is None:
+        return
+
+    metadata = getattr(dataset, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        raise ValueError(f"{split_name} NPZ metadata must contain donor_split and dataset.donor_rows")
+
+    metadata_split = metadata.get("donor_split")
+    if not isinstance(metadata_split, Mapping):
+        raise ValueError(f"{split_name} NPZ metadata must contain a donor_split mapping")
+    recorded = load_donor_split(metadata_split)
+    if recorded.sha256 != donor_split.sha256:
+        raise ValueError(
+            f"{split_name} NPZ donor_split sha256 {recorded.sha256} does not match CLI split {donor_split.sha256}"
+        )
+
+    dataset_metadata = metadata.get("dataset")
+    donor_rows = dataset_metadata.get("donor_rows") if isinstance(dataset_metadata, Mapping) else None
+    if not isinstance(donor_rows, list) or not donor_rows:
+        raise ValueError(f"{split_name} NPZ metadata.dataset.donor_rows must be a non-empty per-row donor list")
+
+    train_donors = set(donor_split.train_donors)
+    for row_index, row in enumerate(donor_rows):
+        row_donors = [row] if isinstance(row, str) else row
+        if not isinstance(row_donors, list) or not row_donors or not all(
+            isinstance(donor, str) and donor for donor in row_donors
+        ):
+            raise ValueError(f"{split_name} NPZ metadata.dataset.donor_rows[{row_index}] is invalid")
+        invalid = sorted(set(row_donors) - train_donors)
+        if invalid:
+            raise ValueError(
+                f"{split_name} NPZ metadata.dataset.donor_rows[{row_index}] contains donor(s) "
+                f"outside CLI train_donors: {invalid}"
+            )
+
+
 def train(args: argparse.Namespace) -> dict[str, Any]:
     if args.epochs <= 0 or args.batch_size <= 0:
         raise ValueError("epochs and batch-size must be positive")
@@ -367,15 +405,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         intervention_type=args.intervention_type,
     )
     for split_name, dataset in (("train", train_dataset), ("val", val_dataset)):
-        metadata_split = dataset.metadata.get("donor_split") if isinstance(dataset.metadata, dict) else None
-        if donor_split is not None and isinstance(metadata_split, dict):
-            from src.integration.perturbgen.donor_split import load_donor_split
-
-            recorded = load_donor_split(metadata_split)
-            if recorded.sha256 != donor_split.sha256:
-                raise ValueError(
-                    f"{split_name} NPZ donor_split sha256 {recorded.sha256} does not match CLI split {donor_split.sha256}"
-                )
+        _validate_donor_split_metadata(dataset, split_name, donor_split)
     loader_generator = torch.Generator().manual_seed(args.seed)
     train_loader = DataLoader(
         train_dataset,

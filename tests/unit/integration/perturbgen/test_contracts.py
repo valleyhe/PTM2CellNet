@@ -10,6 +10,7 @@ from src.integration.perturbgen.contracts import (
     PathResult,
     PerturbGenDataSpec,
     PreparedPerturbationReport,
+    SemanticContext,
 )
 
 
@@ -52,6 +53,23 @@ def test_candidate_evidence_rejects_invalid_direction_and_fdr():
         _candidate(observed_fdr=math.nan)
     with pytest.raises(ValueError, match="requires observed_log2fc"):
         _candidate(observed_direction="down", observed_log2fc=1.0)
+
+
+def test_semantic_context_rejects_missing_and_invalid_objective():
+    with pytest.raises(ValueError, match="missing required fields"):
+        SemanticContext.from_mapping({"context": "disease"})
+    with pytest.raises(ValueError, match="research_objective"):
+        _candidate(
+            semantic_context={
+                "context": "disease",
+                "intervention": "KO",
+                "comparison_baseline": "normal",
+                "reference_axis": "disease-minus-normal",
+                "research_objective": "causal",
+                "evidence_source": "donor_expression",
+                "cohort": "formal",
+            }
+        )
 
 
 def test_data_spec_requires_at_least_three_donors():

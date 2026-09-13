@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import math
 from typing import Any, Literal
@@ -25,6 +26,66 @@ _VALID_PATH_STATUSES = {"evaluable", "failed", "inconclusive"}
 _VALID_VERDICTS = {"pass", "fail", "inconclusive"}
 _VALID_MODES = {"mask", "pad", "delete", "overexpress"}
 _VALID_PATHS = {"source_intervention", "within_state"}
+
+_SEMANTIC_CONTEXT_FIELDS = (
+    "context",
+    "intervention",
+    "comparison_baseline",
+    "reference_axis",
+    "research_objective",
+    "evidence_source",
+    "cohort",
+)
+_VALID_RESEARCH_OBJECTIVES = {"association", "replication", "reversal"}
+
+
+@dataclass(frozen=True)
+class SemanticContext:
+    """Shared semantic provenance required by formal PerturbGen invocations."""
+
+    context: str
+    intervention: str
+    comparison_baseline: str
+    reference_axis: str
+    research_objective: Literal["association", "replication", "reversal"]
+    evidence_source: str
+    cohort: str
+
+    def __post_init__(self) -> None:
+        for field_name in _SEMANTIC_CONTEXT_FIELDS:
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"semantic_context.{field_name} must be a non-empty string")
+            object.__setattr__(self, field_name, value.strip())
+        object.__setattr__(self, "intervention", self.intervention.upper())
+        objective = self.research_objective.lower()
+        if objective not in _VALID_RESEARCH_OBJECTIVES:
+            raise ValueError(
+                "semantic_context.research_objective must be one of "
+                "association, replication, reversal"
+            )
+        object.__setattr__(self, "research_objective", objective)
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "SemanticContext":
+        missing = [field_name for field_name in _SEMANTIC_CONTEXT_FIELDS if field_name not in value]
+        if missing:
+            raise ValueError(
+                "semantic_context is missing required fields: " + ", ".join(missing)
+            )
+        return cls(**{field_name: value[field_name] for field_name in _SEMANTIC_CONTEXT_FIELDS})
+
+
+def normalize_semantic_context(
+    value: SemanticContext | Mapping[str, Any] | None,
+) -> SemanticContext | None:
+    """Normalize a context mapping without supplying missing semantic values."""
+
+    if value is None or isinstance(value, SemanticContext):
+        return value
+    if not isinstance(value, Mapping):
+        raise ValueError("semantic_context must be a mapping")
+    return SemanticContext.from_mapping(value)
 
 
 @dataclass(frozen=True)
@@ -183,6 +244,7 @@ class CandidateEvidence:
     davf_predicted_delta: float | None = None
     direction_gate_status: DirectionGateStatus | None = None
     direction_gate_reasons: tuple[str, ...] = field(default_factory=tuple)
+    semantic_context: SemanticContext | Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "gene_symbol", normalize_gene_symbol(self.gene_symbol))
@@ -195,6 +257,7 @@ class CandidateEvidence:
             "" if self.davf_provenance is None else str(self.davf_provenance).strip(),
         )
         object.__setattr__(self, "direction_gate_reasons", tuple(self.direction_gate_reasons))
+        object.__setattr__(self, "semantic_context", normalize_semantic_context(self.semantic_context))
 
         if not self.cell_type:
             raise ValueError("cell_type must not be empty")

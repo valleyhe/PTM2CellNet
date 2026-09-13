@@ -28,6 +28,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from src.models.gene_vocabulary import normalize_ensembl_id
+
 GATE_E_BENCHMARK_SCHEMA = "ptm2cellnet.gate-e-benchmark/v1"
 GATE_E_REPORT_SCHEMA = "ptm2cellnet.gate-e-report/v1"
 
@@ -68,6 +70,12 @@ class GateEBenchmark:
                 value = row.get(column, "").strip()
                 if not value:
                     raise GateEError(f"benchmark row {index} has an empty {column}")
+            try:
+                normalize_ensembl_id(row["ensembl_id"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GateEError(
+                    f"benchmark row {index} has an invalid ensembl_id: {row.get('ensembl_id')!r}"
+                ) from exc
 
 
 def load_benchmark(path: str | Path) -> GateEBenchmark:
@@ -138,8 +146,8 @@ def evaluate_vocabulary_migration(
 ) -> VocabularyMigrationMetrics:
     """Evaluate coverage, collisions and action-code invariance.
 
-    Coverage counts a benchmark gene as covered when either its symbol or
-    its Ensembl ID resolves in the new vocabulary.  Action codes are
+    Coverage counts a benchmark gene as covered when its canonical Ensembl ID
+    resolves in the new vocabulary.  Action codes are
     compared end-to-end through :class:`PTMDirectionMapper` so that any
     future coupling between the vocabulary and the PTM action rules would
     be caught here.
@@ -149,8 +157,14 @@ def evaluate_vocabulary_migration(
         raise GateEError(f"intervention_type must be one of {sorted(_VALID_INTERVENTIONS)}")
 
     covered = 0
-    for row in benchmark.rows:
-        if row["gene_symbol"] in new_vocabulary or row["ensembl_id"] in new_vocabulary:
+    for index, row in enumerate(benchmark.rows):
+        try:
+            canonical_ensembl_id = normalize_ensembl_id(row.get("ensembl_id", ""))
+        except (TypeError, ValueError) as exc:
+            raise GateEError(
+                f"benchmark row {index} has an invalid ensembl_id: {row.get('ensembl_id')!r}"
+            ) from exc
+        if canonical_ensembl_id in new_vocabulary:
             covered += 1
     coverage = covered / len(benchmark.rows) if benchmark.rows else 0.0
 
@@ -336,7 +350,17 @@ def build_gate_e_report(
             "passed": davf_metrics.passed,
         }
     sections["thresholds"] = limits
-    required = [sections["benchmark"]["passed"]]
+    missing_sections = [
+        name
+        for name, present in (
+            ("benchmark", True),
+            ("vocabulary_migration", vocabulary_metrics is not None),
+            ("davf_noninferiority", davf_metrics is not None),
+        )
+        if not present
+    ]
+    sections["missing_sections"] = missing_sections
+    required = [sections["benchmark"]["passed"], vocabulary_metrics is not None, davf_metrics is not None]
     if vocabulary_metrics is not None:
         required.append(vocabulary_metrics.passed)
     if davf_metrics is not None:

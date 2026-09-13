@@ -344,6 +344,34 @@ class TestBuildFrozenManifest:
         assert candidate.seeds == (0, 1, 2)
         assert candidate.matched_nulls == 99
 
+    def test_csv_modes_override_default_per_row(self, tmp_path):
+        candidates = tmp_path / "route-aware-candidates.csv"
+        candidates.write_text(
+            "gene_symbol,ensembl_id,intervention_type,modes\n"
+            'STAT3,ENSG00000168610,KO,"mask,pad,delete"\n'
+            "NOC2L,ENSG00000188976,KD,mask\n",
+            encoding="utf-8",
+        )
+        manifest = build_frozen_manifest(
+            **_manifest_kwargs(tmp_path, candidates_csv=candidates, modes=("mask",))
+        )
+
+        assert [candidate.modes for candidate in manifest.candidates] == [
+            ("mask", "pad", "delete"),
+            ("mask",),
+        ]
+
+    def test_kd_csv_with_pad_mode_is_rejected(self, tmp_path):
+        candidates = tmp_path / "invalid-kd-candidates.csv"
+        candidates.write_text(
+            "gene_symbol,ensembl_id,intervention_type,modes\n"
+            'NOC2L,ENSG00000188976,KD,"mask,pad"\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(FrozenCohortError, match="KD candidates cannot declare"):
+            build_frozen_manifest(**_manifest_kwargs(tmp_path, candidates_csv=candidates))
+
     def test_donor_leakage_is_rejected(self, tmp_path):
         with pytest.raises(FrozenCohortError, match="donor leakage"):
             build_frozen_manifest(

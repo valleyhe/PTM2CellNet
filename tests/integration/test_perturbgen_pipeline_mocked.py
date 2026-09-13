@@ -19,6 +19,18 @@ from src.integration.perturbgen.runner import PerturbGenResumeError, PerturbGenR
 pytestmark = pytest.mark.integration
 
 
+def _semantic_context(route: str = "KO") -> dict[str, str]:
+    return {
+        "context": "disease",
+        "intervention": route,
+        "comparison_baseline": "normal",
+        "reference_axis": "disease-minus-normal",
+        "research_objective": "replication",
+        "evidence_source": "donor_expression+davf_decode",
+        "cohort": "formal",
+    }
+
+
 def _write(path: Path, text: str = "x") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -276,6 +288,7 @@ def test_candidate_stage_plans_isolate_both_paths_and_rewrite_target(tmp_path):
         proposed_direction="down",
         davf_predicted_direction="down",
         direction_gate_status="pass",
+        semantic_context=_semantic_context(),
     )
     evidence = DAVFDirectionEvidence(
         gene_symbol="STAT3",
@@ -296,6 +309,7 @@ def test_candidate_stage_plans_isolate_both_paths_and_rewrite_target(tmp_path):
         paths=("source_intervention", "within_state"),
         candidate=candidate,
         davf_evidence=evidence,
+        semantic_context=_semantic_context(),
     )
 
     plans = build_candidate_stage_plans(
@@ -340,6 +354,7 @@ def _ko_mask_invocation():
         proposed_direction="up",
         davf_predicted_direction="up",
         direction_gate_status="pass",
+        semantic_context=_semantic_context(),
     )
     evidence = DAVFDirectionEvidence(
         gene_symbol="STAT3",
@@ -360,6 +375,7 @@ def _ko_mask_invocation():
         paths=("source_intervention", "within_state"),
         candidate=candidate,
         davf_evidence=evidence,
+        semantic_context=_semantic_context(),
     )
 
 
@@ -457,6 +473,7 @@ def test_sensitivity_invocation_contract_is_ko_only():
         proposed_direction="up",
         davf_predicted_direction="up",
         direction_gate_status="pass",
+        semantic_context=_semantic_context("KD"),
     )
     evidence = DAVFDirectionEvidence(
         gene_symbol="STAT3",
@@ -478,5 +495,6 @@ def test_sensitivity_invocation_contract_is_ko_only():
             paths=("source_intervention", "within_state"),
             candidate=candidate,
             davf_evidence=evidence,
+            semantic_context=_semantic_context("KD"),
             is_sensitivity=True,
         )

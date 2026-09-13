@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from .contracts import (
     CandidateEvidence,
@@ -14,6 +15,8 @@ from .contracts import (
     DavfAction,
     ObservedDirection,
     PTMSiteDirectionProposal,
+    SemanticContext,
+    normalize_semantic_context,
 )
 
 
@@ -137,6 +140,7 @@ def build_direction_gated_candidate(
     observed_fdr: float,
     observed_direction: ObservedDirection | None,
     max_observed_fdr: float = 0.05,
+    semantic_context: SemanticContext | Mapping[str, Any] | None = None,
 ) -> tuple[DirectionGateResult, CandidateEvidence | None]:
     """Build ``CandidateEvidence`` only after the direction gate passes."""
 
@@ -169,5 +173,6 @@ def build_direction_gated_candidate(
         davf_predicted_direction=gate.davf_direction,
         davf_predicted_delta=davf_evidence.predicted_delta,
         direction_gate_status=gate.status,
+        semantic_context=normalize_semantic_context(semantic_context),
     )
     return gate, candidate

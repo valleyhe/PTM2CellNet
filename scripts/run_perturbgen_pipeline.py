@@ -92,6 +92,7 @@ def _validated_report_invocation(
             paths=invocation_payload["paths"],
             candidate=candidate,
             davf_evidence=davf_evidence,
+            semantic_context=invocation_payload.get("semantic_context"),
             perturbgen_config_path=invocation_payload.get("perturbgen_config_path"),
             output_root=invocation_payload.get("output_root"),
             seed=invocation_payload["seed"],

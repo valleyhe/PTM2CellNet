@@ -237,12 +237,17 @@ def build_frozen_manifest(
 
     resolved = Path(cohort_h5ad).expanduser().resolve(strict=True)
     candidate_rows = _load_candidates_csv(candidates_csv)
+    default_modes = tuple(modes)
     candidates = tuple(
         FrozenCandidate(
             gene_symbol=row["gene_symbol"],
             ensembl_id=row["ensembl_id"],
             intervention_type=row["intervention_type"],
-            modes=tuple(modes),
+            modes=(
+                tuple(mode.strip() for mode in row["modes"].split(","))
+                if row.get("modes", "")
+                else default_modes
+            ),
             seeds=tuple(seeds),
             matched_nulls=matched_nulls,
         )

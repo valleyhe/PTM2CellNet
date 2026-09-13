@@ -22,6 +22,7 @@ from typing import Any, Mapping
 
 import torch
 
+from src.models.gene_vocabulary import normalize_ensembl_id
 from src.models.latent_davf import LatentDAVF, LatentDAVFConfig
 from src.models.perturbgen_embedding import PerturbGenEmbeddingAsset
 
@@ -167,6 +168,18 @@ def _validate_scvi_metadata(
         or not all(isinstance(name, str) for name in names)
     ):
         raise DAVFCheckpointContractError("checkpoint.scvi.gene_names must be the ordered scVI decoder vocabulary")
+    try:
+        canonical_names = [normalize_ensembl_id(name) for name in names]
+    except ValueError as exc:
+        raise DAVFCheckpointContractError(
+            "checkpoint.scvi.gene_names must contain canonical ENSG identifiers"
+        ) from exc
+    if names != canonical_names:
+        raise DAVFCheckpointContractError(
+            "checkpoint.scvi.gene_names must contain canonical ENSG identifiers without version suffixes"
+        )
+    if len(set(canonical_names)) != len(canonical_names):
+        raise DAVFCheckpointContractError("checkpoint.scvi.gene_names must not contain duplicates")
     if scvi_adapter is not None:
         validator = getattr(scvi_adapter, "validate_compatibility", None)
         if not callable(validator):

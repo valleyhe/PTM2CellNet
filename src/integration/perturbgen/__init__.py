@@ -11,6 +11,8 @@ from .contracts import (
     PerturbGenDataSpec,
     PreparedPerturbationData,
     PreparedPerturbationReport,
+    SemanticContext,
+    normalize_semantic_context,
 )
 from .data_prep import prepare_perturbgen_anndata, screen_candidate_for_perturbation
 from .direction_gate import (
@@ -41,6 +43,8 @@ __all__ = [
     "PerturbGenDataSpec",
     "PreparedPerturbationData",
     "PreparedPerturbationReport",
+    "SemanticContext",
+    "normalize_semantic_context",
     "prepare_perturbgen_anndata",
     "screen_candidate_for_perturbation",
     "build_direction_gated_candidate",

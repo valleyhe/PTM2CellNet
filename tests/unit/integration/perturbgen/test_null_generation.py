@@ -75,6 +75,10 @@ def _executor(request) -> NullStageRecord:
     return NullStageRecord(
         null_ensembl_id=null_id,
         null_gene_symbol=request["null_gene_symbol"],
+        candidate_ensembl_id=request["candidate_ensembl_id"],
+        path=request["path"],
+        mode=request["mode"],
+        seed=request["seed"],
         rescue_excl_target=0.01,
         stage_manifest=f"/tmp/{null_id}/stage_manifest.json",
         result_h5ad=f"/tmp/{null_id}/result.h5ad",
@@ -132,6 +136,23 @@ def test_stage_executor_collects_formal_null_distribution(tmp_path) -> None:
     assert json.loads(output.read_text(encoding="utf-8"))["candidate_ensembl_id"] == CANDIDATE
 
 
+def test_stage_executor_rejects_mismatched_candidate(tmp_path) -> None:
+    def mismatched_executor(request):
+        return _executor({**request, "candidate_ensembl_id": "ENSG00000000002"})
+
+    with pytest.raises(NullGenerationError, match="candidate_ensembl_id"):
+        run_matched_null_stages(
+            _selection(),
+            None,
+            _e2e_report(),
+            PATH,
+            "mask",
+            7,
+            tmp_path / "nulls",
+            stage_executor=mismatched_executor,
+        )
+
+
 def test_gpu_path_requires_rescue_extractor_and_runner(tmp_path) -> None:
     with pytest.raises(NullGenerationError, match="base_config is required"):
         run_matched_null_stages(
@@ -151,6 +172,10 @@ def test_collect_rejects_empty_sha(tmp_path) -> None:
         NullStageRecord(
             null_ensembl_id=f"ENSG{index + 4:011d}",
             null_gene_symbol=f"NULL{index}",
+            candidate_ensembl_id=CANDIDATE,
+            path=PATH,
+            mode="mask",
+            seed=7,
             rescue_excl_target=0.1,
             stage_manifest="m.json",
             result_h5ad="r.h5ad",

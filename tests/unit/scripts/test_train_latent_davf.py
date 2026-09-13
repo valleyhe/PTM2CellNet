@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
 import torch
 from torch.utils.data import DataLoader
 
+from src.integration.perturbgen.donor_split import build_donor_split
 from scripts.train_latent_davf import (
     _endpoint_losses,
     _endpoint_velocity_loss,
     _run_epoch,
+    _validate_donor_split_metadata,
     parse_args,
 )
 
@@ -136,3 +141,14 @@ def test_parser_accepts_explicit_donor_split_flags() -> None:
     assert args.train_donors == "D1,D2"
     assert args.held_out_donors == "D3,D4,D5"
     assert args.require_donor_split is True
+
+
+def test_donor_split_metadata_requires_train_only_donor_rows() -> None:
+    donor_split = build_donor_split(["D1", "D2"], ["D3", "D4", "D5"])
+
+    for dataset_metadata in ({}, {"donor_rows": ["D1", "D3"]}):
+        dataset = SimpleNamespace(
+            metadata={"donor_split": donor_split.to_payload(), "dataset": dataset_metadata}
+        )
+        with pytest.raises(ValueError):
+            _validate_donor_split_metadata(dataset, "train", donor_split)

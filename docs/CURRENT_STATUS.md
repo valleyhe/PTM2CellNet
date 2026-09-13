@@ -12,8 +12,9 @@
 ## Quick Reference
 
 - **验证环境**：主进程 Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；PerturbGen 独立环境 conda `perturbgen`（Python 3.11.15）已于 2026-08-23 完全建立并通过 GPU 实测（evidence 见 `outputs/perturbgen/env_evidence_20260823.json`，复现入口 `scripts/setup_perturbgen_env.sh` + `scripts/download_perturbgen_wheels.sh`）。
-- **测试基线（2026-09-10 历史）**：离线回归 **2573 passed / 15 skipped / 7 deselected / 55 warnings / exit 0（805.68s）**（当时排除 `slow`、`gpu`、`real_assets`）。**2026-09-13 权威分析实测（AGENTS 口径）**：**2578 passed / 21 skipped / 69 warnings / 798.65s / exit 0**。**同日 U-01～U-07 修复后实测**：**2610 passed / 21 skipped / 73 warnings / 699.36s / exit 0**（`not slow and not gpu`，timeout 300）。此前 2026-09-02 聚焦回归 157 passed、真实资产 CUDA 桥接 3 passed 的记录不变。
-- **静态/构建质量（2026-09-10）**：`compileall` 通过；`ruff check src scripts tests` 全绿；`mypy src` **0 errors / 161 files**；requirements consistency 通过；全仓 `ruff format --check` 仍有 329 个文件需要格式化，未在本轮批量改写；`python -m pip check` 当前有 3 个环境冲突（ptm2cellnet/NumPy、scgpt/scvi-tools、ssh-unit/torchaudio），详见权威分析和验证章节。
+- **当前验证结果（2026-09-13）**：针对性 pytest 原始结果为 **100 passed / 8 warnings / 13.17s**。全量命令 `python -m pytest -m "not slow and not gpu" --timeout=300` 退出 1，结果为 **2623 passed / 1 failed / 21 skipped / 67 warnings / 800.73s**；唯一失败是 `tests/integration/test_scvi_davf_connection.py::test_real_current_davf_direction_keeps_token_and_decoder_indices_separate`，原因是本地旧 checkpoint 的 `checkpoint.scvi.gene_names` 不是 canonical ENSG，contract hard-fail，随后 `zero_fallback` 证据被拒绝。该失败不是代码回退，也不能用 skip/fallback 掩盖。
+- **历史测试基线（仅背景）**：2026-09-10 的 2573/2578 通过记录、2026-09-02 的 157 项聚焦回归和 3 项 CUDA bridge 记录均不作为当前验收结果；旧的 2610 通过数字不再作为当前结果。
+- **静态/构建质量（2026-09-13 当前记录）**：`compileall` 通过；`ruff check src scripts tests` 通过；`mypy src/ --ignore-missing-imports` 为 **165 个源文件、0 errors**；requirements consistency 通过且为 **274 lock pins**；`ruff format --check src scripts tests` 退出 1，**339 文件需格式化、124 文件已格式化**，未批量改写。
 - **技术债闭环（本轮确认，提交 `63ebf75`）**：
   - **TD-N-24（高）已修复**：`src/analysis/gene_mapper.py:150-186` 新增 `_call_external_mapper`——外部 `UniProtMapper` 调用包裹 daemon 线程 + `_EXTERNAL_MAPPER_TIMEOUT_S` 硬超时，超时转既有异常分支；生产 `/predict` 挂死风险解除。回归锚点 `tests/unit/analysis/test_gene_mapper.py`（TD-N-33 合并后单一入口）。
   - **TD-N-10（高）已修复**：`.github/workflows/perturbgen-real-assets.yml:44-46` 安装步骤追加 `pip install -r requirements-analysis.txt`，Gate-4 门禁 anndata 缺口闭环。
@@ -23,7 +24,7 @@
 - **DAVF × PerturbGen E2E 接线（2026-09-02）**：新增 `src/integration/perturbgen/orchestrator.py` 与 `scripts/run_davf_perturbgen_e2e.py`。候选准入链为 `candidate_spec → scVI/PTMDirectionMapper → DAVF decode → 三方方向 gate → CandidateEvidence → PerturbGenInvocation`；默认只生成 gate/invocation，必须显式加 `--run-perturbgen` 才执行外部六阶段。`source_intervention=[src]` 与 `within_state=[tgt]+pert_tps` 是两个实验场景，正式 dual-path 结论保留 AND。
 - **Gate-0 复审（2026-09-13）**：当前正式 cohort=0；重新审计本机 30 个 scPerturb H5AD，26 个可读、0 个满足正式 `normal/disease + raw counts + explicit donor + ≥3 shared donors + Ensembl` 契约；证据为 `outputs/perturbgen/spike/20260913_donor_audit/evidence.json`。DatlingerBock2021 的真实 preflight 因缺少 `state`、`donor` 被拒绝，不能作为正式效用数据。
 - **R-01～R-03 状态**：工程契约与 synthetic batch 测试通过；三路 pLM 权重已本地化；真实图/扰动训练和科学验收仍未验证（依赖 replogle/scgenescope 数据供给）。
-- **剩余需求差距**：正式 REQUIREMENTS v2.1/v2.2 共 24 项 Complete 维持成立；U-01～U-05 的生成、聚合、formal 隔离、质量提取和 donor split 接口已在代码中闭合，但真实合规 donor cohort、held-out DAVF 方向指标、自动统计接续和 formal evidence 仍未完成，逐项清单见权威分析 §4。
+- **剩余需求差距**：正式 REQUIREMENTS v2.1/v2.2 共 24 项 Complete 维持成立；U-01～U-05 等既有接口只代表代码底座和边界复核，不是本轮新增或正式科学结果。真实合规 donor cohort、held-out DAVF 方向指标、自动统计接续和 formal evidence 仍未完成，逐项清单见权威分析 §4。
 - **2026-09-10 收口修复**：G-1/N-05 matched-null 与 E2E 组装、G-2 DAVF confidence/davf_score、G-3 gate hard-fail/report binding、目标 optional dependency 边界和 PMADS iterrows 回归已在代码与离线测试闭合；真实 cohort、Gate-E ≥200 benchmark 和 T4/Gate-5 evidence 仍未执行。
 - **覆盖率门禁**：默认 CI branch coverage `fail_under=74`；本轮只执行了不带 `--cov` 的全量回归，当前覆盖率不宣称为历史 75.27% 数值；刷新任务仍依赖一致的 CI/独立环境。
 - **范围裁剪**：实时质谱流、自定义 PTM 数据库、GUI、API key 功能扩展已取消；兼容代码可保留，不得重新列为 roadmap 目标。
@@ -56,6 +57,18 @@
   原始 `h5ad_path`。登记 `GF_tokenisation.py:223-226,238,301-305` 已静态核对同一
   原始文件的 counts→`X`→恢复 counts→重算 `n_counts` 接线；prepared copy 的新增
   `n_counts` 不需 materialize。本轮未运行真实 tokenisation，也没有新增 X/layer 转换。
+- 本轮 formal candidate/invocation 现在必须携带相同的七字段 `semantic_context`
+  （`context`、`intervention`、`comparison_baseline`、`reference_axis`、
+  `research_objective`、`evidence_source`、`cohort`）；`research_objective` 仅允许
+  `association`、`replication`、`reversal`。缺失、空值、非法 objective 或
+  intervention 与 KO/KD route 不一致都会 fail-fast。`checkpoint.scvi.gene_names`
+  同时执行 canonical ENSG、无版本后缀、无重复的 strict check；因此本地旧
+  `checkpoints/davf/latent_davf_perturbgen_4018/best_model.pt` 已被暴露为不合规资产，
+  不是可用的正式 checkpoint。
+- 本轮 E2E 的 `statistical_evidence` 只明确为 `inconclusive`，并写出
+  `scientific_acceptance=false`；不会自动接续或生成 null、未扰动质量、候选 p/q 或
+  双路径科学结论。正式 cohort、GPU null/多 seed、Gate-E benchmark 和统一 evidence
+  lineage 仍未完成；mock、synthetic、smoke、bridge 与工程回归均不等于 biology PASS。
 - 双路径评价已要求显式 KO/KD route：KO/up 才要求 `mask,pad,delete`，KD/up 只要求
   `mask`，down 的 `overexpress` 与 route 独立；Volta 已同步 frozen replay 调用。
   其 verifier 还要求 manifest、删除默认 mask fallback，并在任一 verify 失败时 exit 1。

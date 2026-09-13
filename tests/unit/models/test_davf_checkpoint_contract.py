@@ -48,7 +48,7 @@ def _asset(tmp_path):
 class _ScVIAdapter:
     n_latent = 64
     n_genes = 4018
-    gene_names = tuple(f"gene_{index}" for index in range(4018))
+    gene_names = tuple(f"ENSG{index:011d}" for index in range(1, 4019))
 
     def validate_compatibility(self, *, expected_latent_dim, expected_num_genes, expected_gene_names=None):
         assert expected_latent_dim == self.n_latent
@@ -88,6 +88,26 @@ def test_build_and_safe_reload_current_checkpoint(tmp_path):
     assert loaded["model_type"] == "LatentDAVF"
     assert config.latent_dim == 64
     assert config.num_genes == 4018
+
+
+@pytest.mark.parametrize("invalid_gene_name", ["TP53", "ENSG00000000001.1"])
+def test_checkpoint_rejects_noncanonical_scvi_gene_names(tmp_path, invalid_gene_name):
+    asset_dir = tmp_path / "asset"
+    asset = _asset(asset_dir)
+    payload = build_current_davf_checkpoint(
+        _model(asset),
+        asset=asset,
+        embedding_asset_path=asset_dir,
+        scvi_model_path=tmp_path / "scvi",
+        scvi_adapter=_ScVIAdapter(),
+        training={"epoch": 1},
+    )
+    payload["scvi"]["gene_names"][0] = invalid_gene_name
+
+    from src.models.davf_checkpoint_contract import validate_current_davf_checkpoint_payload
+
+    with pytest.raises(DAVFCheckpointContractError, match="canonical ENSG"):
+        validate_current_davf_checkpoint_payload(payload, asset=asset)
 
 
 def test_unversioned_legacy_state_dict_is_not_formal(tmp_path):

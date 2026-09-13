@@ -46,13 +46,39 @@ class NullStageRecord:
 
     null_ensembl_id: str
     null_gene_symbol: str
+    candidate_ensembl_id: str
+    path: str
+    mode: str
+    seed: int
     rescue_excl_target: float
     stage_manifest: str
     result_h5ad: str
     result_h5ad_sha256: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "null_ensembl_id", normalize_ensembl_id(self.null_ensembl_id))
+        object.__setattr__(self, "candidate_ensembl_id", normalize_ensembl_id(self.candidate_ensembl_id))
+        object.__setattr__(self, "path", _path_kind(self.path))
+        object.__setattr__(self, "mode", _mode(self.mode))
+        object.__setattr__(self, "seed", _seed(self.seed))
+
 
 NullStageExecutor = Callable[[Mapping[str, Any]], NullStageRecord]
+
+
+def _validate_record_binding(
+    record: NullStageRecord,
+    request_or_expected: Mapping[str, Any],
+) -> None:
+    expected = {
+        "candidate_ensembl_id": normalize_ensembl_id(request_or_expected["candidate_ensembl_id"]),
+        "path": _path_kind(request_or_expected["path"]),
+        "mode": _mode(request_or_expected["mode"]),
+        "seed": _seed(request_or_expected["seed"]),
+    }
+    for field, value in expected.items():
+        if getattr(record, field) != value:
+            raise NullGenerationError(f"null stage record has mismatched {field}")
 
 
 def _load_json_mapping(value: Mapping[str, Any] | str | Path, *, name: str) -> dict[str, Any]:
@@ -227,30 +253,40 @@ def collect_null_stage_records(
 ) -> dict[str, Any]:
     """Summarise completed null stages into ``perturbgen_null_distribution/v1``."""
 
+    expected = {
+        "candidate_ensembl_id": normalize_ensembl_id(candidate_ensembl_id),
+        "path": _path_kind(path),
+        "mode": _mode(mode),
+        "seed": _seed(seed),
+    }
     parsed: list[NullStageRecord] = []
     for record in records:
         if isinstance(record, NullStageRecord):
-            parsed.append(record)
-            continue
-        if not isinstance(record, Mapping):
-            raise NullGenerationError("null stage records must be mappings")
-        parsed.append(
-            NullStageRecord(
-                null_ensembl_id=normalize_ensembl_id(record["null_ensembl_id"]),
+            parsed_record = record
+        else:
+            if not isinstance(record, Mapping):
+                raise NullGenerationError("null stage records must be mappings")
+            parsed_record = NullStageRecord(
+                null_ensembl_id=record["null_ensembl_id"],
                 null_gene_symbol=str(record["null_gene_symbol"]).strip(),
+                candidate_ensembl_id=record["candidate_ensembl_id"],
+                path=record["path"],
+                mode=record["mode"],
+                seed=record["seed"],
                 rescue_excl_target=float(record["rescue_excl_target"]),
                 stage_manifest=str(record["stage_manifest"]),
                 result_h5ad=str(record["result_h5ad"]),
                 result_h5ad_sha256=str(record["result_h5ad_sha256"]).strip(),
             )
-        )
+        _validate_record_binding(parsed_record, expected)
+        parsed.append(parsed_record)
     summary_records = [
         {
-            "candidate_ensembl_id": candidate_ensembl_id,
+            "candidate_ensembl_id": item.candidate_ensembl_id,
             "null_ensembl_id": item.null_ensembl_id,
-            "path": path,
-            "mode": mode,
-            "seed": seed,
+            "path": item.path,
+            "mode": item.mode,
+            "seed": item.seed,
             "rescue_excl_target": item.rescue_excl_target,
         }
         for item in parsed
@@ -365,6 +401,7 @@ def run_matched_null_stages(
                 raise NullGenerationError("stage_executor must return NullStageRecord")
             if record.null_ensembl_id != request["null_ensembl_id"]:
                 raise NullGenerationError("stage_executor returned a mismatched null_ensembl_id")
+            _validate_record_binding(record, request)
             records.append(record)
     else:
         if runner is None:
@@ -385,6 +422,7 @@ def run_matched_null_stages(
                 raise NullGenerationError("rescue_extractor must return NullStageRecord")
             if record.null_ensembl_id != request["null_ensembl_id"]:
                 raise NullGenerationError("rescue_extractor returned a mismatched null_ensembl_id")
+            _validate_record_binding(record, request)
             records.append(record)
 
     return collect_null_stage_records(

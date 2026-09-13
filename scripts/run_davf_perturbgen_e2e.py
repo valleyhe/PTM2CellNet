@@ -20,7 +20,16 @@ context cell per candidate.  Example::
           "ptm_context": "STAT3:S12",
           "observed_log2fc": -1.0,
           "observed_fdr": 0.01,
-          "observed_direction": "down"
+          "observed_direction": "down",
+          "semantic_context": {
+            "context": "disease",
+            "intervention": "KO",
+            "comparison_baseline": "normal",
+            "reference_axis": "disease-minus-normal",
+            "research_objective": "replication",
+            "evidence_source": "donor_level_expression+davf_decode",
+            "cohort": "formal_normal_disease_cohort"
+          }
         }
       ]
     }
@@ -55,6 +64,7 @@ from src.integration.perturbgen.runner import PerturbGenRunner  # noqa: E402
 from src.integration.perturbgen.contracts import (  # noqa: E402
     PTMSiteDirectionProposal,
     PerturbGenDataSpec,
+    SemanticContext,
 )
 from src.integration.perturbgen.data_prep import (  # noqa: E402
     prepare_perturbgen_anndata,
@@ -292,11 +302,15 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         "observed_log2fc",
         "observed_fdr",
         "observed_direction",
+        "semantic_context",
     )
     for row, candidate in enumerate(raw_candidates):
         missing = [key for key in downstream_required if key not in candidate]
         if missing:
             raise ValueError(f"candidate {row} is missing direction-gate fields: {', '.join(missing)}")
+        if not isinstance(candidate["semantic_context"], Mapping):
+            raise ValueError(f"candidate {row} semantic_context must be a mapping")
+        SemanticContext.from_mapping(candidate["semantic_context"])
     perturbgen_config: dict[str, Any] | None = None
     perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None = None
     perturbgen_pipeline_seed = 0
@@ -362,6 +376,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         observed_log2fc=[float(candidate["observed_log2fc"]) for candidate in raw_candidates],
         observed_fdr=[float(candidate["observed_fdr"]) for candidate in raw_candidates],
         observed_direction=[candidate.get("observed_direction") for candidate in raw_candidates],
+        semantic_context=[candidate["semantic_context"] for candidate in raw_candidates],
         scvi_adapter=scvi_adapter,
         scvi_context=selected_context,
         perturbgen_config_path=args.perturbgen_config,
@@ -377,6 +392,18 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         "merged_gated_routes": merge_route_preparations(preparations),
         "perturbgen_runs": [],
     }
+    payload["statistical_evidence"] = {
+        "status": "inconclusive",
+        "scientific_acceptance": False,
+        "reason": "statistical_evidence_not_assembled" if args.run_perturbgen else "perturbgen_not_requested",
+    }
+    if args.run_perturbgen:
+        payload["statistical_evidence"]["interfaces"] = [
+            "src.integration.perturbgen.null_generation",
+            "src.integration.perturbgen.reports",
+            "src.integration.perturbgen.empirical_pvalue",
+            "src.integration.perturbgen.dual_path",
+        ]
     if perturbgen_gate0 is not None:
         payload["perturbgen_gate0"] = perturbgen_gate0
     try:

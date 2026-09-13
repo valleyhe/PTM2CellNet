@@ -54,6 +54,14 @@ class TestBenchmark:
         with pytest.raises(GateEError, match="missing required columns"):
             load_benchmark(path)
 
+    @pytest.mark.parametrize("ensembl_id", ["", "not-an-ensembl-id"])
+    def test_missing_or_invalid_ensembl_rejected(self, tmp_path, ensembl_id):
+        benchmark = load_benchmark(
+            _benchmark_csv(tmp_path, [f"STAT3,{ensembl_id},phosphorylation,12\n"])
+        )
+        with pytest.raises(GateEError, match="ensembl_id"):
+            benchmark.validate(min_samples=1)
+
 
 class TestVocabularyMigration:
     def _run(self, tmp_path, old_vocab, new_vocab):
@@ -62,7 +70,14 @@ class TestVocabularyMigration:
 
     def test_full_coverage_no_collision_passes(self, tmp_path):
         old_vocab = {"STAT3": 1, "BRAF": 2, "TP53": 3}
-        new_vocab = {"STAT3": 10, "BRAF": 11, "TP53": 12}
+        new_vocab = {
+            "STAT3": 10,
+            "BRAF": 11,
+            "TP53": 12,
+            "ENSG00000168610": 20,
+            "ENSG00000157757": 21,
+            "ENSG00000141510": 22,
+        }
         metrics = self._run(tmp_path, old_vocab, new_vocab)
         assert metrics.gene_coverage == 1.0
         assert metrics.token_collision_groups == 0
@@ -75,11 +90,26 @@ class TestVocabularyMigration:
         assert metrics.gene_coverage == 1.0
 
     def test_partial_coverage_fails_threshold(self, tmp_path):
-        new_vocab = {"STAT3": 0, "BRAF": 1}  # TP53 missing → 2/3 coverage
+        new_vocab = {
+            "STAT3": 0,
+            "BRAF": 1,
+            "TP53": 2,
+            "ENSG00000168610": 3,
+            "ENSG00000157757": 4,
+        }  # TP53 Ensembl ID missing → 2/3 coverage
         metrics = self._run(tmp_path, {"STAT3": 1, "BRAF": 2, "TP53": 3}, new_vocab)
         assert metrics.covered_genes == 2
         assert metrics.gene_coverage == pytest.approx(2 / 3)
         assert not metrics.passed
+
+    def test_symbol_only_coverage_is_not_canonical(self, tmp_path):
+        metrics = self._run(
+            tmp_path,
+            {"STAT3": 1, "BRAF": 2, "TP53": 3},
+            {"STAT3": 10, "BRAF": 11, "TP53": 12},
+        )
+        assert metrics.covered_genes == 0
+        assert metrics.gene_coverage == 0.0
 
     def test_token_collision_detected(self, tmp_path):
         new_vocab = {"STAT3": 7, "BRAF": 7, "TP53": 8}  # STAT3/BRAF share token 7
@@ -150,7 +180,18 @@ class TestDavfNonInferiority:
 class TestReport:
     def test_report_aggregates_sections_and_thresholds(self, tmp_path):
         benchmark = load_benchmark(_three_row_benchmark(tmp_path))
-        vocab = evaluate_vocabulary_migration(benchmark, {"STAT3": 1}, {"STAT3": 0, "BRAF": 1, "TP53": 2})
+        vocab = evaluate_vocabulary_migration(
+            benchmark,
+            {"STAT3": 1},
+            {
+                "STAT3": 0,
+                "BRAF": 1,
+                "TP53": 2,
+                "ENSG00000168610": 10,
+                "ENSG00000157757": 11,
+                "ENSG00000141510": 12,
+            },
+        )
         davf = evaluate_davf_noninferiority(self_test_paired(), bootstrap_iterations=100, seed=2)
         report = build_gate_e_report(
             benchmark=benchmark,
@@ -163,7 +204,33 @@ class TestReport:
         assert report["vocabulary_migration"]["passed"] is True
         assert report["davf_noninferiority"]["passed"] is True
         assert report["gate_e_passed"] is False
+        assert report["missing_sections"] == []
         assert report["thresholds"]["noninferiority_margin"] == 0.01
+
+    @pytest.mark.parametrize("missing", ["vocabulary_migration", "davf_noninferiority"])
+    def test_report_requires_all_formal_sections(self, tmp_path, missing):
+        benchmark = load_benchmark(_three_row_benchmark(tmp_path))
+        vocab = evaluate_vocabulary_migration(
+            benchmark,
+            {"STAT3": 1},
+            {
+                "STAT3": 10,
+                "BRAF": 11,
+                "TP53": 12,
+                "ENSG00000168610": 20,
+                "ENSG00000157757": 21,
+                "ENSG00000141510": 22,
+            },
+        )
+        davf = evaluate_davf_noninferiority(self_test_paired(), bootstrap_iterations=100, seed=2)
+        report = build_gate_e_report(
+            benchmark=benchmark,
+            vocabulary_metrics=None if missing == "vocabulary_migration" else vocab,
+            davf_metrics=None if missing == "davf_noninferiority" else davf,
+            thresholds={"min_benchmark_samples": 3},
+        )
+        assert report["gate_e_passed"] is False
+        assert report["missing_sections"] == [missing]
 
     def test_cli_writes_report(self, tmp_path):
         from scripts.evaluate_gate_e import main
@@ -172,7 +239,27 @@ class TestReport:
         old_vocab = tmp_path / "old.json"
         old_vocab.write_text(json.dumps({"STAT3": 1, "BRAF": 2, "TP53": 3}), encoding="utf-8")
         new_vocab = tmp_path / "new.json"
-        new_vocab.write_text(json.dumps({"STAT3": 9, "BRAF": 8, "TP53": 7}), encoding="utf-8")
+        new_vocab.write_text(
+            json.dumps(
+                {
+                    "STAT3": 9,
+                    "BRAF": 8,
+                    "TP53": 7,
+                    "ENSG00000168610": 19,
+                    "ENSG00000157757": 18,
+                    "ENSG00000141510": 17,
+                }
+            ),
+            encoding="utf-8",
+        )
+        paired = tmp_path / "paired.csv"
+        paired.write_text(
+            "ensembl_id,expected_direction,old_direction,new_direction\n"
+            "ENSG00000168610,up,up,up\n"
+            "ENSG00000157757,up,up,up\n"
+            "ENSG00000141510,up,up,up\n",
+            encoding="utf-8",
+        )
         output = tmp_path / "report.json"
         code = main(
             [
@@ -182,6 +269,8 @@ class TestReport:
                 str(old_vocab),
                 "--new-vocabulary",
                 str(new_vocab),
+                "--davf-paired-results",
+                str(paired),
                 "--min-samples",
                 "3",
                 "--bootstrap-iterations",

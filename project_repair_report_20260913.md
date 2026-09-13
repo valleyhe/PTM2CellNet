@@ -1,273 +1,266 @@
-# PTM2CellNet 代码修复报告（2026-09-13）
+# PTM2CellNet 工程契约修复与科学验收最终报告（2026-09-13）
 
-> 本文件覆盖 2026-09-13 **两轮**工程修复：较早一轮的 YAML 身份绑定 / KO-KD route / N-05 lineage（不在本 worker 中重做），以及本轮按权威分析 [`project_analysis_20260913.md`](project_analysis_20260913.md) §4.2 执行的 **U-01～U-07** 与高/中技术债。
->
-> 事实来源是当前代码、测试、CI 与方案文档。历史报告只作背景。本轮 **没有** 把 smoke、synthetic、mock 或真实桥接写成生物学 PASS。
+## 结论先行
 
-## 1. 结论先行
+本轮必须把两件事分开：
 
-**工程主线在代码层已接通 formal 隔离与缺失接口；科学主线仍被资产缺口 A-01～A-05 挡住。**
+1. **工程契约修复**：当前代码已经补齐或收紧若干 formal 输入边界，包括语义上下文、候选与 invocation 绑定、null 身份、Gate-E 必要证据、canonical Ensembl、冻结 cohort 的 route/mode，以及训练 donor metadata 的 fail-fast。
+2. **科学验收**：仍未完成。当前没有生物学 PASS，也没有正式的候选 p/q、未扰动质量、双路径统计或 Gate-E 科学证据结论。
 
-本报告记录的是工程接口修复；它不等于方向语义、证据独立性或正式双路生物学验收已完成，后续执行以 [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)、中央方案 [`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md) 和 [`task_plan.md`](task_plan.md) 为准。
+E2E report 当前只会明确写出 statistical_evidence 为 inconclusive、scientific_acceptance 为 false。它不会把现有统计接口自动接续成 null、quality、p/q 或双路径科学结论。当前工作树保留 21 个源码/测试文件的既有改动，统计为 **21 files / 576 insertions / 34 deletions**；本轮只同步本文档，不提交、不回滚、不修改这些源码/测试改动。
 
-本轮从第一性原理做了这些选择，而不是逐字照抄分析里的每一个备选方案：
+正式科学 PASS 仍受真实 cohort、合规 checkpoint、held-out donor、Gate-E benchmark、匹配 null、GPU 和统计 lineage 阻断。smoke、synthetic、mock、bridge 或单元测试通过都不等于 biology PASS。
 
-1. **Formal vs engineering 隔离，而不是拆掉演示通路。** `uniform_candidate_pvalue` 仍可用于 `evaluation_mode=engineering`，但必须盖上 `evidence_class=synthetic` 且 `scientific_acceptance=false`。`evaluation_mode=formal` 拒绝 uniform/外部表/手填 p 与手填 unperturbed quality。这同时采纳了分析 §6.1 TD-13-01 方案 1（堵住假 PASS）和方案 2（演示仍可用）。
-2. **候选 p 的 estimand 显式写成 `conservative_max_required_runs`。** 两路径 × 主 mode（up→mask / down→overexpress）× 所需 seed 的 empirical p 取 **max**。缺覆盖就报错，不编造 Fisher/Tippett。pad/delete 不进 p，仍走 KO 2-of-3 门。这解决了分析 §4.2 U-02「规则未定前 formal 应拒绝 PASS」与「不要锁死未签字的组合规则」。
-3. **Null 基因不是候选。** `run_matched_null_stages` 禁止伪造 `PerturbGenInvocation`。单测用 `stage_executor`；真 GPU 必须再给 `rescue_extractor`，不猜 DEG 列。
-4. **U-06 明确是次级证据。** 方案 §4.7 硬 PASS 未列 pathway；接口存在但 `affects_dual_path_verdict=False`。
-5. **U-07 不删 Geneformer。** Gate-E 未过；pickle 在 production/strict 下拒绝未钉扎 `pickle.load`，非 production 仅警告，以免打断 legacy fusion demo 测试。
-6. **TD-13-10 不改 `DAVFInferenceConfig` 默认 10×5000。** 只在 `PTM2CELLNET_ENV=production` 时拒绝无 `embedding_asset_path` 的 `use_davf`。把小 asset 单测自动改成 64×4018 会打坏契约。
-7. **TD-13-05 禁止全仓 format。** 本轮后 `ruff format --check` 仍有 **335** 个文件待格式化（分析时为 329；新增未格式化文件，未批量改写）。
+## 事实来源与复核范围
 
-离线验证（本机、脱离沙箱、`not slow and not gpu`、`--timeout=300`）：
+本报告以代码、测试和当前验证记录为事实来源，使用以下章节作为需求与边界依据：
 
-```text
-2610 passed, 21 skipped, 73 warnings in 699.36s, exit 0
-ruff check src scripts tests                 通过
-mypy src/ --ignore-missing-imports           0 errors / 165 files
-python scripts/check_requirements_consistency.py  通过
-ruff format --check src scripts tests        335 files would be reformatted（未批量修复）
-```
-
-相对权威分析 §1 记录的 2578 passed / 161 mypy files：本轮新增测试与模块，**不是**把旧数字改写成生物学结果。
-
----
-
-## 2. 事实来源与章节引用
-
-| 文档 | 本报告使用的章节 |
+| 来源 | 复核内容 |
 |---|---|
-| [`project_analysis_20260913.md`](project_analysis_20260913.md) | §1 执行摘要；§4.2 U-01～U-07；§4.3 A-01～A-06；§4.4 主线流程；§6.1 高债 TD-13-01～04；§6.2 中债 TD-13-05～12；§7 结论与建议 |
-| [`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md) | §4.6 数据/训练/held-out；§4.7 正式 PASS 七条；§5.4 科学质量门；§7.2 M6/M7 |
-| [`lessons.md`](lessons.md) | L-2026-0821-01 双路径 AND；L-2026-0822-06 通用 scPerturb ≠ 合规队列；L-2026-0901-01 DAVF 方向 / PerturbGen 效用（含 pathway）；L-2026-0902-01 schema v2 64×4018；L-2026-0902-02 串联 gate；L-2026-0902-03 真实桥接 ≠ 生物学验收 |
-| [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) | Quick Reference；2026-09-13 修复状态 |
-| [`docs/guides/perturbgen_bridge.md`](docs/guides/perturbgen_bridge.md) §6 | 评估入口；本轮已补 formal / null CLI |
-| [`docs/guides/davf_perturbgen_e2e.md`](docs/guides/davf_perturbgen_e2e.md) | E2E 与 donor 绑定 |
-| [`docs/guides/deployment.md`](docs/guides/deployment.md) 环境变量表 | production / pickle pin |
-| [`docs/guides/davf_ko_kd_training.md`](docs/guides/davf_ko_kd_training.md) | 历史复训未绑定 donor split 的声明 |
-| [`AGENTS.md`](AGENTS.md) | 主线不得绕过 DAVF gate；验证命令；不得把 smoke 当 PASS |
+| project_analysis_20260913.md §4.2、§4.3、§4.4、§4.5、§6.1、§6.2、§7 | U-01～U-07 的现有接口状态、A-01～A-05 资产缺口、主线流程、F-01～F-09 技术债与后续顺序 |
+| docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md §4.6、§4.7、§5.4、§7.2 | cohort、donor split、rescue/null、正式 PASS、科学质量门、M0～M7 停止条件 |
+| lessons.md：L-2026-0913-01、L-2026-0902-01、L-2026-0902-02、L-2026-0902-03 | 方向语义、资产与索引契约、串联 gate、真实 bridge 不等于生物学验收 |
+| docs/CURRENT_STATUS.md、docs/guides/davf_perturbgen_e2e.md | 当前公开状态和运行边界 |
 
-分析 §4.2 给出的目标接口与本轮落地对照见 §3。
+源码复核范围包括：
 
----
+- src/integration/perturbgen/contracts.py、orchestrator.py、null_generation.py、gate_e.py、frozen_cohort.py、direction_gate.py；
+- src/models/davf_checkpoint_contract.py；
+- scripts/run_davf_perturbgen_e2e.py、scripts/run_perturbgen_pipeline.py、scripts/train_latent_davf.py；
+- src/data/davf_scperturb.py。
 
-## 3. 问题修复汇总（按严重程度）
+测试复核范围包括：
 
-### 3.1 高：代码缺口 U-01～U-05 / TD-13-01～04
+- tests/unit/integration/perturbgen/test_contracts.py、test_null_generation.py、test_gate_e.py、test_frozen_cohort.py、test_orchestrator.py；
+- tests/unit/models/test_davf_checkpoint_contract.py；
+- tests/unit/scripts/test_run_davf_perturbgen_e2e.py、test_run_perturbgen_pipeline.py、test_train_latent_davf.py；
+- tests/integration/test_perturbgen_pipeline_mocked.py。
 
-| ID | 分析定位 | 本轮决策与落地 | 状态 |
+## 1. 本轮实际落地与严重程度汇总
+
+### 高：F-04 语义合同进入 formal invocation
+
+src/integration/perturbgen/contracts.py 新增 SemanticContext，固定七个字段：
+
+- context
+- intervention
+- comparison_baseline
+- reference_axis
+- research_objective
+- evidence_source
+- cohort
+
+research_objective 只接受 association、replication、reversal。缺字段、空值、非法 objective 会硬失败；formal PerturbGenInvocation 不接受缺失 semantic_context。CandidateEvidence 与 invocation 必须携带相同的七字段语义上下文，invocation 的 semantic_context.intervention 必须与 KO/KD route 相同，候选 gene、Ensembl、DAVF evidence 和 gate 状态也必须一致。
+
+这解决的是“观测 donor-level disease−normal、DAVF decode delta 和 PerturbGen utility 被误写成同一个因果效应”的工程风险，不是参考轴已经由代码自动确定。参考轴仍需要研究定义。相关实现和测试见 src/integration/perturbgen/contracts.py、orchestrator.py、direction_gate.py，以及 tests/unit/integration/perturbgen/test_contracts.py、test_orchestrator.py、tests/unit/scripts/test_run_perturbgen_pipeline.py、tests/unit/scripts/test_run_davf_perturbgen_e2e.py。
+
+KO/KD route 仍由显式 DAVF 配置决定。PTM site classifier 只表示 site presence；candidate direction 来自外部 proposal 或逐 site override，不能从 classifier 自动推断因果表达方向。
+
+### 高：F-05/U-01 null stage record 身份绑定
+
+src/integration/perturbgen/null_generation.py 的 NullStageRecord 绑定：
+
+- candidate Ensembl ID；
+- null Ensembl ID 与 null gene symbol；
+- path；
+- mode；
+- seed；
+- rescue_excl_target；
+- stage manifest、result h5ad 及 result h5ad.sha256。
+
+收集时会重新按 candidate/path/mode/seed 校验记录身份；selected nulls 排除 candidate，null 只执行 perturb-only stage，不创建伪造的 PerturbGenInvocation，也不把 null 当候选。GPU 路径必须提供显式 rescue_extractor，模块不会猜 DEG 列或 h5ad 来源。tests/unit/integration/perturbgen/test_null_generation.py 覆盖 99 个 null 的 dry-run、收集、candidate mismatch 和缺少 rescue extractor 的拒绝。
+
+这只是已有 null 生成与收集接口的严格边界复核；当前没有执行正式的 >=99 null GPU 矩阵，也没有形成科学 p/q。
+
+### 高：F-06 Gate-E 必要证据、canonical coverage 与 benchmark 硬失败
+
+src/integration/perturbgen/gate_e.py 的 formal Gate-E report 必须同时有：
+
+- benchmark section；
+- vocabulary_migration section；
+- davf_noninferiority section。
+
+缺任一 required section 时 gate_e_passed 为 false；benchmark 缺必要列、ID 非法或样本数低于 200 时拒绝 formal 证据。vocabulary coverage 按 canonical Ensembl ID 计算，symbol-only vocabulary 不计覆盖；token collision 必须为 0，PTM action code agreement 必须为 100%。tests/unit/integration/perturbgen/test_gate_e.py 覆盖缺 section、至少 200、非法 Ensembl、symbol-only coverage、collision 和 paired DAVF 输入。
+
+Gate-E 工具和硬失败边界存在，不等于当前已有 >=200 个可追溯 benchmark，也不等于 Gate-E 已通过。当前 A-04 仍未完成。
+
+### 高：F-07 formal checkpoint.scVI gene_names 严格 canonical ENSG
+
+src/models/davf_checkpoint_contract.py 现在要求 formal checkpoint.scvi.gene_names：
+
+- 数量与 formal 4018 gene contract 一致；
+- 每个值都是 canonical ENSG；
+- 不带版本后缀；
+- 不重复；
+- 顺序与 scVI adapter 和 decoder vocabulary 一致。
+
+这与冻结 embedding manifest、PerturbGen token vocabulary 和 scVI decoder index 的身份校验共同构成 formal asset contract；PerturbGen token index 不能冒充 scVI decoder index。tests/unit/models/test_davf_checkpoint_contract.py 覆盖 symbol、带版本后缀和 legacy checkpoint 的拒绝。
+
+该硬校验暴露了本地旧资产 checkpoints/davf/latent_davf_perturbgen_4018/best_model.pt 不合规：其 checkpoint.scvi.gene_names 不是 canonical ENSG。因此旧资产不能作为本轮 formal DAVF 结果，必须重训或重导出。
+
+### 高：F-03 donor split metadata/row donor fail-fast
+
+scripts/train_latent_davf.py 在显式 donor split 或要求 frozen manifest 时，要求 train/val NPZ metadata 同时包含：
+
+- donor_split 且其 SHA 与 CLI split 一致；
+- dataset.donor_rows 非空；
+- 每个训练行的 donor 只能属于 train_donors。
+
+缺 metadata、缺 donor_rows、SHA 不一致或某行 donor 越界都会直接失败，不再允许仅凭 donor 名单继续声称 held-out 无泄漏。tests/unit/scripts/test_train_latent_davf.py 覆盖缺 metadata 和训练行混入 held-out donor 的失败路径。
+
+当前 src/data/davf_scperturb.py 生成的既有 pair metadata 仍需核对并重导出为含 row-level donor provenance 的资产；所以 F-03 的代码 fail-fast 已在，正式 held-out DAVF 结果仍未形成。
+
+### 中高：F-08 frozen cohort 每行 modes 与 KO/KD route 校验
+
+src/integration/perturbgen/frozen_cohort.py 将 intervention_type、modes、seeds 和 matched_nulls 记录到每个 FrozenCandidate 行，而不是用一个不分 route 的全局 mode 掩盖候选差异：
+
+- KO formal sensitivity plan 要求 mask、pad、delete；
+- KD 只能使用 mask，拒绝 pad/delete；
+- overexpress 是独立的单 mode，不能与 KO sensitivity modes 混用；
+- 每个候选至少 3 个 seed、至少 99 个 matched null。
+
+train/held-out donor 仍要求至少 2/3 且互斥。tests/unit/integration/perturbgen/test_frozen_cohort.py 覆盖 manifest、acceptance plan、route/mode 和 donor leakage。这里是现有冻结 cohort 接口的 route 边界复核，不是已有真实 M6 PASS。
+
+### 中高：F-01 E2E 只增加明确的统计状态，不虚报自动接续
+
+scripts/run_davf_perturbgen_e2e.py 当前会明确写：
+
+    statistical_evidence.status = "inconclusive"
+    statistical_evidence.scientific_acceptance = false
+
+未请求 PerturbGen 时 reason 为 perturbgen_not_requested；请求六阶段但未组装统计时 reason 为 statistical_evidence_not_assembled，并仅列出现有 null、report、empirical-p 和 dual-path 接口。
+
+这一步只提供状态边界，绝不能写成统计自动接续已经实现。E2E 仍只汇总 stage results/stage_manifest；它没有自动调用 matched-null、未扰动质量提取、candidate p/q 聚合和 dual-path formal evaluator，也没有生成正式科学结论。
+
+### 未闭合：F-02 跨候选公共 prepare/reuse
+
+当前编排器能在单个 invocation 内规划六阶段，E2E 仍按候选建立输出目录并重复执行 tokenise、train_mask、train_decoder、两路 perturb、export_gene_embeddings 和 report。固定 cohort、词表、训练配置和资产版本后公共 prepare 一次、候选循环只运行两路 perturb/效用仍是目标，不是当前实现。
+
+### 未闭合：F-09 outer invocation gate 与 runner 边界
+
+正式 scripts/run_perturbgen_pipeline.py 在选择 perturb 或 --path 时要求绑定通过的 E2E gate report，并校验 gene、mode、canonical Ensembl、route、seed、path 和 config 绑定；orchestrator 只为 direction gate 通过的候选创建 invocation。
+
+但低层 src/integration/perturbgen/runner.py 仍只执行 StagePlan、GPU lock、manifest 和 resume，不自行重查 gate。当前外层已有 gate，低层 runner 仍只跑 StagePlan；正式公开入口边界尚未统一到 runner。不能把 runner 缺口写成已解决，也不能因此放宽 outer invocation 要求。
+
+### 既有接口/边界复核：U-02、U-03、U-04、U-06、U-07
+
+U-02 candidate empirical-p 聚合、U-03 formal 输入隔离、U-04 未扰动质量提取、U-06 pathway 次级接口、U-07 Gate-E 前保留 Geneformer，及同类 U 条目在本报告只记为**现有接口/边界复核**：
+
+- 它们不是本轮新增；
+- 接口存在不等于真实资产已经运行；
+- engineering/synthetic/mock 结果不等于 formal scientific result；
+- U-06 pathway 不改变双路径硬判定；
+- Gate-E 未完成前不能删除 Geneformer。
+
+## 2. 系统性训练/E2E 推理复核
+
+下表把代码现状、资产现状和正式 PASS 分开记录。
+
+| 项目 | 代码现状 | 资产现状 | 能否正式 PASS |
 |---|---|---|---|
-| **U-01 / TD-13-02** | §4.2：只有 `select_matched_nulls`，无 batch 生成端；目标 `run_matched_null_stages(...) → perturbgen_null_distribution/v1` | 新增 `src/integration/perturbgen/null_generation.py` 与 `scripts/run_matched_null_stages.py`。选择方案 1（复用 perturb-only stage plan），拒绝伪造 invocation。CLI 支持 `--dry-run` / `--records-json`；GPU 路径强制 `rescue_extractor` | **代码闭合**。正式 ≥99 GPU 矩阵仍依赖 A-01/A-05 |
-| **U-02 / TD-13-08** | §4.2 / §6.2：单 run `(k+1)/(n+1)` 不进 dual-path AND；无跨 path/mode/seed 聚合 | `aggregate_candidate_empirical_pvalues`；estimand=`conservative_max_required_runs`。path AND 仍用 rescue/donor/null **count**；p 只上候选层 BH。`evaluate_perturbgen_dual_path.py` 在 formal 下用聚合 p 而不是 payload 里的 `candidate_pvalue` | **代码闭合**。Estimand 已声明，未发明 Fisher |
-| **U-03 / TD-13-01** | §4.2：`uniform_candidate_pvalue` 可改正式 q/verdict | assembler/evaluator/CLI `--evaluation-mode formal` 拒绝 uniform/外部表。engineering 仍可 `verdict=pass` 但 `scientific_acceptance=false` | **代码闭合** |
-| **U-04** | §4.2：`evaluate_unperturbed_quality` 仅测试；CLI 手填 status | `extract_unperturbed_quality_from_h5ad`：pred vs true 的 DEG 方向恢复 + held-out signature Pearson。formal 要求 `source=extract_unperturbed_quality_from_h5ad` | **代码闭合**。真实质量仍要合规 h5ad |
-| **U-05 / TD-13-03** | §4.2：训练/tokenise 无 `train_donors`/`held_out_donors` | `donor_split.py`：≥2 train / ≥3 held-out、互斥、SHA、与 frozen manifest 逐值绑定。`train_latent_davf.py` 与 `run_davf_perturbgen_e2e.py` 增加 `--train-donors` / `--held-out-donors` / `--frozen-cohort-manifest` / `--require-donor-split`，写入 checkpoint metrics 与 E2E report | **接口闭合**。未提供列表时 `donor_split_status=unspecified`，禁止声称 held-out 未泄漏 |
-| **TD-13-04** | §6.1：`finetune_davf_e2e.build_model` 无条件 `PTMDirectionMapper()`，token ID 错配 PerturbGen 表 | `--embedding-asset` 必填；`build_model` 必须 `build_perturbgen_direction_mapper()` | **代码闭合** |
+| donor split / held-out | CLI、frozen manifest 绑定和训练 metadata/row donor fail-fast 已有；缺绑定时不能声明无泄漏 | 现有训练资产没有完成可追溯的 formal train-only/held-out row provenance | 否；需 A-02/A-03 |
+| scVI gene order / embedding manifest | 当前 checkpoint contract 校验 64/4018、canonical ENSG、无版本后缀、无重复，并校验冻结 embedding manifest | 本地旧 checkpoint 的 gene_names 不合规 | 否；必须重训/重导出合规 checkpoint |
+| DAVF gate | route-specific DAVF → decode delta → PTM proposal/independent expression 三方 gate；gate 不通过不生成 invocation；zero_fallback 证据被拒绝 | 本次 real_assets 失败暴露旧 checkpoint，不能转成真实方向证据 | 只能 PASS 工程准入，不能 PASS 生物学方向 |
+| PerturbGen 六阶段 | 固定为 tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report；runner 执行 StagePlan | 只有本地小规模 smoke/模拟边界，未形成 formal cohort 运行 | 否 |
+| 双路径 AND | source_intervention=[src] 与 within_state=[tgt]+pert_tps 分开执行；正式结果保留双路径 AND；KO/KD mode 规则已约束 | 没有合规 donor、三 seed 和可审计两路结果 | 否 |
+| null / p/q / quality | null 生成、身份记录、candidate empirical-p、未扰动质量等接口存在；formal 缺输入会失败 | 没有正式 >=99 matched null × dual path × >=3 seeds 和真实 quality evidence | 否 |
+| Gate-E | required sections、benchmark IDs、canonical Ensembl coverage、collision 和 paired non-inferiority 有硬边界 | 没有 >=200 个固定且可追溯 benchmark 的正式结果 | 否 |
+| 统计自动接续 | E2E 明确写 inconclusive/false，不自动串接 null、quality、p/q、dual-path | 没有统计 lineage report | 否；F-01 未闭合 |
+| 跨候选 prepare/reuse | 当前每候选重复准备和训练；没有公共 prepare/reuse 生命周期 | 无可复用的正式公共准备 manifest | 否；F-02 未闭合 |
+| outer gate / runner | outer CLI 和 invocation 有 gate；runner 只执行 StagePlan | 其他低层 caller 仍可能绕过 outer formal wrapper | 当前只能按 outer 入口运行，F-09 未统一 |
 
-### 3.2 中：U-06～U-07 与 TD-13-05～12
+上述判断对应 project_analysis_20260913.md §4.3、§4.4、§4.5、§6.2、§7，以及方案 §4.6、§4.7、§5.4、§7.2。L-2026-0902-01 要求当前 LatentDAVF/scVI/embedding asset 契约；L-2026-0902-02 要求串联 gate；L-2026-0902-03 明确真实 bridge 不等于 PerturbGen 生物学验收；L-2026-0913-01 又明确了方向语义、证据独立性和双路径执行边界。
 
-| ID | 决策 | 状态 |
+## 3. 迭代验证记录
+
+### 3.1 针对性 pytest
+
+针对性 pytest 原始结果（原样记录）：
+
+    100 passed / 8 warnings / 13.17s
+
+这只证明本轮合同、身份绑定和边界测试通过，不证明真实 cohort、GPU null、Gate-E 或 biology PASS。
+
+### 3.2 全量回归
+
+原始命令：
+
+    python -m pytest -m "not slow and not gpu" --timeout=300
+
+原始结果：
+
+    exit 1
+    2623 passed / 1 failed / 21 skipped / 67 warnings / 800.73s
+
+唯一失败：
+
+    tests/integration/test_scvi_davf_connection.py::test_real_current_davf_direction_keeps_token_and_decoder_indices_separate
+
+原因是本地 checkpoints/davf/latent_davf_perturbgen_4018/best_model.pt 的 checkpoint.scvi.gene_names 不是 canonical ENSG，新的 contract hard-fail；随后 zero_fallback 证据被拒绝。这里没有代码回退，也不是通过 skip 或 fallback 掩盖失败。
+
+### 3.3 静态与构建检查
+
+| 命令 | 原始结果 |
+|---|---|
+| ruff check src scripts tests | 通过 |
+| python -m mypy src/ --ignore-missing-imports | 165 个源文件，0 errors |
+| python scripts/check_requirements_consistency.py | 通过，274 lock pins |
+| python -m compileall -q src scripts | 通过 |
+| python -m ruff format --check src scripts tests | exit 1；339 文件需格式化，124 文件已格式化；未批量改写 |
+
+slow、gpu 本轮未执行。real_assets 没有形成正式验收。默认测试中的 mock、synthetic、smoke 和 bridge 只能证明工程接口或执行链，不等于 biology PASS。本次失败的 real_assets 标记测试恰好暴露旧 checkpoint，不得用 skip 或 fallback 掩盖。
+
+### 3.4 当前工作树
+
+当前源码/测试既有改动统计仍为：
+
+    21 files / 576 insertions / 34 deletions
+
+本轮没有提交，也没有执行 reset、checkout、回滚或长时间测试。
+
+## 4. 未解决根因、策略与时间窗
+
+时间以取得合规外部资产并完成负责人确认的工作日为起点；GPU 墙钟不折算成编码工作日。
+
+| 项目 | 未解决根因与最低完成条件 | 依赖与时间窗 |
 |---|---|---|
-| **U-06** | 方案 §4.7 硬 PASS 未列 GSEA；L-2026-0901-01 提到 pathway 效用。新增 `pathway_evidence.py`，默认 `backend=none` → inconclusive，**禁止**写 dual-path 判决 | **接口闭合 / 次级**。未接 gseapy 执行 |
-| **U-07** | 方案 §7.2 M7：Gate-E 未过不得删。保留 `geneformer_embedding.py`；strict 禁止 hash fallback；production/strict 拒绝未钉扎 pickle | **按门控保留** |
-| **TD-13-05** | 不批量 format 335 文件 | **刻意未做** |
-| **TD-13-06** | pip 元数据冲突与 CI extra 取舍一致；不放宽 core pin | **文档化，未改 core** |
-| **TD-13-07** | 本轮无 `--cov`；禁止引用历史 75.27% | **未刷新覆盖率** |
-| **TD-13-08** | 与 U-02 一起：字段保留为 provenance，path 判决不用 p | **已解释并接线到候选层** |
-| **TD-13-09** | `.github/workflows/ci.yml` 两处 `--timeout=120` → **300**，与 AGENTS 对齐 | **已改 timeout**。默认 job 仍不含完整 e2e/real_assets（与 nightly `full-test.yml` 分层一致） |
-| **TD-13-10** | production 无 schema v2 asset 则硬失败；非 production 标 `davf_path_class=legacy_fusion_demo` | **生产路径闭合**。未改默认 10×5000 以免打坏单测 |
-| **TD-13-11** | pickle 需 `PTM2CELLNET_GENEFORMER_VOCAB_SHA256` 或 `ALLOW_GENEFORMER_PICKLE`；**production/strict 拒绝**，非 production 警告后加载（否则会打断大量 Geneformer demo 测试） | **生产热点闭合** |
-| **TD-13-12** | `docs/guides/deployment.md` 写明 `PTM2CELLNET_ENV=production`、API key、pickle pin | **文档闭合**。既有 `test_production_security.py` 覆盖 fail-fast |
+| A-01 合规 cohort | 提供真实 normal/disease raw counts、显式 donor、至少 3 个共享 donor、canonical Ensembl、冻结 scVI gene order 和 embedding/manifest；通过 Gate-0 | 外部数据 owner、anndata/scVI 处理；T0–T10 工作日；没有数据就停止科学声明 |
+| 旧 checkpoint | 隔离 checkpoints/davf/latent_davf_perturbgen_4018/best_model.pt；按当前 LatentDAVF schema、canonical ENSG、冻结 embedding asset 和 manifest 重训/重导出 | 外部合规 scVI 与 GPU；A-01 后约 T+2–T+8 工作日，资产就绪后 1–3 个 GPU 日 |
+| A-02/A-03 held-out DAVF | 冻结至少 2 个 train donor 与至少 3 个 held-out donor，写入 pair row metadata 和 checkpoint provenance，报告 held-out 方向指标 | A-01、真实 donor split、GPU；T+2–T+8 工作日 |
+| A-04 Gate-E >=200 | 提供至少 200 个固定、可追溯 PTM→gene benchmark，old/new vocabulary 和 paired DAVF 结果全部齐全，满足 coverage、collision、action-code 和 non-inferiority 门 | benchmark owner、旧基线、DAVF 资产；可与 A-02/A-03 并行，T+5–T+12 工作日 |
+| A-05 formal null | 对每个候选执行 >=99 matched null，覆盖两路径、route/mode 和 >=3 seeds，保留 stage/result hash、rescue、candidate p/q 和双路径 AND | A-01、旧 checkpoint、PerturbGen 独立环境、GPU/磁盘；A-01 后 T+3–T+10 GPU 日，墙钟另计 |
+| F-01 统计自动接续 | 将已有 null、quality、empirical-p/q 和 dual-path 接口串入 E2E report，所有 provenance 写回同一 lineage；未定义的 estimand 先由统计负责人确认 | A-01/A-05、统计负责人、PerturbGen 维护者；接口实现约 3–5 工作日，不包含 GPU |
+| F-02 公共 prepare/reuse | 固定 cohort、词表、训练配置和资产版本后公共执行 tokenise/train_mask/train_decoder；候选循环只执行两路 perturb/效用 | runner/orchestrator、外部环境、GPU 和磁盘；约 2–4 工作日，必须先设计可审计生命周期 |
+| F-09 invocation/runner 边界 | 明确 formal invocation wrapper 是唯一公开正式入口，或让 runner 接受并验证 gate context；不得影响内部 StagePlan/null/engineering caller | API/runner owner；约 0.5–1.5 工作日；当前 outer gate 已有、低层 runner 仍未统一 |
+| 语义参考轴 | 由研究负责人冻结 context、intervention、comparison_baseline、reference_axis、research_objective 和各证据来源；不使用全局同号/取反 | 统计与生物学负责人；约 1–3 工作日；必须先于正式候选验收 |
 
-### 3.3 低 / 非本轮范围
+推荐顺序是：先冻结语义与 cohort/train-only/held-out 划分；取得 A-01 并重导出合规 checkpoint；再完成 F-09/F-02 的执行边界和 A-02/A-03；随后接续 F-01，执行 A-05；A-04 Gate-E 和 Gate-4/Gate-5 证据齐全后才讨论发布。不要新增 hash、调度框架或兼容开关来假设公共 reuse 已实现。
 
-- 分析 §6.3 低债（signaling TODO、CodeGraph 滞后、`LatentDAVF` 仍 import Geneformer）未改。
-- 验收缺口 **A-01～A-06**（§4.3）是资产，不是本轮能闭环的科学 PASS。
+## 5. 公开入口与审计锚点
 
----
+正式候选入口仍是：
 
-## 4. 每轮迭代的执行情况与结果
+    PTM site presence
+    → external proposal / candidate_spec
+    → scVI context + route-specific DAVF
+    → independent donor-level expression direction
+    → three-way direction gate
+    → CandidateEvidence / PerturbGenInvocation
+    → six stages
+    → source_intervention + within_state
+    → statistical evidence
 
-### 4.0 同日既有成果（较早 worker，不在本会话重做）
+source_intervention=[src] 表示状态转移前场景；within_state=[tgt]+pert_tps 表示目标状态内场景。单路结果只属于对应场景，不能外推成普遍治疗疗效；两路都通过才允许 formal dual-path AND。
 
-权威分析 §1 与 `docs/CURRENT_STATUS.md` 已记录：
+关键源码与测试锚点：
 
-- runner 报告与当前 YAML 的 gene/mode/Ensembl/route/seed/path 绑定；
-- 显式 KO/KD rescue 模式（KO/up 才 2-of-3；KD/up 仅 mask）；
-- N-05 lineage：tokenise stage 精确绑定 + runner 已登记的 `result_h5ad.sha256`。
+- semantic_context、CandidateEvidence、PerturbGenInvocation：src/integration/perturbgen/contracts.py、orchestrator.py；tests/unit/integration/perturbgen/test_contracts.py、test_orchestrator.py；
+- 三方 gate 与 route：src/integration/perturbgen/direction_gate.py、orchestrator.py；tests/unit/integration/perturbgen/test_orchestrator.py；
+- null 计划、记录和非候选边界：src/integration/perturbgen/null_generation.py；tests/unit/integration/perturbgen/test_null_generation.py；
+- Gate-E：src/integration/perturbgen/gate_e.py；tests/unit/integration/perturbgen/test_gate_e.py；
+- frozen cohort、modes、donor split：src/integration/perturbgen/frozen_cohort.py、scripts/train_latent_davf.py、src/data/davf_scperturb.py；tests/unit/integration/perturbgen/test_frozen_cohort.py、tests/unit/scripts/test_train_latent_davf.py；
+- checkpoint/scVI gene order：src/models/davf_checkpoint_contract.py；tests/unit/models/test_davf_checkpoint_contract.py；
+- E2E 状态和 Gate-0：scripts/run_davf_perturbgen_e2e.py；tests/unit/scripts/test_run_davf_perturbgen_e2e.py；
+- outer gate binding 和 runner 边界：scripts/run_perturbgen_pipeline.py、tests/unit/scripts/test_run_perturbgen_pipeline.py、tests/integration/test_perturbgen_pipeline_mocked.py。
 
-本轮 **不把上述工作算进本会话的 diff**，但 E2E 复核会把它当作已存在的工程底座。
-
-### 4.1 迭代 1 — 接口与隔离（实现）
-
-对照分析 §4.2 目标接口与 §7 建议优先级（TD-13-01/U-03 → U-02 → U-05 → U-01 → A-01）：
-
-| 模块 | 作用 |
-|---|---|
-| `src/integration/perturbgen/null_generation.py` | U-01 生成/收集 |
-| `src/integration/perturbgen/empirical_pvalue.py` | U-02 聚合 |
-| `src/integration/perturbgen/donor_split.py` | U-05 SHA 绑定 |
-| `src/integration/perturbgen/pathway_evidence.py` | U-06 次级 |
-| `eval_assembly.py` / `dual_path.py` / `evaluate_perturbgen_dual_path.py` / `build_dual_path_eval_input.py` | U-03/U-04 formal 隔离 |
-| `results.py` `extract_unperturbed_quality_from_h5ad` | U-04 生产者 |
-| `train_latent_davf.py` / `run_davf_perturbgen_e2e.py` | U-05 CLI |
-| `finetune_davf_e2e.py` / `architectures.py` | TD-13-04 / TD-13-10 |
-| `geneformer_embedding.py` | U-07 / TD-13-11 |
-| `.github/workflows/ci.yml` | TD-13-09 timeout 300 |
-
-第一性原理拒绝项：不把 null 做成假 candidate；不在缺 run 时填 p；不在 Gate-E 前删 Geneformer；不全仓 ruff format。
-
-### 4.2 迭代 2 — 测试与 pickle 政策修正
-
-新增/扩展单测覆盖 U-01～U-07 与 formal CLI。首次把 pickle **默认拒绝** 后，`test_architecture_davf_integration` 等 legacy fusion 用例在加载官方 hub pickle 时失败（`GeneformerVocabularyError`）。
-
-独立决策：热点控制应对准 **production/strict**，而不是破坏非生产 demo。改为：
-
-- `PTM2CELLNET_ENV=production` 或 `strict=True`：未钉扎 pickle → 拒绝；
-- 非 production：警告 + 加载（与「大量测试依赖 legacy_fusion_demo」一致，见分析 §6.1 TD-13-04 方案 1 的缺点说明）。
-
-针对性复测：architecture / pickle / frozen / ptm_module_switch **43 passed**。
-
-### 4.3 迭代 3 — 全量回归与夹具缺口
-
-第一次全量：`2608 passed, 2 failed`。失败不是生产逻辑回退：
-
-1. `test_run_davf_perturbgen_e2e.py` 的 `SimpleNamespace` 未带新 donor 字段 → 补 `train_donors=None` 等默认值。
-2. Geneformer `__new__` 回归夹具未设 `strict` → 补 `loader.strict = False`。
-
-### 4.4 迭代 4 — 干净全量
-
-```text
-python -m pytest -m "not slow and not gpu" --timeout=300
-2610 passed, 21 skipped, 73 warnings in 699.36s, exit 0
-```
-
-21 skipped 主要为 `real_assets` / 个别 gpu 标记，与「本轮不做生物学 PASS」一致。
-
----
-
-## 5. 系统性复核：E2E 训练与推理是否满足技术要求
-
-对照方案 §4.6 / §4.7 / §5.4 与分析 §4.4 主线图。判定分三列：**代码契约**、**本机资产**、**能否声称科学 PASS**。
-
-### 5.1 训练（LatentDAVF）
-
-| 技术要求 | 代码 | 资产 | 科学 PASS |
-|---|---|---|---|
-| schema v2：`latent_dim=64`、`num_genes=4018`、冻结 PerturbGen asset（L-2026-0902-01） | 训练入口已强制 embedding asset / scVI 校验 | 本机已有 KO/KD checkpoint 与 asset | 不能把验证 loss 当 held-out 方向准确率（训练指南已写明） |
-| 训练 donor 与 held-out 互斥（方案 §4.6-2；frozen ≥2/≥3） | CLI + SHA + 可选 frozen 绑定 | 调用方必须显式给列表；历史 2026-09-04 复训 **未** 绑定 | 未绑定则 `unspecified`，**不能**声称无泄漏 |
-| pair NPZ 与 CLI split SHA 一致 | trainer 会比对 NPZ `metadata.donor_split` | 现有 pair 未必带该字段 | 缺字段时不编造 |
-
-**根因（若未达科学训练要求）：** 缺口从「入口没有 donor 参数」变成「外部未提供与 frozen 一致的 ≥5 donor 划分，且历史 checkpoint 无 split provenance」。这是 A-03 / TD-13-03 的资产后半段，不是缺函数。
-
-### 5.2 推理桥接（PTM → DAVF → 三方 gate → invocation）
-
-| 技术要求 | 代码 | 资产 | 科学 PASS |
-|---|---|---|---|
-| 不得绕过 DAVF gate（L-2026-0902-02，AGENTS 主线） | orchestrator 仍只对 pass 生成 invocation | — | 工程满足 |
-| 独立表达方向 + FDR | 既有 direction gate | 需要观测 log2fc/FDR | 无合规 cohort 时只能跑契约 |
-| API/融合 `use_davf` | production 无 asset 硬失败；否则 `legacy_fusion_demo` | 正式路径必须 schema v2 asset | 融合 10×5000 **不是** 正式 64×4018 |
-| finetune mapper | 锁定 PerturbGen mapper | 旧混用 checkpoint 无法靠改 mapper 挽救（分析 §6.1 TD-13-04 风险） | 旧 finetune 权重若存在，需作废重训 |
-
-### 5.3 PerturbGen 六阶段与双路径效用
-
-| 技术要求（方案 §4.7） | 代码 | 资产 | 科学 PASS |
-|---|---|---|---|
-| Gate-0：raw counts + Ensembl + normal/disease + 显式 donor + ≥3 shared | `data_prep` / E2E preflight 仍硬失败 | 分析 §4.3 A-01：30/26/**0** 合规 | **否** |
-| 双路径 AND、KO 2-of-3、KD mask-only | `dual_path.py`（含本轮 KD 单测） | — | 工程满足 |
-| 正式 ≥99 匹配 null + `(k+1)/(n+1)` + 候选 BH | 选择器 + **生成端** + 聚合器 + formal 拒绝 uniform | 未跑正式 GPU 99×双路径×3 seed（A-05） | **否** |
-| 未扰动质量门（§5.4） | 提取器存在；formal 拒手填 | 需要真实 pred/true h5ad | 合成 h5ad 单测 ≠ 发布 |
-| `q_value < 0.05` 来自 empirical 而非 uniform | formal 路径已强制 | 无真实 null rescue 就不能出真 q | **否** |
-| pathway/GSEA | 次级接口，不影响 AND | 无 GMT 合同 | 按方案 **不作为** 硬 PASS |
-| Gate-E ≥200（§5.4 / §7.2 M7） | `gate_e.py` 工具在 | 无真实基准 CSV（A-04） | **不得删 Geneformer** |
-
-### 5.4 总判
-
-**满足 E2E 训练/推理的工程技术要求（可编排、可拒绝假 PASS、可绑定 donor、可生成 null 计划）。不满足正式科学验收的全部技术要求。**
-
-阻塞性根因按分析 §4.3 / §7 排序：
-
-1. **A-01 无合规 `normal/disease` 队列** → Gate-0 过不了，后续 tokenise/perturb/null 只能是 smoke。根因：本机 scPerturb 不是该契约（L-2026-0822-06）。
-2. **A-05 正式 GPU 矩阵未跑** → 即使生成器在，也没有 3 seed × 双路径 × ≥99 null 的真实 rescue 分布。根因：依赖 1 + PerturbGen 独立环境墙钟，不是缺 `run_matched_null_stages`。
-3. **A-02/A-03 冻结队列与 held-out DAVF 指标** → split 接口在，真实列表与 pair 未按 SHA 冻结重训。
-4. **A-04 Gate-E** → 挡住 U-07 删除 Geneformer。
-
-这些 **不能** 用 2610 passed 抵消。
-
----
-
-## 6. 未解决问题及后续解决策略
-
-### 6.1 阻塞 / 高（科学发布）
-
-| 项 | 策略 | 实施步骤 | 时间节点 |
-|---|---|---|---|
-| **A-01 合规 cohort** | 外部数据，不改契约迁就 scPerturb | 1. 选定带显式 donor 的 normal/disease raw-count 队列；2. Ensembl canonical；3. `prepare_perturbgen_anndata` Gate-0 必须 pass；4. 登记 evidence JSON | **T0～T10 工作日（数据依赖，非编码）**。无数据则停止科学声明 |
-| **A-05 正式 null GPU 矩阵** | 用已落地生成器，禁止手填 rescue | 1. `select_matched_nulls`；2. 对每个 candidate/path/主 mode/seed 调 `run_matched_null_stages`（真 runner + 显式 `rescue_extractor`）；3. 写出 `perturbgen_null_distribution/v1`；4. formal assembler → evaluator | **在 A-01 之后 T+3～T+10 GPU 日**（99×路径×seed 墙钟）。之前只允许 `--dry-run` |
-| **A-02/A-03 M6 + held-out DAVF** | `--require-donor-split` 作为正式训练默认 | 1. 冻结 ≥2/≥3 互斥列表并写入 pair NPZ；2. `train_latent_davf.py --require-donor-split --frozen-cohort-manifest`；3. `evaluate_latent_davf.py` 按 held-out 基因/donor 报方向指标，不把 flow loss 当准确率 | **A-01 后 T+2～T+8** |
-| **A-04 Gate-E ≥200** | 工具已在；缺基准 | 准备可追溯 PTM→gene CSV，跑 `gate_e.py`，对照旧冻结基线 | **与 M6 并行，T+5～T+15**。未过则 **禁止 M7 删 Geneformer** |
-| **旧 finetune 混用权重（TD-13-04 风险）** | 作废重训 | 凡 `PTMDirectionMapper()` 时代产出的 finetune checkpoint 不得再用于 PerturbGen asset 表 | **发现即隔离，0.5 日清点** |
-
-### 6.2 中（工程债，不挡科学声明之外的开发）
-
-| 项 | 策略 | 步骤 | 时间节点 |
-|---|---|---|---|
-| TD-13-05 format | **不要**一次 PR 改 335 文件 | 新文件在提交前 format；可选 CI 只检查 diff | 持续；专项 PR 另排 |
-| TD-13-06 pip check | 维持 core pin | 不把 scgpt/torchaudio 冲突塞进 core | 无截止 |
-| TD-13-07 覆盖率 | 独立环境 `--cov`，禁止抄 75.27% | 与 CI `fail_under=74` 对齐后更新 `docs/TEST_COVERAGE.md` | 下一次专门覆盖率会话 |
-| TD-13-09 默认 CI 无完整 e2e | 保持分层 | PR 跑 unit/integration；nightly `full-test.yml` | 无截止 |
-| U-06 gseapy 执行 | 仅在有签字 GMT/estimand 后接线 | 保持 `affects_dual_path_verdict=False` | 统计/生物学负责人签字后 1～2 日 |
-| pickle 非 production 仍 load | 接受为 demo；生产必须 pin 或 json | 部署检查清单已写 | 生产上线前 |
-
-### 6.3 明确不做
-
-- 重建实时质谱流 / 自定义 PTM 库 / GUI / 新 API-key 产品（分析 §1，AGENTS）。
-- 猜 checkpoint、token 映射或「最新文件」替代 manifest。
-- 在 Gate-E 前删除 `geneformer_embedding.py`。
-- 把 Datlinger smoke、synthetic AnnData 或 2610 passed 写成效用 PASS（L-2026-0902-03）。
-
----
-
-## 7. 关键实现锚点（便于审计）
-
-| 能力 | 位置 |
-|---|---|
-| Null 生成 | `src/integration/perturbgen/null_generation.py` `run_matched_null_stages`；CLI `scripts/run_matched_null_stages.py` |
-| 候选 p 聚合 | `src/integration/perturbgen/empirical_pvalue.py` `CONSERVATIVE_MAX_ESTIMAND` |
-| Formal 隔离 | `eval_assembly.build_eval_input_payload(evaluation_mode=...)`；`scripts/evaluate_perturbgen_dual_path.py`；`scripts/build_dual_path_eval_input.py --evaluation-mode` |
-| 未扰动质量 | `results.extract_unperturbed_quality_from_h5ad` |
-| Donor split | `donor_split.build_donor_split`；`scripts/train_latent_davf.py`；`scripts/run_davf_perturbgen_e2e.py` |
-| Pathway 次级 | `pathway_evidence.evaluate_pathway_evidence` |
-| Production DAVF | `architectures.py` `davf_path_class`；`PTM2CELLNET_ENV=production` |
-| Finetune mapper | `scripts/finetune_davf_e2e.py` `build_model` |
-| CI timeout | `.github/workflows/ci.yml` `--timeout=300` |
-
----
-
-## 8. 与权威分析建议的偏差（有意）
-
-分析 §7 建议优先级完整执行了代码段（U-03→U-02→U-05→U-01）。未执行 A-01 外部数据，因为那不是本仓库能「修复」的缺口。
-
-相对分析文本的有意偏差：
-
-1. **U-02 estimand**：分析说规则未定前 formal 应拒绝 PASS。本轮 **同时** 落地一条保守、可审计的 max 规则，并让 formal 只走该规则。若统计负责人日后否定 max，应改 `empirical_pvalue.py` 并升 schema，而不是再引入静默 uniform。
-2. **TD-13-10**：未把融合默认维数改成 64×4018。
-3. **TD-13-11**：未在非 production 默认拒绝 pickle（否则 legacy 测试与 demo 全挂）。
-4. **TD-13-05**：未全仓 format。
-
-这些偏差服务于「堵住假正式 PASS、不破坏可维护的工程测试」这一第一性原理，而不是回避问题。
-
----
-
-## 9. 验证命令（可复现）
-
-```bash
-python -m pytest -m "not slow and not gpu" --timeout=300
-ruff check src scripts tests
-python -m ruff format --check src scripts tests   # 预期仍大量 Would reformat
-python -m mypy src/ --ignore-missing-imports
-python scripts/check_requirements_consistency.py
-```
-
-GPU null 生成必须在沙箱外、PerturbGen 独立环境中执行，且必须提供 `rescue_extractor`。本轮 **没有** 跑该 GPU 矩阵，也 **没有** 重训 DAVF。
+最终判定：本轮完成的是工程契约收紧与真实失败暴露；正式科学验收仍为 inconclusive，**没有生物学 PASS**。

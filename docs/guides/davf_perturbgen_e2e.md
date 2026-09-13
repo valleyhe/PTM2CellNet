@@ -45,7 +45,16 @@ checkpoint 干预类型。
       "ptm_context": "STAT3:S12",
       "observed_log2fc": -1.0,
       "observed_fdr": 0.01,
-      "observed_direction": "down"
+      "observed_direction": "down",
+      "semantic_context": {
+        "context": "normal_to_disease_transition",
+        "intervention": "KO",
+        "comparison_baseline": "normal_donor_baseline",
+        "reference_axis": "disease_minus_normal",
+        "research_objective": "reversal",
+        "evidence_source": "donor_level_expression_and_davf_decode",
+        "cohort": "cohort_manifest_v1"
+      }
     }
   ]
 }
@@ -54,6 +63,15 @@ checkpoint 干预类型。
 `context_h5ad` 的基因顺序和 scVI checkpoint 必须完全一致，并且包含保存模型
 要求的协变量；当前 KO/KD 模型要求 `davf_batch`。候选的 symbol/Ensembl pair
 还必须同时存在于 DAVF alias asset 和 verified PerturbGen vocabulary。
+
+公开 candidate spec 的每个候选都必须提供 `semantic_context` 的七个字段：
+`context`、`intervention`、`comparison_baseline`、`reference_axis`、
+`research_objective`、`evidence_source`、`cohort`。`research_objective` 只能是
+`association`、`replication` 或 `reversal`；缺失、空值或非法值会在 formal
+`PerturbGenInvocation` 处硬失败。`semantic_context.intervention` 必须与当前
+KO/KD route 一致，candidate 与 invocation 的七字段必须一致。示例中的值只是
+schema 示例，实际 reference axis、cohort 和证据来源必须由研究设计明确填写，不能
+用全局同号/取反代替。
 
 候选中的 `proposed_direction` 是外部用户假设或 `--proposal-direction-map` 的
 site-level override；`observed_direction` 若来自 GSE，含义是 donor-level
@@ -78,6 +96,12 @@ counts→`X`→恢复 counts→重算 `n_counts` 接线，prepared copy 的新�
 materialize；原始 tokenise 输入中的 Ensembl ID 必须已经是 canonical 值，脚本会在
 进入 stage 前硬失败，不会凭空写入 X/layer 或另造输入文件。本轮未运行真实
 tokenisation。
+
+E2E 报告中的 `statistical_evidence` 当前只会明确写出
+`status="inconclusive"` 和 `scientific_acceptance=false`。E2E 不会自动产生或
+宣称 matched-null、未扰动质量、候选 p/q 或双路径 AND 的科学结论；这些统计接口
+仍需在真实 cohort、真实资产和正式统计 lineage 就绪后显式组装。mock、synthetic、
+smoke 或 bridge 运行不等于 biology PASS。
 
 ## 只执行真实 DAVF 与方向 gate
 

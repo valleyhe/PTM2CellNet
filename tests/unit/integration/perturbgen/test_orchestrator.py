@@ -23,6 +23,18 @@ GENE = "STAT3"
 ENSEMBL = "ENSG00000168610"
 
 
+def _semantic_context(route: str = "KO") -> dict[str, str]:
+    return {
+        "context": "disease",
+        "intervention": route,
+        "comparison_baseline": "normal",
+        "reference_axis": "disease-minus-normal",
+        "research_objective": "replication",
+        "evidence_source": "donor_expression+davf_decode",
+        "cohort": "formal",
+    }
+
+
 def _proposal() -> PTMSiteDirectionProposal:
     return PTMSiteDirectionProposal(
         gene_symbol=GENE,
@@ -92,6 +104,7 @@ def test_prepare_candidate_uses_explicit_ko_route_not_ptm_type_direction():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context(),
     )
 
     assert preparation.status == "pass"
@@ -112,6 +125,7 @@ def test_invocation_rejects_davf_score_that_is_not_bound_to_confidence():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context(),
     )
     assert preparation.invocation is not None
     candidate = replace(preparation.invocation.candidate, davf_score=0.4)
@@ -131,6 +145,7 @@ def test_prepare_candidate_blocks_perturbgen_when_direction_gate_fails():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context("KD"),
     )
 
     assert preparation.status == "fail"
@@ -162,6 +177,7 @@ def test_prepare_candidates_requires_symbol_ensembl_pair_from_verified_aliases()
             observed_log2fc=-1.0,
             observed_fdr=0.01,
             observed_direction="down",
+            semantic_context=_semantic_context(),
         )
 
 
@@ -175,6 +191,7 @@ def test_materialize_candidate_config_rewrites_target_and_records_route(tmp_path
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context(),
     )
     assert preparation.invocation is not None
     config = {
@@ -221,6 +238,7 @@ def test_merge_route_preparations_merges_only_by_ensembl_id():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context(),
     )
     kd = DAVFPerturbGenOrchestrator(davf_module=_FakeDAVF("KD")).prepare_candidate(
         _proposal(),
@@ -230,6 +248,7 @@ def test_merge_route_preparations_merges_only_by_ensembl_id():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context("KD"),
     )
 
     merged = merge_route_preparations([ko, kd])
@@ -248,6 +267,7 @@ def test_merge_route_reports_keeps_independent_run_artifacts_under_ensembl():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context(),
     )
     kd = DAVFPerturbGenOrchestrator(davf_module=_FakeDAVF("KD")).prepare_candidate(
         _proposal(),
@@ -257,6 +277,7 @@ def test_merge_route_reports_keeps_independent_run_artifacts_under_ensembl():
         observed_log2fc=-1.0,
         observed_fdr=0.01,
         observed_direction="down",
+        semantic_context=_semantic_context("KD"),
     )
     reports = [
         {

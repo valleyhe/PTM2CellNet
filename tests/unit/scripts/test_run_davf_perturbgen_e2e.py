@@ -165,6 +165,15 @@ def test_run_perturbgen_formal_path_executes_gate0_before_runner(tmp_path, monke
                         "observed_log2fc": -1.0,
                         "observed_fdr": 0.01,
                         "observed_direction": "down",
+                        "semantic_context": {
+                            "context": "disease",
+                            "intervention": "KO",
+                            "comparison_baseline": "normal",
+                            "reference_axis": "disease-minus-normal",
+                            "research_objective": "replication",
+                            "evidence_source": "donor_expression+davf_decode",
+                            "cohort": "formal",
+                        },
                     }
                 ],
             }
@@ -236,6 +245,29 @@ def test_run_perturbgen_formal_path_executes_gate0_before_runner(tmp_path, monke
     assert prepare_calls[0][0] is context
     assert prepare_calls[0][1] == "Mono"
     assert payload["perturbgen_gate0"]["status"] == "pass"
+    assert payload["statistical_evidence"] == {
+        "status": "inconclusive",
+        "scientific_acceptance": False,
+        "reason": "statistical_evidence_not_assembled",
+        "interfaces": [
+            "src.integration.perturbgen.null_generation",
+            "src.integration.perturbgen.reports",
+            "src.integration.perturbgen.empirical_pvalue",
+            "src.integration.perturbgen.dual_path",
+        ],
+    }
+
+    default_args = SimpleNamespace(**vars(args))
+    default_args.run_perturbgen = False
+    default_args.perturbgen_config = None
+    default_args.dry_run = False
+    default_payload = e2e._run(default_args)
+
+    assert default_payload["statistical_evidence"] == {
+        "status": "inconclusive",
+        "scientific_acceptance": False,
+        "reason": "perturbgen_not_requested",
+    }
 
 
 @pytest.mark.parametrize(
