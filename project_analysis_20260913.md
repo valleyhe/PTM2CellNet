@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-13
 - **仓库**：`/home/scu/PTM2CellNet`
-- **Git/编译状态**：本次报告整合未执行 VCS、编译、测试、lint、mypy、依赖一致性或业务命令；当前状态**待后续执行代理回填**。下文 §2 的既有数字仅作历史背景，不代表本次验证结果。
+- **Git/编译状态（2026-09-13 执行代理真实结果）**：pre HEAD 为 `f3374d223a11749edd76a3ee6ad83e9b84b8ebdf`；`git fetch origin main` 成功，远程 `main` 为 `c76fff881f268f9bd0b39d68db8ba547115ec4cf`，`main...origin/main` 为 `59 0`。本轮内容提交为 `520e99249e41ba837965ccd4cbb33f0eac1e2cdf`，不需要 merge（`merge=no-op`）。compileall、sdist/wheel、Ruff check、mypy 和 requirements consistency 通过；format check 退出 1；pytest/业务训练按任务规则未运行。详见 §2。
 - **事实来源**：当前代码、测试、CI、`docs/CURRENT_STATUS.md`、`lessons.md` 最新条目、`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`。历史报告只作背景。
 - **可视化**：[project-analysis-20260913 canvas](/home/scu/.cursor/projects/home-scu-PTM2CellNet/canvases/project-analysis-20260913.canvas.tsx)
 
@@ -25,7 +25,7 @@
 
 主线工程按三个终点组织：候选准入（推理桥接）为 `PTM proposal/candidate_spec → scVI/PTMDirectionMapper → DAVF decode 方向 → 三方方向 gate → CandidateEvidence → PerturbGenInvocation`；准备/运行由 PerturbGen 六阶段完成；统计验收再汇总真实 null、质量、效用和双路径证据。2026-09-13 已把 runner 报告绑定到当前 YAML 身份、把 KO/KD rescue 模式写成显式 route，并把 tokenise/`result_h5ad` lineage 写进评估输入。这些是代码事实，不是生物学 PASS。
 
-历史报告记录过 `2578 passed`、`2610 passed`、ruff/mypy/requirements 等结果；本次审计没有重跑这些命令，`ruff format --check`、`pip check` 和编译状态也不作当前结论。当前 VCS/编译状态待后续执行代理回填；所有历史数字均不代表生物学结果。
+历史报告记录过 `2578 passed`、`2610 passed` 等结果；本轮执行代理没有重跑 pytest/业务训练，按授权完成了编译、打包和静态检查。`ruff format --check` 的当前结果仍为退出 1；所有离线工程数字均不代表生物学结果。
 
 同日后续代码已闭合 U-01～U-05 的匹配 null 生成、候选 empirical-p 聚合、formal 输入隔离、未扰动质量提取和 donor split 接口；U-06 仅为不影响双路径判决的 pathway 次级接口。当前科学闭环仍受以下条件限制：
 
@@ -35,7 +35,22 @@
 
 取消项（实时质谱流、自定义 PTM 库、GUI、新 API-key）不列入未实现。Gate-E 工具和 M6 verifier 已存在；缺的是合规队列、冻结资产和真实统计证据，不是缺模块文件。
 
-## 2. Phase 1：Git 与验证记录（历史背景；当前待回填）
+## 2. Phase 1：Git、编译与验证记录
+
+### 2.0 2026-09-13 执行代理真实 VCS 记录
+
+| 项 | 本次真实结果 |
+|---|---|
+| 操作前 HEAD | `f3374d223a11749edd76a3ee6ad83e9b84b8ebdf` |
+| `git fetch origin main` | 成功，2026-09-13 18:45:30–18:45:37 CST，exit 0 |
+| fetch 后 `origin/main` | `c76fff881f268f9bd0b39d68db8ba547115ec4cf` |
+| fetch 后 `main...origin/main` | `59 0`（本地领先 59、落后 0） |
+| merge | `merge=no-op`；已在 `main`，远程无落后提交，不创建 merge commit |
+| 内容提交 | `520e99249e41ba837965ccd4cbb33f0eac1e2cdf` — `feat: align PTM-DAVF-PerturbGen evidence pipeline` |
+| 内容提交后 `main...origin/main` | `60 0` |
+| 检查后工作树 | clean；报告回填前无 staged/unstaged 路径 |
+
+本节回填本次真实执行结果；下方旧表格保留历史审计背景，不覆盖历史结论。
 
 ### 2.1 版本标识（历史快照，不代表当前 VCS）
 
@@ -57,7 +72,7 @@
 
 `6a194a1` 把 2026-09-10/13 已完成的 DAVF–PerturbGen 契约收口入库：**为什么**是防止 runner 接受另一份 YAML 的通过报告、防止 KD/up 被错误要求 mask/pad/delete、以及防止评估层用目录 latest 猜测 tokenise/`h5ad` 身份。71 files, +9142/−1555。未纳入 secrets。`scripts/predict.py` 大 diff 是 CRLF→LF。
 
-### 2.3 验证命令（既有历史记录，本次未重跑）
+### 2.3 验证命令（2026-09-13 执行代理结果；pytest 按规则未运行）
 
 命令按 `AGENTS.md`：
 
@@ -68,6 +83,18 @@ python -m ruff format --check src scripts tests
 python -m mypy src/ --ignore-missing-imports
 python scripts/check_requirements_consistency.py
 ```
+
+| 检查 | 本次真实结果 |
+|---|---|
+| `python -m compileall -q src scripts` | exit 0 |
+| `python -m build --sdist --wheel --no-isolation --outdir /tmp/ptm2cellnet-build-20260913` | exit 0；生成 `ptm2cellnet-1.0.0.tar.gz` 与 `ptm2cellnet-1.0.0-py3-none-any.whl` |
+| `ruff check src scripts` | exit 0；All checks passed |
+| `python -m ruff format --check src scripts` | exit 1；182 个文件需格式化，58 个已格式化 |
+| `python -m mypy src/ --ignore-missing-imports` | exit 0；165 个 source files 无问题 |
+| `python scripts/check_requirements_consistency.py` | exit 0；274 个 lock pins 满足约束 |
+| pytest / 业务训练 | 未运行；任务明确禁止，因而没有 pytest exit code |
+
+### 2.3a 历史验证记录（仅作背景）
 
 | 检查 | 既有记录（非本次结果） |
 |---|---|
@@ -471,7 +498,7 @@ flowchart LR
 2. **当前可推进的工作**：先固定 context/intervention/比较基准/研究目标及方向来源；取得真实 cohort 后绑定训练-only/held-out donor 与冻结 manifest；在现有 invocation/runner 边界内接续 null、质量、p/q 和 dual-path 统计。不要把接口存在写成科学结果。
 3. **有资产后的顺序**：Gate-0 ≥3 shared → 完整 M6 ≥2 train + ≥3 held-out disjoint → held-out DAVF 方向 → 双路径 3 seed + ≥99 matched null → Gate-E ≥200 与 formal evidence。不要跳步把 Datlinger smoke 写成 PASS。
 4. **方向与路径边界**：观测 disease−normal 与 DAVF decode delta 必须保留参考轴；`src`/`tgt` 是实验场景，正式双路径保留 AND，单路通过不表示普遍治疗效用或治疗因果性。
-5. **不要做**：重建取消模块；猜 checkpoint/token 映射；新增 hash/调度框架/任务开关来假设跨候选 reuse；在 Gate-E 前删 Geneformer；把历史 `2578 passed` 或 `2610 passed` 当本次验证或生物学结果。当前 VCS/编译状态待后续执行代理回填。
+5. **不要做**：重建取消模块；猜 checkpoint/token 映射；新增 hash/调度框架/任务开关来假设跨候选 reuse；在 Gate-E 前删 Geneformer；把历史 `2578 passed` 或 `2610 passed` 当本次验证或生物学结果。VCS/编译真实结果见 §2。
 6. **文档**：本文件取代 20260910 分析；修复细节见根目录 `project_repair_report_20260913.md`。
 
 建议优先级：先完成 F-04 方向语义与 F-09 invocation 边界，再完成 F-02 公共 prepare/reuse、F-03 donor 行绑定和 F-01/F-05 统计 lineage，随后取得 A-01 合规 cohort，执行 A-02/A-03、A-05 和 Gate-E/formal evidence；代码接口已有项不重复规划。
