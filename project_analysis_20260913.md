@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-13
 - **仓库**：`/home/scu/PTM2CellNet`
-- **Git/编译状态（2026-09-13 执行代理真实结果）**：pre HEAD 为 `f3374d223a11749edd76a3ee6ad83e9b84b8ebdf`；`git fetch origin main` 成功，远程 `main` 为 `c76fff881f268f9bd0b39d68db8ba547115ec4cf`，**提交前** `main...origin/main` 为 `59 0`。本轮内容提交为 `520e99249e41ba837965ccd4cbb33f0eac1e2cdf`，不需要 merge（`merge=no-op`）。compileall、sdist/wheel、Ruff check、mypy 和 requirements consistency 通过；format check 退出 1；pytest/业务训练按任务规则未运行。详见 §2。
+- **Git/编译状态（2026-09-13 第三轮：契约硬化提交与全量验证）**：pre HEAD 为 `b13fe28`；fetch 后 `main...origin/main` 为 `63 0`（本地已含远程全部提交，无需 merge）。内容提交 `96ee544`（`feat: enforce semantic context and harden null/gate-e asset contracts`，24 files，+883/−311）后 push 至 `origin/main`（GitHub 仓库已更名 `PTM2CellNet`，remote URL 已同步更新），最终 `main...origin/main` 为 `0 0`。全量验证：pytest `not slow and not gpu` **2623 passed / 1 failed（已知旧资产暴露）/ 21 skipped / 933.65s**；ruff check、mypy（165 文件 0 错误）、compileall、requirements consistency（274 pins）通过；format check 退出 1（339 文件，已知债）。详见 §2。上一轮（同日早些时候）记录：pre HEAD `f3374d2`、提交 `520e992`，当时按任务规则未运行 pytest。
 - **事实来源**：当前代码、测试、CI、`docs/CURRENT_STATUS.md`、`lessons.md` 最新条目、`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`。历史报告只作背景。
 - **可视化**：[project-analysis-20260913 canvas](/home/scu/.cursor/projects/home-scu-PTM2CellNet/canvases/project-analysis-20260913.canvas.tsx)
 
@@ -10,16 +10,22 @@
 
 - [1. 执行摘要](#1-执行摘要)
 - [2. Phase 1：Git、编译与验证记录](#2-phase-1git编译与验证记录)
+  - [2.0a 第三轮 VCS 记录](#20a-第三轮契约硬化提交本节为最新)
 - [3. Phase 2：归档记录](#3-phase-2归档记录)
   - [3.1 stale_docs 只读清单与保留边界](#31-staledocs-只读清单与保留边界)
+  - [3.2 第三轮增量归档复核](#32-第三轮增量归档复核2026-09-13-晚提交-96ee544-前后)
 - [4. Task 1：未实现功能与后续验收缺口](#4-task-1未实现功能与后续验收缺口)
   - [4.5 未实现接口与业务流程](#45-本轮代码审计未实现接口与业务流程)
+  - [4.5a 第三轮状态更新](#45a-第三轮状态更新提交-96ee544-后复核)
 - [5. Task 2：部分实现模块](#5-task-2部分实现模块)
   - [5.3 主线细分完成度](#53-本轮主线细分完成度静态估算)
+  - [5.3a 第三轮重估](#53a-第三轮重估提交-96ee544-后)
 - [6. Task 3：技术债](#6-task-3技术债)
   - [6.2 F-01～F-09 当前未闭合技术债](#62-f-01f-09-当前未闭合技术债)
+  - [6.3a 第三轮新识别技术债](#63a-第三轮新识别技术债早前报告未提及)
 - [7. 结论与建议](#7-结论与建议)
 - [8. 子代理调用统计](#8-子代理调用统计)
+  - [8.1 第三轮调用统计](#81-第三轮调用统计2026-09-13-晚契约硬化提交与增量复核)
 
 ## 1. 执行摘要
 
@@ -35,9 +41,39 @@
 
 取消项（实时质谱流、自定义 PTM 库、GUI、新 API-key）不列入未实现。Gate-E 工具和 M6 verifier 已存在；缺的是合规队列、冻结资产和真实统计证据，不是缺模块文件。
 
+**2026-09-13 第三轮（契约硬化提交）后的对抗性复核结论**：本轮把工作树遗留的 21 个源码/测试文件改动连同文档以 `96ee544` 提交入库并 push 同步远程。相对本报告早先版本，§4.5/§6.2 的 F 系列缺口状态发生实质变化——**F-04（语义合同）、F-05（null record 身份绑定）、F-06（Gate-E 必需证据）、F-07（canonical Ensembl）、F-08（M6 行级 modes）五项已在代码层闭合**；F-03 训练侧已 fail-fast 但 tokenise 行绑定仍开放；F-01 只完成"显式声明不接续"（E2E report 写出 `statistical_evidence=inconclusive`）而未实现统计接续；F-02/F-09 无变化。科学验收状态**未变**：合规 cohort 仍为 0，无生物学 PASS。本轮另识别 4 项早前未记录的技术债（TD-13-13～16，见 §6.3a）。
+
 ## 2. Phase 1：Git、编译与验证记录
 
 ### 2.0 2026-09-13 执行代理真实 VCS 记录
+
+#### 2.0a 第三轮（契约硬化提交，本节为最新）
+
+| 项 | 本次真实结果 |
+|---|---|
+| 操作前 HEAD | `b13fe28`（`docs: finalize audit call statistics`） |
+| `git fetch origin` | 成功；fetch 后 `main...origin/main` 为 `63 0`（本地领先 63、落后 0） |
+| merge | `merge=no-op`；已在 `main`，远程无落后提交，不创建 merge commit |
+| 内容提交 | `96ee544` — `feat: enforce semantic context and harden null/gate-e asset contracts`（24 files，+883/−311） |
+| 提交内容 | SemanticContext 七字段合同贯穿 proposal→gate→evidence→invocation；NullStageRecord 身份绑定与双重校验；Gate-E 必需证据（benchmark/vocab/davf 全要求）+ canonical ENSG coverage；checkpoint `scvi.gene_names` canonical ENSG strict check；frozen cohort 行级 modes；训练 donor_split metadata fail-fast；E2E `statistical_evidence` 显式 inconclusive；11 个新测试函数；文档同步 |
+| push | `c76fff8..96ee544 main -> main` 成功；GitHub 仓库已更名 `PTM2CellNet`，remote URL 已更新为 `git@github.com:valleyhe/PTM2CellNet.git` |
+| 最终同步状态 | `main...origin/main` 为 `0 0`（完全同步） |
+| 提交后工作树 | 本报告更新前 clean |
+
+**本轮编译/验证流程（全部真实执行）**：
+
+| 检查 | 结果 |
+|---|---|
+| `python -m pytest -m "not slow and not gpu" --timeout=300` | **1 failed, 2623 passed, 21 skipped, 67 warnings in 933.65s**；唯一失败 `tests/integration/test_scvi_davf_connection.py::test_real_current_davf_direction_keeps_token_and_decoder_indices_separate` 为已知资产行为：本地旧 checkpoint `latent_davf_perturbgen_4018/best_model.pt` 的 `gene_names` 非 canonical ENSG，被本轮落地的 strict check 正确暴露（fail-fast 生效），非代码回退；与提交前基线一致，本轮改动未引入新失败 |
+| `ruff check src scripts tests` | exit 0；All checks passed |
+| `python -m ruff format --check src scripts tests` | exit 1；339 文件需格式化、124 已格式化（与既有记录一致，未批量改写） |
+| `python -m mypy src/ --ignore-missing-imports` | exit 0；165 source files 无问题 |
+| `python scripts/check_requirements_consistency.py` | exit 0；274 lock pins 满足约束 |
+| `python -m compileall -q src scripts` | exit 0 |
+
+#### 2.0b 第二轮（早先记录，保留）
+
+本节回填第二次执行结果；下方 2.0c 为第一次。
 
 | 项 | 本次真实结果 |
 |---|---|
@@ -94,6 +130,8 @@ python scripts/check_requirements_consistency.py
 | `python scripts/check_requirements_consistency.py` | exit 0；274 个 lock pins 满足约束 |
 | pytest / 业务训练 | 未运行；任务明确禁止，因而没有 pytest exit code |
 
+> **第三轮更新（2026-09-13 晚）**：第三轮已补跑全量 pytest，真实结果为 **2623 passed / 1 failed（已知旧资产暴露，非代码回退）/ 21 skipped / 933.65s**，其余静态检查全部通过（详见 §2.0a）。`ruff format --check` 当前为 339 文件待格式化（`src scripts tests` 口径）。
+
 ### 2.3a 历史验证记录（仅作背景）
 
 | 检查 | 既有记录（非本次结果） |
@@ -137,6 +175,22 @@ python scripts/check_requirements_consistency.py
 已经归档、应视为历史证据的目录包括 `archive/20260816`～`archive/20260824` 的分析/修复正文以及 `archive/20260910/reports/project_analysis_20260901.md`；`archive/20260913/` 中已有的 reports/guides/stubs 也只作历史追溯。建议后续归档的具体路径为 `project_analysis_20260910.md`、`project_repair_report_20260910.md`，以及 `docs/guides/davf_perturbgen_e2e_execution_report_20260902.md`、`docs/guides/davf_perturbgen_retraining_plan_20260902.md`、`docs/guides/davf_cell_baseline_training_plan_20260904.md`。后两份计划已自声明被现行 KO/KD 指南取代；E2E 点时报告不能反映 9/13 契约。
 
 应保留的活文档是 `README.md`、`AGENTS.md`、`CLAUDE.md`、`lessons.md`、`docs/CURRENT_STATUS.md`、`pyproject.toml`、`pytest.ini`、现行安装/数据整合/训练/部署/真实资产验收/`davf_perturbgen_e2e`/bridge/KO-KD guides、`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`、`project_repair_report_20260913.md`、`docs/guides/gse_normal_disease_davf_plan_20260904.md` 和源码/测试。GSE 计划是唯一操作性 GSE 文档，不能因日期归档。`docs/PTM2CellNet_技术文档.md`、`docs/文件说明.md`、`docs/项目文档.md` 是 Sphinx 入口 stub，当前应保留但需要刷新其中指向旧报告的链接。上述区分只描述盘点结果，不表示本次已执行归档。
+
+### 3.2 第三轮增量归档复核（2026-09-13 晚，提交 `96ee544` 前后）
+
+按同一判定标准（过时 DOCUMENT = 与代码/现行需求实质差异；过期 REPORT = 生成超 30 天即 2026-08-14 前，或已不反映当前状态）对全仓未归档文档做了对抗性增量复核，结论：**零新增归档对象**。依据：
+
+| 候选 | 最后修改 | 处置 | 依据 |
+|---|---|---|---|
+| `CLAUDE.md` | 2026-04-14（git log） | 保留 | 内容为 AI 协作规范（提示词工程/确定性原则），不描述项目实现状态，与当前代码无实质冲突；日期旧不等于过时 |
+| `CHANGELOG.md` | 2026-08-24 | 保留 | 未超 30 天阈值 |
+| `task_plan.md` | 2026-09-13（`520e992`） | 保留 | 历史计划快照，全部条目 `[completed]`，对旧报告的引用仅在"已完成"历史条目中，不声称当前权威 |
+| `IBD_dataset.md`、`PerturbGen_分析与预训练模型使用指南.md` | 2026-09-13 | 保留 | 当日已刷新；头部明确 cohort=0、下载不能替代 preflight，与现行契约一致 |
+| `docs/PTM2CellNet_{技术,项目,文件说明}文档.md` 等 Sphinx 入口 | 2026-09-13（`6e3feaf`） | 保留 | 指针已在上轮刷新 |
+| `docs/_build/` | — | 无需处理 | `git ls-files docs/_build` 为 0，构建产物未被跟踪 |
+| 根目录其余 `.md`（README/AGENTS/lessons/CURRENT_STATUS 等） | 2026-09-13 | 保留 | 活文档 |
+
+同时确认本轮代码变更（SemanticContext 等新公开合同）与文档的一致性缺口：`API_DOCUMENTATION.md` 与 `docs/guides/perturbgen_bridge.md` 尚未提及 `semantic_context`（`davf_perturbgen_e2e.md` 已同步，含 3 处）。这是文档漂移技术债（TD-13-13，见 §6.3a），按"文档在维护中"处理而不是归档。
 
 ## 4. Task 1：未实现功能与后续验收缺口
 
@@ -249,7 +303,24 @@ flowchart TD
 | F-08 | M6 verifier/CLI 应允许 candidate 行级 route（KO/KD/OE）并返回按 route 的 mask/pad/delete 结果；当前 `run_frozen_acceptance.py` 使用统一 modes。 | 方案 §7.2 M6、A-02，M；混合 KO/KD CSV 无法在同一默认 invocation 中表达，KD 使用 pad/delete 会直接失败或误配。 | **部分实现但可用（单一 route）**：`scripts/run_frozen_acceptance.py:51-53` 默认 `mask,pad,delete`；`src/integration/perturbgen/frozen_cohort.py:86-93` 拒绝 KD 的 pad/delete，`:216-261` 对所有候选应用统一 modes。 |
 | F-09 | 正式 invocation 已应验证通过 gate report；runner 低层只接收 `StagePlan`，应明确是外层边界还是统一在 runner 验证，避免 Python caller 绕过。 | 2026-09-13 runner/invocation 约束、A-06，M；把 runner 缺口写成已解决会掩盖绕过路径，把 runner 自行重查又会改变内部 null/engineering 调用。 | **规范边界/部分实现**：`src/integration/perturbgen/runner.py:127-168,597-612` 只执行 StagePlan/写 stage manifest；外层 `scripts/run_perturbgen_pipeline.py:363-385` 要求 `--e2e-gate-report`，`orchestrator.py:369-402` 走 invocation。 |
 
+#### 4.5a 第三轮状态更新（提交 `96ee544` 后复核）
+
+上表按基础审计时点保留；本轮契约硬化提交后，F 系列实际状态如下（证据为 `96ee544` diff 与源码复核）：
+
+| ID | 基础审计状态 | 当前状态 | 闭合证据（`96ee544`） |
+|---|---|---|---|
+| F-01 | 部分实现但可用 | **边界显式化，统计接续仍未实现** | `scripts/run_davf_perturbgen_e2e.py` 现写出 `statistical_evidence: {status: inconclusive, scientific_acceptance: false}` 及未接续接口清单；null/质量/p/q/dual-path 仍未被 E2E 调用 |
+| F-02 | 部分实现但可用（单候选） | **未闭合** | `orchestrator.py` 本轮仅新增 SemanticContext import/传递；跨候选公共 prepare/reuse 无变化 |
+| F-03 | 部分实现但有缺陷 | **训练侧已闭合；tokenise 行绑定仍开放** | `train_latent_davf.py` 新增 `_validate_donor_split_metadata`：NPZ metadata 缺 `donor_split`/`dataset.donor_rows`、sha 不匹配或 donor 越界均 fail-fast；`src/data/davf_scperturb.py`（tokenise 输入侧）本轮未改 |
+| F-04 | 缺失 | **已闭合（代码）** | `contracts.py` 新增 `SemanticContext` 七字段 frozen dataclass + `normalize_semantic_context`，`research_objective` 限 `association/replication/reversal`；`CandidateEvidence.semantic_context`、`build_direction_gated_candidate`、E2E 候选校验与 `run_perturbgen_pipeline.py` invocation 均贯穿；缺字段/非法值 fail-fast |
+| F-05 | 部分实现但有缺陷 | **已闭合（代码）** | `NullStageRecord` 新增 `candidate_ensembl_id/path/mode/seed` 字段并规范化；`_validate_record_binding` 在 `collect_null_stage_records` 与 `run_matched_null_stages`（stage_executor 与 rescue_extractor 两路）逐记录比对 |
+| F-06 | 部分实现但有缺陷 | **已闭合（代码）** | `gate_e.py` 的 `build_gate_e_report` 现要求 benchmark、vocabulary_migration、davf_noninferiority 三节全存在（`required` 含存在性），显式输出 `missing_sections`；coverage 只按 `normalize_ensembl_id` 的 canonical ENSG 计；benchmark 行 `ensembl_id` 强校验 |
+| F-07 | 实现但不符合规范 | **已闭合（代码）** | `davf_checkpoint_contract.py` 对 `checkpoint.scvi.gene_names` 逐项 `normalize_ensembl_id` 且要求与原列表相等（无版本后缀）、无重复；本地旧 checkpoint `latent_davf_perturbgen_4018` 被正确暴露为不合规资产（pytest 唯一失败即此 fail-fast 生效） |
+| F-08 | 部分实现但可用（单一 route） | **已闭合（代码）** | `frozen_cohort.py` 的 `FrozenCandidate` 支持 candidates CSV 行级 `modes` 覆盖统一默认 |
+| F-09 | 规范边界/部分实现 | **未闭合** | `runner.py` 零修改；外层 `--e2e-gate-report` 约束不变 |
+
 缺失的统计业务衔接可以明确画成如下流程；现有各节点接口不等于连线已经存在：
+
 
 ```mermaid
 flowchart LR
@@ -323,6 +394,25 @@ flowchart LR
 
 “部分实现但可用”表示接口、正常输入和失败路径能支持工程联调，缺口主要是资产或真实运行；“实现但有缺陷”表示可能接受不完整/未绑定证据，需修复后才可作为正式输入；“实现但不符合规范”表示功能可执行，但 ID、语义或资产契约与当前需求不一致。表中分数是审计估算，不能替代 Gate-0、Gate-E、Gate-4/5 或生物学 PASS。
 
+#### 5.3a 第三轮重估（提交 `96ee544` 后）
+
+评分口径不变（接线 fail-fast 40 / 默认契约测试 25 / 指南一致 10 / 具名资产 15 / 正式生物学验收 10）。本轮变化集中在接线桶（F-04/05/06/07/08 闭合带来的 fail-fast 强化）与测试桶（11 个新测试函数、2623 passed 全量回归）；资产桶与科学验收桶不变（cohort=0，biology 仍 0.0）。重估只调整受 F 系列闭合影响的行：
+
+| 细分模块 | 基础审计 | 第三轮 | 变化依据 |
+|---|---:|---:|---|
+| PTM site presence / proposal / candidate_spec | 72.0% | **76.0%** | E2E 候选必须携带七字段 `semantic_context` 并贯穿 invocation（F-04） |
+| scVI context / DAVF decode / frozen embedding asset | 73.0% | **82.0%** | F-07 闭合：canonical ENSG/无后缀/无重复 strict check；分类由“实现但不符合规范”改为“部分实现但可用” |
+| 三方 direction gate | 76.0% | **84.0%** | F-04 闭合：语义字段进合同，缺字段/非法 objective fail-fast |
+| PerturbGen invocation / orchestrator | 70.0% | **75.0%** | invocation 传递并校验 `semantic_context`（`run_perturbgen_pipeline.py`） |
+| 六阶段 runner / 双路径执行 | 72.0% | 72.0% | F-09 未闭合，无变化 |
+| Gate-0 cohort / raw counts / donor | 58.0% | 58.0% | cohort=0 未变 |
+| donor split / frozen M6 | 52.0% | **61.0%** | F-03 训练侧 fail-fast + F-08 行级 modes 闭合；tokenise 行级 donor 绑定仍开放 |
+| matched-null / quality / candidate p/q | 64.0% | **72.0%** | F-05 闭合（record 身份绑定）；E2E 自动接续仍缺（F-01） |
+| dual-path AND / Workflow A formal utility | 42.0% | **46.0%** | F-05 闭合收益；F-01/F-02 仍开放，真实统计证据未形成 |
+| Workflow B / Gate-E / encoder 生命周期 | 54.0% | **63.0%** | F-06 闭合（三节必需 + canonical coverage + benchmark 行校验）；≥200 真实 benchmark 仍缺 |
+
+对应 §5.2 广模块行的更新：三方 gate + orchestrator 76.0→**81.0**；DAVF LatentDAVF / scVI / asset 75.0→**80.0**；Dual-path 评价 59.5→**63.5**；Frozen / M6 verifier 66.0→**70.0**；Gate-E 57.0→**64.0**；其余行不变。加权观感不变：工程主链约七成半可用；科学验收桶全 0。
+
 ### 5.4 规格 vs 实现摘录
 
 方案/lessons（L-2026-0901-01）：DAVF 只提供方向/置信，PerturbGen 负责效用。
@@ -393,6 +483,8 @@ flowchart LR
 ### 6.2 F-01～F-09 当前未闭合技术债
 
 以下条目是本轮代码审计对现有 TD/U/A 记录的补充或深化；已在 §4.2 明确“代码层闭合”的 U-01～U-05 不重新当作缺失接口，但其真实资产和 E2E 统计限制仍保留。工期均按 **0.5 个工作日**为最小粒度估算，未把真实 cohort 获取、GPU 墙钟或科学方案讨论伪装成编码工期。
+
+> **第三轮状态标注（`96ee544` 后）**：F-04、F-05、F-06、F-07、F-08 已在代码层闭合（逐项证据见 §4.5a），不再计为未闭合债务；F-01 降级为“E2E 统计接续缺失（边界已显式化）”，F-02/F-09 维持原判，F-03 剩余 tokenise 行绑定部分。下列各条保留原文与原方案供追溯，方案已被采纳的标注如下：F-04≈方案 A、F-05≈方案 B、F-06≈方案 A+B、F-07≈方案 A、F-08≈方案 B。
 
 #### F-01 E2E 没有自动接续 null、质量、p/q 与 dual-path — 高
 
@@ -482,11 +574,44 @@ flowchart LR
 
 `production_security.py` 已在 `PTM2CELLNET_ENV=production` 缺 key 时 fail-fast（可被 `ALLOW_UNAUTHED_PROD` 关掉）。非 production 默认无 key。取消了新 API-key 产品化，但部署文档必须把 production env 写清楚。约 **0.5 人日** 文档/启动检查测试。
 
+### 6.3a 第三轮新识别技术债（早前报告未提及）
+
+分级标准沿用 §6 开头定义，并对齐任务要求的四级口径：**严重** = 数据损坏/gate 绕过/密钥泄漏/阻断主线；**高** = 可产生虚假正式 PASS、身份错配、挂死或错误科学 verdict；**中** = 影响可维护性、覆盖或文档正确性，随时间会放大修复成本；**低** = 风格/局部性能，不影响正确性。本轮未发现新的“严重”级代码项。
+
+#### TD-13-13 新公开合同未同步 API 文档与 bridge 指南 — 文档缺失（DOCUMENTATION），中
+
+- **证据**：`API_DOCUMENTATION.md` 全文 0 处 `SemanticContext`/`semantic_context`；`docs/guides/perturbgen_bridge.md` 同为 0 处；而 `src/integration/perturbgen/__init__.py` 已导出 `SemanticContext`、`normalize_semantic_context`，E2E 候选输入必填七字段（`docs/guides/davf_perturbgen_e2e.md` 已同步，3 处）。违反 AGENTS.md“改变公开行为时同步更新对应指南”。
+- **影响**：外部调用方按旧文档构造候选会直接被 fail-fast 拒绝，且不知道原因；bridge 指南的评估入口示例缺语义上下文。
+- **方案**：A. 在 `API_DOCUMENTATION.md` 增补 perturbgen contracts 小节并在 bridge 指南评估入口补七字段示例，**0.5 天**；优点是最小改动，缺点是手工文档仍会再漂移。B. 由 `docs/api/*.rst` 自动生成（sphinx-apidoc/apystyle）并让根目录 API 文档指向生成物，**1.0–1.5 天**；优点是长期消除漂移，缺点是需要 CI 接入与首次大面积重排。
+- **资源/风险**：文档维护者；风险低。
+
+#### TD-13-14 `davf_losses.py` 损失函数无任何测试引用 — 测试覆盖（TEST），中
+
+- **证据**：模块级扫描（143 个 src 模块名与 `tests/` 全部 `test_*.py` 交叉比对）显示 5 个模块零测试引用：`src/models/davf_losses.py`、`src/data/loaders/file_loaders.py`、`src/data/loaders/ptm_database_loaders.py`、`src/utils/lazy_import.py`、`src/models/legacy_davf.py`。其中 `davf_losses` 是训练数值正确性的核心（损失函数错则全部 DAVF 训练无效）；`legacy_davf` 受 Gate-E/M7 门控等待删除。
+- **影响**：损失函数的数值行为（边界、掩码、归一化）回归只能靠端到端测试间接暴露。
+- **方案**：A. 为 `davf_losses` 增加数值断言单测（已知输入→精确损失值、掩码边界），**1.0 天**；优点是直接锚定正确性。B. 一并为 loaders/lazy_import 补冒烟测试，**+0.5 天**；优点是消除全部盲区，缺点是 loader 依赖外部文件夹具。
+- **资源/风险**：熟悉 LatentDAVF 训练目标的人；风险低。
+
+#### TD-13-15 19 个超长函数（>150 行）— 可维护性（CODE_SMELL），低
+
+- **证据**：AST 扫描 `src/`，前五名：`src/data/davf_scperturb.py:build_scperturb_latent_pairs`（277 行）、`src/data/data_manifest.py:validate_manifest`（232）、`src/integration/perturbgen/config_builder.py:build_stage_plans`（223）、`src/integration/perturbgen/eval_assembly.py:build_eval_input_payload`（222）、`src/training/self_supervised.py:pretrain_combined`（221）；共 19 个。
+- **影响**：审查与定位成本高；`build_scperturb_latent_pairs` 同时是 F-03 行绑定的修改点，长函数会放大后续改动风险。
+- **方案**：A. 只在下次触碰对应文件时顺带拆分（童子军军规），**0 天额外**；B. 集中拆 top-5，**1.5–2.0 天**。推荐 A，避免为拆而拆。
+- **资源/风险**：常规；风险是拆分时误改行为，需靠既有测试兜底（`build_eval_input_payload` 等已有测试）。
+
+#### TD-13-16 10 处 `DataFrame.iterrows` 热点 — 性能（PERFORMANCE），低
+
+- **证据**：`grep -F "iterrows()"` 共 10 处：`src/evaluation/explainers.py:228,289,345,480`、`src/analysis/gene_mapper.py:338`、`src/analysis/pathway_integration.py:261,337`、`src/models/gene_vocabulary.py:136`、`src/models/signaling_network.py:437`、`src/data/data_contract.py:190`。
+- **影响**：均为中小 DataFrame（基因/PTM 级，~10³–10⁴ 行），当前规模无用户可感瓶颈；`gene_vocabulary.py:136` 在词表构建路径，行数随参考词表增长。
+- **方案**：A. 仅在 profiling 显示瓶颈时向量化对应循环，**0 天现在**；B. 全部替换为 itertuples/向量化，**1.0 天**。推荐 A：当前证据不支持的优化不做（AGENTS.md 排障顺序原则）。
+- **资源/风险**：常规；风险是盲改向量化引入语义差异（PMADS iterrows 回归曾发生过，见 CURRENT_STATUS 2026-09-10 收口记录）。
+
 ### 6.4 低
 
-- 少量 TODO：`signaling_network.py`、`encoders.py`、`pathway_knowledge_base.py`。
+- ~~少量 TODO：`signaling_network.py`、`encoders.py`、`pathway_knowledge_base.py`~~ **第三轮复核已清零**：`grep -c TODO` 对三文件均为 0（唯一命中 `pathway_knowledge_base.py:327` 是正则字符串 `'[ST]XXX[ST]P'`，非标记）。
 - CodeGraph 未索引 `env_guard.py`（磁盘存在，runner 有 import）——索引滞后，不是缺模块。
 - `LatentDAVF` 仍 `import GeneformerEmbeddingLoader`（`latent_davf.py:20`）——M7 前可接受。
+- `src/models/legacy_davf.py`、`src/data/loaders/{file_loaders,ptm_database_loaders}.py`、`src/utils/lazy_import.py` 无测试引用（并入 TD-13-14 处理范围，其中 `legacy_davf` 等 M7 删除）。
 
 ### 6.5 未发现新的严重级代码项
 
@@ -494,14 +619,14 @@ flowchart LR
 
 ## 7. 结论与建议
 
-1. **工程主线可用，科学主线未闭合。** 候选准入、六阶段运行和统计验收是三个终点；U-01～U-05 的代码接口已闭合，但 F-01 的 E2E 统计回接、F-02 的跨候选公共准备、F-03 的 donor 行绑定和 F-04 的方向语义合同仍未闭合，donor audit 仍为 0 个合规 cohort。
+1. **工程主线可用，科学主线未闭合。** 候选准入、六阶段运行和统计验收是三个终点；U-01～U-05 的代码接口已闭合，第三轮（`96ee544`）进一步闭合 F-04（方向语义合同）、F-05（null 身份绑定）、F-06（Gate-E 必需证据）、F-07（canonical Ensembl）与 F-08（M6 行级 modes）；仍未闭合的是 F-01 的 E2E 统计回接（已显式声明 inconclusive）、F-02 的跨候选公共准备、F-03 的 tokenise 行级 donor 绑定与 F-09 的 invocation/runner 边界统一，donor audit 仍为 0 个合规 cohort。
 2. **当前可推进的工作**：先固定 context/intervention/比较基准/研究目标及方向来源；取得真实 cohort 后绑定训练-only/held-out donor 与冻结 manifest；在现有 invocation/runner 边界内接续 null、质量、p/q 和 dual-path 统计。不要把接口存在写成科学结果。
 3. **有资产后的顺序**：Gate-0 ≥3 shared → 完整 M6 ≥2 train + ≥3 held-out disjoint → held-out DAVF 方向 → 双路径 3 seed + ≥99 matched null → Gate-E ≥200 与 formal evidence。不要跳步把 Datlinger smoke 写成 PASS。
 4. **方向与路径边界**：观测 disease−normal 与 DAVF decode delta 必须保留参考轴；`src`/`tgt` 是实验场景，正式双路径保留 AND，单路通过不表示普遍治疗效用或治疗因果性。
 5. **不要做**：重建取消模块；猜 checkpoint/token 映射；新增 hash/调度框架/任务开关来假设跨候选 reuse；在 Gate-E 前删 Geneformer；把历史 `2578 passed` 或 `2610 passed` 当本次验证或生物学结果。VCS/编译真实结果见 §2。
 6. **文档**：本文件取代 20260910 分析；修复细节见根目录 `project_repair_report_20260913.md`。
 
-建议优先级：先完成 F-04 方向语义与 F-09 invocation 边界，再完成 F-02 公共 prepare/reuse、F-03 donor 行绑定和 F-01/F-05 统计 lineage，随后取得 A-01 合规 cohort，执行 A-02/A-03、A-05 和 Gate-E/formal evidence；代码接口已有项不重复规划。
+建议优先级（第三轮更新）：F-04/F-05/F-06/F-07/F-08 已闭合，下一步先清 TD-13-13 文档同步（0.5 天）与 F-09 invocation 边界统一，再完成 F-02 公共 prepare/reuse、F-03 剩余 tokenise 行级 donor 绑定和 F-01 统计接续 lineage，随后取得 A-01 合规 cohort，执行 A-02/A-03、A-05 和 Gate-E/formal evidence；代码接口已有项不重复规划。
 
 ## 8. 子代理调用统计
 
@@ -512,5 +637,18 @@ flowchart LR
 | `vcs_recon` | 26 | 约 9 分 11 秒 | 约 21.2 秒/次 | 11 次初盘点 + 1 次 fetch + 10 次 VCS/编译 + 3 次报告修订 + 1 次本次最终提交预计；其中 1 次命令被拒绝未执行。 |
 | `stale_docs_audit` | 约 28 | 约 10 分 22 秒（近似） | 约 22.2 秒/次（近似） | 初始审计约 21 次 + 5 次归档 + 2 次指南修订；初始数字为约数，耗时按累计总时长估算。 |
 | `code_requirements_audit` | 64 | 约 23 分 05 秒 | 约 21.6 秒/次 | 41 次需求/代码审计 + 16 次报告编辑 + 4 次最终复核 + 3 次本次修订；报告编辑阶段未运行测试/业务命令。 |
+
+### 8.1 第三轮调用统计（2026-09-13 晚，契约硬化提交与增量复核）
+
+本轮计划按“子代理分流”原则派发 3 个并行子代理（归档增量识别、任务1+2 未实现功能与完成度、任务3 技术债），**全部 3 次调用在约 0.4–0.5 秒内失败**（环境错误：`Model provider is not configured: builtin:zai`，子代理模型提供方在当前会话未配置），未产生任何分析输出。全部对抗性分析随后由主上下文自行完成。
+
+| 智能体 | 调用次数 | 状态 | 平均执行时长 | 主要执行任务 |
+|---|---:|---|---:|---|
+| Explore（归档遗漏对抗识别） | 1 | 失败（模型提供方未配置） | 0.4 秒 | 计划：过时文档/过期报告增量识别 |
+| general-purpose（未实现功能与完成度） | 1 | 失败（同上） | 0.5 秒 | 计划：任务 1+2 对抗性复核 |
+| general-purpose（技术债识别） | 1 | 失败（同上） | 0.4 秒 | 计划：任务 3 增量技术债扫描 |
+| 主上下文（兜底执行） | — | 完成 | — | VCS 提交/push、全量验证、归档增量复核、F 系列状态复核、技术债扫描（AST/grep 工具化）、报告更新 |
+
+主上下文本轮关键工具调用构成：3 次 Agent 派发（失败）、1 次后台 pytest（933.65s）、约 15 次静态扫描/复核命令（ruff/mypy/compileall/requirements/AST 超长函数/iterrows/测试引用交叉比对/文档时效抽查）、约 12 次报告编辑。简要分析：子代理层不可用时，任务收敛到主上下文串行执行，总耗时主要被全量 pytest（15.5 分钟）支配；分析类扫描均为秒级命令，未因失去并行子代理显著变慢。3 次失败调用已如实计入，未从统计中剔除。
 
 审计代理合计约 **118 次已执行 functions.exec**（26 + 约28 + 64）；这是工具调用统计，不是测试次数、代码行数或子代理数量。VCS/编译真实结果见 §2；pytest/业务训练未运行，本节不据调用次数推断通过与否。

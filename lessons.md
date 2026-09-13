@@ -333,3 +333,27 @@ Gate-0、Gate-E、Gate-4、Gate-5。相关活动入口为
 `docs/CURRENT_STATUS.md`、`project_analysis_20260913.md`、
 `docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md` 和
 `.planning/REQUIREMENTS.md`；旧 `project_analysis_20260901.md` 仅作历史快照。
+
+## L-2026-0913-02｜语义上下文与资产身份契约代码化（提交 96ee544）
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0913-02 |
+| 时间戳 | 2026-09-13 |
+| 决策级别 | 工程契约级（L-2026-0913-01 的代码落地） |
+| 决策来源 | 2026-09-13 第三轮契约硬化复核（project_analysis_20260913.md §4.5a/§6.3a） |
+| 状态 | 已提交入库并 push；正式科学证据仍待真实 cohort |
+
+L-2026-0913-01 要求的方向语义记录已从文档约束升级为 fail-fast 代码契约：
+`src/integration/perturbgen/contracts.py` 的 `SemanticContext` 七字段
+（context、intervention、comparison_baseline、reference_axis、
+research_objective、evidence_source、cohort）为 formal candidate/invocation
+必填，`research_objective` 限 association/replication/reversal；E2E 候选与
+`run_perturbgen_pipeline.py` invocation 均校验。同批落地的身份契约：
+`NullStageRecord` 绑定 candidate Ensembl/path/mode/seed 并在收集与执行两路
+重验；Gate-E 要求 benchmark/vocab/davf 三节证据齐全且 coverage 只认 canonical
+ENSG；checkpoint `scvi.gene_names` 强制 canonical ENSG 无后缀无重复（本地旧
+`latent_davf_perturbgen_4018` 因此被正确拒绝，对应 pytest 唯一已知失败）；
+frozen M6 支持 candidates CSV 行级 modes。E2E 统计接续（F-01）、跨候选公共
+prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
+`statistical_evidence=inconclusive`。

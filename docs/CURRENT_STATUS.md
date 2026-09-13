@@ -1,6 +1,6 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-09-13（追加本轮真实修复状态；2026-09-10 历史检查基线保留）**
+**Last updated: 2026-09-13（第三轮：契约硬化提交 `96ee544` 入库并 push、全量验证复核、增量归档复核零新增；2026-09-10 历史检查基线保留）**
 
 当前权威分析是仓库根目录的
 [`project_analysis_20260913.md`](../project_analysis_20260913.md)。
@@ -12,7 +12,7 @@
 ## Quick Reference
 
 - **验证环境**：主进程 Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；PerturbGen 独立环境 conda `perturbgen`（Python 3.11.15）已于 2026-08-23 完全建立并通过 GPU 实测（evidence 见 `outputs/perturbgen/env_evidence_20260823.json`，复现入口 `scripts/setup_perturbgen_env.sh` + `scripts/download_perturbgen_wheels.sh`）。
-- **当前验证结果（2026-09-13）**：针对性 pytest 原始结果为 **100 passed / 8 warnings / 13.17s**。全量命令 `python -m pytest -m "not slow and not gpu" --timeout=300` 退出 1，结果为 **2623 passed / 1 failed / 21 skipped / 67 warnings / 800.73s**；唯一失败是 `tests/integration/test_scvi_davf_connection.py::test_real_current_davf_direction_keeps_token_and_decoder_indices_separate`，原因是本地旧 checkpoint 的 `checkpoint.scvi.gene_names` 不是 canonical ENSG，contract hard-fail，随后 `zero_fallback` 证据被拒绝。该失败不是代码回退，也不能用 skip/fallback 掩盖。
+- **当前验证结果（2026-09-13 第三轮，提交 `96ee544`）**：全量命令 `python -m pytest -m "not slow and not gpu" --timeout=300` 退出 1，结果为 **2623 passed / 1 failed / 21 skipped / 67 warnings / 933.65s**；唯一失败是 `tests/integration/test_scvi_davf_connection.py::test_real_current_davf_direction_keeps_token_and_decoder_indices_separate`，原因是本地旧 checkpoint 的 `checkpoint.scvi.gene_names` 不是 canonical ENSG，contract hard-fail，随后 `zero_fallback` 证据被拒绝。该失败不是代码回退（与提交前基线完全一致，本轮 24 文件修改未引入新失败），也不能用 skip/fallback 掩盖。同轮 ruff check / mypy（165 文件 0 错误）/ compileall / requirements（274 pins）全部通过；format check 仍为 339 文件待格式化。`96ee544` 已 push，`main...origin/main` 为 `0 0`（remote 已更名 `PTM2CellNet` 并更新本地 URL）。
 - **历史测试基线（仅背景）**：2026-09-10 的 2573/2578 通过记录、2026-09-02 的 157 项聚焦回归和 3 项 CUDA bridge 记录均不作为当前验收结果；旧的 2610 通过数字不再作为当前结果。
 - **静态/构建质量（2026-09-13 当前记录）**：`compileall` 通过；`ruff check src scripts tests` 通过；`mypy src/ --ignore-missing-imports` 为 **165 个源文件、0 errors**；requirements consistency 通过且为 **274 lock pins**；`ruff format --check src scripts tests` 退出 1，**339 文件需格式化、124 文件已格式化**，未批量改写。
 - **技术债闭环（本轮确认，提交 `63ebf75`）**：
