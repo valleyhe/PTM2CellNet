@@ -39,7 +39,7 @@ python -m pytest tests/unit tests/integration tests/test_*.py \
 ## 2026-09-13 状态
 
 2026-09-01 全量离线回归为 **2357 passed、16 skipped、47 warnings、2373 项收集、536.65s**，
-详细命令和证据见 [`project_analysis_20260913.md`](../project_analysis_20260913.md) 的验证章节。
+详细命令和证据见 [`archive/20260914/project_analysis_20260913.md`](../archive/20260914/project_analysis_20260913.md) 的验证章节（当前权威分析为 [`project_analysis_20260914.md`](../project_analysis_20260914.md)）。
 2026-09-13 默认口径回归为 **2578 passed、21 skipped、69 warnings、798.65s**（`-m "not slow and not gpu" --timeout=300`）；本轮仍未执行带 `--cov` 的独立覆盖率测量。
 本轮未执行带 `--cov` 的独立覆盖率测量，因此不能把历史数值当作当前覆盖率；门禁仍为
 74%，下一次覆盖率刷新应在依赖一致的 CI/独立环境完成。

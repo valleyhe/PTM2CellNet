@@ -2,7 +2,7 @@
 
 ## 结论先行
 
-本轮按 `project_analysis_20260913.md` §4.5a/§6.2 的剩余缺口完成三项高优先级修复：
+本轮按 `archive/20260914/project_analysis_20260913.md` §4.5a/§6.2 的剩余缺口完成三项高优先级修复：
 **F-01（E2E 统计接续）**、**F-02（跨候选公共 prepare/reuse）**、**F-03 剩余（生成端
 tokenise/latent-pair 行级 donor 绑定）**，并落地 F-09 边界文档化与两项中等技术债
 （TD-13-13 文档同步、TD-13-14 损失函数数值单测）。全量验证 **2639 passed / 1 failed
@@ -21,7 +21,7 @@ checkpoint 不合规待重训、GPU matched-null 矩阵（A-05）与 Gate-E ≥2
 
 | 来源 | 引用章节 | 本轮对应动作 |
 |---|---|---|
-| `project_analysis_20260913.md` | §4.5（F-01～F-09 审计）、§4.5a（第三轮状态）、§6.2（方案/资源/风险）、§6.3a（TD-13-13/14） | F-01 方案 A、F-02 方案 A、F-03 方案 A（生成端）、F-09 方案 A 的实现依据 |
+| `archive/20260914/project_analysis_20260913.md` | §4.5（F-01～F-09 审计）、§4.5a（第三轮状态）、§6.2（方案/资源/风险）、§6.3a（TD-13-13/14） | F-01 方案 A、F-02 方案 A、F-03 方案 A（生成端）、F-09 方案 A 的实现依据 |
 | `docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md` | §4.7（rescue 与正式判定 7 条件）、§5.4（质量门）、§7.2 M3/M6 | 统计接续 estimand 与质量门语义 |
 | `lessons.md` | L-2026-0913-01（研究契约）、L-2026-0913-02（第三轮落地）、L-2026-0913-03（本轮新增） | 主线边界与新增决策记录 |
 | `docs/CURRENT_STATUS.md` | Quick Reference、研究边界（第 2/3 条） | 本轮已同步更新 |
@@ -168,7 +168,7 @@ diff），未在本轮批量改写。真实 `format --check` 结果见 §3。
 
 | 轮次 | 范围 | 结果 |
 |---|---|---|
-| 第一轮（2026-09-13 早，提交 `96ee544` 前基础审计） | 分析文档 §4.5 基础审计时点：F-01～F-09 全部开放或部分实现 | 识别缺口与方案；记录于 `project_analysis_20260913.md` §4.5 |
+| 第一轮（2026-09-13 早，提交 `96ee544` 前基础审计） | 分析文档 §4.5 基础审计时点：F-01～F-09 全部开放或部分实现 | 识别缺口与方案；记录于 `archive/20260914/project_analysis_20260913.md` §4.5 |
 | 第二轮（契约硬化，提交 `96ee544`） | F-04/F-05/F-06/F-07/F-08 + F-03 训练侧 fail-fast；2623 passed / 1 failed（旧 checkpoint） | 见 `project_repair_report_20260913.md` 上一版本与 L-2026-0913-02；F-01 边界显式化（statistical_evidence=inconclusive） |
 | 第三轮（增量归档复核，提交 `3e2166d`/`219b81f`） | 归档复核零新增 | 分析文档 §3.2/§8.1 |
 | **第四轮（本轮）** | **F-01 统计接续、F-02 共享 prepare、F-03 生成端 donor 绑定、F-09 文档化、TD-13-13/14、触碰文件 format；新增 16 个测试** | **2639 passed / 1 failed（同一旧 checkpoint 资产失败）/ 21 skipped / 1412.90s；ruff check 通过；mypy 166 文件 0 errors；requirements 274 pins 通过** |

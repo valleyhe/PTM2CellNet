@@ -3,7 +3,7 @@
 > **文档版本**：v1.7（2026-09-13，补充研究边界、公共准备生命周期与六阶段入口）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
 > **详细执行方案**：[`docs/guides/davf_ko_kd_training.md`](davf_ko_kd_training.md)
-> **状态基线**：[`project_analysis_20260913.md`](../../project_analysis_20260913.md)（本报告按源码、测试和真实资产边界逐项审计；工程契约与科学验收分开记账）
+> **状态基线**：[`project_analysis_20260914.md`](../../project_analysis_20260914.md)（本报告按源码、测试和真实资产边界逐项审计；工程契约与科学验收分开记账）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。

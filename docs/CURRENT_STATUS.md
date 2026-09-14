@@ -1,17 +1,18 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-09-14（第五轮：data/AD 真实病人队列审计 + Gate-0 `between_donor` 配对落地（用户选项 B 决策，lessons L-2026-0914-01）；GSE174367 标准化队列 between_donor preflight 7/7 细胞类型 PASS；第四轮 F-01/F-02/F-03/F-09 记录保留）**
+**Last updated: 2026-09-14（第六轮：VCS 收口提交第四/五轮修改（`d10e96c`/`57e72d6`/`5e71c69`）、living docs 反向漂移同步、归档 20260913 分析与 task_plan、对抗性综合分析 `project_analysis_20260914.md`（新识别 F-10～F-16）；第五轮 between_donor 与第四轮 F 系列记录保留）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260913.md`](../project_analysis_20260913.md)。
-2026-09-10 综合分析与修复日志、2026-09-01 及更早报告、根目录 2026-08 stub 已归档：
-`archive/20260913/`（含 20260910 权威报告）、`archive/20260910/reports/`（含 20260901）、
+[`project_analysis_20260914.md`](../project_analysis_20260914.md)。
+2026-09-13 综合分析、2026-09-10 综合分析与修复日志、2026-09-01 及更早报告、根目录 2026-08 stub 已归档：
+`archive/20260914/`（含 20260913 权威报告与 task_plan）、`archive/20260913/`（含 20260910 权威报告）、`archive/20260910/reports/`（含 20260901）、
 `archive/20260901/reports/`、`archive/20260827/reports/` 等；各批次清单见对应
 `archive/YYYYMMDD/MANIFEST.md` 或 `ARCHIVE_MANIFEST.md`。
 
 ## Quick Reference
 
 - **验证环境**：主进程 Python 3.12.13、PyTorch 2.4.1+cu118、CUDA 可用；PerturbGen 独立环境 conda `perturbgen`（Python 3.11.15）已于 2026-08-23 完全建立并通过 GPU 实测（evidence 见 `outputs/perturbgen/env_evidence_20260823.json`，复现入口 `scripts/setup_perturbgen_env.sh` + `scripts/download_perturbgen_wheels.sh`）。
+- **第六轮综合处理（2026-09-14）**：第四/五轮未提交修改按 3 个语义提交落 main（提交前确认与 `origin/main` 同步于 `219b81f`）；6 处 living docs 反向漂移修复（README 研究路径与格式、bridge §1、方案 §11 复审注记、CHANGELOG [Unreleased]、REQUIREMENTS A-01/A-05/A-06）；`project_analysis_20260913.md` 与 `task_plan.md` 归档至 `archive/20260914/`（`project_repair_report_20260913.md` 核验仍准确、保留）。4 个并行子代理对抗审查确认 F-01/F-02/F-03 真实闭合，新识别 F-10～F-16（高：F-10 frozen 验收路径未传播 `pairing`、F-14 AD 审计脚本口径过时；中：F-11 统计 lineage 缺 pairing、F-12 held-out state 覆盖无约束、F-13 standardize Diagnosis per-sample 校验缺口；低：F-15/F-16）及 TD-14-01～06，策略见 `project_analysis_20260914.md` §6。第五轮全量回归 **2646 passed / 1 failed（已知真实资产基线）/ 21 skipped / 773.33s**、mypy 166 文件 0 errors；第六轮 compileall 通过、聚焦回归 267 passed（本轮仅文档与归档，未触碰代码路径）。
 - **当前验证结果（2026-09-13 第四轮，本轮修复）**：全量命令 `python -m pytest -m "not slow and not gpu" --timeout=300` 结果为 **2639 passed / 1 failed / 21 skipped / 67 warnings / 1412.90s**；唯一失败仍为 `tests/integration/test_scvi_davf_connection.py::test_real_current_davf_direction_keeps_token_and_decoder_indices_separate`（本地旧 checkpoint `latent_davf_perturbgen_4018` 的 `scvi.gene_names` 非 canonical ENSG，contract hard-fail；与第三轮基线同一已知真实资产失败，本轮 +16 个新测试全过、无新增失败）。同轮 `ruff check src scripts tests` 通过、`mypy src/ --ignore-missing-imports` 为 **166 个源文件、0 errors**、requirements consistency 通过（274 lock pins）；本轮触碰文件已 `ruff format`，全仓 format 债维持"一次性独立 PR"取舍未批量改写。
 - **第四轮修复落地（F 系列）**：F-01 E2E 统计接续（`run_davf_perturbgen_e2e.py --assemble-statistical-evidence --deg-table --null-distribution-manifest`，串接质量提取→formal 评估输入→empirical-p 聚合→BH-FDR→dual-path AND，lineage 写回 `statistical_evidence`；重放核心抽离至 `src/integration/perturbgen/replay_evaluation.py`）；F-02 跨候选共享准备（`orchestrator.build_shared_prepare_plans` 每 route 公共执行一次 tokenise/train_mask/train_decoder 于 `<root>/<route>/_prepare/`，候选只执行 perturb/export/report，`@artifact` 引用解析到共享产物）；F-03 生成端 donor 行绑定（`build_scperturb_latent_pairs` + `build_davf_scperturb_pairs.py --donor-obs-column --train-donors --held-out-donors`，NPZ 写 `target_donors` 与 `dataset.donor_rows`）；F-09 边界文档化（runner `StagePlan` 属工程执行层，formal invocation wrapper 是唯一公开正式入口）。GPU matched-null 批跑、真实 cohort 与合规 checkpoint 重训仍未执行（A-01/A-05 资产边界不变）。
 - **当前验证结果（2026-09-13 第三轮，提交 `96ee544`，历史记录保留）**：全量命令结果为 **2623 passed / 1 failed / 21 skipped / 67 warnings / 933.65s**；失败原因同上（旧 checkpoint 非 canonical ENSG）。同轮 ruff check / mypy（165 文件 0 错误）/ compileall / requirements（274 pins）全部通过；format check 仍为 339 文件待格式化。`96ee544` 已 push，`main...origin/main` 为 `0 0`（remote 已更名 `PTM2CellNet` 并更新本地 URL）。
@@ -22,7 +23,7 @@
   - **TD-N-10（高）已修复**：`.github/workflows/perturbgen-real-assets.yml:44-46` 安装步骤追加 `pip install -r requirements-analysis.txt`，Gate-4 门禁 anndata 缺口闭环。
   - **「CI analysis job 缺失」表述作废**：`.github/workflows/ci.yml:59-84` 已存在 `analysis` job，且安装 `requirements-analysis.txt` 后显式运行 `data_prep/results/pipeline_mocked` 三组测试；旧报告的缺失与静默 skip 判断已关闭。
 - **DAVF 正式连接**：Norman 旧主线已有当前 schema-v2 checkpoint；另外已用真实 scPerturb KO/KD 数据分别训练 `checkpoints/davf/davf_ko_dixit/best_model.pt` 与 `checkpoints/davf/davf_kd_nadig/best_model.pt`，两者均为 `latent_dim=64`、`num_genes=4018`，并通过 checkpoint contract、真实 scVI 解码和 token/decoder index 分离测试。正式生物学方向准确率尚未宣称。PTM classifier 只预测 site presence；E2E 的候选方向来自用户假设或逐 site override，不是原始位点自动推断。
-- **PerturbGen 双路径集成**：已在官方 foundation checkpoint 上完成可复现的本地六阶段 smoke adaptation（Datlinger 2021 M0，LCK，227×2001 预测矩阵和 embedding asset 均已导出）；这证明代码链和 checkpoint 可运行，不等于多 donor 生物学验收。六阶段为 `tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；当前每个候选仍重新执行 `tokenise/train_mask/train_decoder`、两条路径和 `export_gene_embeddings/report`，跨候选复用只是目标。
+- **PerturbGen 双路径集成**：已在官方 foundation checkpoint 上完成可复现的本地六阶段 smoke adaptation（Datlinger 2021 M0，LCK，227×2001 预测矩阵和 embedding asset 均已导出）；这证明代码链和 checkpoint 可运行，不等于多 donor 生物学验收。六阶段为 `tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；自第四轮起每条 route 的准备三阶段在 `_prepare/` 公共执行一次、候选循环只执行两路 perturb 与 export/report（F-02）。
 - **DAVF × PerturbGen E2E 接线（2026-09-02）**：新增 `src/integration/perturbgen/orchestrator.py` 与 `scripts/run_davf_perturbgen_e2e.py`。候选准入链为 `candidate_spec → scVI/PTMDirectionMapper → DAVF decode → 三方方向 gate → CandidateEvidence → PerturbGenInvocation`；默认只生成 gate/invocation，必须显式加 `--run-perturbgen` 才执行外部六阶段。`source_intervention=[src]` 与 `within_state=[tgt]+pert_tps` 是两个实验场景，正式 dual-path 结论保留 AND。
 - **Gate-0 复审（2026-09-13）**：当前正式 cohort=0；重新审计本机 30 个 scPerturb H5AD，26 个可读、0 个满足正式 `normal/disease + raw counts + explicit donor + ≥3 shared donors + Ensembl` 契约；证据为 `outputs/perturbgen/spike/20260913_donor_audit/evidence.json`。DatlingerBock2021 的真实 preflight 因缺少 `state`、`donor` 被拒绝，不能作为正式效用数据。
 - **AD 队列与 between_donor Gate-0（2026-09-14，第五轮）**：`data/AD` 四个 GEO 脑队列审计结论 `GATE0_BLOCKED_SEMANTICS_AND_LABELS`（`outputs/perturbgen/spike/20260914_ad_cohort_audit/evidence.json`：原 shared-donor 语义与 AD case-control 结构冲突，且 3/4 数据集缺 donor 标签）。按用户选项 B 决策，`PerturbGenDataSpec.pairing` 新增 `between_donor`（两组 donor 不相交、各 ≥3；默认 `within_donor` 行为不变），E2E 以 `--perturbgen-cohort-pairing` 显式声明。GSE174367 已标准化为 `data/AD/standardized/GSE174367_ad_cohort.h5ad`（61,472 cells × 58,676 canonical ENSG；donor 推导=SampleID×唯一供体协变量向量 18/18，运行时重验；45 条版本化/`_PAR_Y` ENSG 按同基因求和合并），between_donor preflight 7/7 细胞类型 PASS（`outputs/perturbgen/spike/20260914_gse174367_gate0/evidence.json`）。这是数据契约验收，不是生物学 PASS；GSE157827/GSE188545/GSE147528 仍缺 donor/cell 注释或 cell calling，四队列未合并。
@@ -48,7 +49,7 @@
 本节只记录 2026-09-13 的源码审计、修复和检查；上方 2026-09-10 的回归数字与
 历史检查日期不因本轮未运行真实资产而改写。修复细节见
 [`project_repair_report_20260913.md`](../project_repair_report_20260913.md)；
-综合对抗分析见 [`project_analysis_20260913.md`](../project_analysis_20260913.md)。
+综合对抗分析见 [`project_analysis_20260914.md`](../project_analysis_20260914.md)。
 
 - `scripts/run_perturbgen_pipeline.py` 现要求通过的 E2E report invocation 与当前
   base YAML 的 gene、mode、声明的 Ensembl ID/route、`pipeline.random_seed` 和授权
@@ -103,7 +104,7 @@
 ## 文档入口
 
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)、[真实资产验收](guides/real_assets_acceptance.md)
-- [项目代码与文档综合分析（2026-09-13，当前权威）](../project_analysis_20260913.md)、[归档清单（2026-09-13）](../archive/20260913/ARCHIVE_MANIFEST.md)
+- [项目代码与文档综合分析（2026-09-14，当前权威）](../project_analysis_20260914.md)、[归档清单（2026-09-14）](../archive/20260914/ARCHIVE_MANIFEST.md)、[归档清单（2026-09-13）](../archive/20260913/ARCHIVE_MANIFEST.md)
 - [PerturbGen 双路径整合方案（v2.0，现行需求基线）](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)
 - [测试覆盖率治理](TEST_COVERAGE.md)
 
