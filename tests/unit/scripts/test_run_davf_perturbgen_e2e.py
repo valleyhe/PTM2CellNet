@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -33,7 +34,7 @@ def _perturbgen_config(context_path: Path) -> dict:
                     "time_point_order": ["normal", "disease"],
                 }
             }
-        }
+        },
     }
 
 
@@ -91,6 +92,20 @@ def test_perturbgen_tokenise_input_must_be_the_candidate_context(tmp_path):
 
     with pytest.raises(ValueError, match="exact candidate context_h5ad"):
         _validate_perturbgen_tokenise_input(_perturbgen_config(other_path), context_path.resolve())
+
+
+def test_perturbgen_tokenise_input_binds_cohort_pairing_into_spec(tmp_path):
+    context_path = tmp_path / "context.h5ad"
+    context_path.write_bytes(b"context")
+    config = _perturbgen_config(context_path)
+    default_spec, _ = _validate_perturbgen_tokenise_input(config, context_path.resolve())
+    assert default_spec.pairing == "within_donor"
+    case_control_spec, _ = _validate_perturbgen_tokenise_input(
+        config, context_path.resolve(), cohort_pairing="between_donor"
+    )
+    assert case_control_spec.pairing == "between_donor"
+    with pytest.raises(ValueError, match="pairing must be one of"):
+        _validate_perturbgen_tokenise_input(config, context_path.resolve(), cohort_pairing="cross_over")
 
 
 def test_gate0_preflight_uses_the_same_context_and_explicit_cell_type(monkeypatch, tmp_path):
@@ -226,6 +241,7 @@ def test_run_perturbgen_formal_path_executes_gate0_before_runner(tmp_path, monke
         candidate_spec=spec_path,
         output=tmp_path / "report.json",
         perturbgen_config=tmp_path / "perturbgen.yaml",
+        perturbgen_cohort_pairing="within_donor",
         perturbgen_output_root=None,
         gpu_lock_file=tmp_path / "gpu.lock",
         run_perturbgen=True,
@@ -237,6 +253,10 @@ def test_run_perturbgen_formal_path_executes_gate0_before_runner(tmp_path, monke
         held_out_donors=None,
         frozen_cohort_manifest=None,
         require_donor_split=False,
+        assemble_statistical_evidence=False,
+        deg_table=None,
+        null_distribution_manifest=None,
+        statistical_output_dir=None,
     )
 
     payload = e2e._run(args)
@@ -288,3 +308,192 @@ def test_dated_formal_davf_configs_declare_current_route_contract(route, scvi_na
     )
     assert config.scvi_model_path.endswith(f"checkpoints/scvi/{scvi_name}")
     assert config.embedding_asset_path.endswith("outputs/perturbgen/embedding_asset_20260822")
+
+
+def _write_stat_h5ad(path: Path, *, donor_column: str = "donor_id") -> None:
+    import anndata as ad
+
+    baseline = np.asarray([[8.0, 1.0, 100.0], [7.5, 1.2, 110.0], [9.0, 0.8, 120.0]], dtype=float)
+    perturbed = np.asarray([[2.0, 2.0, 0.0], [2.5, 2.2, 0.0], [1.5, 2.1, 0.0]], dtype=float)
+    adata = ad.AnnData(
+        X=perturbed,
+        obs=pd.DataFrame({donor_column: ["D1", "D2", "D3"]}, index=["c1", "c2", "c3"]),
+        var=pd.DataFrame(index=["UP_A", "DOWN_A", "TARGET"]),
+    )
+    adata.layers["true_counts"] = np.ones_like(perturbed)
+    adata.layers["pred_counts"] = baseline
+    adata.obsm["true_cls"] = np.ones((3, 2))
+    adata.obsm["perturbed_cls"] = np.ones((3, 2))
+    adata.obsm["mean_cos_similarity"] = np.ones((3, 1))
+    adata.varm["gene_cos_similarity"] = np.ones((3, 1))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    adata.write_h5ad(path)
+
+
+def _write_stat_stage(
+    run_root: Path,
+    *,
+    path_kind: str,
+    seed: int,
+    tokenise_artifacts: dict,
+) -> Path:
+    import hashlib
+
+    sequence = "src" if path_kind == "source_intervention" else "tgt"
+    stage_dir = run_root / "perturb" / path_kind / f"mask_seed{seed}"
+    h5ad = stage_dir / "results" / f"20260910_minference_adata_gSTAT3_s{sequence}_tmask.h5ad"
+    _write_stat_h5ad(h5ad)
+    sha256 = hashlib.sha256(h5ad.read_bytes()).hexdigest()
+    manifest = {
+        "schema_version": 1,
+        "stage": path_kind,
+        "status": "success",
+        "fingerprint": f"fp-{path_kind}-{seed}",
+        "fingerprint_material": {
+            "random_seed": seed,
+            "fingerprint_config": {
+                "stage_config": {
+                    "perturb_config": {
+                        "data": {
+                            "src_dataset_file": tokenise_artifacts["src_dataset"],
+                            "src_adata": tokenise_artifacts["src_h5ad"],
+                            "tgt_dataset_folder": tokenise_artifacts["tgt_dataset_folder"],
+                            "tgt_adata_folder": tokenise_artifacts["tgt_h5ad_folder"],
+                        }
+                    }
+                }
+            },
+        },
+        "outputs": {str(h5ad): {"kind": "file", "sha256": sha256}},
+        "artifacts": {"result_h5ad": str(h5ad)},
+    }
+    (stage_dir / "stage_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return h5ad
+
+
+def _stat_e2e_payload(run_root: Path) -> dict:
+    return {
+        "schema_version": "davf_perturbgen_e2e/v1",
+        "intervention_type": "KO",
+        "candidates": [
+            {
+                "intervention_type": "KO",
+                "status": "pass",
+                "invocation": {
+                    "gene_symbol": "STAT3",
+                    "ensembl_id": "ENSG00000168610",
+                    "intervention_type": "KO",
+                    "candidate": {"observed_direction": "up", "direction_gate_status": "pass"},
+                },
+            }
+        ],
+        "perturbgen_runs": [
+            {
+                "intervention_type": "KO",
+                "gene_symbol": "STAT3",
+                "ensembl_id": "ENSG00000168610",
+                "output_root": str(run_root),
+                "stages": [],
+            }
+        ],
+    }
+
+
+def test_assemble_statistical_evidence_chains_null_quality_pq_dual_path(tmp_path):
+    run_root = tmp_path / "perturbgen" / "KO" / "ENSG00000168610"
+    tokenise_root = run_root / "tokenise" / "artifacts"
+    tokenise_root.mkdir(parents=True, exist_ok=True)
+    (tokenise_root / "src.dataset").write_bytes(b"src")
+    (tokenise_root / "src.h5ad").write_bytes(b"src-h5ad")
+    (tokenise_root / "tgt_dataset").mkdir()
+    (tokenise_root / "tgt_h5ad").mkdir()
+    tokenise_artifacts = {
+        "src_dataset": str(tokenise_root / "src.dataset"),
+        "src_h5ad": str(tokenise_root / "src.h5ad"),
+        "tgt_dataset_folder": str(tokenise_root / "tgt_dataset"),
+        "tgt_h5ad_folder": str(tokenise_root / "tgt_h5ad"),
+    }
+    (run_root / "tokenise" / "stage_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "stage": "tokenise",
+                "status": "success",
+                "artifacts": tokenise_artifacts,
+            }
+        ),
+        encoding="utf-8",
+    )
+    for path_kind in ("source_intervention", "within_state"):
+        for seed in (0, 1, 2):
+            _write_stat_stage(run_root, path_kind=path_kind, seed=seed, tokenise_artifacts=tokenise_artifacts)
+
+    deg_table = tmp_path / "deg.csv"
+    rows = [f"{donor},UP_A,1.0,0.01" for donor in ("D1", "D2", "D3")] + [
+        f"{donor},DOWN_A,-1.0,0.01" for donor in ("D1", "D2", "D3")
+    ]
+    deg_table.write_text("donor,gene_symbol,log2fc,fdr\n" + "\n".join(rows) + "\n", encoding="utf-8")
+
+    distributions = []
+    for path_kind in ("source_intervention", "within_state"):
+        for seed in (0, 1, 2):
+            distributions.append(
+                {
+                    "schema_version": "perturbgen_null_distribution/v1",
+                    "candidate_ensembl_id": "ENSG00000168610",
+                    "path": path_kind,
+                    "mode": "mask",
+                    "seed": seed,
+                    "required_count": 99,
+                    "values": [round(-0.5 + 0.001 * index, 6) for index in range(99)],
+                    "null_ensembl_ids": [f"ENSG0000000{index:05d}" for index in range(99)],
+                }
+            )
+    null_manifest = tmp_path / "null_index.json"
+    null_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "perturbgen_null_distribution/v1",
+                "distributions": distributions,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = _stat_e2e_payload(run_root)
+    evidence = e2e._assemble_statistical_evidence(
+        payload,
+        deg_table_path=deg_table,
+        null_distribution_manifest_path=null_manifest,
+        output_dir=tmp_path / "statistical_evidence",
+        donor_obs_column="donor_id",
+    )
+
+    assert evidence["status"] == "assembled"
+    assert evidence["evaluation_mode"] == "formal"
+    assert evidence["scientific_acceptance"] is False
+    assert len(evidence["candidates"]) == 1
+    candidate = evidence["candidates"][0]
+    assert candidate["ensembl_id"] == "ENSG00000168610"
+    assert candidate["pvalue"] is not None and 0.0 <= candidate["pvalue"] <= 1.0
+    assert candidate["q_value"] is not None and 0.0 <= candidate["q_value"] <= 1.0
+    assert candidate["verdict"] in {"pass", "fail", "inconclusive"}
+    assert candidate["scientific_acceptance"] is False
+    assert Path(evidence["eval_input"]).is_file()
+    assert Path(evidence["report_manifest"]).is_file()
+
+
+def test_assemble_statistical_evidence_requires_completed_runs(tmp_path):
+    payload = {"schema_version": "davf_perturbgen_e2e/v1", "perturbgen_runs": []}
+    deg_table = tmp_path / "deg.csv"
+    deg_table.write_text("donor,gene_symbol,log2fc,fdr\nd1,G1,1.0,0.01\n", encoding="utf-8")
+    null_manifest = tmp_path / "null.json"
+    null_manifest.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="requires completed"):
+        e2e._assemble_statistical_evidence(
+            payload,
+            deg_table_path=deg_table,
+            null_distribution_manifest_path=null_manifest,
+            output_dir=tmp_path / "statistical_evidence",
+            donor_obs_column="donor_id",
+        )

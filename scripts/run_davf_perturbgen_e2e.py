@@ -58,6 +58,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.integration.perturbgen.config_builder import load_pipeline_config  # noqa: E402
 from src.integration.perturbgen.orchestrator import (  # noqa: E402
     DAVFPerturbGenOrchestrator,
+    build_shared_prepare_plans,
     merge_route_preparations,
 )
 from src.integration.perturbgen.runner import PerturbGenRunner  # noqa: E402
@@ -169,8 +170,16 @@ def _serialize(value: Any) -> Any:
 def _validate_perturbgen_tokenise_input(
     config: Mapping[str, Any],
     context_path: Path,
+    *,
+    cohort_pairing: str = "within_donor",
 ) -> tuple[PerturbGenDataSpec, Path]:
-    """Bind the PerturbGen tokenise input and metadata to the E2E context."""
+    """Bind the PerturbGen tokenise input and metadata to the E2E context.
+
+    ``cohort_pairing`` freezes the donor/state design of the cohort:
+    ``within_donor`` requires shared donors across the two states
+    (perturbation cohorts), ``between_donor`` accepts case-control cohorts
+    with donor-disjoint state groups.
+    """
 
     try:
         stages = config["stages"]
@@ -227,6 +236,7 @@ def _validate_perturbgen_tokenise_input(
             donor_col=donor_col,
             normal_state=reference_state.strip(),
             disease_state=time_point_order[1].strip(),
+            pairing=cohort_pairing,
         ),
         tokenise_path,
     )
@@ -292,6 +302,137 @@ def _validate_original_tokenise_ensembl(context_adata: Any, spec: PerturbGenData
             )
 
 
+def _observed_direction_for_run(payload: Mapping[str, Any], ensembl_id: str) -> str:
+    for preparation in payload.get("candidates", []):
+        if not isinstance(preparation, Mapping) or preparation.get("status") != "pass":
+            continue
+        invocation = preparation.get("invocation")
+        if not isinstance(invocation, Mapping):
+            continue
+        if str(invocation.get("ensembl_id", "")) != ensembl_id:
+            continue
+        direction = invocation.get("candidate", {}).get("observed_direction")
+        if direction not in ("up", "down"):
+            raise ValueError(f"passing invocation for {ensembl_id} has no recorded observed_direction")
+        return str(direction)
+    raise ValueError(f"E2E report has no passing invocation for {ensembl_id}")
+
+
+def _assemble_statistical_evidence(
+    payload: dict[str, Any],
+    *,
+    deg_table_path: Path,
+    null_distribution_manifest_path: Path,
+    output_dir: Path,
+    donor_obs_column: str,
+) -> dict[str, Any]:
+    """Assemble formal dual-path statistical evidence from the E2E runs (F-01).
+
+    Chains the existing interfaces end to end: per-candidate unperturbed
+    quality extraction from the primary-mode within_state h5ad files, formal
+    eval-input assembly against the manifest-bound null distributions,
+    empirical candidate p aggregation, BH-FDR q-values and the dual-path AND
+    decision.  Nothing is fabricated: a missing null/quality/seed coverage is
+    a hard error and stays ``INCONCLUSIVE`` in the report, never a PASS.
+    """
+
+    from dataclasses import asdict
+
+    from src.integration.perturbgen.empirical_pvalue import primary_mode_for_direction
+    from src.integration.perturbgen.eval_assembly import (
+        build_eval_input_payload,
+        resolve_run_artifacts,
+        write_eval_input,
+    )
+    from src.integration.perturbgen.replay_evaluation import (
+        load_deg_table,
+        replay_dual_path_evaluation,
+    )
+    from src.integration.perturbgen.results import extract_unperturbed_quality_from_h5ad
+
+    runs = payload.get("perturbgen_runs") or []
+    if not runs:
+        raise ValueError("statistical evidence assembly requires completed --run-perturbgen stages")
+
+    deg_table = load_deg_table(deg_table_path)
+    candidate_quality: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        ensembl_id = str(run["ensembl_id"])
+        gene_symbol = str(run["gene_symbol"])
+        observed_direction = _observed_direction_for_run(payload, ensembl_id)
+        primary_mode = primary_mode_for_direction(observed_direction)
+        artifacts = resolve_run_artifacts(run["output_root"], gene_symbol)
+        within_primary = {
+            artifact.seed: artifact.path for artifact in artifacts["within_state"] if artifact.mode == primary_mode
+        }
+        if not within_primary:
+            raise ValueError(
+                f"candidate {ensembl_id} has no within_state {primary_mode} perturb artifacts "
+                "for unperturbed quality extraction"
+            )
+        quality = extract_unperturbed_quality_from_h5ad(
+            within_primary,
+            deg_table,
+            donor_obs_column=donor_obs_column,
+            var_gene_column="__index__",
+            target_gene=gene_symbol,
+            donor_column="donor",
+            gene_column="gene_symbol",
+            effect_column="log2fc",
+            fdr_column="fdr",
+        )
+        candidate_quality[ensembl_id] = asdict(quality)
+
+    eval_payload = build_eval_input_payload(
+        payload,
+        deg_table_path=deg_table_path,
+        null_distribution_manifest_path=null_distribution_manifest_path,
+        unperturbed_quality_status="inconclusive",
+        candidate_unperturbed_quality=candidate_quality,
+        evaluation_mode="formal",
+        donor_obs_column=donor_obs_column,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    eval_input_path = write_eval_input(
+        eval_payload,
+        output_dir / "dual_path_eval_input.json",
+    )
+    report_dir = output_dir / "dual_path_reports"
+    if report_dir.exists() and any(report_dir.iterdir()):
+        raise ValueError(f"statistical report dir already exists and is not empty: {report_dir}")
+    manifest = replay_dual_path_evaluation(
+        eval_payload,
+        input_path=eval_input_path,
+        output_dir=report_dir,
+    )
+    candidates = [
+        {
+            "ensembl_id": entry.get("replay", {}).get("candidate", {}).get("ensembl_id"),
+            "candidate_index": entry.get("candidate_index"),
+            "candidate_gene": entry.get("candidate_gene"),
+            "intervention_type": entry.get("intervention_type"),
+            "pvalue": entry.get("candidate_pvalue"),
+            "q_value": entry.get("q_value"),
+            "verdict": entry.get("verdict"),
+            "reasons": entry.get("reasons"),
+            "scientific_acceptance": entry.get("scientific_acceptance"),
+            "report_dir": entry.get("report_dir"),
+        }
+        for entry in manifest.get("candidates", [])
+    ]
+    return {
+        "status": "assembled",
+        "evaluation_mode": "formal",
+        "scientific_acceptance": bool(candidates) and all(bool(entry["scientific_acceptance"]) for entry in candidates),
+        "deg_table": str(Path(deg_table_path).expanduser().resolve(strict=True)),
+        "null_distribution_manifest": str(Path(null_distribution_manifest_path).expanduser().resolve(strict=True)),
+        "donor_obs_column": donor_obs_column,
+        "eval_input": str(eval_input_path),
+        "report_manifest": str(Path(report_dir) / "manifest.json"),
+        "candidates": candidates,
+    }
+
+
 def _run(args: argparse.Namespace) -> dict[str, Any]:
     davf_config = _load_davf_config(args.davf_config)
     context_path, raw_candidates = _load_candidate_spec(args.candidate_spec)
@@ -334,6 +475,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         perturbgen_gate0_contract = _validate_perturbgen_tokenise_input(
             perturbgen_config,
             context_path,
+            cohort_pairing=args.perturbgen_cohort_pairing,
         )
     elif args.perturbgen_config is not None:
         raise ValueError("--perturbgen-config requires --run-perturbgen")
@@ -436,9 +578,27 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             if args.perturbgen_output_root is not None
             else (Path(args.output).expanduser().resolve().parent / "perturbgen")
         )
-        for preparation in preparations:
-            if preparation.invocation is None:
-                continue
+        gated = [preparation for preparation in preparations if preparation.invocation is not None]
+        prepare_registry: dict[tuple[str, str], str] = {}
+        prepare_root: Path | None = None
+        if gated:
+            prepare_root = base_output / orchestrator.intervention_type / "_prepare"
+            prepare_plans = build_shared_prepare_plans(
+                cast(dict[str, Any], perturbgen_config),
+                output_root=prepare_root,
+                project_root=PROJECT_ROOT,
+            )
+            prepare_results = runner.run_pipeline(prepare_plans, resume=args.resume, dry_run=args.dry_run)
+            payload["perturbgen_prepare"] = {
+                "output_root": str(prepare_root),
+                "stage_names": [plan.name for plan in prepare_plans],
+                "results": _serialize(prepare_results),
+            }
+            if not args.dry_run:
+                for result in prepare_results:
+                    for name, path in result.artifacts.items():
+                        prepare_registry[(result.stage, name)] = str(path)
+        for preparation in gated:
             invocation = preparation.invocation
             candidate_root = base_output / orchestrator.intervention_type / invocation.ensembl_id
             stage_results = orchestrator.run_perturbgen(
@@ -451,6 +611,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                 project_root=PROJECT_ROOT,
                 seeds=seeds,
                 sensitivity_modes=sensitivity_modes,
+                skip_prepare_stages=True,
+                prepare_artifact_paths=prepare_registry if not args.dry_run else None,
             )
             payload["perturbgen_runs"].append(
                 {
@@ -458,11 +620,35 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                     "gene_symbol": invocation.gene_symbol,
                     "ensembl_id": invocation.ensembl_id,
                     "output_root": str(candidate_root),
+                    "prepare_root": str(prepare_root) if prepare_root is not None else None,
                     "stages": _serialize(stage_results),
                 }
             )
     elif args.dry_run or args.resume:
         raise ValueError("--dry-run/--resume require --run-perturbgen")
+
+    if args.assemble_statistical_evidence:
+        if not args.run_perturbgen or args.dry_run:
+            raise ValueError("--assemble-statistical-evidence requires a real --run-perturbgen execution")
+        if args.deg_table is None:
+            raise ValueError("--assemble-statistical-evidence requires --deg-table")
+        if args.null_distribution_manifest is None:
+            raise ValueError("--assemble-statistical-evidence requires --null-distribution-manifest")
+        if perturbgen_gate0_contract is None:
+            raise ValueError("statistical assembly requires the Gate-0 data spec of this run")
+        spec, _ = perturbgen_gate0_contract
+        statistical_dir = (
+            Path(args.statistical_output_dir).expanduser().resolve()
+            if args.statistical_output_dir is not None
+            else (Path(args.output).expanduser().resolve().parent / "statistical_evidence")
+        )
+        payload["statistical_evidence"] = _assemble_statistical_evidence(
+            payload,
+            deg_table_path=Path(args.deg_table).expanduser().resolve(strict=True),
+            null_distribution_manifest_path=Path(args.null_distribution_manifest).expanduser().resolve(strict=True),
+            output_dir=statistical_dir,
+            donor_obs_column=spec.donor_col,
+        )
 
     return payload
 
@@ -473,6 +659,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidate-spec", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--perturbgen-config", type=Path)
+    parser.add_argument(
+        "--perturbgen-cohort-pairing",
+        choices=("within_donor", "between_donor"),
+        default="within_donor",
+        help=(
+            "cohort donor/state design for Gate-0: within_donor requires >=3 donors shared "
+            "across the two states (perturbation cohorts); between_donor requires donor-disjoint "
+            "state groups with >=3 donors each (case-control cohorts)"
+        ),
+    )
     parser.add_argument("--perturbgen-output-root", type=Path)
     parser.add_argument("--gpu-lock-file", type=Path, default=Path("outputs/perturbgen/.gpu.lock"))
     parser.add_argument("--run-perturbgen", action="store_true")
@@ -508,6 +704,29 @@ def main(argv: list[str] | None = None) -> int:
         "--require-donor-split",
         action="store_true",
         help="fail if train/held-out donor lists are omitted",
+    )
+    parser.add_argument(
+        "--assemble-statistical-evidence",
+        action="store_true",
+        help="assemble formal null/quality/p/q/dual-path evidence after the perturbgen stages (F-01)",
+    )
+    parser.add_argument(
+        "--deg-table",
+        type=Path,
+        default=None,
+        help="donor-level DEG table (csv/json) required by --assemble-statistical-evidence",
+    )
+    parser.add_argument(
+        "--null-distribution-manifest",
+        type=Path,
+        default=None,
+        help="manifest-bound matched-null distribution index required by --assemble-statistical-evidence",
+    )
+    parser.add_argument(
+        "--statistical-output-dir",
+        type=Path,
+        default=None,
+        help="output directory for the assembled statistical evidence",
     )
     args = parser.parse_args(argv)
 

@@ -86,8 +86,24 @@ gate 已解决。
 tokenise 的 `var_list` 必须按顺序明确声明 cell type、state、donor，且与
 `main_pairing_obs`、`time_obs` 及 `[reference_time, disease_state]` 一致。脚本会
 在调用外部 PerturbGen runner 前，对同一份完整 context 调用
-`prepare_perturbgen_anndata`，验证 raw counts、Ensembl、normal/disease、显式
-donor 和至少 3 个共享 donor。Gate-0 未通过时不会进入任何外部 PerturbGen stage。
+`prepare_perturbgen_anndata`，验证 raw counts、Ensembl、normal/disease 与显式
+donor。Gate-0 未通过时不会进入任何外部 PerturbGen stage。
+
+队列配对语义由 `--perturbgen-cohort-pairing` 显式声明（L-2026-0914-01）：
+
+- `within_donor`（默认，扰动配对队列）：同一 donor 在两个 state 都有细胞，
+  要求 ≥3 个跨态共享 donor；
+- `between_donor`（case-control 队列，如 AD 脑队列）：每位 donor 只属于一个
+  state，要求两组 donor 不相交（同 donor 双态出现即标签错误硬失败）且每组
+  ≥3 个 donor；报告的 `evaluable_donors` 是两组并集，`normal_donors`/
+  `disease_donors` 分别记录分组。
+
+首个通过 between_donor Gate-0 的真实队列是
+`data/AD/standardized/GSE174367_ad_cohort.h5ad`（61,472 cells × 58,676
+canonical ENSG；7 Control + 11 AD donor；由
+`scripts/standardize_gse174367_ad_cohort.py` 生成，donor 推导与 ENSG 合并
+证据见同目录 provenance JSON；preflight 7/7 细胞类型 PASS）。这只是数据
+契约验收，不构成生物学 PASS。
 
 当前登记的外部 tokeniser 直接消费 `tokenise.args.h5ad_path`；Gate-0 的
 `prepare_perturbgen_anndata` 返回的是校验副本。登记源码
@@ -97,11 +113,18 @@ materialize；原始 tokenise 输入中的 Ensembl ID 必须已经是 canonical 
 进入 stage 前硬失败，不会凭空写入 X/layer 或另造输入文件。本轮未运行真实
 tokenisation。
 
-E2E 报告中的 `statistical_evidence` 当前只会明确写出
-`status="inconclusive"` 和 `scientific_acceptance=false`。E2E 不会自动产生或
-宣称 matched-null、未扰动质量、候选 p/q 或双路径 AND 的科学结论；这些统计接口
-仍需在真实 cohort、真实资产和正式统计 lineage 就绪后显式组装。mock、synthetic、
-smoke 或 bridge 运行不等于 biology PASS。
+E2E 报告中的 `statistical_evidence` 默认写 `status="inconclusive"` 和
+`scientific_acceptance=false`；未请求 `--run-perturbgen` 时 reason 为
+`perturbgen_not_requested`，请求六阶段但未组装统计时 reason 为
+`statistical_evidence_not_assembled`。传入 `--assemble-statistical-evidence`
+（要求真实 `--run-perturbgen` 执行）后，E2E 会自动串接现有统计接口：按候选从
+primary-mode `within_state` h5ad 提取未扰动质量、以 manifest 绑定的 matched-null
+分布组装 formal 评估输入、执行候选 empirical-p 聚合与 BH-FDR、产出双路径 AND
+判定并把完整 lineage 写回 `statistical_evidence`。该组装需要显式提供
+`--deg-table`（donor/gene_symbol/log2fc/fdr 列）和 `--null-distribution-manifest`
+（`perturbgen_null_distribution/v1` 索引），缺 null/质量/seed 覆盖会硬失败或保持
+INCONCLUSIVE，绝不产生伪造 p/q。mock、synthetic、smoke 或 bridge 运行不等于
+biology PASS。
 
 ## 只执行真实 DAVF 与方向 gate
 
@@ -133,14 +156,16 @@ python scripts/run_davf_perturbgen_e2e.py \
   --output outputs/davf_perturbgen/ko_report.json
 ```
 
-每个通过 gate 的候选会获得独立的
-`<output_root>/<KO|KD>/<Ensembl ID>/` 目录；其中两个 perturb 阶段分别使用
-`source_intervention=[src]`（状态转移前）和 `within_state=[tgt]+pert_tps`
-（目标状态内）。当前实现会为每个通过 gate 的候选重新执行
-`tokenise/train_mask/train_decoder`，再执行两条路径的扰动、导出和 report；没有跨
-候选公共准备 reuse 的 CLI。`PerturbGenRunner` 负责 GPU 锁、artifact 引用、manifest
-和同目录 resume。单路结果只支持对应研究场景，只有两路都通过才可进入正式 AND
-判定，不能解释成普遍治疗疗效。
+E2E 现在对每个 route 公共准备一次：`tokenise/train_mask/train_decoder` 在
+`<output_root>/<KO|KD>/_prepare/` 下只执行一次（runner manifest + resume 语义，
+重跑传 `--resume` 复用），随后每个通过 gate 的候选只在
+`<output_root>/<KO|KD>/<Ensembl ID>/` 下执行自己的
+`perturb → export_gene_embeddings → report`，候选计划中的
+`@artifact:tokenise/train_*` 引用解析到共享准备产物。报告的
+`perturbgen_prepare` 节记录共享准备的 root、阶段与结果；每个
+`perturbgen_runs` 条目记录其 `prepare_root`。`PerturbGenRunner` 负责 GPU 锁、
+artifact 引用、manifest 和同目录 resume。单路结果只支持对应研究场景，只有两路
+都通过才可进入正式 AND 判定，不能解释成普遍治疗疗效。
 
 `configs/integration/perturbgen.yaml` 当前 `pipeline.random_seed` 为 42。E2E
 invocation 会从该 base config 读取并记录该 seed；正式多 seed 仍须显式传入匹配的
@@ -158,10 +183,17 @@ batch 生成入口是 `scripts/run_matched_null_stages.py`（`--dry-run` 或
 不猜测 DEG 列。
 
 这条命令只代表六阶段 stage/manifest 执行成功；`report` 只是 manifest 汇总，不
-自动把缺少 donor/null/FDR/未扰动质量或方向轴定义的结果标成生物学 PASS。E2E
-尚未自动接续 `build_dual_path_eval_input.py`、matched-null 提取和
-`evaluate_perturbgen_dual_path.py` 的统计闭环；最终 formal 结论仍需显式组装、
-经验 p 聚合和双路径严格 AND。
+自动把缺少 donor/null/FDR/未扰动质量或方向轴定义的结果标成生物学 PASS。统计闭环
+由 `--assemble-statistical-evidence` 显式触发（见上文 statistical_evidence 段）；
+不启用时 `build_dual_path_eval_input.py` 与 `evaluate_perturbgen_dual_path.py`
+仍可独立两步调用，但两步调用容易漏接，正式入口应使用 E2E 内置组装。
+
+gate 边界（F-09 的现行约定）：正式 PerturbGen 执行的唯一公开入口是绑定通过
+E2E gate report 的 `scripts/run_perturbgen_pipeline.py --e2e-gate-report` 与
+orchestrator invocation（`PerturbGenInvocation` 拒绝非 pass 候选）。低层
+`PerturbGenRunner.run_pipeline` 只执行 `StagePlan`，属工程执行层，不自行重查
+DAVF gate——内部 null/engineering 调用复用该层，但绕过外层 wrapper 直接把
+StagePlan 交给 runner 不能视为正式候选执行。该边界尚未下沉到 runner 接口层。
 
 ## 独立 KO/KD 报告合并
 
