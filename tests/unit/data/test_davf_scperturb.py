@@ -39,7 +39,16 @@ def _write_source(path: Path, *, modality: str = "KO") -> None:
     if modality == "KO":
         obs = pd.DataFrame(
             {
-                "perturbation": ["control", "control", "TARGET_A", "TARGET_A", "TARGET_B", "TARGET_B", "unknown", "unknown"],
+                "perturbation": [
+                    "control",
+                    "control",
+                    "TARGET_A",
+                    "TARGET_A",
+                    "TARGET_B",
+                    "TARGET_B",
+                    "unknown",
+                    "unknown",
+                ],
                 "target": [np.nan, np.nan, "TARGET_A", "TARGET_A", "TARGET_B", "TARGET_B", "INTERGENIC", "INTERGENIC"],
                 "batch": ["b0"] * 8,
             },
@@ -48,8 +57,26 @@ def _write_source(path: Path, *, modality: str = "KO") -> None:
     else:
         obs = pd.DataFrame(
             {
-                "gene_id": ["non-targeting", "non-targeting", gene_ids[0], gene_ids[0], gene_ids[1], gene_ids[1], "bad", "bad"],
-                "gene": ["non-targeting", "non-targeting", "TARGET_A", "TARGET_A", "TARGET_B", "TARGET_B", "bad", "bad"],
+                "gene_id": [
+                    "non-targeting",
+                    "non-targeting",
+                    gene_ids[0],
+                    gene_ids[0],
+                    gene_ids[1],
+                    gene_ids[1],
+                    "bad",
+                    "bad",
+                ],
+                "gene": [
+                    "non-targeting",
+                    "non-targeting",
+                    "TARGET_A",
+                    "TARGET_A",
+                    "TARGET_B",
+                    "TARGET_B",
+                    "bad",
+                    "bad",
+                ],
                 "perturbation": ["control", "control", "TARGET_A", "TARGET_A", "TARGET_B", "TARGET_B", "bad", "bad"],
                 "batch": ["b0"] * 8,
             },
@@ -198,3 +225,135 @@ def test_optional_preflight_hard_fails_with_install_hint(monkeypatch):
     monkeypatch.setattr(davf, "require_extras", raise_missing)
     with pytest.raises(MissingDependencyError, match=r"\.\[analysis\]"):
         davf._require_anndata()
+
+
+class _FakeScVIAdapterForDonors:
+    """Deterministic stand-in for the scVI encoder used by donor-bound pairs."""
+
+    def __init__(self, gene_names: tuple[str, ...]) -> None:
+        self.gene_names = gene_names
+
+    @classmethod
+    def from_trained_model(cls, *_args, **_kwargs):
+        return cls(_kwargs["adata"].var_names.tolist())
+
+    def validate_compatibility(self, **_kwargs) -> None:
+        return None
+
+    def encode(self, adata, batch_size=512):
+        rng = np.random.default_rng(1234)
+        return rng.normal(size=(adata.n_obs, 64)).astype(np.float32)
+
+
+def _prepared_donor_anndata(path: Path) -> None:
+    gene_ids = [f"ENSG{index:011d}" for index in range(4018)]
+    matrix = sp.csr_matrix((10, 4018), dtype=np.float32)
+    obs = pd.DataFrame(
+        {
+            "davf_target_ensembl": [
+                "ENSG00000000000",
+                "ENSG00000000000",
+                "ENSG00000000001",
+                "ENSG00000000001",
+                "",
+                "",
+                "ENSG00000000000",
+                "ENSG00000000001",
+                "",
+                "",
+            ],
+            "davf_batch": ["b0"] * 10,
+            "donor": ["d1", "d1", "d2", "d2", "d1", "d2", "d3", "d4", "d3", "d4"],
+        },
+        index=[f"cell_{index}" for index in range(10)],
+    )
+    prepared = ad.AnnData(X=matrix, obs=obs, var=pd.DataFrame(index=gene_ids))
+    prepared.uns["davf_preparation"] = {"modality": "KO"}
+    prepared.write_h5ad(path)
+
+
+def _donor_asset():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        gene_to_token={"ENSG00000000000": 17, "ENSG00000000001": 23},
+        vocab_size=50,
+        embedding_dim=64,
+        manifest={"schema_version": 1},
+    )
+
+
+def _build_donor_bound_pairs(tmp_path, monkeypatch, donor_split, **overrides):
+    prepared_path = tmp_path / "prepared.h5ad"
+    _prepared_donor_anndata(prepared_path)
+    monkeypatch.setattr(
+        "src.models.scvi_adapter.ScVIAdapter",
+        _FakeScVIAdapterForDonors,
+    )
+    kwargs = dict(
+        scvi_model_path=tmp_path / "scvi",
+        embedding_asset=_donor_asset(),
+        embedding_asset_path=tmp_path / "asset",
+        output_dir=tmp_path / "pairs",
+        modality="KO",
+        donor_obs_column="donor",
+        donor_split=donor_split,
+    )
+    kwargs.update(overrides)
+    return build_scperturb_latent_pairs(prepared_path, **kwargs)
+
+
+_DONOR_SPLIT_PAYLOAD = {
+    "schema_version": "ptm2cellnet.donor_split/v1",
+    "train_donors": ["d1", "d2"],
+    "held_out_donors": ["d3", "d4"],
+    "sha256": "0" * 64,
+}
+
+
+def test_donor_bound_pairs_keep_train_and_held_out_donors_in_separate_npz(tmp_path, monkeypatch):
+    report = _build_donor_bound_pairs(tmp_path, monkeypatch, _DONOR_SPLIT_PAYLOAD)
+
+    assert set(report) == {"train", "val", "test"}
+    for split, allowed, pool in (
+        ("train", {"d1", "d2"}, "train_donors"),
+        ("val", {"d1", "d2"}, "train_donors"),
+        ("test", {"d3", "d4"}, "held_out_donors"),
+    ):
+        with np.load(report[split]["path"], allow_pickle=False) as data:
+            donors = set(data["target_donors"].tolist())
+            assert donors
+            assert donors <= allowed
+            metadata = json.loads(data["metadata_json"].item())
+            assert metadata["donor_split"] == _DONOR_SPLIT_PAYLOAD
+            assert metadata["dataset"]["donor_rows"] == data["target_donors"].tolist()
+            assert metadata["dataset"]["donor_pool"] == pool
+            assert metadata["dataset"]["donor_obs_column"] == "donor"
+
+    manifest = json.loads((tmp_path / "pairs" / "pair_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["donor_split"] == _DONOR_SPLIT_PAYLOAD
+    assert manifest["donor_obs_column"] == "donor"
+
+
+def test_donor_bound_pairs_reject_donor_outside_both_pools(tmp_path, monkeypatch):
+    payload = dict(_DONOR_SPLIT_PAYLOAD)
+    payload["held_out_donors"] = ["d9"]
+    with pytest.raises(DAVFScPerturbError, match="unassigned/missing donors"):
+        _build_donor_bound_pairs(tmp_path, monkeypatch, payload)
+
+
+def test_donor_bound_pairs_require_explicit_donor_column(tmp_path, monkeypatch):
+    with pytest.raises(DAVFScPerturbError, match="no donor column"):
+        _build_donor_bound_pairs(
+            tmp_path,
+            monkeypatch,
+            _DONOR_SPLIT_PAYLOAD,
+            donor_obs_column="missing_donor",
+        )
+
+
+def test_donor_bound_pairs_reject_leaking_donor_lists(tmp_path, monkeypatch):
+    payload = dict(_DONOR_SPLIT_PAYLOAD)
+    payload["held_out_donors"] = ["d1", "d3", "d4"]
+    with pytest.raises(DAVFScPerturbError, match="leaks donors into both pools"):
+        _build_donor_bound_pairs(tmp_path, monkeypatch, payload)

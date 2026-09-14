@@ -13,6 +13,7 @@ from src.integration.perturbgen.env_guard import ExternalEnvironmentReport, vali
 from src.integration.perturbgen.orchestrator import (
     PerturbGenInvocation,
     build_candidate_stage_plans,
+    build_shared_prepare_plans,
 )
 from src.integration.perturbgen.runner import PerturbGenResumeError, PerturbGenRunner
 
@@ -55,7 +56,10 @@ def _mock_repo(root: Path) -> Path:
             "print('mock perturbgen cli')\n"
         ),
     )
-    _write(root / "perturbgen/Perturb/val.py", "import sys, yaml\nfrom pathlib import Path\ncfg = yaml.safe_load(Path(sys.argv[2]).read_text(encoding='utf-8'))\nassert Path(cfg['model']['ckpt_masking_path']).is_file()\nout = Path(cfg['mock_output'])\nout.parent.mkdir(parents=True, exist_ok=True)\nout.write_text('ok', encoding='utf-8')\nprint('mock perturb')\n")
+    _write(
+        root / "perturbgen/Perturb/val.py",
+        "import sys, yaml\nfrom pathlib import Path\ncfg = yaml.safe_load(Path(sys.argv[2]).read_text(encoding='utf-8'))\nassert Path(cfg['model']['ckpt_masking_path']).is_file()\nout = Path(cfg['mock_output']) if 'mock_output' in cfg else Path(cfg['trainer']['output_dir']) / 'dynamic-perturb.h5ad'\nout.parent.mkdir(parents=True, exist_ok=True)\nout.write_text('ok', encoding='utf-8')\nprint('mock perturb')\n",
+    )
     return root
 
 
@@ -133,9 +137,15 @@ def _config(tmp_path: Path, mock_repo: Path, export_script: Path) -> dict:
                 extra={
                     "module": "perturbgen",
                     "subcommand": "train-mask",
-                    "args": {"sentinel_output": str(output_root / "train_mask" / "model" / "checkpoints" / "dynamic-mask.ckpt")},
+                    "args": {
+                        "sentinel_output": str(
+                            output_root / "train_mask" / "model" / "checkpoints" / "dynamic-mask.ckpt"
+                        )
+                    },
                     "fingerprint_paths": [str(token_input)],
-                    "expected_outputs": [{"name": "checkpoint", "path": "model/checkpoints", "discover_glob": "*.ckpt", "kind": "file"}],
+                    "expected_outputs": [
+                        {"name": "checkpoint", "path": "model/checkpoints", "discover_glob": "*.ckpt", "kind": "file"}
+                    ],
                 },
             ),
             "train_decoder": stage(
@@ -147,10 +157,14 @@ def _config(tmp_path: Path, mock_repo: Path, export_script: Path) -> dict:
                     "subcommand": "train-decoder",
                     "args": {
                         "ckpt_masking_path": "@artifact:train_mask:checkpoint",
-                        "sentinel_output": str(output_root / "train_decoder" / "model" / "checkpoints" / "dynamic-decoder.ckpt"),
+                        "sentinel_output": str(
+                            output_root / "train_decoder" / "model" / "checkpoints" / "dynamic-decoder.ckpt"
+                        ),
                     },
                     "fingerprint_paths": ["@artifact:train_mask:checkpoint"],
-                    "expected_outputs": [{"name": "checkpoint", "path": "model/checkpoints", "discover_glob": "*.ckpt", "kind": "file"}],
+                    "expected_outputs": [
+                        {"name": "checkpoint", "path": "model/checkpoints", "discover_glob": "*.ckpt", "kind": "file"}
+                    ],
                 },
             ),
             "perturb": stage(
@@ -172,7 +186,9 @@ def _config(tmp_path: Path, mock_repo: Path, export_script: Path) -> dict:
                         "model": {"ckpt_masking_path": "@artifact:train_decoder:checkpoint"},
                     },
                     "fingerprint_paths": [str(mapping), str(token_row), "@artifact:train_decoder:checkpoint"],
-                    "expected_outputs": [{"name": "result_h5ad", "path": "results", "discover_glob": "*.h5ad", "kind": "file"}],
+                    "expected_outputs": [
+                        {"name": "result_h5ad", "path": "results", "discover_glob": "*.h5ad", "kind": "file"}
+                    ],
                 },
             ),
             "export_gene_embeddings": stage(
@@ -181,7 +197,9 @@ def _config(tmp_path: Path, mock_repo: Path, export_script: Path) -> dict:
                 extra={
                     "script_root": "perturbgen",
                     "script_path": str(export_script),
-                    "args": {"sentinel_output": str(output_root / "export_gene_embeddings" / "export_gene_embeddings.ok")},
+                    "args": {
+                        "sentinel_output": str(output_root / "export_gene_embeddings" / "export_gene_embeddings.ok")
+                    },
                     "fingerprint_paths": [str(encoder_ckpt)],
                 },
             ),
@@ -498,3 +516,106 @@ def test_sensitivity_invocation_contract_is_ko_only():
             semantic_context=_semantic_context("KD"),
             is_sensitivity=True,
         )
+
+
+def test_shared_prepare_plans_run_once_and_candidates_reuse_artifacts(tmp_path, monkeypatch):
+    """F-02: shared tokenise/train runs once; candidates execute perturb-only."""
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    _patch_environment_probe(monkeypatch, mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["pert_tps"] = [1]
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["pert_tps"] = [1]
+    # The mock perturb script follows the rewritten trainer.output_dir like
+    # the upstream val.py does.
+    config["stages"]["perturb"]["perturb_config"].pop("mock_output", None)
+    runner = PerturbGenRunner(gpu_lock_file=tmp_path / "gpu.lock")
+
+    prepare_root = tmp_path / "shared" / "_prepare"
+    prepare_plans = build_shared_prepare_plans(
+        config,
+        output_root=prepare_root,
+    )
+    assert [plan.name for plan in prepare_plans] == ["tokenise", "train_mask", "train_decoder"]
+    assert all(plan.output_root == prepare_root.resolve() for plan in prepare_plans)
+
+    prepare_results = runner.run_pipeline(prepare_plans, resume=False)
+    registry = {(result.stage, name): path for result in prepare_results for name, path in result.artifacts.items()}
+    assert ("train_mask", "checkpoint") in registry
+    assert ("train_decoder", "checkpoint") in registry
+    mask_checkpoint = Path(registry[("train_mask", "checkpoint")])
+    decoder_checkpoint = Path(registry[("train_decoder", "checkpoint")])
+    assert prepare_root.resolve() in mask_checkpoint.parents
+    assert prepare_root.resolve() in decoder_checkpoint.parents
+
+    plans = build_candidate_stage_plans(
+        config,
+        _ko_mask_invocation(),
+        output_root=tmp_path / "shared" / "KO" / "ENSG00000168610",
+        skip_prepare_stages=True,
+        prepare_artifact_paths=registry,
+    )
+    assert [plan.name for plan in plans] == [
+        "source_intervention",
+        "within_state",
+        "export_gene_embeddings",
+        "report",
+    ]
+    for plan in plans[:2]:
+        payload = plan.generated_files[0].payload
+        assert payload["model"]["ckpt_masking_path"] == str(decoder_checkpoint.resolve())
+    assert decoder_checkpoint.resolve() in plans[0].fingerprint_paths
+
+    results = runner.run_pipeline(plans, resume=False)
+    assert [result.stage for result in results] == [
+        "source_intervention",
+        "within_state",
+        "export_gene_embeddings",
+        "report",
+    ]
+
+    # Re-running the prepare root only reuses fingerprints; the candidate
+    # plans never re-execute tokenise/training for the second invocation.
+    second_prepare = runner.run_pipeline(prepare_plans, resume=True)
+    assert all(result.reused for result in second_prepare)
+
+
+def test_candidate_stage_plans_fail_when_shared_prepare_artifact_is_missing(tmp_path):
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["pert_tps"] = [1]
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["pert_tps"] = [1]
+
+    with pytest.raises(ValueError, match="shared prepare artifact was never produced"):
+        build_candidate_stage_plans(
+            config,
+            _ko_mask_invocation(),
+            output_root=tmp_path / "candidate-output",
+            skip_prepare_stages=True,
+            prepare_artifact_paths={},
+        )
+
+
+def test_candidate_stage_plans_keep_artifact_references_for_dry_run_preview(tmp_path):
+    """Dry-run previews keep @artifact strings because nothing executes."""
+    mock_repo = _mock_repo(tmp_path / "mock_repo")
+    export_script = _mock_project_script(mock_repo)
+    config = _config(tmp_path, mock_repo, export_script)
+    config["stages"]["perturb"]["perturb_config"]["trainer"]["pert_tps"] = [1]
+    config["stages"]["perturb"]["perturb_config"]["datamodule"]["pert_tps"] = [1]
+
+    plans = build_candidate_stage_plans(
+        config,
+        _ko_mask_invocation(),
+        output_root=tmp_path / "candidate-output",
+        skip_prepare_stages=True,
+    )
+    assert [plan.name for plan in plans] == [
+        "source_intervention",
+        "within_state",
+        "export_gene_embeddings",
+        "report",
+    ]
+    payload = plans[0].generated_files[0].payload
+    assert payload["model"]["ckpt_masking_path"] == "@artifact:train_decoder:checkpoint"

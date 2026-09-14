@@ -43,12 +43,50 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--train-ratio", type=float, default=0.8)
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--test-ratio", type=float, default=0.1)
+    parser.add_argument(
+        "--donor-obs-column",
+        default=None,
+        help="obs column carrying donor identity; required with --train-donors/--held-out-donors",
+    )
+    parser.add_argument(
+        "--train-donors",
+        default=None,
+        help="comma-separated training donor IDs; row-level donor binding (F-03)",
+    )
+    parser.add_argument(
+        "--held-out-donors",
+        default=None,
+        help="comma-separated held-out donor IDs; their cells only enter the test NPZ",
+    )
+    parser.add_argument(
+        "--donor-split-json",
+        type=Path,
+        default=None,
+        help="write the canonical donor split payload next to pair_manifest.json",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     asset = load_perturbgen_embedding_asset(args.embedding_asset)
+    donor_split_payload = None
+    if args.train_donors is not None or args.held_out_donors is not None:
+        if args.donor_obs_column is None:
+            raise SystemExit("--train-donors/--held-out-donors require --donor-obs-column")
+        from src.integration.perturbgen.donor_split import build_donor_split
+
+        try:
+            donor_split = build_donor_split(args.train_donors or "", args.held_out_donors or "")
+        except Exception as exc:  # noqa: BLE001 - CLI boundary reports the cause verbatim
+            raise SystemExit(str(exc)) from exc
+        donor_split_payload = donor_split.to_payload()
+        if args.donor_split_json is not None:
+            donor_split_payload_path = Path(args.donor_split_json).expanduser().resolve()
+            donor_split_payload_path.parent.mkdir(parents=True, exist_ok=True)
+            donor_split_payload_path.write_text(
+                json.dumps(donor_split_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
     report = build_scperturb_latent_pairs(
         args.input,
         scvi_model_path=args.scvi_model,
@@ -65,6 +103,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
+        donor_obs_column=args.donor_obs_column,
+        donor_split=donor_split_payload,
     )
     print(json.dumps({"ok": True, "modality": args.modality, "splits": report}, ensure_ascii=False))
     return 0

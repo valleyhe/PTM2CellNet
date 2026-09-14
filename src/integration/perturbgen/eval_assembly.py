@@ -79,9 +79,7 @@ def load_e2e_report(path: str | Path) -> dict[str, Any]:
 
 def _resolve_stage_artifact_path(value: Any, *, manifest_path: Path, name: str) -> Path:
     if not isinstance(value, str) or not value.strip() or value.startswith("@artifact:"):
-        raise EvalAssemblyError(
-            f"{manifest_path} fingerprint config has no resolved {name} artifact path"
-        )
+        raise EvalAssemblyError(f"{manifest_path} fingerprint config has no resolved {name} artifact path")
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = manifest_path.parent / path
@@ -104,9 +102,7 @@ def _tokenise_stage_manifest_for_perturb(
     perturb_config = stage_config.get("perturb_config") if isinstance(stage_config, Mapping) else None
     data = perturb_config.get("data") if isinstance(perturb_config, Mapping) else None
     if not isinstance(data, Mapping):
-        raise EvalAssemblyError(
-            f"perturb manifest {perturb_manifest_path} has no resolved perturb_config.data lineage"
-        )
+        raise EvalAssemblyError(f"perturb manifest {perturb_manifest_path} has no resolved perturb_config.data lineage")
 
     expected = {
         artifact_name: _resolve_stage_artifact_path(
@@ -275,9 +271,7 @@ def _result_h5ad_sha256(
         )
     raw_sha256 = matches[0].get("sha256")
     if not isinstance(raw_sha256, str) or not raw_sha256.strip():
-        raise EvalAssemblyError(
-            f"runner output record for result_h5ad has no sha256: {manifest_path}"
-        )
+        raise EvalAssemblyError(f"runner output record for result_h5ad has no sha256: {manifest_path}")
     return raw_sha256.strip()
 
 
@@ -331,6 +325,17 @@ def load_candidate_pvalues(path: str | Path) -> dict[str, float]:
     return values
 
 
+def _validate_quality_payload(payload: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise EvalAssemblyError(f"{label} must be a mapping")
+    if payload.get("source") != "extract_unperturbed_quality_from_h5ad":
+        raise EvalAssemblyError(f"{label}.source must be extract_unperturbed_quality_from_h5ad")
+    quality_status = str(payload.get("status", "")).strip()
+    if quality_status not in _VALID_QUALITY:
+        raise EvalAssemblyError(f"{label}.status must be pass/fail/inconclusive")
+    return dict(payload)
+
+
 def build_eval_input_payload(
     e2e_report: Mapping[str, Any],
     *,
@@ -342,6 +347,7 @@ def build_eval_input_payload(
     uniform_candidate_pvalue: float | None = None,
     evaluation_mode: str = "engineering",
     unperturbed_quality: Mapping[str, Any] | None = None,
+    candidate_unperturbed_quality: Mapping[str, Mapping[str, Any]] | None = None,
     run_id: str | None = None,
     donor_obs_column: str = "donor",
     var_gene_column: str = "__index__",
@@ -356,28 +362,30 @@ def build_eval_input_payload(
     bootstrap_iterations: int = 1000,
     bootstrap_seed: int | None = None,
 ) -> dict[str, Any]:
-    """Build a ``perturbgen_dual_path_eval/v1`` payload from an E2E report."""
+    """Build a ``perturbgen_dual_path_eval/v1`` payload from an E2E report.
+
+    ``candidate_unperturbed_quality`` maps each candidate's canonical Ensembl
+    ID to its own ``extract_unperturbed_quality_from_h5ad`` payload; it is the
+    per-candidate form of ``unperturbed_quality`` and both may not be given at
+    once.  Formal evaluation requires one of them.
+    """
 
     if null_distribution_path is None and null_distribution_manifest_path is None:
         raise EvalAssemblyError("null_distribution_path or null_distribution_manifest_path must be supplied")
     if null_distribution_path is not None and null_distribution_manifest_path is not None:
         raise EvalAssemblyError("provide only one null distribution source")
+    if unperturbed_quality is not None and candidate_unperturbed_quality is not None:
+        raise EvalAssemblyError("provide either unperturbed_quality or candidate_unperturbed_quality, not both")
+    if candidate_unperturbed_quality is not None:
+        for ensembl_id, payload in candidate_unperturbed_quality.items():
+            _validate_quality_payload(payload, label=f"candidate_unperturbed_quality[{ensembl_id}]")
     mode = str(evaluation_mode).strip().lower()
     if mode not in _VALID_EVALUATION_MODES:
         raise EvalAssemblyError(f"evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}")
     quality_payload: Mapping[str, Any] | None = None
     if unperturbed_quality is not None:
-        if not isinstance(unperturbed_quality, Mapping):
-            raise EvalAssemblyError("unperturbed_quality must be a mapping")
-        if unperturbed_quality.get("source") != "extract_unperturbed_quality_from_h5ad":
-            raise EvalAssemblyError(
-                "unperturbed_quality.source must be extract_unperturbed_quality_from_h5ad"
-            )
-        quality_status = str(unperturbed_quality.get("status", "")).strip()
-        if quality_status not in _VALID_QUALITY:
-            raise EvalAssemblyError("unperturbed_quality.status must be pass/fail/inconclusive")
-        unperturbed_quality_status = quality_status
-        quality_payload = dict(unperturbed_quality)
+        quality_payload = _validate_quality_payload(unperturbed_quality, label="unperturbed_quality")
+        unperturbed_quality_status = str(quality_payload["status"])
     if unperturbed_quality_status not in _VALID_QUALITY:
         raise EvalAssemblyError(f"unperturbed_quality_status must be one of {_VALID_QUALITY}")
     if mode == "formal":
@@ -386,7 +394,7 @@ def build_eval_input_payload(
                 "formal evaluation_mode rejects uniform_candidate_pvalue and external candidate_pvalues; "
                 "candidate p must be aggregated from empirical null runs after extraction"
             )
-        if quality_payload is None:
+        if quality_payload is None and candidate_unperturbed_quality is None:
             raise EvalAssemblyError(
                 "formal evaluation_mode requires unperturbed_quality extracted from h5ad; "
                 "hand-filled unperturbed_quality_status is not accepted"
@@ -423,8 +431,7 @@ def build_eval_input_payload(
             load_null_distribution_manifest(null_path, required_count=1)
         except (OSError, ValueError) as exc:
             raise EvalAssemblyError(
-                "legacy null_distribution_path must contain non-empty finite values: "
-                f"{null_path}: {exc}"
+                f"legacy null_distribution_path must contain non-empty finite values: {null_path}: {exc}"
             ) from exc
 
     candidates: list[dict[str, Any]] = []
@@ -442,14 +449,10 @@ def build_eval_input_payload(
             raise EvalAssemblyError(f"invocation for {ensembl_id} has no recorded observed_direction")
         invocation_route = str(invocation.get("intervention_type", "")).strip().upper()
         if invocation_route not in _VALID_INTERVENTION_TYPES:
-            raise EvalAssemblyError(
-                f"invocation for {ensembl_id} must declare intervention_type KO or KD"
-            )
+            raise EvalAssemblyError(f"invocation for {ensembl_id} must declare intervention_type KO or KD")
         run_route = str(run.get("intervention_type", "")).strip().upper()
         if run_route not in _VALID_INTERVENTION_TYPES:
-            raise EvalAssemblyError(
-                f"PerturbGen run for {ensembl_id} must declare intervention_type KO or KD"
-            )
+            raise EvalAssemblyError(f"PerturbGen run for {ensembl_id} must declare intervention_type KO or KD")
         if run_route != invocation_route:
             raise EvalAssemblyError(
                 f"PerturbGen run route does not match passing invocation for {ensembl_id}: "
@@ -464,6 +467,11 @@ def build_eval_input_payload(
         else:
             assert uniform_candidate_pvalue is not None
             candidate_pvalue = float(uniform_candidate_pvalue)
+        candidate_quality: Mapping[str, Any] | None = None
+        if candidate_unperturbed_quality is not None:
+            if ensembl_id not in candidate_unperturbed_quality:
+                raise EvalAssemblyError(f"candidate_unperturbed_quality is missing {ensembl_id} ({gene_symbol})")
+            candidate_quality = candidate_unperturbed_quality[ensembl_id]
 
         run_records: list[dict[str, Any]] = []
         for path_kind, path_artifacts in artifacts.items():
@@ -530,9 +538,13 @@ def build_eval_input_payload(
                     "davf_provenance": _davf_provenance_from_run(e2e_report, ensembl_id),
                 },
                 "observed_direction": observed_direction,
-                "unperturbed_quality_status": unperturbed_quality_status,
+                "unperturbed_quality_status": (
+                    candidate_quality["status"] if candidate_quality is not None else unperturbed_quality_status
+                ),
                 "unperturbed_quality_source": (
-                    "extract_unperturbed_quality_from_h5ad" if quality_payload is not None else "hand_filled"
+                    "extract_unperturbed_quality_from_h5ad"
+                    if candidate_quality is not None or quality_payload is not None
+                    else "hand_filled"
                 ),
                 "pvalue_source": pvalue_kind,
                 "runs": run_records,
@@ -540,7 +552,9 @@ def build_eval_input_payload(
         )
         if candidate_pvalue is not None:
             candidates[-1]["candidate_pvalue"] = candidate_pvalue
-        if quality_payload is not None:
+        if candidate_quality is not None:
+            candidates[-1]["unperturbed_quality"] = dict(candidate_quality)
+        elif quality_payload is not None:
             candidates[-1]["unperturbed_quality"] = dict(quality_payload)
 
     if not candidates:

@@ -1,4 +1,14 @@
-"""Strict stage runner for the external PerturbGen pipeline."""
+"""Strict stage runner for the external PerturbGen pipeline.
+
+Execution-boundary contract (F-09): this runner is the engineering execution
+layer only.  It receives and executes ``StagePlan`` objects and never
+re-validates the DAVF direction gate; the only public formal entry point is
+the invocation wrapper (``run_perturbgen_pipeline.py --e2e-gate-report`` /
+orchestrator ``PerturbGenInvocation``), which rejects non-pass candidates.
+Handing an arbitrary ``StagePlan`` to this runner is therefore engineering
+execution (including internal null/prepare calls), never a formal candidate
+run.
+"""
 
 from __future__ import annotations
 
@@ -74,11 +84,7 @@ def _sha256_outputs(outputs: Iterable[OutputCheck]) -> dict[str, dict[str, str]]
 
 
 def _artifact_paths(outputs: Iterable[OutputCheck]) -> dict[str, str]:
-    return {
-        output.name: str(output.path)
-        for output in outputs
-        if output.name is not None
-    }
+    return {output.name: str(output.path) for output in outputs if output.name is not None}
 
 
 @contextmanager
@@ -146,9 +152,7 @@ class PerturbGenRunner:
             perturbgen_repo_root=first.roots.perturbgen_repo_root if first.roots is not None else None,
             dependency_files=first.dependency_files,
             asset_paths=first.asset_paths,
-            expected_perturbgen_commit=str(
-                first.fingerprint_config.get("pipeline_commit", "")
-            ) or None,
+            expected_perturbgen_commit=str(first.fingerprint_config.get("pipeline_commit", "")) or None,
         )
         env_report.ensure_ready()
 
@@ -162,9 +166,7 @@ class PerturbGenRunner:
                 artifact_registry=artifacts,
             )
             results.append(result)
-            artifacts.update(
-                {(result.stage, name): Path(path) for name, path in result.artifacts.items()}
-            )
+            artifacts.update({(result.stage, name): Path(path) for name, path in result.artifacts.items()})
         return results
 
     def _load_artifact_registry(self, output_root: Path) -> dict[tuple[str, str], Path]:
@@ -181,17 +183,13 @@ class PerturbGenRunner:
                 continue
             output_records = payload.get("outputs", {})
             if not isinstance(output_records, Mapping):
-                raise PerturbGenResumeError(
-                    f"manifest has invalid output records: {manifest_path}"
-                )
+                raise PerturbGenResumeError(f"manifest has invalid output records: {manifest_path}")
             for name, path in artifact_paths.items():
                 if isinstance(name, str) and isinstance(path, str):
                     artifact_path = Path(path)
                     previous_record = output_records.get(path)
                     if not isinstance(previous_record, Mapping):
-                        raise PerturbGenResumeError(
-                            f"manifest artifact {stage}:{name} has no output hash record"
-                        )
+                        raise PerturbGenResumeError(f"manifest artifact {stage}:{name} has no output hash record")
                     current_record = _sha256_outputs(
                         (OutputCheck(artifact_path, str(previous_record.get("kind", "file"))),)
                     ).get(path)
@@ -213,19 +211,14 @@ class PerturbGenRunner:
                 return value
             key = (match.group(1), match.group(2))
             if key not in artifact_registry:
-                raise PerturbGenStageError(
-                    f"unresolved upstream artifact reference: {value}"
-                )
+                raise PerturbGenStageError(f"unresolved upstream artifact reference: {value}")
             return str(artifact_registry[key].resolve())
         if isinstance(value, list):
             return [self._resolve_value(item, artifact_registry) for item in value]
         if isinstance(value, tuple):
             return tuple(self._resolve_value(item, artifact_registry) for item in value)
         if isinstance(value, dict):
-            return {
-                key: self._resolve_value(item, artifact_registry)
-                for key, item in value.items()
-            }
+            return {key: self._resolve_value(item, artifact_registry) for key, item in value.items()}
         return value
 
     def _resolve_plan_artifact_refs(
@@ -241,9 +234,7 @@ class PerturbGenRunner:
             for generated in plan.generated_files
         )
         fingerprint_paths = tuple(
-            Path(self._resolve_value(path, artifact_registry)).resolve()
-            if isinstance(path, str)
-            else path
+            Path(self._resolve_value(path, artifact_registry)).resolve() if isinstance(path, str) else path
             for path in plan.fingerprint_paths
         )
         return replace(
@@ -251,9 +242,7 @@ class PerturbGenRunner:
             argv=tuple(str(self._resolve_value(item, artifact_registry)) for item in plan.argv),
             generated_files=generated_files,
             fingerprint_paths=fingerprint_paths,
-            fingerprint_config=self._resolve_value(
-                dict(plan.fingerprint_config), artifact_registry
-            ),
+            fingerprint_config=self._resolve_value(dict(plan.fingerprint_config), artifact_registry),
         )
 
     def _resolve_auto_perturb_dimensions(self, plan: StagePlan) -> StagePlan:
@@ -303,28 +292,21 @@ class PerturbGenRunner:
         except PerturbGenDimensionError as exc:
             raise PerturbGenStageError(str(exc)) from exc
 
-        updated_payload = {
-            key: dict(value) if isinstance(value, Mapping) else value
-            for key, value in payload.items()
-        }
+        updated_payload = {key: dict(value) if isinstance(value, Mapping) else value for key, value in payload.items()}
         updated_payload["trainer"]["tgt_vocab_size"] = resolved.tgt_vocab_size
         updated_payload["trainer"]["max_seq_length"] = resolved.max_seq_length
         updated_payload["datamodule"]["max_len"] = resolved.max_seq_length
         updated_generated = replace(generated, payload=updated_payload)
         return replace(plan, generated_files=(updated_generated,))
 
-    def _resolve_discovered_outputs(
-        self, outputs: Iterable[OutputCheck]
-    ) -> tuple[OutputCheck, ...]:
+    def _resolve_discovered_outputs(self, outputs: Iterable[OutputCheck]) -> tuple[OutputCheck, ...]:
         resolved: list[OutputCheck] = []
         for output in outputs:
             if output.discover_glob is None:
                 resolved.append(output)
                 continue
             if not output.path.is_dir():
-                raise PerturbGenStageError(
-                    f"artifact discovery root missing: {output.path}"
-                )
+                raise PerturbGenStageError(f"artifact discovery root missing: {output.path}")
             matches = sorted(path.resolve() for path in output.path.glob(output.discover_glob))
             if output.kind == "directory":
                 matches = [path for path in matches if path.is_dir()]
@@ -351,9 +333,7 @@ class PerturbGenRunner:
                         f"external artifact discovery root already contains matches: {output.path}"
                     )
             elif output.path.exists():
-                raise PerturbGenStageError(
-                    f"external expected output already exists before stage start: {output.path}"
-                )
+                raise PerturbGenStageError(f"external expected output already exists before stage start: {output.path}")
 
     def _ensure_disk_budget(self, plan: StagePlan) -> None:
         estimated = int(plan.fingerprint_config.get("estimated_total_output_bytes", 0))
@@ -366,8 +346,7 @@ class PerturbGenRunner:
         required = estimated * 2 + 10 * 1024**3
         if free < required:
             raise PerturbGenStageError(
-                "insufficient disk space for PerturbGen pipeline: "
-                f"free={free}, required={required}"
+                f"insufficient disk space for PerturbGen pipeline: free={free}, required={required}"
             )
 
     def run_stage(
@@ -403,9 +382,7 @@ class PerturbGenRunner:
             self._validate_outputs(resolved_outputs)
             current_outputs = _sha256_outputs(resolved_outputs)
             if current_outputs != previous.get("outputs"):
-                raise PerturbGenResumeError(
-                    f"stage {plan.name} outputs changed; refusing to reuse {plan.output_dir}"
-                )
+                raise PerturbGenResumeError(f"stage {plan.name} outputs changed; refusing to reuse {plan.output_dir}")
             return StageExecutionResult(
                 stage=plan.name,
                 status="success",
@@ -555,9 +532,7 @@ class PerturbGenRunner:
         for output in outputs:
             if output.kind == "directory":
                 if not output.path.is_dir() or not any(output.path.iterdir()):
-                    raise PerturbGenStageError(
-                        f"expected non-empty output directory missing: {output.path}"
-                    )
+                    raise PerturbGenStageError(f"expected non-empty output directory missing: {output.path}")
                 continue
             if output.kind == "perturbgen_embedding_asset":
                 from src.models.perturbgen_embedding import load_perturbgen_embedding_asset
@@ -565,9 +540,7 @@ class PerturbGenRunner:
                 try:
                     load_perturbgen_embedding_asset(output.path)
                 except (ImportError, OSError, TypeError, ValueError) as exc:
-                    raise PerturbGenStageError(
-                        f"invalid PerturbGen embedding asset {output.path}: {exc}"
-                    ) from exc
+                    raise PerturbGenStageError(f"invalid PerturbGen embedding asset {output.path}: {exc}") from exc
                 continue
             if not output.path.is_file():
                 raise PerturbGenStageError(f"expected output missing: {output.path}")
@@ -588,9 +561,7 @@ class PerturbGenRunner:
                 try:
                     validate_perturbgen_h5ad_schema(output.path, **dict(output.schema))
                 except (ImportError, KeyError, TypeError, ValueError, OSError) as exc:
-                    raise PerturbGenStageError(
-                        f"invalid PerturbGen h5ad output {output.path}: {exc}"
-                    ) from exc
+                    raise PerturbGenStageError(f"invalid PerturbGen h5ad output {output.path}: {exc}") from exc
             elif output.kind != "file":
                 raise PerturbGenStageError(f"unsupported output check kind: {output.kind}")
 

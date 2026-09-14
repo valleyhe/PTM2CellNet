@@ -23,6 +23,7 @@ import json
 import math
 from numbers import Integral, Real
 from pathlib import Path
+import re
 from typing import Any, Literal, cast
 
 from src.models.gene_vocabulary import normalize_ensembl_id, normalize_gene_symbol
@@ -54,6 +55,11 @@ _ACTION_TO_MODE: dict[DavfAction, PerturbationMode] = {
 # §4.7 condition 5: KO conclusions are drawn from the primary ``mask`` mode;
 # pad/delete only serve as sensitivity analyses and never replace it.
 _KO_SENSITIVITY_MODES: tuple[PerturbationMode, ...] = ("pad", "delete")
+# Stages that depend only on the frozen cohort, vocabulary, training
+# configuration and asset versions; candidate genes, modes and seeds never
+# enter them, so they are prepared once and shared by every candidate.
+COMMON_PREPARE_STAGE_NAMES: tuple[str, str, str] = ("tokenise", "train_mask", "train_decoder")
+_ARTIFACT_REF_PATTERN = re.compile(r"^@artifact:([a-zA-Z0-9_.-]+):([a-zA-Z0-9_.-]+)$")
 
 
 class DAVFPerturbGenE2EError(RuntimeError):
@@ -106,10 +112,7 @@ class PerturbGenInvocation:
             raise ValueError("seed must be >= 0")
         if self.is_sensitivity:
             if self.intervention_type != "KO" or self.perturbation_mode not in _KO_SENSITIVITY_MODES:
-                raise ValueError(
-                    "sensitivity invocations are KO-only pad/delete analyses of a "
-                    "primary mask conclusion"
-                )
+                raise ValueError("sensitivity invocations are KO-only pad/delete analyses of a primary mask conclusion")
         elif self.perturbation_mode not in {"mask", "overexpress"}:
             raise ValueError("formal DAVF/PerturbGen bridge supports mask or overexpress actions")
         paths = tuple(self.paths)
@@ -135,9 +138,7 @@ class PerturbGenInvocation:
         if self.candidate.proposed_direction != self.davf_evidence.predicted_direction:
             raise ValueError("candidate.proposed_direction must match davf_evidence.predicted_direction")
         if self.candidate.davf_predicted_direction != self.davf_evidence.predicted_direction:
-            raise ValueError(
-                "candidate.davf_predicted_direction must match davf_evidence.predicted_direction"
-            )
+            raise ValueError("candidate.davf_predicted_direction must match davf_evidence.predicted_direction")
         score = self.candidate.davf_score
         if (
             score is None
@@ -187,9 +188,7 @@ class PerturbGenInvocation:
             "candidate": _to_plain(self.candidate),
             "davf_evidence": _to_plain(self.davf_evidence),
             "perturbgen_config_path": (
-                str(self.perturbgen_config_path)
-                if self.perturbgen_config_path is not None
-                else None
+                str(self.perturbgen_config_path) if self.perturbgen_config_path is not None else None
             ),
             "output_root": str(self.output_root) if self.output_root is not None else None,
             "seed": self.seed,
@@ -236,10 +235,7 @@ class DAVFPerturbGenOrchestrator:
         configured_route = getattr(config, "intervention_type", None)
         route = str(configured_route or "").strip().upper()
         if route not in _INTERVENTION_TYPES:
-            raise DAVFPerturbGenE2EError(
-                "KO/KD E2E orchestration requires DAVF config.intervention_type="
-                "'KO' or 'KD'"
-            )
+            raise DAVFPerturbGenE2EError("KO/KD E2E orchestration requires DAVF config.intervention_type='KO' or 'KD'")
         self.davf_module = davf_module
         self.intervention_type: InterventionType = route  # type: ignore[assignment]
         self.mapper = mapper or davf_module.build_perturbgen_direction_mapper()
@@ -247,8 +243,7 @@ class DAVFPerturbGenOrchestrator:
             raise TypeError("mapper must be a PTMDirectionMapper")
         if self.mapper.gene_to_idx is None:
             raise DAVFPerturbGenE2EError(
-                "formal DAVF/PerturbGen orchestration requires the verified "
-                "PerturbGen embedding vocabulary"
+                "formal DAVF/PerturbGen orchestration requires the verified PerturbGen embedding vocabulary"
             )
 
     def prepare_candidates(
@@ -261,7 +256,10 @@ class DAVFPerturbGenOrchestrator:
         observed_log2fc: float | Sequence[float],
         observed_fdr: float | Sequence[float] | None,
         observed_direction: ObservedDirection | Sequence[ObservedDirection | None] | None,
-        semantic_context: SemanticContext | Mapping[str, Any] | Sequence[SemanticContext | Mapping[str, Any]] | None = None,
+        semantic_context: SemanticContext
+        | Mapping[str, Any]
+        | Sequence[SemanticContext | Mapping[str, Any]]
+        | None = None,
         scvi_adapter: Any | None = None,
         scvi_context: Any | None = None,
         library_size: float | None = None,
@@ -313,14 +311,10 @@ class DAVFPerturbGenOrchestrator:
             n_samples=n_samples,
         )
         if len(evidence) != batch_size:
-            raise DAVFPerturbGenE2EError(
-                "DAVF returned a different number of evidence rows than proposals"
-            )
+            raise DAVFPerturbGenE2EError("DAVF returned a different number of evidence rows than proposals")
 
         preparations: list[DAVFPerturbGenPreparation] = []
-        for row, (proposal, davf_evidence) in enumerate(
-            zip(proposal_batch, evidence, strict=True)
-        ):
+        for row, (proposal, davf_evidence) in enumerate(zip(proposal_batch, evidence, strict=True)):
             if not isinstance(davf_evidence, DAVFDirectionEvidence):
                 raise TypeError("DAVF direction output must contain DAVFDirectionEvidence")
             gate, candidate = build_direction_gated_candidate(
@@ -336,9 +330,7 @@ class DAVFPerturbGenOrchestrator:
             invocation = None
             if gate.status == "pass":
                 if candidate is None or candidate.davf_action is None:
-                    raise DAVFPerturbGenE2EError(
-                        "passing direction gate did not produce a downstream action"
-                    )
+                    raise DAVFPerturbGenE2EError("passing direction gate did not produce a downstream action")
                 try:
                     perturbation_mode = _ACTION_TO_MODE[candidate.davf_action]
                 except KeyError as exc:
@@ -356,9 +348,7 @@ class DAVFPerturbGenOrchestrator:
                     davf_evidence=davf_evidence,
                     semantic_context=candidate.semantic_context,
                     perturbgen_config_path=(
-                        Path(perturbgen_config_path)
-                        if perturbgen_config_path is not None
-                        else None
+                        Path(perturbgen_config_path) if perturbgen_config_path is not None else None
                     ),
                     output_root=Path(output_root) if output_root is not None else None,
                     seed=int(seed),
@@ -400,12 +390,18 @@ class DAVFPerturbGenOrchestrator:
         project_root: str | Path | None = None,
         seeds: Sequence[int] | None = None,
         sensitivity_modes: Sequence[PerturbationMode] = (),
+        skip_prepare_stages: bool = False,
+        prepare_artifact_paths: Mapping[tuple[str, str], str | Path] | None = None,
     ) -> list[Any]:
         """Execute the isolated PerturbGen stages for one gated candidate.
 
         The runner still owns environment checks, GPU locking, manifests and
         resume fingerprints.  This method only materializes the candidate
-        target and the path/mode/seed perturb plans.
+        target and the path/mode/seed perturb plans.  Pass
+        ``skip_prepare_stages=True`` with the shared prepare artifact paths
+        (from :func:`build_shared_prepare_plans` results) when the route-level
+        prepare stages already ran; the candidate then executes only its
+        perturb/export/report stages.
         """
 
         if invocation.intervention_type != self.intervention_type:
@@ -420,6 +416,8 @@ class DAVFPerturbGenOrchestrator:
             project_root=project_root,
             seeds=seeds,
             sensitivity_modes=sensitivity_modes,
+            skip_prepare_stages=skip_prepare_stages,
+            prepare_artifact_paths=prepare_artifact_paths,
         )
         return cast(list[Any], runner.run_pipeline(plans, resume=resume, dry_run=dry_run))
 
@@ -435,14 +433,11 @@ class DAVFPerturbGenOrchestrator:
         aliases = resolver
         if not isinstance(aliases, Mapping) or not aliases:
             raise DAVFPerturbGenE2EError(
-                "formal DAVF target identity requires the configured Ensembl-to-symbol "
-                "alias asset"
+                "formal DAVF target identity requires the configured Ensembl-to-symbol alias asset"
             )
         expected = aliases.get(proposal.gene_symbol)
         if expected is None:
-            raise KeyError(
-                f"gene symbol {proposal.gene_symbol!r} is absent from the verified DAVF alias asset"
-            )
+            raise KeyError(f"gene symbol {proposal.gene_symbol!r} is absent from the verified DAVF alias asset")
         if normalize_ensembl_id(str(expected)) != proposal.ensembl_id:
             raise ValueError(
                 "PTM proposal symbol/Ensembl pair does not match the verified DAVF alias asset: "
@@ -474,11 +469,7 @@ def materialize_candidate_config(
     old_targets = trainer.get("genes_to_perturb")
     if old_targets is None:
         old_target = None
-    elif (
-        not isinstance(old_targets, Sequence)
-        or isinstance(old_targets, (str, bytes))
-        or len(old_targets) != 1
-    ):
+    elif not isinstance(old_targets, Sequence) or isinstance(old_targets, (str, bytes)) or len(old_targets) != 1:
         raise ValueError("candidate materialization requires at most one base genes_to_perturb target")
     else:
         old_target = str(old_targets[0])
@@ -491,22 +482,10 @@ def materialize_candidate_config(
     root_value = output_root if output_root is not None else old_root_value
     if not isinstance(root_value, (str, Path)) or not str(root_value):
         raise ValueError("a concrete PerturbGen output_root is required")
-    root = Path(root_value).expanduser().resolve()
-    if old_root_value is not None:
-        old_root = str(old_root_value)
-        replacements = {old_root}
-        if not Path(old_root).is_absolute():
-            replacements.add(str(Path(old_root).expanduser().resolve()))
-        for old_value in sorted(replacements, key=len, reverse=True):
-            stages = _replace_target(stages, old_value, str(root))
-        materialized["stages"] = stages
-        perturb_stage = stages["perturb"]
-        perturb_config = perturb_stage["perturb_config"]
-        trainer = perturb_config["trainer"]
-    pipeline["output_root"] = str(root)
-    pipeline["intervention_type"] = invocation.intervention_type
-    pipeline["candidate_gene"] = invocation.gene_symbol
-    pipeline["candidate_ensembl_id"] = invocation.ensembl_id
+    rewritten = _rewrite_pipeline_output_root(materialized, root_value)
+    materialized["stages"] = rewritten["stages"]
+    materialized["pipeline"] = rewritten["pipeline"]
+    perturb_stage = materialized["stages"]["perturb"]
     expected_outputs = perturb_stage.get("expected_outputs")
     if expected_outputs is not None and old_target is not None:
         perturb_stage["expected_outputs"] = _replace_target(expected_outputs, old_target, invocation.gene_symbol)
@@ -514,7 +493,109 @@ def materialize_candidate_config(
         perturb_stage["expected_outputs"] = _replace_perturbation_mode(
             perturb_stage["expected_outputs"], invocation.perturbation_mode
         )
+    pipeline = materialized["pipeline"]
+    pipeline["intervention_type"] = invocation.intervention_type
+    pipeline["candidate_gene"] = invocation.gene_symbol
+    pipeline["candidate_ensembl_id"] = invocation.ensembl_id
     return materialized
+
+
+def _rewrite_pipeline_output_root(
+    config: Mapping[str, Any],
+    output_root: str | Path,
+) -> dict[str, Any]:
+    """Return a copy of ``config`` with ``pipeline.output_root`` rewritten.
+
+    Every stage-level occurrence of the previous root string (``args``,
+    ``expected_outputs``, trainer directories) is replaced so stage outputs
+    move together with the pipeline root.
+    """
+
+    materialized = deepcopy(dict(config))
+    pipeline = materialized.get("pipeline")
+    stages = materialized.get("stages")
+    if not isinstance(pipeline, dict) or not isinstance(stages, dict):
+        raise ValueError("PerturbGen config pipeline and stages must be mappings")
+    old_root_value = pipeline.get("output_root")
+    if not isinstance(old_root_value, (str, Path)) or not str(old_root_value):
+        raise ValueError("a concrete PerturbGen output_root is required")
+    root = Path(str(output_root)).expanduser().resolve()
+    old_root = str(old_root_value)
+    replacements = {old_root}
+    if not Path(old_root).is_absolute():
+        replacements.add(str(Path(old_root).expanduser().resolve()))
+    for old_value in sorted(replacements, key=len, reverse=True):
+        stages = _replace_target(stages, old_value, str(root))
+    materialized["stages"] = stages
+    pipeline["output_root"] = str(root)
+    return materialized
+
+
+def build_shared_prepare_plans(
+    config_or_path: str | Path | Mapping[str, Any],
+    *,
+    output_root: str | Path,
+    project_root: str | Path | None = None,
+) -> tuple[StagePlan, ...]:
+    """Plan the route-shared ``tokenise → train_mask → train_decoder`` stages.
+
+    These stages depend only on the frozen cohort, vocabulary, training
+    configuration and asset versions, so one shared run serves every gated
+    candidate of the route (and can be resumed across E2E invocations).  The
+    candidate loop must consume the resulting artifacts through
+    ``build_candidate_stage_plans(..., skip_prepare_stages=True)`` instead of
+    retraining per candidate.
+    """
+
+    if not str(output_root).strip():
+        raise ValueError("shared prepare requires an explicit output_root")
+    if isinstance(config_or_path, Mapping):
+        config = deepcopy(dict(config_or_path))
+    else:
+        config = load_pipeline_config(config_or_path)
+    config = _rewrite_pipeline_output_root(config, output_root)
+    base_plans = build_stage_plans(config, project_root=project_root)
+    by_name = {plan.name: plan for plan in base_plans}
+    missing = [name for name in COMMON_PREPARE_STAGE_NAMES if name not in by_name]
+    if missing:
+        raise ValueError(f"six-stage PerturbGen config is missing plans: {', '.join(missing)}")
+    return tuple(by_name[name] for name in COMMON_PREPARE_STAGE_NAMES)
+
+
+def resolve_prepare_artifact_references(
+    config: Mapping[str, Any],
+    artifact_paths: Mapping[tuple[str, str], str | Path],
+) -> dict[str, Any]:
+    """Replace ``@artifact:stage:name`` references with shared-prepare paths.
+
+    Candidate-only plans execute in a runner invocation whose artifact
+    registry never sees the shared prepare manifests, so references to the
+    shared tokenise/train artifacts must be resolved before planning.  A
+    missing reference is a hard error: reusing a lineage that was never
+    prepared must fail, not fall back.
+    """
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, str):
+            match = _ARTIFACT_REF_PATTERN.fullmatch(value)
+            if match is None:
+                return value
+            key = (match.group(1), match.group(2))
+            if key not in artifact_paths:
+                raise ValueError(f"shared prepare artifact was never produced: {value}")
+            return str(Path(str(artifact_paths[key])).expanduser().resolve())
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(resolve(item) for item in value)
+        if isinstance(value, dict):
+            return {str(key): resolve(item) for key, item in value.items()}
+        return value
+
+    resolved = resolve(config)
+    if not isinstance(resolved, dict):
+        raise ValueError("resolved prepare config must remain a mapping")
+    return resolved
 
 
 def build_candidate_stage_plans(
@@ -526,6 +607,8 @@ def build_candidate_stage_plans(
     paths: Sequence[PathKind] | None = None,
     seeds: Sequence[int] | None = None,
     sensitivity_modes: Sequence[PerturbationMode] = (),
+    skip_prepare_stages: bool = False,
+    prepare_artifact_paths: Mapping[tuple[str, str], str | Path] | None = None,
 ) -> tuple[StagePlan, ...]:
     """Build common training plans plus per-path perturb plans.
 
@@ -534,6 +617,14 @@ def build_candidate_stage_plans(
     (§4.7 condition 5).  Common stages (tokenise/training) are planned once;
     every (path, mode, seed) combination gets an isolated output directory
     so artifact discovery stays unique.
+
+    ``skip_prepare_stages=True`` drops the shared prepare stages from the
+    plan: the caller must already have executed
+    :func:`build_shared_prepare_plans` for the same frozen cohort and
+    vocabulary.  ``prepare_artifact_paths`` then resolves every
+    ``@artifact:tokenise/train_*`` reference to those shared artifacts; it
+    stays ``None`` only for dry-run plan previews where the runner does not
+    resolve references either.
     """
 
     if isinstance(config_or_path, Mapping):
@@ -556,21 +647,21 @@ def build_candidate_stage_plans(
     plan_modes: tuple[PerturbationMode, ...] = (invocation.perturbation_mode,)
     if sensitivity_modes:
         if invocation.intervention_type != "KO" or invocation.perturbation_mode != "mask":
-            raise ValueError(
-                "sensitivity modes apply only to KO candidates whose primary mode is mask"
-            )
+            raise ValueError("sensitivity modes apply only to KO candidates whose primary mode is mask")
         plan_modes = plan_modes + tuple(sensitivity_modes)
     multi_combo = len(selected_seeds) > 1 or len(plan_modes) > 1
 
     config = materialize_candidate_config(config, invocation, output_root=output_root)
+    if prepare_artifact_paths is not None:
+        config = resolve_prepare_artifact_references(config, prepare_artifact_paths)
     base_plans = build_stage_plans(config, project_root=project_root)
     by_name = {plan.name: plan for plan in base_plans}
-    common_names = ("tokenise", "train_mask", "train_decoder")
+    common_names = COMMON_PREPARE_STAGE_NAMES
     missing = [name for name in (*common_names, "export_gene_embeddings", "report") if name not in by_name]
     if missing:
         raise ValueError(f"six-stage PerturbGen config is missing plans: {', '.join(missing)}")
 
-    plans: list[StagePlan] = [by_name[name] for name in common_names]
+    plans: list[StagePlan] = [] if skip_prepare_stages else [by_name[name] for name in common_names]
     for path in selected_paths:
         for mode in plan_modes:
             for seed in selected_seeds:
@@ -586,9 +677,7 @@ def build_candidate_stage_plans(
                     trainer_output = trainer_output / combo_subdir
                 trainer["output_dir"] = str(trainer_output / "results")
                 perturb_plan = next(
-                    plan
-                    for plan in build_stage_plans(path_config, project_root=project_root)
-                    if plan.name == "perturb"
+                    plan for plan in build_stage_plans(path_config, project_root=project_root) if plan.name == "perturb"
                 )
                 plans.append(replace(perturb_plan, name=path))
     plans.extend(by_name[name] for name in ("export_gene_embeddings", "report"))
@@ -624,8 +713,7 @@ def merge_route_preparations(
         )
         if row["gene_symbol"] != invocation.gene_symbol:
             raise ValueError(
-                "the same Ensembl ID maps to different gene symbols across DAVF routes: "
-                f"{invocation.ensembl_id}"
+                f"the same Ensembl ID maps to different gene symbols across DAVF routes: {invocation.ensembl_id}"
             )
         route = invocation.intervention_type
         if route in row["routes"]:
@@ -683,10 +771,7 @@ def merge_route_reports(
                 {"ensembl_id": ensembl_id, "gene_symbol": gene_symbol, "routes": {}},
             )
             if row["gene_symbol"] != gene_symbol:
-                raise ValueError(
-                    "the same Ensembl ID maps to different symbols across E2E reports: "
-                    f"{ensembl_id}"
-                )
+                raise ValueError(f"the same Ensembl ID maps to different symbols across E2E reports: {ensembl_id}")
             if route in row["routes"]:
                 raise ValueError(f"duplicate {route} report for {ensembl_id}")
             row["routes"][route] = {
@@ -738,10 +823,7 @@ def _replace_target(value: Any, old_target: str, new_target: str) -> Any:
     if isinstance(value, tuple):
         return tuple(_replace_target(item, old_target, new_target) for item in value)
     if isinstance(value, dict):
-        return {
-            key: _replace_target(item, old_target, new_target)
-            for key, item in value.items()
-        }
+        return {key: _replace_target(item, old_target, new_target) for key, item in value.items()}
     return value
 
 
@@ -788,8 +870,5 @@ def _to_plain(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_to_plain(item) for item in value]
     if hasattr(value, "__dataclass_fields__"):
-        return {
-            field_name: _to_plain(getattr(value, field_name))
-            for field_name in value.__dataclass_fields__
-        }
+        return {field_name: _to_plain(getattr(value, field_name)) for field_name in value.__dataclass_fields__}
     return str(value)
