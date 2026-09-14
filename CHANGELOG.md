@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Gate-0 cohort pairing semantics: `within_donor` (default, ≥3 donors shared across states) and `between_donor` (case-control, disjoint donor groups with ≥3 donors each); E2E flag `--perturbgen-cohort-pairing` (2026-09-14)
+- AD case-control cohort tooling: `scripts/audit_ad_cohort_gate0.py` (read-only Gate-0 audit of data/AD GEO cohorts) and `scripts/standardize_gse174367_ad_cohort.py` (donor-evidence-validated standardization; 7/7 cell-type between_donor preflight PASS)
+- E2E statistical assembly: `--assemble-statistical-evidence` with `--deg-table`/`--null-distribution-manifest` chains unperturbed quality → formal eval input → empirical-p/BH-FDR → dual-path AND into report lineage; core extracted to `src/integration/perturbgen/replay_evaluation.py` (2026-09-13)
+- Cross-candidate shared prepare: `orchestrator.build_shared_prepare_plans` runs tokenise/train_mask/train_decoder once per route under `<root>/<route>/_prepare/`; candidates reuse artifacts via `resolve_prepare_artifact_references` (2026-09-13)
+- Donor-row binding for DAVF pair generation: `build_scperturb_latent_pairs --donor-obs-column/--train-donors/--held-out-donors` writes `target_donors` and `dataset.donor_rows` (`ptm2cellnet.donor_split/v1`) (2026-09-13)
+- `SemanticContext` seven-field contract on candidates/invocations (context, intervention, baseline, objective, cohort, sources, reference axis) with fail-fast validation (2026-09-13)
+
+### Changed
+- `evaluate_perturbgen_dual_path.py` is now a thin shell over `replay_evaluation.py` (single implementation)
+- Formal Gate-0 acceptance wording now covers both pairing modes (≥3 shared donors within_donor; ≥3 per disjoint group between_donor)
+
 ## [2.1.0] - 2026-08-24
 
 > 2026-05-04「milestone v2.1: Technical Debt & Test Stabilization」启动的开发周期收口发布

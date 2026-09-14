@@ -54,13 +54,16 @@ context、干预、对比基准和目标（病程关联、复现或逆转）尚�
 
 | 阶段 | 当前代码事实 | 研究目标/解读 |
 |---|---|---|
-| `tokenise`、`train_mask`、`train_decoder` | E2E 目前对每个通过 gate 的候选重复规划和执行；没有跨候选 reuse 入口 | 固定 cohort、词表、训练配置和资产版本后只做一次公共准备 |
+| `tokenise`、`train_mask`、`train_decoder` | 自第四轮（2026-09-13）起，E2E 对每条 route 在 `<root>/<route>/_prepare/` 公共执行一次（`orchestrator.build_shared_prepare_plans`）；候选以 `skip_prepare_stages` 复用共享产物，缺失引用硬失败 | 固定 cohort、词表、训练配置和资产版本后只做一次公共准备（已落地） |
 | `perturb` | 按 `source_intervention=[src]` 和 `within_state=[tgt]+pert_tps` 生成候选效用运行 | 候选阶段只运行两条研究场景并保留路径身份 |
 | `export_gene_embeddings` | 使用配置中的基础 encoder checkpoint；不读取候选阶段训练 checkpoint，也不回灌当前 DAVF | 静态冻结 embedding 资产属于 Workflow B 生命周期 |
 | `report` | 汇总 stage manifest 和产物状态 | 仅 manifest 汇总；成功不等于正式生物学 PASS |
 
-当前代码没有“公共准备后跨候选复用”的 CLI；不要把目标流程写成已有能力，也不
-要用 `--resume` 代替跨候选 reuse。`--resume` 只在同一输出目录内恢复既有 stage。
+跨候选公共准备已由 E2E 落地（2026-09-13 第四轮）：`build_shared_prepare_plans` 在
+`<root>/<route>/_prepare/` 公共执行 `tokenise → train_mask → train_decoder`，候选循环经
+`resolve_prepare_artifact_references` 把 `@artifact` 引用解析到共享产物（缺失即硬失败），
+只执行两路 `perturb/export_gene_embeddings/report`。`--resume` 仍只用于同一输出目录内
+恢复既有 stage，不是跨候选复用入口。
 
 ## 2. 环境准备（一次性）
 

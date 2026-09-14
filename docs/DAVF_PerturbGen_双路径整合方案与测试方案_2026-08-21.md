@@ -576,3 +576,5 @@ pytest -q --disable-warnings \
 | 执行边界 | 正式 CLI 选择 `perturb`/`--path` 时要求绑定 pass invocation；invocation 拒绝 non-pass，runner 当前只执行 StagePlan | 维持外层 gate 约束并统一 invocation 正式执行边界；不把 runner 缺口写成已解决，也不放宽正式要求 |
 
 2026-09-13 本机 Gate-0 donor audit 为 30 个 scPerturb H5AD 中 26 个可读、0 个满足正式 cohort 契约；四队列 IBD 规划仍是候选数据来源设计，不能写成已满足 Gate-0。后续顺序为：方向语义与独立来源设计 → 公共 prepare/reuse 与 invocation 契约 → 统计自动接续 → 真实 cohort 与 Gate-E/Gate-4/Gate-5 验收。
+
+**2026-09-14 复审注记**：上表两行的“当前事实”已被第四/五轮落地更新——(1) 六阶段与复用：`orchestrator.build_shared_prepare_plans` 已在 `<root>/<route>/_prepare/` 公共执行 `tokenise/train_mask/train_decoder`，候选循环经 `resolve_prepare_artifact_references` 复用共享产物，只执行两场景 perturb 与 export/report；(2) 统计与正式证据：E2E 显式 `--assemble-statistical-evidence` 已自动串接质量提取 → formal 评估输入 → empirical-p/BH-FDR → dual-path AND 并写回 report lineage，matched-null 批跑仍由 `run_matched_null_stages.py` 独立执行；(3) Gate-0 新增 `between_donor` 配对（`PerturbGenDataSpec.pairing`，lessons L-2026-0914-01），GSE174367 AD 队列 7/7 细胞类型 preflight PASS。正文其余行保留 2026-09-13 时点事实作历史记录；未完成项（真实 GPU null、正式六阶段运行、Gate-E ≥200）以 `docs/CURRENT_STATUS.md` 为准。
