@@ -111,9 +111,52 @@ def test_prepare_perturbgen_anndata_requires_three_shared_donors_and_unique_ense
         prepare_perturbgen_anndata(_make_adata(var=duplicate_var), cell_type="Mono")
 
 
+def test_between_donor_pairing_accepts_disjoint_case_control_donors():
+    case_control = _make_adata(
+        donors=["n1", "n2", "n3", "a1", "a2", "a3"],
+        states=["normal", "normal", "normal", "disease", "disease", "disease"],
+    )
+    prepared = prepare_perturbgen_anndata(
+        case_control, cell_type="Mono", spec=PerturbGenDataSpec(pairing="between_donor")
+    )
+    assert prepared.report.pairing == "between_donor"
+    assert prepared.report.normal_donors == ("n1", "n2", "n3")
+    assert prepared.report.disease_donors == ("a1", "a2", "a3")
+    assert prepared.report.evaluable_donors == ("a1", "a2", "a3", "n1", "n2", "n3")
+    assert prepared.report.normal_only_donors == ()
+    assert prepared.report.disease_only_donors == ()
+
+
+def test_between_donor_pairing_stays_opt_in_for_case_control_designs():
+    case_control = _make_adata(
+        donors=["n1", "n2", "n3", "a1", "a2", "a3"],
+        states=["normal", "normal", "normal", "disease", "disease", "disease"],
+    )
+    with pytest.raises(ValueError, match="requires at least 3 shared donors"):
+        prepare_perturbgen_anndata(case_control, cell_type="Mono")
+
+
+def test_between_donor_pairing_requires_min_donors_per_group():
+    thin_control_group = _make_adata(
+        donors=["n1", "n2", "a1", "a2", "a3", "a4"],
+        states=["normal", "normal", "disease", "disease", "disease", "disease"],
+    )
+    with pytest.raises(ValueError, match="at least 3 donors in each"):
+        prepare_perturbgen_anndata(
+            thin_control_group, cell_type="Mono", spec=PerturbGenDataSpec(pairing="between_donor")
+        )
+
+
+def test_between_donor_pairing_rejects_donor_in_both_states():
+    with pytest.raises(ValueError, match="disjoint donor groups"):
+        prepare_perturbgen_anndata(_make_adata(), cell_type="Mono", spec=PerturbGenDataSpec(pairing="between_donor"))
+
+
 def test_screen_candidate_uses_observed_direction_not_davf_action():
     prepared = prepare_perturbgen_anndata(_make_adata(), cell_type="Mono")
-    result = screen_candidate_for_perturbation(prepared, _candidate(observed_direction="up", davf_action="oe"), _resolver())
+    result = screen_candidate_for_perturbation(
+        prepared, _candidate(observed_direction="up", davf_action="oe"), _resolver()
+    )
 
     assert result.status == "evaluable"
     assert result.recommended_mode == "mask"
@@ -147,9 +190,7 @@ def test_source_ko_zero_expression_is_inconclusive_but_oe_is_not_filtered():
         [4, 8],
     ]
     prepared = prepare_perturbgen_anndata(_make_adata(counts=counts), cell_type="Mono")
-    ko_result = screen_candidate_for_perturbation(
-        prepared, _candidate(observed_direction="up"), _resolver()
-    )
+    ko_result = screen_candidate_for_perturbation(prepared, _candidate(observed_direction="up"), _resolver())
     oe_result = screen_candidate_for_perturbation(
         prepared,
         _candidate(observed_direction="down", observed_log2fc=-1.0),
@@ -173,8 +214,6 @@ def test_screen_candidate_fails_on_symbol_ensembl_mismatch():
 
 def test_screen_candidate_requires_significant_observed_direction():
     prepared = prepare_perturbgen_anndata(_make_adata(), cell_type="Mono")
-    result = screen_candidate_for_perturbation(
-        prepared, _candidate(observed_fdr=0.2), _resolver()
-    )
+    result = screen_candidate_for_perturbation(prepared, _candidate(observed_fdr=0.2), _resolver())
     assert result.status == "inconclusive"
     assert result.reason_codes == ("observed_expression_not_significant",)

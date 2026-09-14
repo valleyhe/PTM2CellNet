@@ -60,19 +60,14 @@ class SemanticContext:
         object.__setattr__(self, "intervention", self.intervention.upper())
         objective = self.research_objective.lower()
         if objective not in _VALID_RESEARCH_OBJECTIVES:
-            raise ValueError(
-                "semantic_context.research_objective must be one of "
-                "association, replication, reversal"
-            )
+            raise ValueError("semantic_context.research_objective must be one of association, replication, reversal")
         object.__setattr__(self, "research_objective", objective)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "SemanticContext":
         missing = [field_name for field_name in _SEMANTIC_CONTEXT_FIELDS if field_name not in value]
         if missing:
-            raise ValueError(
-                "semantic_context is missing required fields: " + ", ".join(missing)
-            )
+            raise ValueError("semantic_context is missing required fields: " + ", ".join(missing))
         return cls(**{field_name: value[field_name] for field_name in _SEMANTIC_CONTEXT_FIELDS})
 
 
@@ -212,7 +207,13 @@ class DirectionGateResult:
         if self.status == "pass":
             if self.reasons:
                 raise ValueError("passing direction gate must not carry reasons")
-            if None in (self.gene_symbol, self.ensembl_id, self.proposed_direction, self.davf_direction, self.observed_direction):
+            if None in (
+                self.gene_symbol,
+                self.ensembl_id,
+                self.proposed_direction,
+                self.davf_direction,
+                self.observed_direction,
+            ):
                 raise ValueError("passing direction gate requires complete evidence")
             if self.corrective_action is None:
                 raise ValueError("passing direction gate requires corrective_action")
@@ -264,10 +265,7 @@ class CandidateEvidence:
         if not self.ptm_context:
             raise ValueError("ptm_context must not be empty")
         if self.observed_direction not in _VALID_OBSERVED_DIRECTIONS:
-            raise ValueError(
-                "observed_direction must be 'up' or 'down', "
-                f"got {self.observed_direction!r}"
-            )
+            raise ValueError(f"observed_direction must be 'up' or 'down', got {self.observed_direction!r}")
         if not math.isfinite(self.observed_log2fc):
             raise ValueError("observed_log2fc must be finite")
         if self.observed_direction == "up" and self.observed_log2fc <= 0:
@@ -279,8 +277,7 @@ class CandidateEvidence:
         if self.davf_action is not None and self.davf_action not in _VALID_DAVF_ACTIONS:
             raise ValueError("davf_action must be one of 'ko', 'kd', 'oe' or None")
         if self.davf_score is not None and (
-            not isinstance(self.davf_score, (int, float))
-            or not math.isfinite(float(self.davf_score))
+            not isinstance(self.davf_score, (int, float)) or not math.isfinite(float(self.davf_score))
         ):
             raise ValueError("davf_score must be finite numeric or None")
         if self.davf_score is not None and not self.davf_provenance:
@@ -293,13 +290,9 @@ class CandidateEvidence:
                 raise ValueError(f"{field_name} must be 'up', 'down' or None")
         if self.direction_gate_status is not None:
             if self.direction_gate_status not in _VALID_DIRECTION_GATE_STATUSES:
-                raise ValueError(
-                    "direction_gate_status must be 'pass', 'fail', 'inconclusive' or None"
-                )
+                raise ValueError("direction_gate_status must be 'pass', 'fail', 'inconclusive' or None")
             if self.direction_gate_status != "pass":
-                raise ValueError(
-                    "CandidateEvidence may only be created after a passing direction gate"
-                )
+                raise ValueError("CandidateEvidence may only be created after a passing direction gate")
             if self.proposed_direction != self.observed_direction:
                 raise ValueError("passing candidate proposal must match observed_direction")
             if self.davf_predicted_direction != self.observed_direction:
@@ -310,9 +303,23 @@ class CandidateEvidence:
                 raise ValueError("passing candidate must not carry direction_gate_reasons")
 
 
+VALID_COHORT_PAIRINGS = ("within_donor", "between_donor")
+
+
 @dataclass(frozen=True)
 class PerturbGenDataSpec:
-    """Dataset contract for PerturbGen-ready AnnData."""
+    """Dataset contract for PerturbGen-ready AnnData.
+
+    ``pairing`` freezes how donors relate to the two states:
+
+    - ``within_donor`` (default, perturbation cohorts): the same donor
+      contributes cells to both states; Gate-0 requires >= ``min_donors``
+      donors shared across the two states.
+    - ``between_donor`` (case-control cohorts): each donor belongs to
+      exactly one state; Gate-0 requires >= ``min_donors`` donors in each
+      state and rejects any donor observed in both states as a labeling
+      error.
+    """
 
     counts_layer: str = "counts"
     ensembl_id_col: str = "ensembl_id"
@@ -323,8 +330,12 @@ class PerturbGenDataSpec:
     normal_state: str = "normal"
     disease_state: str = "disease"
     min_donors: int = 3
+    pairing: str = "within_donor"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "pairing", str(self.pairing).strip())
+        if self.pairing not in VALID_COHORT_PAIRINGS:
+            raise ValueError(f"pairing must be one of {VALID_COHORT_PAIRINGS}")
         text_fields = (
             "counts_layer",
             "ensembl_id_col",
@@ -348,7 +359,13 @@ class PerturbGenDataSpec:
 
 @dataclass(frozen=True)
 class PreparedPerturbationReport:
-    """Validated donor/state summary for one target cell type."""
+    """Validated donor/state summary for one target cell type.
+
+    ``normal_donors``/``disease_donors`` carry the two disjoint donor groups
+    in ``between_donor`` mode and stay empty in ``within_donor`` mode, where
+    ``evaluable_donors`` holds the shared donors and ``normal_only``/
+    ``disease_only`` record the single-state exclusions.
+    """
 
     cell_type: str
     normal_state: str
@@ -358,14 +375,34 @@ class PreparedPerturbationReport:
     disease_only_donors: tuple[str, ...] = field(default_factory=tuple)
     n_cells: int = 0
     n_genes: int = 0
+    pairing: str = "within_donor"
+    normal_donors: tuple[str, ...] = field(default_factory=tuple)
+    disease_donors: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cell_type", str(self.cell_type).strip())
         object.__setattr__(self, "normal_state", str(self.normal_state).strip())
         object.__setattr__(self, "disease_state", str(self.disease_state).strip())
-        object.__setattr__(self, "evaluable_donors", tuple(sorted({str(x).strip() for x in self.evaluable_donors if str(x).strip()})))
-        object.__setattr__(self, "normal_only_donors", tuple(sorted({str(x).strip() for x in self.normal_only_donors if str(x).strip()})))
-        object.__setattr__(self, "disease_only_donors", tuple(sorted({str(x).strip() for x in self.disease_only_donors if str(x).strip()})))
+        object.__setattr__(
+            self, "evaluable_donors", tuple(sorted({str(x).strip() for x in self.evaluable_donors if str(x).strip()}))
+        )
+        object.__setattr__(
+            self,
+            "normal_only_donors",
+            tuple(sorted({str(x).strip() for x in self.normal_only_donors if str(x).strip()})),
+        )
+        object.__setattr__(
+            self,
+            "disease_only_donors",
+            tuple(sorted({str(x).strip() for x in self.disease_only_donors if str(x).strip()})),
+        )
+        object.__setattr__(self, "pairing", str(self.pairing).strip())
+        object.__setattr__(
+            self, "normal_donors", tuple(sorted({str(x).strip() for x in self.normal_donors if str(x).strip()}))
+        )
+        object.__setattr__(
+            self, "disease_donors", tuple(sorted({str(x).strip() for x in self.disease_donors if str(x).strip()}))
+        )
 
         if not self.cell_type:
             raise ValueError("cell_type must not be empty")
@@ -380,6 +417,18 @@ class PreparedPerturbationReport:
         overlap = set(self.normal_only_donors) & set(self.disease_only_donors)
         if overlap:
             raise ValueError(f"donors cannot be both normal_only and disease_only: {sorted(overlap)}")
+        if self.pairing not in VALID_COHORT_PAIRINGS:
+            raise ValueError(f"pairing must be one of {VALID_COHORT_PAIRINGS}")
+        group_overlap = set(self.normal_donors) & set(self.disease_donors)
+        if group_overlap:
+            raise ValueError(f"between_donor groups must be disjoint: {sorted(group_overlap)}")
+        if self.pairing == "between_donor":
+            if not self.normal_donors or not self.disease_donors:
+                raise ValueError("between_donor report requires non-empty normal_donors and disease_donors")
+            if self.normal_only_donors or self.disease_only_donors:
+                raise ValueError("between_donor report must not carry normal_only/disease_only donors")
+        elif self.normal_donors or self.disease_donors:
+            raise ValueError("within_donor report must not carry normal_donors/disease_donors")
         if self.n_cells <= 0:
             raise ValueError("n_cells must be > 0")
         if self.n_genes <= 0:
@@ -421,7 +470,9 @@ class CandidateScreeningResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
-        object.__setattr__(self, "evaluable_donors", tuple(sorted({str(x).strip() for x in self.evaluable_donors if str(x).strip()})))
+        object.__setattr__(
+            self, "evaluable_donors", tuple(sorted({str(x).strip() for x in self.evaluable_donors if str(x).strip()}))
+        )
         if self.status not in _VALID_PATH_STATUSES:
             raise ValueError(f"invalid status: {self.status!r}")
         if self.recommended_mode is not None and self.recommended_mode not in _VALID_MODES:
@@ -470,8 +521,7 @@ class PathResult:
         if self.matched_null_count is not None and self.matched_null_count < 0:
             raise ValueError("matched_null_count must be >= 0")
         if self.empirical_pvalue is not None and (
-            not math.isfinite(self.empirical_pvalue)
-            or not 0.0 <= self.empirical_pvalue <= 1.0
+            not math.isfinite(self.empirical_pvalue) or not 0.0 <= self.empirical_pvalue <= 1.0
         ):
             raise ValueError("empirical_pvalue must be within [0, 1]")
         if self.donor_consistency is not None and not 0.0 <= self.donor_consistency <= 1.0:
@@ -505,9 +555,7 @@ class DualPathVerdict:
         object.__setattr__(self, "reasons", tuple(self.reasons))
         if self.verdict not in _VALID_VERDICTS:
             raise ValueError(f"invalid verdict: {self.verdict!r}")
-        if self.q_value is not None and (
-            not math.isfinite(self.q_value) or not 0.0 <= self.q_value <= 1.0
-        ):
+        if self.q_value is not None and (not math.isfinite(self.q_value) or not 0.0 <= self.q_value <= 1.0):
             raise ValueError("q_value must be within [0, 1]")
         if self.verdict != "pass" and not self.reasons:
             raise ValueError("fail/inconclusive verdict must provide reasons")

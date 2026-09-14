@@ -357,3 +357,95 @@ ENSG；checkpoint `scvi.gene_names` 强制 canonical ENSG 无后缀无重复（�
 frozen M6 支持 candidates CSV 行级 modes。E2E 统计接续（F-01）、跨候选公共
 prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
 `statistical_evidence=inconclusive`。
+
+## L-2026-0913-03｜统计接续、共享准备与 donor 行绑定代码化（F-01/F-02/F-03 剩余）
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0913-03 |
+| 时间戳 | 2026-09-13 |
+| 决策级别 | 工程契约级（L-2026-0913-01 第 4 条与后续顺序的代码落地） |
+| 决策来源 | project_analysis_20260913.md §4.5/§6.2（F-01/F-02/F-03 方案 A）与当前代码复核 |
+| 状态 | 代码与测试落地；正式科学证据仍待真实 cohort/GPU 资产 |
+
+1. **F-02 共享准备**：`orchestrator.build_shared_prepare_plans` 为每条 route 在
+   `<root>/<KO|KD>/_prepare/` 公共执行一次 `tokenise → train_mask → train_decoder`
+   （runner manifest/resume 语义不变）；`build_candidate_stage_plans(...,
+   skip_prepare_stages=True, prepare_artifact_paths=...)` 使候选循环只执行
+   perturb/export/report，`@artifact:tokenise/train_*` 引用由
+   `resolve_prepare_artifact_references` 解析到共享产物，缺失引用硬失败。E2E
+   (`run_davf_perturbgen_e2e.py`) 单候选与多候选统一走共享准备，报告记录
+   `perturbgen_prepare` 与每 run 的 `prepare_root`。未新增 hash、调度框架或
+   兼容开关。证据：tests/integration/test_perturbgen_pipeline_mocked.py
+   `test_shared_prepare_plans_run_once_and_candidates_reuse_artifacts`。
+2. **F-03 生成端 donor 绑定**：`build_scperturb_latent_pairs` 新增
+   `donor_obs_column` + `donor_split` payload（`ptm2cellnet.donor_split/v1`），
+   train/val 行只来自 train_donors、test 行只来自 held_out_donors，未列入池的
+   donor 硬失败；NPZ 写 `target_donors`/`control_donors` 数组，metadata 写
+   `donor_split` 与 `dataset.donor_rows`（训练端 `_validate_donor_split_metadata`
+   消费的同一契约）。CLI `build_davf_scperturb_pairs.py --donor-obs-column
+   --train-donors --held-out-donors` 生成 canonical split。旧 NPZ/checkpoint 无
+   行级 donor provenance，正式 held-out 声明仍需重建资产。证据：
+   tests/unit/data/test_davf_scperturb.py `test_donor_bound_pairs_*`。
+3. **F-01 统计接续**：E2E 新增 `--assemble-statistical-evidence --deg-table
+   --null-distribution-manifest [--statistical-output-dir]`，在六阶段完成后自动
+   串接 `extract_unperturbed_quality_from_h5ad`（per candidate，primary-mode
+   within_state h5ad）→ `build_eval_input_payload`（formal，新增
+   `candidate_unperturbed_quality` per-candidate 质量入口）→
+   `replay_evaluation.replay_dual_path_evaluation`（自
+   `evaluate_perturbgen_dual_path.py` 抽离的单一实现：empirical-p
+   conservative_max_required_runs 聚合、BH-FDR、dual-path AND），
+   lineage 写回 `statistical_evidence`。null 分布必须显式提供
+   （`perturbgen_null_distribution/v1` 索引），GPU matched-null 批跑仍由
+   `run_matched_null_stages.py` 独立执行（A-05 资产边界未变）。
+   证据：tests/unit/scripts/test_run_davf_perturbgen_e2e.py
+   `test_assemble_statistical_evidence_chains_null_quality_pq_dual_path`。
+4. **F-09 边界文档化（方案 A）**：`runner.py` 模块契约与两份指南明确 formal
+   invocation wrapper（`run_perturbgen_pipeline.py --e2e-gate-report` /
+   `PerturbGenInvocation`）是唯一公开正式入口；`StagePlan` 层仅供内部
+   null/engineering 复用，runner 不自行重查 gate，该边界未下沉到接口层。
+5. **TD-13-13/TD-13-14**：API_DOCUMENTATION.md 增补 PerturbGen 集成合同
+   （SemanticContext 七字段等）；`tests/unit/models/test_davf_losses.py` 用精确
+   数值断言锚定 DAVFLoss/DirectionConsistencyLoss（幅度项、符号、padding mask、
+   自适应权重）。全仓 ruff format 债维持上轮取舍（触碰文件已 format，全仓
+   一次性 format 留独立 PR），真实结果记录于修复报告。
+
+## L-2026-0914-01｜Gate-0 增加 between_donor 配对：AD case-control 队列准入（选项 B 决策）
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0914-01 |
+| 时间戳 | 2026-09-14 |
+| 决策级别 | 研究契约级（用户显式选定选项 B；L-2026-0822-06 契约语义的显式扩展，不是放宽） |
+| 决策来源 | data/AD 四队列 Gate-0 审计（outputs/perturbgen/spike/20260914_ad_cohort_audit/evidence.json，verdict GATE0_BLOCKED_SEMANTICS_AND_LABELS）+ 用户选项 B 指令 |
+| 状态 | 代码、测试与真实数据 preflight 落地；正式生物学结论仍待完整 E2E 与统计验收 |
+
+1. **配对语义冻结**：`PerturbGenDataSpec` 新增 `pairing` 字段
+   （`within_donor` 默认 / `between_donor`），Gate-0
+   （`data_prep._validate_obs_contract`）按模式分支：`within_donor` 仍要求
+   ≥`min_donors` 个跨态共享 donor（扰动配对语义，默认行为不变，回归
+   244 项通过）；`between_donor` 要求两组 donor 不相交（同 donor 双态出现
+   即标签错误硬失败）且每组 ≥`min_donors`。E2E 以
+   `--perturbgen-cohort-pairing {within_donor,between_donor}` 显式声明，
+   汇入 `perturbgen_gate0.data_spec` 序列化证据。观察性队列加载器
+   `gse_normal_disease.py` 的 between-donor 语义（显式 normal/disease 样本
+   清单、每样本唯一 donor）与本次 Gate-0 扩展对齐，二者互补。
+2. **donor 推导证据化**：GSE174367 `SampleID` 被接受为 donor 的唯一依据是
+   作者 cell_meta 中每样本一组唯一的供体级协变量（Age/Sex/PMI/RIN/
+   Tangle/Plaque，18/18 组合唯一、样本内恒定），由
+   `scripts/standardize_gse174367_ad_cohort.py` 在运行时重验，任何协变量
+   碰撞即中止；推导记录写入 provenance。标题/`sample`/`batch` 重释为
+   donor 的禁令（L-2026-0822-06）不变。版本化 ENSG（含 10x `_PAR_Y` 副本）
+   在标准化层去版本并按同基因求和合并（45 条），Gate-0 仍拒收原始输入的
+   非 canonical ID。
+3. **真实资产**：`data/AD/standardized/GSE174367_ad_cohort.h5ad`
+   （61,472 cells × 58,676 canonical ENSG，7 Control + 11 AD donor 不相交，
+   298 个无元数据 barcode 剔除并记录）；between_donor Gate-0 preflight
+   7/7 细胞类型 PASS，证据
+   `outputs/perturbgen/spike/20260914_gse174367_gate0/evidence.json`。
+   这是数据契约验收（Gate-0），不构成生物学 PASS；正式效用仍需完整
+   六阶段、matched null、质量与双路径统计。
+4. **不随本次改动的边界**：GSE157827/GSE188545 仍缺 cell-level 注释与
+   donor 证据、GSE147528 仍为 raw droplets 且诊断缺失，四队列未合并；
+   train/held-out donor split 由既有 `donor_split/v1` 工具在配对生成时
+   施加，Gate-0 本身不指定 split。

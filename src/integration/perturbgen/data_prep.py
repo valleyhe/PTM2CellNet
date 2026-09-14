@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from .contracts import PathStatus, PerturbationMode
 
@@ -40,8 +40,7 @@ def _col_as_strings(frame: pd.DataFrame, column: str) -> pd.Series:
 def _validate_counts_layer(adata: Any, spec: PerturbGenDataSpec) -> Any:
     if spec.counts_layer not in adata.layers:
         raise ValueError(
-            f"adata.layers[{spec.counts_layer!r}] is required; "
-            "do not silently treat adata.X as raw counts"
+            f"adata.layers[{spec.counts_layer!r}] is required; do not silently treat adata.X as raw counts"
         )
     counts = adata.layers[spec.counts_layer]
     if getattr(counts, "shape", None) != adata.shape:
@@ -56,11 +55,21 @@ def _validate_counts_layer(adata: Any, spec: PerturbGenDataSpec) -> Any:
     if (values < 0).any():
         raise ValueError("counts layer must contain non-negative raw counts")
     if not np.allclose(values, np.round(values), atol=1e-6):
-        raise ValueError(
-            "counts layer must contain integer-like raw counts; "
-            "log-normalized values are not allowed"
-        )
+        raise ValueError("counts layer must contain integer-like raw counts; log-normalized values are not allowed")
     return counts
+
+
+class _ObsContractResult(NamedTuple):
+    """Donor/state contract outcome shared by both pairing modes."""
+
+    target_mask: np.ndarray
+    state_values: pd.Series
+    donor_values: pd.Series
+    evaluable_donors: tuple[str, ...]
+    normal_only_donors: tuple[str, ...]
+    disease_only_donors: tuple[str, ...]
+    normal_donors: tuple[str, ...]
+    disease_donors: tuple[str, ...]
 
 
 def _validate_obs_contract(
@@ -68,7 +77,7 @@ def _validate_obs_contract(
     *,
     cell_type: str,
     spec: PerturbGenDataSpec,
-) -> tuple[np.ndarray, pd.Series, pd.Series, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+) -> _ObsContractResult:
     if not getattr(adata.obs_names, "is_unique", False):
         raise ValueError("adata.obs_names must be unique")
 
@@ -82,11 +91,7 @@ def _validate_obs_contract(
     obs[spec.state_col] = _col_as_strings(obs, spec.state_col)
     obs[spec.donor_col] = _col_as_strings(obs, spec.donor_col)
 
-    empty_mask = (
-        obs[spec.cell_type_col].eq("")
-        | obs[spec.state_col].eq("")
-        | obs[spec.donor_col].eq("")
-    )
+    empty_mask = obs[spec.cell_type_col].eq("") | obs[spec.state_col].eq("") | obs[spec.donor_col].eq("")
     if bool(empty_mask.any()):
         raise ValueError("adata.obs contains empty cell_type/state/donor values")
 
@@ -97,9 +102,7 @@ def _validate_obs_contract(
     states = obs.loc[target_mask, spec.state_col]
     unexpected_states = sorted(set(states) - {spec.normal_state, spec.disease_state})
     if unexpected_states:
-        raise ValueError(
-            f"target cell_type contains unexpected states for PerturbGen pairing: {unexpected_states}"
-        )
+        raise ValueError(f"target cell_type contains unexpected states for PerturbGen pairing: {unexpected_states}")
 
     normal_mask = target_mask & obs[spec.state_col].eq(spec.normal_state)
     disease_mask = target_mask & obs[spec.state_col].eq(spec.disease_state)
@@ -111,19 +114,52 @@ def _validate_obs_contract(
     shared_donors = tuple(sorted(set(normal_donors) & set(disease_donors)))
     normal_only_donors = tuple(sorted(set(normal_donors) - set(shared_donors)))
     disease_only_donors = tuple(sorted(set(disease_donors) - set(shared_donors)))
+    target_mask_array = np.asarray(target_mask, dtype=bool)
+    state_values = obs[spec.state_col]
+    donor_values = obs[spec.donor_col]
+
+    if spec.pairing == "between_donor":
+        # Case-control cohorts: a donor in both states is a labeling error,
+        # and each state must carry its own >= min_donors donor group.
+        if shared_donors:
+            raise ValueError(
+                f"target cell_type {cell_type!r}: between_donor pairing requires disjoint donor "
+                f"groups, but these donors appear in both {spec.normal_state!r} and "
+                f"{spec.disease_state!r}: {list(shared_donors)}"
+            )
+        if len(normal_donors) < spec.min_donors or len(disease_donors) < spec.min_donors:
+            raise ValueError(
+                f"target cell_type {cell_type!r} requires at least {spec.min_donors} donors in "
+                f"each of {spec.normal_state!r}/{spec.disease_state!r}; got "
+                f"{len(normal_donors)} and {len(disease_donors)}"
+            )
+        evaluable_donors = tuple(sorted(set(normal_donors) | set(disease_donors)))
+        return _ObsContractResult(
+            target_mask_array,
+            state_values,
+            donor_values,
+            evaluable_donors,
+            (),
+            (),
+            normal_donors,
+            disease_donors,
+        )
+
     if len(shared_donors) < spec.min_donors:
         raise ValueError(
             f"target cell_type {cell_type!r} requires at least {spec.min_donors} shared donors "
             f"across {spec.normal_state!r}/{spec.disease_state!r}; got {len(shared_donors)}"
         )
 
-    return (
-        np.asarray(target_mask, dtype=bool),
-        obs[spec.state_col],
-        obs[spec.donor_col],
+    return _ObsContractResult(
+        target_mask_array,
+        state_values,
+        donor_values,
         shared_donors,
         normal_only_donors,
         disease_only_donors,
+        (),
+        (),
     )
 
 
@@ -150,8 +186,10 @@ def prepare_perturbgen_anndata(
     - ``adata.layers["counts"]`` must exist;
     - raw counts must be non-negative and integer-like;
     - ``obs`` must provide non-empty ``cell_type/state/donor``;
-    - the target cell type must have at least 3 shared donors across
-      normal/disease states;
+    - with ``pairing="within_donor"`` (perturbation cohorts) the target cell
+      type must have at least 3 donors shared across normal/disease states;
+    - with ``pairing="between_donor"`` (case-control cohorts) the two state
+      groups must be donor-disjoint and each carry at least 3 donors;
     - ENSG ids must be canonical and unique after version stripping.
     """
 
@@ -159,14 +197,7 @@ def prepare_perturbgen_anndata(
     validated = adata.copy()
     counts = _validate_counts_layer(validated, spec)
     _prepare_var_contract(validated, spec)
-    (
-        target_mask,
-        state_values,
-        _donor_values,
-        shared_donors,
-        normal_only_donors,
-        disease_only_donors,
-    ) = _validate_obs_contract(validated, cell_type=cell_type, spec=spec)
+    contract = _validate_obs_contract(validated, cell_type=cell_type, spec=spec)
 
     n_counts = _row_sums(counts)
     if (n_counts <= 0).any():
@@ -175,14 +206,12 @@ def prepare_perturbgen_anndata(
     if existing_n_counts is not None:
         existing = np.asarray(existing_n_counts, dtype=float).ravel()
         if existing.shape != n_counts.shape or not np.allclose(existing, n_counts, atol=1e-6):
-            raise ValueError(
-                f"adata.obs[{spec.n_counts_col!r}] does not match raw counts row sums"
-            )
+            raise ValueError(f"adata.obs[{spec.n_counts_col!r}] does not match raw counts row sums")
     else:
         validated.obs = validated.obs.copy()
         validated.obs[spec.n_counts_col] = n_counts
 
-    target_state_values = pd.Series(state_values[target_mask], copy=False)
+    target_state_values = pd.Series(contract.state_values[contract.target_mask], copy=False)
     if not set(target_state_values.unique()) == {spec.normal_state, spec.disease_state}:
         raise ValueError("target cell_type must contain exactly normal and disease states")
 
@@ -190,11 +219,14 @@ def prepare_perturbgen_anndata(
         cell_type=cell_type,
         normal_state=spec.normal_state,
         disease_state=spec.disease_state,
-        evaluable_donors=shared_donors,
-        normal_only_donors=normal_only_donors,
-        disease_only_donors=disease_only_donors,
-        n_cells=int(target_mask.sum()),
+        evaluable_donors=contract.evaluable_donors,
+        normal_only_donors=contract.normal_only_donors,
+        disease_only_donors=contract.disease_only_donors,
+        n_cells=int(contract.target_mask.sum()),
         n_genes=int(validated.n_vars),
+        pairing=spec.pairing,
+        normal_donors=contract.normal_donors,
+        disease_donors=contract.disease_donors,
     )
     return PreparedPerturbationData(adata=validated, spec=spec, report=report)
 
@@ -267,7 +299,9 @@ def screen_candidate_for_perturbation(
     normal_mask = cell_type_mask & obs[spec.state_col].astype(str).str.strip().eq(spec.normal_state)
     disease_mask = cell_type_mask & obs[spec.state_col].astype(str).str.strip().eq(spec.disease_state)
 
-    gene_vector = np.asarray(counts[:, gene_index].toarray() if hasattr(counts[:, gene_index], "toarray") else counts[:, gene_index]).ravel()
+    gene_vector = np.asarray(
+        counts[:, gene_index].toarray() if hasattr(counts[:, gene_index], "toarray") else counts[:, gene_index]
+    ).ravel()
     normal_counts = gene_vector[np.asarray(normal_mask, dtype=bool)]
     disease_counts = gene_vector[np.asarray(disease_mask, dtype=bool)]
 

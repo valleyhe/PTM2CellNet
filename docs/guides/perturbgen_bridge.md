@@ -80,15 +80,21 @@ python scripts/collect_perturbgen_env_evidence.py
 
 ## 3. 数据契约（Gate-0，先于一切训练）
 
-donor cohort 硬要求（方案 §4.6-1；lessons.md L-2026-0822-06）：
+donor cohort 硬要求（方案 §4.6-1；lessons.md L-2026-0822-06、L-2026-0914-01）：
 
 1. 显式 `donor`/`patient` 列（`sample`/`batch`/`replicate`/CRISPR control 不算）；
 2. normal/disease 配对、raw counts、Ensembl ID（ENSG）、`cell_type`/`state` 元数据；
-3. 目标 cell type 每状态 ≥3 个可评估 donor。
+3. 目标 cell type 每状态 ≥3 个可评估 donor，配对语义二选一：
+   `within_donor`（扰动配对，≥3 个跨态共享 donor，默认）或
+   `between_donor`（case-control，两组 donor 不相交且各 ≥3；AD 脑队列采用）。
 
 ```bash
 # 审计本地 h5ad 是否有合规候选（结果写 outputs/perturbgen/spike/<date>_donor_audit/evidence.json）
 python scripts/audit_perturbgen_cohort.py
+# 审计 data/AD 四个 GEO 队列的 Gate-0 差距（donor/condition/Ensembl 逐项）
+python scripts/audit_ad_cohort_gate0.py
+# 标准化 GSE174367 并跑 between_donor Gate-0 preflight（全部细胞类型）
+python scripts/standardize_gse174367_ad_cohort.py
 ```
 
 **历史状态（2026-09-10）**：30 文件审计 0 合规候选 —— M0⑥ 是全链外部
@@ -100,8 +106,17 @@ python scripts/audit_perturbgen_cohort.py
 M4 重训/M6/Gate-E 仍按方案 §7.3 挂起，不得跳过。训练输入 schema/asset 通过也不
 证明 held-out DAVF biology，因为来源隔离和训练/E2E donor split 仍须由 manifest
 逐值追溯。正式验收还必须同时满足真实 `normal/disease` raw counts、显式 donor、
-至少 3 个共享 donor、canonical Ensembl、scVI gene order、冻结 embedding 与
-manifest；smoke、synthetic 和 bridge 通过都不算生物学 PASS。
+至少 3 个可评估 donor（配对语义见上）、canonical Ensembl、scVI gene order、冻结
+embedding 与 manifest；smoke、synthetic 和 bridge 通过都不算生物学 PASS。
+
+**AD 队列状态（2026-09-14，L-2026-0914-01）**：data/AD 四个 GEO 队列审计结论为
+`GATE0_BLOCKED_SEMANTICS_AND_LABELS`（`outputs/perturbgen/spike/20260914_ad_cohort_audit/evidence.json`）；
+Gate-0 新增 `between_donor` 配对后，GSE174367 已标准化为
+`data/AD/standardized/GSE174367_ad_cohort.h5ad` 并以 between_donor preflight
+7/7 细胞类型 PASS
+（`outputs/perturbgen/spike/20260914_gse174367_gate0/evidence.json`）。
+GSE157827/GSE188545/GSE147528 仍缺 donor/cell 注释或 cell calling，未合并。
+该 preflight 是数据契约验收，不是生物学 PASS。
 
 ## 4. 六阶段 pipeline（工作流 A）
 
@@ -141,7 +156,10 @@ python scripts/run_perturbgen_pipeline.py \
 `PerturbGenRunner` 本身只执行 `StagePlan`，不自校验 DAVF gate。正式候选入口应先
 由 E2E 产生通过的 invocation；直接 pipeline CLI 只有在选中 `perturb` 或 `--path`
 时才按当前 report binding 校验 gate。把任意 StagePlan 交给 runner 不能当作科学
-准入流程。
+准入流程。formal invocation wrapper（`run_perturbgen_pipeline.py
+--e2e-gate-report` 与 orchestrator `PerturbGenInvocation`）因此是唯一公开正式
+执行入口；runner 的 `StagePlan` 层仅供内部 null/engineering 复用，该边界尚未
+下沉到 runner 接口层（F-09 现状）。
 
 ## 5. 嵌入资产导出与 DAVF 注入（工作流 B）
 
@@ -296,8 +314,15 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 `engineering` 入口允许 uniform 或外部表格 p，只能标记 synthetic；`formal` 入口
 要求 `extract_unperturbed_quality_from_h5ad` 的 JSON，并由
 `evaluate_perturbgen_dual_path.py` 对每条路径/seed 的有限 empirical p 使用
-`conservative_max_required_runs` 聚合，再做候选层 BH-FDR。E2E 尚未自动接续这条
-统计闭环，不能只凭六阶段 report 生成正式 q。
+`conservative_max_required_runs` 聚合，再做候选层 BH-FDR。E2E 已支持
+`--assemble-statistical-evidence --deg-table ... --null-distribution-manifest ...`
+在六阶段完成后自动串接这条统计闭环（质量提取、formal 评估输入、empirical p 聚
+合、BH-FDR 与双路径 AND，lineage 写回 E2E report 的 `statistical_evidence` 节）；
+本页的两步 CLI 仍可独立使用，但正式入口应优先使用 E2E 内置组装，避免两步调用
+漏接。评估相关的候选语义上下文（`SemanticContext` 七字段）与 E2E 候选清单相同：
+`context`、`intervention`、`comparison_baseline`、`reference_axis`、
+`research_objective`（限 `association`/`replication`/`reversal`）、
+`evidence_source`、`cohort`，缺字段或非法值在 invocation 处硬失败。
 
 判定口径（lessons.md L-2026-0821-01）：正式双路径 **AND** 标准——`src` 与 `tgt`
 两路 rescue 均稳定为正（排除目标基因本身、≥3 donor 方向一致、跨要求的 seed 复核）
@@ -322,7 +347,7 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 | Gate | 内容 | 状态 |
 |---|---|---|
 | Gate-0 M0⑤ | 独立环境 smoke（perturb 51.88s / 1757 MiB / h5ad schema 通过） | ✅ 已过（`outputs/perturbgen/spike/20260823_m0_smoke/evidence.json`） |
-| Gate-0 M0⑥ | ≥3 donor 合规 cohort | ❌ 阻断（0 合规候选，U-01，外部数据依赖） |
+| Gate-0 M0⑥ | ≥3 donor 合规 cohort | ⚠️ between_donor 契约落地；GSE174367 AD 队列 preflight 7/7 PASS（数据契约验收，非生物学 PASS）；完整 E2E 队列运行仍待执行 |
 | Gate-1~3 | 契约 / runner / 双路径统计 | ⚠️ 工程组件完成；E2E CLI 已接通方向 gate→runner，正式 donor/统计证据仍待补齐 |
 | Gate-E | DAVF 新底座资产/接口回归 | ✅ current checkpoint 与真实 token/decoder 分离测试通过；生物学方向门仍待 held-out 验证 |
 | Gate-4 | 真实 smoke / 正式 release evidence | ⚠️ 本地 Datlinger 750-cell 六阶段 smoke 已通过；正式 donor 队列仍待运行 |

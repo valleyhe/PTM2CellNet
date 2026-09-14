@@ -77,6 +77,61 @@ def test_data_spec_requires_at_least_three_donors():
         PerturbGenDataSpec(min_donors=2)
 
 
+def test_data_spec_validates_cohort_pairing():
+    with pytest.raises(ValueError, match="pairing must be one of"):
+        PerturbGenDataSpec(pairing="cross_over")
+    assert PerturbGenDataSpec().pairing == "within_donor"
+    assert PerturbGenDataSpec(pairing="between_donor").pairing == "between_donor"
+
+
+def test_prepared_report_between_donor_groups_are_disjoint_and_complete():
+    report = PreparedPerturbationReport(
+        cell_type="ODC",
+        normal_state="normal",
+        disease_state="disease",
+        evaluable_donors=("n1", "n2", "n3", "a1", "a2"),
+        n_cells=100,
+        n_genes=10,
+        pairing="between_donor",
+        normal_donors=("n1", "n2", "n3"),
+        disease_donors=("a1", "a2"),
+    )
+    assert report.pairing == "between_donor"
+    with pytest.raises(ValueError, match="non-empty normal_donors and disease_donors"):
+        PreparedPerturbationReport(
+            cell_type="ODC",
+            normal_state="normal",
+            disease_state="disease",
+            evaluable_donors=("n1", "n2", "n3"),
+            n_cells=100,
+            n_genes=10,
+            pairing="between_donor",
+            normal_donors=("n1", "n2", "n3"),
+        )
+    with pytest.raises(ValueError, match="disjoint"):
+        PreparedPerturbationReport(
+            cell_type="ODC",
+            normal_state="normal",
+            disease_state="disease",
+            evaluable_donors=("d1", "n2", "n3", "a1"),
+            n_cells=100,
+            n_genes=10,
+            pairing="between_donor",
+            normal_donors=("d1", "n2", "n3"),
+            disease_donors=("d1", "a1"),
+        )
+    with pytest.raises(ValueError, match="within_donor report must not carry"):
+        PreparedPerturbationReport(
+            cell_type="ODC",
+            normal_state="normal",
+            disease_state="disease",
+            evaluable_donors=("n1", "n2", "n3"),
+            n_cells=100,
+            n_genes=10,
+            normal_donors=("n1", "n2", "n3"),
+        )
+
+
 def test_prepared_report_requires_three_evaluable_donors():
     with pytest.raises(ValueError, match="at least 3 evaluable donors"):
         PreparedPerturbationReport(
