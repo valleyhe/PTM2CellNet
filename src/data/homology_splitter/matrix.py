@@ -64,7 +64,8 @@ def compute_kmer_jaccard_matrix(
             "n=%d 超过阈值 %d 且 approximate=True，但 datasketch 未安装，"
             "回退到稠密 n×n Jaccard 矩阵（大规模下可能 OOM）。"
             "建议 `pip install datasketch` 以启用 MinHash+LSH 近似路径。",
-            n, approximate_threshold,
+            n,
+            approximate_threshold,
         )
 
     from scipy.sparse import csr_matrix
@@ -83,7 +84,7 @@ def compute_kmer_jaccard_matrix(
             continue
         seen: set = set()
         for j in range(len(seq) - k + 1):
-            km = seq[j:j + k]
+            km = seq[j : j + k]
             if km in seen:
                 continue
             seen.add(km)
@@ -161,7 +162,7 @@ def kmer_jaccard_matrix_minhash(
     for i, seq in enumerate(sequences):
         if len(seq) < k:
             continue
-        kmers = {seq[j:j + k] for j in range(len(seq) - k + 1)}
+        kmers = {seq[j : j + k] for j in range(len(seq) - k + 1)}
         kmer_sets[i] = kmers
         if not kmers:
             continue
@@ -190,9 +191,10 @@ def kmer_jaccard_matrix_minhash(
             sim_matrix[j, i] = sim
 
     logger.info(
-        "MinHash+LSH 近似相似性矩阵完成: n=%d, lsh_threshold=%.3f, num_perm=%d"
-        "（未命中候选对相似性按 0 处理）",
-        n, lsh_threshold, num_perm,
+        "MinHash+LSH 近似相似性矩阵完成: n=%d, lsh_threshold=%.3f, num_perm=%d（未命中候选对相似性按 0 处理）",
+        n,
+        lsh_threshold,
+        num_perm,
     )
     return sim_matrix
 
@@ -231,20 +233,16 @@ def pairwise_similarity_matrix_nonkmer(
     # 尝试 joblib 并行化；缺失时回退串行
     try:
         from joblib import Parallel, delayed  # 延迟导入，避免顶层硬依赖
+
         have_joblib = True
     except ImportError:
         have_joblib = False
-        logger.debug(
-            "joblib 未安装，non-kmer 相似性矩阵将走串行路径；"
-            "建议 `pip install joblib` 以启用并行加速。"
-        )
+        logger.debug("joblib 未安装，non-kmer 相似性矩阵将走串行路径；建议 `pip install joblib` 以启用并行加速。")
 
     if have_joblib and n >= 2:
         pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
         if pairs:
-            sims = Parallel(n_jobs=-1)(
-                delayed(_pair_sim)(i, j) for i, j in pairs
-            )
+            sims = Parallel(n_jobs=-1)(delayed(_pair_sim)(i, j) for i, j in pairs)
             for (i, j), sim in zip(pairs, sims, strict=False):
                 sim_matrix[i, j] = sim
                 sim_matrix[j, i] = sim
@@ -293,7 +291,8 @@ def sampled_similarity_matrix(
     logger.warning(
         "non-kmer 模式 approximate 采样: 从 %d 条序列中采样 %d 条构建相似性矩阵，"
         "未采样序列间相似性按 0 处理（近似值，可能低估聚类合并）。",
-        n, sample_size,
+        n,
+        sample_size,
     )
 
     # 在采样子集上走 non-kmer 逐对路径
@@ -401,7 +400,7 @@ def max_cross_similarity_kmer(
                 continue
             seen: set = set()
             for j in range(len(seq) - k + 1):
-                km = seq[j:j + k]
+                km = seq[j : j + k]
                 if km in seen:
                     continue
                 seen.add(km)
@@ -422,13 +421,11 @@ def max_cross_similarity_kmer(
         return max_sim, violations, details
 
     A = csr_matrix(
-        (np.ones(len(rows_a), dtype=np.float64),
-         (np.array(rows_a, dtype=np.int64), np.array(cols_a, dtype=np.int64))),
+        (np.ones(len(rows_a), dtype=np.float64), (np.array(rows_a, dtype=np.int64), np.array(cols_a, dtype=np.int64))),
         shape=(na, vocab_size),
     )
     B = csr_matrix(
-        (np.ones(len(rows_b), dtype=np.float64),
-         (np.array(rows_b, dtype=np.int64), np.array(cols_b, dtype=np.int64))),
+        (np.ones(len(rows_b), dtype=np.float64), (np.array(rows_b, dtype=np.int64), np.array(cols_b, dtype=np.int64))),
         shape=(nb, vocab_size),
     )
     inter = (A @ B.T).toarray()  # (na, nb)
@@ -448,7 +445,7 @@ def max_cross_similarity_kmer(
     violations = int(np.sum(viol_mask))
     if violations > 0 and len(details) < detail_cap:
         viols = np.argwhere(viol_mask)
-        for (i, j) in viols[: detail_cap]:
+        for i, j in viols[:detail_cap]:
             details.append(f"{label} similarity {scaled[i, j]:.3f}")
 
     return max_sim, violations, details

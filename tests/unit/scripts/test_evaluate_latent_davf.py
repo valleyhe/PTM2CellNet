@@ -87,12 +87,18 @@ def test_target_decoder_indices_reject_multiple_active_tokens():
 def test_parse_args_requires_direction_and_test_data():
     args = parse_args(
         [
-            "--test-data", "test.npz",
-            "--checkpoint", "best_model.pt",
-            "--scvi-model", "scvi",
-            "--embedding-asset", "asset",
-            "--intervention-type", "KD",
-            "--output", "report.json",
+            "--test-data",
+            "test.npz",
+            "--checkpoint",
+            "best_model.pt",
+            "--scvi-model",
+            "scvi",
+            "--embedding-asset",
+            "asset",
+            "--intervention-type",
+            "KD",
+            "--output",
+            "report.json",
         ]
     )
 

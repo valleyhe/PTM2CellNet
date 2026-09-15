@@ -8,11 +8,13 @@
 import sys
 from pathlib import Path
 
+
 # 确保项目根目录在sys.path中
 def _ensure_project_root():
     project_root = Path(__file__).parent.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+
 
 _ensure_project_root()
 
@@ -22,7 +24,7 @@ import matplotlib.pyplot as plt
 from collections import Counter
 
 # 设置matplotlib后端
-plt.switch_backend('Agg')
+plt.switch_backend("Agg")
 
 
 def analyze_dataframe(df, name):
@@ -90,9 +92,9 @@ def generate_report():
     # 分析每个数据集
     all_stats = {}
     for name, df in datasets.items():
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"{name}统计")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         stats = analyze_dataframe(df, name)
         all_stats[name] = stats
 
@@ -108,9 +110,9 @@ def generate_report():
                 print(f"{key}: {value}")
 
     # 生成可视化
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("生成可视化图表...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     output_dir = Path("outputs/statistics")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -119,7 +121,7 @@ def generate_report():
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     for i, (name, df) in enumerate(datasets.items()):
         lengths = df["sequence"].str.len()
-        axes[i].hist(lengths, bins=30, edgecolor='black')
+        axes[i].hist(lengths, bins=30, edgecolor="black")
         axes[i].set_title(f"{name} - 序列长度分布")
         axes[i].set_xlabel("序列长度")
         axes[i].set_ylabel("样本数")
@@ -130,11 +132,11 @@ def generate_report():
     # 2. 细胞状态分布
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     for i, (name, df) in enumerate(datasets.items()):
-        df["cell_state"].value_counts().plot(kind='bar', ax=axes[i])
+        df["cell_state"].value_counts().plot(kind="bar", ax=axes[i])
         axes[i].set_title(f"{name} - 细胞状态分布")
         axes[i].set_xlabel("细胞状态")
         axes[i].set_ylabel("样本数")
-        axes[i].tick_params(axis='x', rotation=45)
+        axes[i].tick_params(axis="x", rotation=45)
     plt.tight_layout()
     plt.savefig(output_dir / "cell_state_distribution.png", dpi=150)
     print(f"  - 细胞状态分布图: {output_dir / 'cell_state_distribution.png'}")

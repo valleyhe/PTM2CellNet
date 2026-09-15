@@ -56,9 +56,7 @@ def evaluate_direction_gate(
 
     if not 0.0 <= max_observed_fdr <= 1.0:
         raise ValueError("max_observed_fdr must be within [0, 1]")
-    if observed_fdr is not None and (
-        not math.isfinite(observed_fdr) or not 0.0 <= observed_fdr <= 1.0
-    ):
+    if observed_fdr is not None and (not math.isfinite(observed_fdr) or not 0.0 <= observed_fdr <= 1.0):
         raise ValueError("observed_fdr must be within [0, 1]")
 
     gene_symbol = proposal.gene_symbol if proposal is not None else None

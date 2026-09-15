@@ -18,6 +18,7 @@ from src.models.davf_attention import (
 # MultiTargetAttention tests
 # ---------------------------------------------------------------------------
 
+
 class TestMultiTargetAttention:
     """Tests for MultiTargetAttention module."""
 
@@ -92,13 +93,17 @@ class TestMultiTargetAttention:
 # DirectionAwareAttention tests
 # ---------------------------------------------------------------------------
 
+
 class TestDirectionAwareAttention:
     """Tests for DirectionAwareAttention module."""
 
     def test_instantiation(self):
         """Module creates with valid parameters."""
         attn = DirectionAwareAttention(
-            embed_dim=8, direction_embed_dim=8, num_heads=2, dropout=0.0,
+            embed_dim=8,
+            direction_embed_dim=8,
+            num_heads=2,
+            dropout=0.0,
         )
         assert attn.embed_dim == 8
         assert attn.num_heads == 2
@@ -107,7 +112,10 @@ class TestDirectionAwareAttention:
         """Forward returns (output, attention_weights) with correct shapes."""
         B, K, D = 2, 3, 8
         attn = DirectionAwareAttention(
-            embed_dim=D, direction_embed_dim=8, num_heads=2, dropout=0.0,
+            embed_dim=D,
+            direction_embed_dim=8,
+            num_heads=2,
+            dropout=0.0,
         )
         x = torch.randn(B, K, D)
         direction_emb = torch.randn(B, K, 8)
@@ -121,7 +129,10 @@ class TestDirectionAwareAttention:
         """Forward works with attention_mask."""
         B, K, D = 2, 4, 8
         attn = DirectionAwareAttention(
-            embed_dim=D, direction_embed_dim=8, num_heads=2, dropout=0.0,
+            embed_dim=D,
+            direction_embed_dim=8,
+            num_heads=2,
+            dropout=0.0,
         )
         x = torch.randn(B, K, D)
         direction_emb = torch.randn(B, K, 8)
@@ -136,7 +147,10 @@ class TestDirectionAwareAttention:
         """_compute_direction_interactions returns [B, H, K, K]."""
         B, K, H = 2, 3, 2
         attn = DirectionAwareAttention(
-            embed_dim=8, direction_embed_dim=8, num_heads=H, dropout=0.0,
+            embed_dim=8,
+            direction_embed_dim=8,
+            num_heads=H,
+            dropout=0.0,
         )
         directions = torch.randint(0, 3, (B, K))
         interactions = attn._compute_direction_interactions(directions)
@@ -146,7 +160,10 @@ class TestDirectionAwareAttention:
         """Works when all targets have the same direction."""
         B, K, D = 2, 3, 8
         attn = DirectionAwareAttention(
-            embed_dim=D, direction_embed_dim=8, num_heads=2, dropout=0.0,
+            embed_dim=D,
+            direction_embed_dim=8,
+            num_heads=2,
+            dropout=0.0,
         )
         x = torch.randn(B, K, D)
         direction_emb = torch.randn(B, K, 8)
@@ -159,6 +176,7 @@ class TestDirectionAwareAttention:
 # ---------------------------------------------------------------------------
 # CrossModalAttention tests
 # ---------------------------------------------------------------------------
+
 
 class TestCrossModalAttention:
     """Tests for CrossModalAttention module."""

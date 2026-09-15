@@ -1,4 +1,5 @@
 """Complete variant effect prediction workflow (FEAT-01)."""
+
 import logging
 import os
 from typing import Any, Dict, List, Optional, Union, cast
@@ -23,6 +24,7 @@ def _create_network_analyzer() -> Any:
 @dataclass
 class VariantEffectResult:
     """Complete variant effect prediction result."""
+
     variant: Dict[str, Any]
     sequence_info: Dict[str, Any]
     ptm_effects: Dict[str, Dict[str, Union[float, str]]]  # PTM type -> effect
@@ -65,8 +67,12 @@ class VariantEffectWorkflow:
 
         # Initialize predictors for each PTM type
         self.ptm_types = ptm_types or [
-            'Phosphorylation', 'Ubiquitination', 'Acetylation',
-            'Methylation', 'Sumoylation', 'Succinylation',
+            "Phosphorylation",
+            "Ubiquitination",
+            "Acetylation",
+            "Methylation",
+            "Sumoylation",
+            "Succinylation",
         ]
 
         self.predictors: Dict[str, VariantPTMEffectPredictor] = {}
@@ -96,8 +102,7 @@ class VariantEffectWorkflow:
                 logger.info("Using PTM-type-specific model for %s: %s", ptm_type, candidate)
                 return candidate
         logger.warning(
-            "No PTM-type-specific checkpoint for %s under %s; falling back to the "
-            "explicitly provided model_path: %s",
+            "No PTM-type-specific checkpoint for %s under %s; falling back to the explicitly provided model_path: %s",
             ptm_type,
             checkpoints_dir,
             self.model_path,
@@ -148,10 +153,10 @@ class VariantEffectWorkflow:
             except (RuntimeError, ValueError) as e:
                 logger.error(f"Prediction failed for {ptm_type}: {e}")
                 ptm_effects[ptm_type] = {
-                    'wildtype_prob': 0.0,
-                    'mutant_prob': 0.0,
-                    'delta_prob': 0.0,
-                    'effect': 'error',
+                    "wildtype_prob": 0.0,
+                    "mutant_prob": 0.0,
+                    "delta_prob": 0.0,
+                    "effect": "error",
                 }
 
         # Step 5: Compute pathway impacts
@@ -186,16 +191,16 @@ class VariantEffectWorkflow:
 
         return VariantEffectResult(
             variant={
-                'hgvs': hgvs_string,
-                'gene_symbol': variant.gene_symbol,
-                'accession': variant.accession,
-                'position': variant.position,
-                'ref_aa': variant.ref_aa,
-                'alt_aa': variant.alt_aa,
+                "hgvs": hgvs_string,
+                "gene_symbol": variant.gene_symbol,
+                "accession": variant.accession,
+                "position": variant.position,
+                "ref_aa": variant.ref_aa,
+                "alt_aa": variant.alt_aa,
             },
             sequence_info={
-                'length': len(sequence),
-                'validated': is_valid,
+                "length": len(sequence),
+                "validated": is_valid,
             },
             ptm_effects=ptm_effects,
             pathway_impacts=pathway_impacts,
@@ -258,7 +263,7 @@ class VariantEffectWorkflow:
 
         url = "https://rest.uniprot.org/uniprotkb/search"
         params: Dict[str, Union[str, int]] = {
-            "query": f'xref:RefSeq:{clean_accession}',
+            "query": f"xref:RefSeq:{clean_accession}",
             "fields": "accession",
             "format": "json",
             "size": 1,
@@ -301,9 +306,7 @@ class VariantEffectWorkflow:
             ValueError: If sequence cannot be fetched
         """
         if not self._looks_like_uniprot_accession(uniprot_id) or uniprot_id.upper().startswith("NP_"):
-            raise ValueError(
-                f"{uniprot_id} is not a UniProt accession; resolve it before sequence fetch"
-            )
+            raise ValueError(f"{uniprot_id} is not a UniProt accession; resolve it before sequence fetch")
         # Normalize: strip version number if present (e.g., NP_004324.2 -> NP_004324)
         clean_id = uniprot_id.split(".")[0]
         url = f"https://rest.uniprot.org/uniprotkb/{clean_id}.fasta"
@@ -345,10 +348,7 @@ class VariantEffectWorkflow:
 
         results: List[Optional[VariantEffectResult]] = [None] * len(variants)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_index = {
-                executor.submit(self._predict_one, var): idx
-                for idx, var in enumerate(variants)
-            }
+            future_to_index = {executor.submit(self._predict_one, var): idx for idx, var in enumerate(variants)}
             for future in concurrent.futures.as_completed(future_to_index):
                 idx = future_to_index[future]
                 results[idx] = future.result()
@@ -358,15 +358,15 @@ class VariantEffectWorkflow:
         """Predict a single variant, returning an error result on failure."""
         try:
             result = self.predict_from_hgvs(
-                hgvs_string=var['hgvs'],
-                sequence=var.get('sequence'),
+                hgvs_string=var["hgvs"],
+                sequence=var.get("sequence"),
             )
             return result
         except (ValueError, KeyError, RuntimeError) as e:
             logger.error(f"Batch prediction failed for {var}: {e}")
             # Add error result
             return VariantEffectResult(
-                variant={'hgvs': var.get('hgvs'), 'error': str(e)},
+                variant={"hgvs": var.get("hgvs"), "error": str(e)},
                 sequence_info={},
                 ptm_effects={},
             )

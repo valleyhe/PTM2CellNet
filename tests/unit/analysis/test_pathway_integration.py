@@ -1,4 +1,5 @@
 """Tests for pathway integration module."""
+
 import pytest
 import tempfile
 from pathlib import Path
@@ -43,8 +44,14 @@ class TestPathwayDatabaseIntegration:
         assert len(integration.BUILTIN_PATHWAYS) == 8
 
         expected_pathways = [
-            'MAPK/ERK', 'PI3K/AKT', 'JAK/STAT', 'NF-kB',
-            'Wnt/beta-catenin', 'Cell Cycle', 'Apoptosis', 'DNA Damage'
+            "MAPK/ERK",
+            "PI3K/AKT",
+            "JAK/STAT",
+            "NF-kB",
+            "Wnt/beta-catenin",
+            "Cell Cycle",
+            "Apoptosis",
+            "DNA Damage",
         ]
         for pathway in expected_pathways:
             assert pathway in integration.BUILTIN_PATHWAYS
@@ -52,8 +59,8 @@ class TestPathwayDatabaseIntegration:
     def test_load_kegg_pathways(self, _reset_sspa_mock):
         """Test loading KEGG pathways."""
         _reset_sspa_mock.process_kegg.return_value = {
-            'hsa00010': ['GAPDH', 'PGK1', 'ENO1'],
-            'hsa00020': ['CS', 'ACO2', 'IDH1'],
+            "hsa00010": ["GAPDH", "PGK1", "ENO1"],
+            "hsa00020": ["CS", "ACO2", "IDH1"],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -61,15 +68,15 @@ class TestPathwayDatabaseIntegration:
             pathways = integration.load_kegg_pathways(organism="hsa")
 
             assert integration._kegg_loaded is True
-            assert 'hsa00010' in pathways
-            assert 'hsa00020' in pathways
+            assert "hsa00010" in pathways
+            assert "hsa00020" in pathways
             _reset_sspa_mock.process_kegg.assert_called_once_with(organism="hsa")
 
     def test_load_reactome_pathways(self, _reset_sspa_mock):
         """Test loading Reactome pathways."""
         _reset_sspa_mock.process_reactome.return_value = {
-            'R-HSA-12345': ['BRAF', 'MAPK1', 'MAPK3'],
-            'R-HSA-67890': ['AKT1', 'MTOR', 'PIK3CA'],
+            "R-HSA-12345": ["BRAF", "MAPK1", "MAPK3"],
+            "R-HSA-67890": ["AKT1", "MTOR", "PIK3CA"],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -77,14 +84,14 @@ class TestPathwayDatabaseIntegration:
             pathways = integration.load_reactome_pathways(organism="Homo sapiens")
 
             assert integration._reactome_loaded is True
-            assert 'R-HSA-12345' in pathways
-            assert 'R-HSA-67890' in pathways
+            assert "R-HSA-12345" in pathways
+            assert "R-HSA-67890" in pathways
             _reset_sspa_mock.process_reactome.assert_called_once_with(organism="Homo sapiens")
 
     def test_kegg_caching(self, _reset_sspa_mock):
         """Test that KEGG pathways are cached after first load."""
         _reset_sspa_mock.process_kegg.return_value = {
-            'hsa00010': ['GAPDH', 'PGK1'],
+            "hsa00010": ["GAPDH", "PGK1"],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -102,7 +109,7 @@ class TestPathwayDatabaseIntegration:
     def test_reactome_caching(self, _reset_sspa_mock):
         """Test that Reactome pathways are cached after first load."""
         _reset_sspa_mock.process_reactome.return_value = {
-            'R-HSA-12345': ['BRAF', 'MAPK1'],
+            "R-HSA-12345": ["BRAF", "MAPK1"],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -129,14 +136,14 @@ class TestPathwayDatabaseIntegration:
     def test_validate_builtin_pathways(self, _reset_sspa_mock):
         """Test validation of built-in pathways."""
         _reset_sspa_mock.process_reactome.return_value = {
-            'R-HSA-MAPK': ['BRAF', 'RAF1', 'MAP2K1', 'MAP2K2', 'MAPK1', 'MAPK3', 'EGFR'],
-            'R-HSA-PI3K': ['PIK3CA', 'PIK3CB', 'AKT1', 'AKT2', 'MTOR', 'PTEN'],
-            'R-HSA-JAK': ['JAK1', 'JAK2', 'JAK3', 'TYK2', 'STAT1', 'STAT3'],
-            'R-HSA-NFKB': ['IKBKB', 'IKBKA', 'CHUK', 'NFKBIA', 'RELA'],
-            'R-HSA-WNT': ['GSK3B', 'CTNNB1', 'APC', 'AXIN1'],
-            'R-HSA-CELL': ['CDK1', 'CDK2', 'CDK4', 'RB1', 'TP53'],
-            'R-HSA-APOP': ['CASP3', 'CASP8', 'BCL2', 'BAX'],
-            'R-HSA-DNA': ['ATM', 'ATR', 'TP53', 'BRCA1', 'BRCA2'],
+            "R-HSA-MAPK": ["BRAF", "RAF1", "MAP2K1", "MAP2K2", "MAPK1", "MAPK3", "EGFR"],
+            "R-HSA-PI3K": ["PIK3CA", "PIK3CB", "AKT1", "AKT2", "MTOR", "PTEN"],
+            "R-HSA-JAK": ["JAK1", "JAK2", "JAK3", "TYK2", "STAT1", "STAT3"],
+            "R-HSA-NFKB": ["IKBKB", "IKBKA", "CHUK", "NFKBIA", "RELA"],
+            "R-HSA-WNT": ["GSK3B", "CTNNB1", "APC", "AXIN1"],
+            "R-HSA-CELL": ["CDK1", "CDK2", "CDK4", "RB1", "TP53"],
+            "R-HSA-APOP": ["CASP3", "CASP8", "BCL2", "BAX"],
+            "R-HSA-DNA": ["ATM", "ATR", "TP53", "BRCA1", "BRCA2"],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -147,26 +154,26 @@ class TestPathwayDatabaseIntegration:
             assert len(report) == 8
 
             # Check MAPK/ERK has good coverage
-            mapk_report = report['MAPK/ERK']
-            assert mapk_report['coverage'] > 0.5
-            assert mapk_report['validated'] is True
+            mapk_report = report["MAPK/ERK"]
+            assert mapk_report["coverage"] > 0.5
+            assert mapk_report["validated"] is True
 
     def test_build_pathway_graph(self, _reset_sspa_mock):
         """Test building NetworkX graph from pathway."""
         _reset_sspa_mock.process_reactome.return_value = {
-            'R-HSA-12345': ['BRAF', 'MAPK1', 'MAPK3'],
+            "R-HSA-12345": ["BRAF", "MAPK1", "MAPK3"],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
             integration = PathwayDatabaseIntegration(cache_dir=tmpdir)
             integration.load_reactome_pathways()
 
-            G = integration.build_pathway_graph('R-HSA-12345')
+            G = integration.build_pathway_graph("R-HSA-12345")
 
             assert isinstance(G, nx.DiGraph)
-            assert 'BRAF' in G.nodes
-            assert 'MAPK1' in G.nodes
-            assert 'MAPK3' in G.nodes
+            assert "BRAF" in G.nodes
+            assert "MAPK1" in G.nodes
+            assert "MAPK3" in G.nodes
 
     def test_build_pathway_graph_invalid_id(self, _reset_sspa_mock):
         """Test building graph with invalid pathway ID."""
@@ -177,7 +184,7 @@ class TestPathwayDatabaseIntegration:
             integration.load_reactome_pathways()
 
             with pytest.raises(ValueError, match="Pathway INVALID not found"):
-                integration.build_pathway_graph('INVALID')
+                integration.build_pathway_graph("INVALID")
 
     def test_clear_cache(self):
         """Test clearing cache files."""
@@ -186,7 +193,7 @@ class TestPathwayDatabaseIntegration:
 
             # Create a mock cache file
             cache_file = Path(tmpdir) / "kegg_hsa.pkl"
-            cache_file.write_bytes(pickle.dumps({'test': ['data']}))
+            cache_file.write_bytes(pickle.dumps({"test": ["data"]}))
 
             assert cache_file.exists()
             integration.clear_cache()
@@ -198,28 +205,30 @@ class TestConvenienceFunctions:
 
     def test_load_kegg_pathways_function(self, _reset_sspa_mock):
         """Test load_kegg_pathways convenience function."""
-        _reset_sspa_mock.process_kegg.return_value = {'hsa00010': ['GAPDH']}
+        _reset_sspa_mock.process_kegg.return_value = {"hsa00010": ["GAPDH"]}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
+
             original_dir = os.getcwd()
             os.chdir(tmpdir)
             try:
                 pathways = load_kegg_pathways(organism="hsa")
-                assert 'hsa00010' in pathways
+                assert "hsa00010" in pathways
             finally:
                 os.chdir(original_dir)
 
     def test_load_reactome_pathways_function(self, _reset_sspa_mock):
         """Test load_reactome_pathways convenience function."""
-        _reset_sspa_mock.process_reactome.return_value = {'R-HSA-12345': ['BRAF']}
+        _reset_sspa_mock.process_reactome.return_value = {"R-HSA-12345": ["BRAF"]}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
+
             original_dir = os.getcwd()
             os.chdir(tmpdir)
             try:
                 pathways = load_reactome_pathways(organism="Homo sapiens")
-                assert 'R-HSA-12345' in pathways
+                assert "R-HSA-12345" in pathways
             finally:
                 os.chdir(original_dir)

@@ -35,9 +35,7 @@ class _TinyDataset(Dataset):
         self.x = torch.from_numpy(rng.randn(n, in_dim)).float()
         # Labels that correlate with the first feature so a model can learn
         # *something* (otherwise mean/std tests are uninformative).
-        self.y = torch.from_numpy(
-            (self.x[:, 0] > 0).long().numpy()
-        ).long() % n_classes
+        self.y = torch.from_numpy((self.x[:, 0] > 0).long().numpy()).long() % n_classes
 
     def __len__(self) -> int:
         return self.x.size(0)
@@ -204,6 +202,7 @@ def test_calculate_metric_ci_brackets_point_estimate():
     # 95% CI for n=200 with ~0.8 accuracy should be reasonably tight.
     assert ci["ci_upper"] - ci["ci_lower"] < 0.2
 
+
 # ---------------------------------------------------------------------------
 # SignalingNetworkMapper
 # ---------------------------------------------------------------------------
@@ -254,9 +253,7 @@ def test_signaling_mapper_predict_pathway_activity_loss_is_negative(signaling_ma
 
 def test_signaling_mapper_predict_pathway_activity_unknown_gene(signaling_mapper):
     """Unknown gene / unrelated PTM type should yield empty dict."""
-    df = pd.DataFrame(
-        [{"gene_symbol": "GENE_NOT_IN_DB", "ptm_type": "Phosphorylation", "effect": "gain"}]
-    )
+    df = pd.DataFrame([{"gene_symbol": "GENE_NOT_IN_DB", "ptm_type": "Phosphorylation", "effect": "gain"}])
     assert signaling_mapper.predict_pathway_activity(df) == {}
 
 

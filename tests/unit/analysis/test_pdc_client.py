@@ -178,8 +178,13 @@ def test_get_study_files_filters_by_file_type():
 
 def test_list_studies_truncates_to_limit():
     studies_raw = [
-        {"study_id": f"s{i}", "study_submitter_id": f"sub-{i}",
-         "study_name": f"name-{i}", "disease_type": "X", "primary_site": "Y"}
+        {
+            "study_id": f"s{i}",
+            "study_submitter_id": f"sub-{i}",
+            "study_name": f"name-{i}",
+            "disease_type": "X",
+            "primary_site": "Y",
+        }
         for i in range(10)
     ]
     payload = {"data": {"allStudies": studies_raw}}
@@ -312,9 +317,7 @@ def test_download_file_enforces_declared_size_cap(tmp_path):
     fake = _FakeSession(
         response=_FakeResponse(200, _make_file_payload()),
         # Declare 1 TiB even though the body is tiny.
-        get_response=_FakeDownloadResponse(
-            200, b"x", headers={"content-length": str(1024**4)}
-        ),
+        get_response=_FakeDownloadResponse(200, b"x", headers={"content-length": str(1024**4)}),
     )
     client = PDCClient(session=fake, max_download_bytes=1024)
     with pytest.raises(PDCAPIError, match="declared size"):

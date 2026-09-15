@@ -3,6 +3,7 @@ import importlib
 
 T = TypeVar("T")
 
+
 class LazyImport(Generic[T]):
     """Lazily import a module/attribute, providing type-safe access when available."""
 

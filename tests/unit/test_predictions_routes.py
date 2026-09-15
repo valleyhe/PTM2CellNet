@@ -29,6 +29,7 @@ from src.api.routes.predictions import (
 # PTMSite schema
 # ---------------------------------------------------------------------------
 
+
 class TestPTMSite:
     """Tests for PTMSite Pydantic model."""
 
@@ -47,7 +48,9 @@ class TestPTMSite:
     def test_optional_gene_symbol(self):
         """PTMSite gene_symbol should be optional and settable."""
         site = PTMSite(
-            position=50, type="phosphorylation", amino_acid="Y",
+            position=50,
+            type="phosphorylation",
+            amino_acid="Y",
             gene_symbol="TP53",
         )
         assert site.gene_symbol == "TP53"
@@ -71,6 +74,7 @@ class TestPTMSite:
 # ---------------------------------------------------------------------------
 # PredictionRequest schema
 # ---------------------------------------------------------------------------
+
 
 class TestPredictionRequest:
     """Tests for PredictionRequest Pydantic model."""
@@ -111,6 +115,7 @@ class TestPredictionRequest:
 # BatchPredictionRequest schema
 # ---------------------------------------------------------------------------
 
+
 class TestBatchPredictionRequest:
     """Tests for BatchPredictionRequest Pydantic model."""
 
@@ -126,9 +131,7 @@ class TestBatchPredictionRequest:
 
     def test_rejects_excessive_batch_size(self):
         """Batch of over 1000 samples should be rejected by validator."""
-        many_samples = [
-            PredictionRequest(sequence="A", ptm_sites=[]) for _ in range(1001)
-        ]
+        many_samples = [PredictionRequest(sequence="A", ptm_sites=[]) for _ in range(1001)]
         with pytest.raises(Exception, match="exceed 1000"):
             BatchPredictionRequest(samples=many_samples)
 
@@ -136,6 +139,7 @@ class TestBatchPredictionRequest:
 # ---------------------------------------------------------------------------
 # PredictionResponse schema
 # ---------------------------------------------------------------------------
+
 
 class TestPredictionResponse:
     """Tests for PredictionResponse Pydantic model."""
@@ -187,6 +191,7 @@ class TestPredictionResponse:
 # PTMEffect schema
 # ---------------------------------------------------------------------------
 
+
 class TestPTMEffect:
     """Tests for PTMEffect Pydantic model."""
 
@@ -208,8 +213,10 @@ class TestPTMEffect:
 # Helper functions
 # ---------------------------------------------------------------------------
 
+
 class MockPTMSite:
     """Minimal mock mimicking the PTMSite schema's attribute interface."""
+
     def __init__(self, position, type, amino_acid="S", gene_symbol=None):
         self.position = position
         self.type = type
@@ -289,6 +296,7 @@ class TestModelSupportsDAVF:
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
+
 
 class TestModuleConstants:
     """Sanity checks for module-level defaults."""

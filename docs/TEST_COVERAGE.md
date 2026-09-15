@@ -45,14 +45,24 @@ python -m pytest tests/unit tests/integration tests/test_*.py \
 74%，下一次覆盖率刷新应在依赖一致的 CI/独立环境完成。
 
 DAVF × PerturbGen 的 matched-null 生成、候选 empirical-p 聚合、formal 输入隔离、
-未扰动质量、donor split 和 dual-path AND 已有代码接口；接口回归通过不等于真实
-统计 evidence。E2E report 当前只汇总 stage manifest，正式验收仍需真实
-normal/disease raw counts、显式 donor、至少 3 个共享 donor、canonical Ensembl、
-冻结 scVI/embedding manifest、真实 null/质量和双场景统计。fixture、mock 和 smoke
+未扰动质量、donor split 和 dual-path AND 已有代码接口；E2E 自 2026-09-13 第四轮起
+经 `--assemble-statistical-evidence` 自动串接并写回 lineage，接口回归通过不等于
+真实统计 evidence。正式验收仍需真实 normal/disease raw counts、显式 donor、
+至少 3 个可评估 donor（pairing 显式声明）、canonical Ensembl、冻结
+scVI/embedding manifest、真实 null/质量和双场景统计。fixture、mock 和 smoke
 只验证工程契约或可运行链路；`real_assets` 只表示资源门控的测试层，测试通过数或
-coverage 百分比都不是生物学验收结果，当前正式 cohort 仍为 0。
+coverage 百分比都不是生物学验收结果。Gate-0 现状：scPerturb 0/30 合规；
+GSE174367 已过 between_donor 数据契约 preflight 并完成 EX M6 冻结（数据契约
+验收，非生物学 PASS）。
 
-研究边界以 [`CURRENT_STATUS`](CURRENT_STATUS.md)、[中央双路径方案](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md) 和 [`task_plan.md`](../task_plan.md) 为准。
+PTM activity → AD 交集主线（2026-09-14）新增 5 个单元契约测试文件与 1 个
+四阶段 CLI 全链集成测试（`tests/integration/test_ptm_activity_pipeline.py`），
+合成数据只证明契约接通。同轮全量回归为 **2760 passed / 1 failed（第三轮起的
+已知真实资产基线：旧 checkpoint 非 canonical ENSG）/ 22 skipped**；mypy 171
+文件 0 errors。主线命令与数据契约见
+[`guides/ptm_activity_pipeline.md`](guides/ptm_activity_pipeline.md)。
+
+研究边界以 [`CURRENT_STATUS`](CURRENT_STATUS.md)、[中央双路径方案](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)、[PTM activity 执行方案](PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md) 和 [`task_plan.md`](../.planning/task_plan.md) 为准。
 
 2026-08-09 的旧覆盖率快照（1866 passed、5 skipped、75.27% branch coverage，以及
 1920 passed、13 skipped 的完整套件记录）已归档至

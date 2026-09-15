@@ -91,6 +91,7 @@ class PrecomputeResult:
 # Input parsing
 # ---------------------------------------------------------------------------
 
+
 def read_sequence_records(tsv_path: Path) -> List[Tuple[str, str]]:
     """Parse ``sample_id<TAB>sequence`` records.
 
@@ -108,9 +109,7 @@ def read_sequence_records(tsv_path: Path) -> List[Tuple[str, str]]:
             continue
         parts = line.split("\t")
         if len(parts) != 2:
-            raise EmbeddingPrecomputeError(
-                f"{tsv_path}:{lineno} 行格式错误（需要 sample_id<TAB>sequence）"
-            )
+            raise EmbeddingPrecomputeError(f"{tsv_path}:{lineno} 行格式错误（需要 sample_id<TAB>sequence）")
         sample_id, sequence = parts[0].strip(), parts[1].strip()
         if not sample_id:
             raise EmbeddingPrecomputeError(f"{tsv_path}:{lineno} sample_id 为空")
@@ -177,8 +176,7 @@ def _json_sequence_records(payload: Any, source: Path) -> Optional[List[Tuple[st
     records_value: Any = payload.get("records") if isinstance(payload, Mapping) else payload
     if isinstance(payload, Mapping) and isinstance(payload.get("sequences"), Mapping):
         records_value = [
-            {"sample_id": sample_id, "sequence": sequence}
-            for sample_id, sequence in payload["sequences"].items()
+            {"sample_id": sample_id, "sequence": sequence} for sample_id, sequence in payload["sequences"].items()
         ]
     if not isinstance(records_value, list):
         return None
@@ -254,6 +252,7 @@ def _sha256_file(path: Path) -> str:
 # Backbone loading
 # ---------------------------------------------------------------------------
 
+
 def _find_model_dir(model_dir: Path, prefix: str, explicit: Optional[str]) -> Optional[str]:
     if explicit:
         return str(Path(explicit).resolve())
@@ -277,8 +276,7 @@ def _load_hf_backbone(
         from transformers import AutoModel, AutoTokenizer, T5EncoderModel  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - env guard
         raise EmbeddingPrecomputeError(
-            "需要 transformers 才能加载 pLM backbone；"
-            "请安装 requirements-pretrained.txt"
+            "需要 transformers 才能加载 pLM backbone；请安装 requirements-pretrained.txt"
         ) from exc
 
     if model_class == "t5-encoder":
@@ -352,14 +350,10 @@ def load_backbone(
         return _make_mock_backbone(name)
     prefix = BACKBONE_DIR_PREFIXES.get(name)
     if prefix is None:
-        raise EmbeddingPrecomputeError(
-            f"不支持的 backbone: {name!r}（可选: esm2 / prott5 / ankh39 / mock）"
-        )
+        raise EmbeddingPrecomputeError(f"不支持的 backbone: {name!r}（可选: esm2 / prott5 / ankh39 / mock）")
     model_path = _find_model_dir(model_dir, prefix, explicit_dirs.get(name))
     if model_path is None:
-        raise EmbeddingPrecomputeError(
-            f"backbone {name!r}: 在 {model_dir} 下未找到 {prefix}* 模型目录"
-        )
+        raise EmbeddingPrecomputeError(f"backbone {name!r}: 在 {model_dir} 下未找到 {prefix}* 模型目录")
     model_class = "t5-encoder" if name == "prott5" else "auto"
     encode, dim, provenance = _load_hf_backbone(name, model_path, device, max_length, model_class)
     return BackboneSpec(name=name, model_dir=model_path, embedding_dim=dim, provenance=provenance, encode=encode)
@@ -368,6 +362,7 @@ def load_backbone(
 # ---------------------------------------------------------------------------
 # Encoding + persistence
 # ---------------------------------------------------------------------------
+
 
 def _pad_to(arrays: List[np.ndarray], length: int) -> np.ndarray:
     """Pad a list of [Li, D] arrays to [B, length, D] with zeros."""
@@ -388,9 +383,7 @@ def _trim_embedding_pair(
     embedding = np.asarray(embedding, dtype=np.float32)
     mask = np.asarray(mask, dtype=np.float32)
     if embedding.ndim != 2 or mask.ndim != 1 or embedding.shape[0] != mask.shape[0]:
-        raise EmbeddingPrecomputeError(
-            f"backbone 输出 shape 无效: embedding={embedding.shape}, mask={mask.shape}"
-        )
+        raise EmbeddingPrecomputeError(f"backbone 输出 shape 无效: embedding={embedding.shape}, mask={mask.shape}")
     active = np.flatnonzero(mask > 0)
     end = int(active[-1]) + 1 if active.size else 0
     return embedding[:end].copy(), mask[:end].copy()
@@ -405,21 +398,14 @@ def _encode_batch(
     embeddings = np.asarray(embeddings)
     masks = np.asarray(masks)
     if embeddings.ndim != 3 or embeddings.shape[0] != len(sequences):
-        raise EmbeddingPrecomputeError(
-            f"{spec.name} embedding 输出必须为 [B,L,D]，实际 {embeddings.shape}"
-        )
+        raise EmbeddingPrecomputeError(f"{spec.name} embedding 输出必须为 [B,L,D]，实际 {embeddings.shape}")
     if embeddings.shape[2] != spec.embedding_dim:
         raise EmbeddingPrecomputeError(
             f"{spec.name} embedding 维度不匹配: 期望 {spec.embedding_dim}，实际 {embeddings.shape[2]}"
         )
     if masks.ndim != 2 or masks.shape[:2] != embeddings.shape[:2]:
-        raise EmbeddingPrecomputeError(
-            f"{spec.name} attention mask 必须为 [B,L]，实际 {masks.shape}"
-        )
-    return [
-        _trim_embedding_pair(embeddings[index], masks[index])
-        for index in range(len(sequences))
-    ]
+        raise EmbeddingPrecomputeError(f"{spec.name} attention mask 必须为 [B,L]，实际 {masks.shape}")
+    return [_trim_embedding_pair(embeddings[index], masks[index]) for index in range(len(sequences))]
 
 
 def _load_resume_cache(
@@ -522,17 +508,12 @@ def precompute(
         sample_id: failure for sample_id, failure in prior_failures.items() if sample_id in set(sample_ids_in_input)
     }
     candidates: List[Tuple[str, str]] = [
-        (sample_id, sequence)
-        for sample_id, sequence in records
-        if sample_id not in cache and sample_id not in failures
+        (sample_id, sequence) for sample_id, sequence in records if sample_id not in cache and sample_id not in failures
     ]
 
     def encode_one(sample_id: str, sequence: str) -> Optional[Dict[str, Tuple[np.ndarray, np.ndarray]]]:
         try:
-            return {
-                spec.name: _encode_batch(spec, [sequence])[0]
-                for spec in backbones
-            }
+            return {spec.name: _encode_batch(spec, [sequence])[0] for spec in backbones}
         except Exception as exc:  # noqa: BLE001 - per-sample failure ledger
             failures[sample_id] = {"sample_id": sample_id, "error": f"{type(exc).__name__}: {exc}"}
             return None
@@ -552,8 +533,7 @@ def precompute(
 
         try:
             encoded_by_backbone = {
-                spec.name: _encode_batch(spec, [sequence for _, sequence in valid])
-                for spec in backbones
+                spec.name: _encode_batch(spec, [sequence for _, sequence in valid]) for spec in backbones
             }
         except Exception:
             # A tokenizer/model can reject one sequence and abort the whole
@@ -564,15 +544,10 @@ def precompute(
                     cache[sample_id] = sample_arrays
             continue
         for index, (sample_id, _) in enumerate(valid):
-            cache[sample_id] = {
-                spec.name: encoded_by_backbone[spec.name][index]
-                for spec in backbones
-            }
+            cache[sample_id] = {spec.name: encoded_by_backbone[spec.name][index] for spec in backbones}
 
     success_ids = [sample_id for sample_id in sample_ids_in_input if sample_id in cache]
-    ordered_failures = [
-        failures[sample_id] for sample_id in sample_ids_in_input if sample_id in failures
-    ]
+    ordered_failures = [failures[sample_id] for sample_id in sample_ids_in_input if sample_id in failures]
     if not success_ids:
         _write_manifest(
             manifest_path,
@@ -580,7 +555,11 @@ def precompute(
                 "schema_version": EMBEDDING_CACHE_SCHEMA_VERSION,
                 "input": {"format": "records", "sha256": records_sha, "n_samples": len(records)},
                 "backbones": {
-                    spec.name: {"embedding_dim": spec.embedding_dim, "model_dir": spec.model_dir, "provenance": spec.provenance}
+                    spec.name: {
+                        "embedding_dim": spec.embedding_dim,
+                        "model_dir": spec.model_dir,
+                        "provenance": spec.provenance,
+                    }
                     for spec in backbones
                 },
                 "params": {"batch_size": batch_size, "max_length": max_length, "device": device},
@@ -602,11 +581,7 @@ def precompute(
             failures=ordered_failures,
         )
 
-    final_length = max(
-        pair[0].shape[0]
-        for sample_arrays in cache.values()
-        for pair in sample_arrays.values()
-    )
+    final_length = max(pair[0].shape[0] for sample_arrays in cache.values() for pair in sample_arrays.values())
     npz_arrays: Dict[str, np.ndarray] = {
         "schema_version": np.array(EMBEDDING_CACHE_SCHEMA_VERSION),
         "sample_id": np.array(success_ids),
@@ -677,10 +652,9 @@ def _write_failures(path: Path, failures: Sequence[Dict[str, Any]]) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="TD-H02: 预计算 pLM 序列 embedding（cross-scale NPZ 组装前置步骤）"
-    )
+    parser = argparse.ArgumentParser(description="TD-H02: 预计算 pLM 序列 embedding（cross-scale NPZ 组装前置步骤）")
     parser.add_argument("--input", default=None, help="序列记录 TSV（sample_id<TAB>sequence）")
     parser.add_argument(
         "--genes-json",
@@ -732,8 +706,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "ankh39": args.ankh_dir,
         }
         backbones = [
-            load_backbone(name, Path(args.model_dir), args.device, args.max_length, explicit)
-            for name in backbone_names
+            load_backbone(name, Path(args.model_dir), args.device, args.max_length, explicit) for name in backbone_names
         ]
         result = precompute(
             records,

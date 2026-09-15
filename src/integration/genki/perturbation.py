@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 
 try:
     import anndata as ad
+
     ANNDATA_AVAILABLE = True
 except ImportError:
     ad = None
@@ -243,9 +244,7 @@ class PerturbationExecutor:
             # Build a torch_geometric Data equivalent to the wild-type graph so
             # the latent VGAE scoring path used by the genki_source backend can
             # also be exercised from array_files data.
-            wt_data = self._build_wt_data_from_arrays(
-                baseline_counts, baseline_network, gene_names
-            )
+            wt_data = self._build_wt_data_from_arrays(baseline_counts, baseline_network, gene_names)
             combined_shift = self._score_with_latent_vgae(
                 wt_data=wt_data,
                 perturbed_counts=perturbed_counts,
@@ -338,16 +337,16 @@ class PerturbationExecutor:
                 result = self._run_with_shared_reference(request, reference)
                 results.append(result)
             except Exception as exc:
-                logger.error(
-                    "run_batch: request %s failed: %s", request.gene_symbol, exc
+                logger.error("run_batch: request %s failed: %s", request.gene_symbol, exc)
+                results.append(
+                    PerturbationResult(
+                        gene_symbol=request.gene_symbol,
+                        mode=request.mode,
+                        distance_score=-1.0,
+                        ranked_genes=[],
+                        metadata={"error": str(exc)},
+                    )
                 )
-                results.append(PerturbationResult(
-                    gene_symbol=request.gene_symbol,
-                    mode=request.mode,
-                    distance_score=-1.0,
-                    ranked_genes=[],
-                    metadata={"error": str(exc)},
-                ))
             if progress_callback is not None:
                 try:
                     progress_callback(completed=i + 1, total=len(requests))
@@ -409,9 +408,7 @@ class PerturbationExecutor:
             raise ValueError(f"Unsupported perturbation mode: {request.mode}")
 
         if self.scoring_method == "latent_vgae":
-            wt_data = self._build_wt_data_from_arrays(
-                baseline_counts, baseline_network, gene_names
-            )
+            wt_data = self._build_wt_data_from_arrays(baseline_counts, baseline_network, gene_names)
             combined_shift = self._score_with_latent_vgae(
                 wt_data=wt_data,
                 perturbed_counts=perturbed_counts,
@@ -467,8 +464,7 @@ class PerturbationExecutor:
 
         with ThreadPoolExecutor(max_workers=min(4, len(requests))) as executor:
             future_to_idx = {
-                executor.submit(self._run_with_shared_reference, req, reference): i
-                for i, req in enumerate(requests)
+                executor.submit(self._run_with_shared_reference, req, reference): i for i, req in enumerate(requests)
             }
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
@@ -477,7 +473,8 @@ class PerturbationExecutor:
                 except Exception as exc:
                     logger.error(
                         "run_batch parallel: request %s failed: %s",
-                        requests[idx].gene_symbol, exc,
+                        requests[idx].gene_symbol,
+                        exc,
                     )
                     results[idx] = PerturbationResult(
                         gene_symbol=requests[idx].gene_symbol,
@@ -493,13 +490,17 @@ class PerturbationExecutor:
                     except Exception:
                         pass
 
-        return [r or PerturbationResult(
-            gene_symbol=requests[i].gene_symbol,
-            mode=requests[i].mode,
-            distance_score=-1.0,
-            ranked_genes=[],
-            metadata={"error": "Unknown error"},
-        ) for i, r in enumerate(results)]
+        return [
+            r
+            or PerturbationResult(
+                gene_symbol=requests[i].gene_symbol,
+                mode=requests[i].mode,
+                distance_score=-1.0,
+                ranked_genes=[],
+                metadata={"error": "Unknown error"},
+            )
+            for i, r in enumerate(results)
+        ]
 
     def run_virtual_ko(
         self,
@@ -577,9 +578,7 @@ class PerturbationExecutor:
             )
         elif request.mode == "soft_ptm":
             raw_counts = (
-                loader.counts.toarray()
-                if sp.issparse(loader.counts)
-                else np.asarray(loader.counts, dtype=float)
+                loader.counts.toarray() if sp.issparse(loader.counts) else np.asarray(loader.counts, dtype=float)
             )
             raw_network = loader.net.toarray() if sp.issparse(loader.net) else np.asarray(loader.net, dtype=float)
             profile = PTMPerturbationProfile(
@@ -643,9 +642,7 @@ class PerturbationExecutor:
         # normalized.
         raw_ref_root = str(self._ref_loader.ref_root)
         if ".." in Path(raw_ref_root).parts:
-            raise ValueError(
-                f"ref_root must not contain '..' path components: {raw_ref_root}"
-            )
+            raise ValueError(f"ref_root must not contain '..' path components: {raw_ref_root}")
         try:
             resolved_root = str(Path(raw_ref_root).resolve(strict=False))
         except (OSError, RuntimeError) as exc:
@@ -657,9 +654,7 @@ class PerturbationExecutor:
         # that contains the ``GenKI/`` package).
         genki_pkg_dir = Path(resolved_root) / "GenKI"
         if not genki_pkg_dir.is_dir():
-            raise ValueError(
-                f"GenKI package directory not found under ref_root: {genki_pkg_dir}"
-            )
+            raise ValueError(f"GenKI package directory not found under ref_root: {genki_pkg_dir}")
         genki_init = genki_pkg_dir / "__init__.py"
         spec = importlib.util.spec_from_file_location(
             "GenKI", str(genki_init), submodule_search_locations=[str(genki_pkg_dir)]
@@ -674,8 +669,7 @@ class PerturbationExecutor:
         data_loader_cls = module.DataLoader
         if not ANNDATA_AVAILABLE:
             raise ImportError(
-                "anndata is required for genki_source backend. "
-                "Install with: pip install -r requirements-analysis.txt"
+                "anndata is required for genki_source backend. Install with: pip install -r requirements-analysis.txt"
             )
         adata = ad.read_h5ad(self.adata_file)
         return data_loader_cls(
@@ -720,9 +714,7 @@ class PerturbationExecutor:
             # Last-resort: build edge_index manually from nonzero entries.
             rows, cols = np.nonzero(np.asarray(perturbed_network_dense, dtype=float) > 0)
             return np.stack([rows, cols], axis=0)
-        adj_tensor = torch.as_tensor(
-            np.asarray(perturbed_network_dense, dtype=float)
-        )
+        adj_tensor = torch.as_tensor(np.asarray(perturbed_network_dense, dtype=float))
         edge_index, _ = dense_to_sparse(adj_tensor)
         return np.asarray(edge_index.detach().cpu().numpy())
 
@@ -759,9 +751,7 @@ class PerturbationExecutor:
         edge_signature = repr(edge_index_obj)
         import hashlib
 
-        cache_key = hashlib.md5(
-            f"{num_nodes}:{edge_signature}".encode()
-        ).hexdigest()
+        cache_key = hashlib.md5(f"{num_nodes}:{edge_signature}".encode()).hexdigest()
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -776,9 +766,7 @@ class PerturbationExecutor:
             if self.trainer_seed is not None:
                 torch.manual_seed(self.trainer_seed)
 
-            model = vgae_cls(
-                encoder_cls(wt_data.num_features, self.trainer_out_channels)
-            ).to(device)
+            model = vgae_cls(encoder_cls(wt_data.num_features, self.trainer_out_channels)).to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=self.trainer_lr)
             wt_train = wt_data.to(device)
             best_loss = float("inf")

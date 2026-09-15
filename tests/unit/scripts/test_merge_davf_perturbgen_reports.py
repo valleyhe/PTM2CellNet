@@ -21,9 +21,7 @@ def _report(route: str, path):
                         }
                     }
                 ],
-                "perturbgen_runs": [
-                    {"ensembl_id": "ENSG00000168610", "output_root": f"{route.lower()}-out"}
-                ],
+                "perturbgen_runs": [{"ensembl_id": "ENSG00000168610", "output_root": f"{route.lower()}-out"}],
             }
         ),
         encoding="utf-8",

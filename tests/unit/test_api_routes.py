@@ -21,6 +21,7 @@ from src.api.routes.state import STATE, initialize_model
 # Minimal test model (matches the SimpleModel pattern from test_api.py)
 # ---------------------------------------------------------------------------
 
+
 class _SimpleModel(nn.Module):
     """Minimal nn.Module that satisfies the route handler's expectations."""
 
@@ -45,6 +46,7 @@ class _SimpleModel(nn.Module):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _reset_state():
@@ -91,6 +93,7 @@ def app_client_no_model():
 # ---------------------------------------------------------------------------
 # model_info route tests
 # ---------------------------------------------------------------------------
+
 
 class TestHealthRoute:
     """Tests for GET /api/v1/health."""
@@ -166,6 +169,7 @@ class TestVariantReadinessRoute:
     def test_variant_ready_200_with_workflow(self, app_client):
         """When the variant workflow is loaded the probe returns 200."""
         from unittest.mock import MagicMock
+
         mock_workflow = MagicMock()
         with patch.object(STATE, "variant_workflow", mock_workflow):
             resp = app_client.get("/api/v1/ready/variant")
@@ -190,7 +194,10 @@ class TestModelInfoRoute:
         assert data["embed_dim"] == 64
         assert data["num_classes"] == 4
         assert data["cell_states"] == [
-            "proliferation", "differentiation", "apoptosis", "quiescence",
+            "proliferation",
+            "differentiation",
+            "apoptosis",
+            "quiescence",
         ]
         assert isinstance(data["supported_ptm_types"], list)
 
@@ -217,10 +224,13 @@ class TestModelInfoRoute:
 
         # When STATE carries provenance / a loaded variant workflow, it surfaces.
         from unittest.mock import MagicMock
-        with patch.object(STATE, "variant_workflow", MagicMock()), \
-             patch.object(STATE, "model_kind", "demo"), \
-             patch.object(STATE, "is_demo_model", True), \
-             patch.object(STATE, "checkpoint_path", "/x/best_model.pt"):
+
+        with (
+            patch.object(STATE, "variant_workflow", MagicMock()),
+            patch.object(STATE, "model_kind", "demo"),
+            patch.object(STATE, "is_demo_model", True),
+            patch.object(STATE, "checkpoint_path", "/x/best_model.pt"),
+        ):
             resp = app_client.get("/api/v1/model_info")
         data = resp.json()
         assert data["variant_workflow_loaded"] is True
@@ -233,6 +243,7 @@ class TestModelInfoRoute:
 # ---------------------------------------------------------------------------
 # predictions route tests
 # ---------------------------------------------------------------------------
+
 
 class TestPredictRoute:
     """Tests for POST /api/v1/predict."""
@@ -297,6 +308,7 @@ class TestBatchPredictRoute:
 # state route tests
 # ---------------------------------------------------------------------------
 
+
 class TestStateModule:
     """Tests for src/api/routes/state.py initialization helpers."""
 
@@ -324,6 +336,7 @@ class TestStateModule:
         """When VARIANT_WORKFLOW_AVAILABLE is False, workflow stays None."""
         with patch("src.api.routes.state.VARIANT_WORKFLOW_AVAILABLE", False):
             from src.api.routes.state import initialize_variant_workflow
+
             initialize_variant_workflow("/fake/path")
             assert STATE.variant_workflow is None
 
@@ -343,6 +356,7 @@ class TestStateModule:
         """When SIGNALING_NETWORK_AVAILABLE is False, mapper stays None."""
         with patch("src.api.routes.state.SIGNALING_NETWORK_AVAILABLE", False):
             from src.api.routes.state import initialize_pathway_mapper
+
             initialize_pathway_mapper()
             assert STATE.pathway_mapper is None
 
@@ -385,23 +399,20 @@ class TestStateModule:
         """record_model_provenance flags demo models from config (P1-3)."""
         from src.api.routes.state import record_model_provenance
 
-        record_model_provenance(
-            "/x/m.pt", "/x/m.config.yaml", {"model": {"model_kind": "demo"}}
-        )
+        record_model_provenance("/x/m.pt", "/x/m.config.yaml", {"model": {"model_kind": "demo"}})
         assert STATE.model_kind == "demo"
         assert STATE.is_demo_model is True
         assert STATE.checkpoint_path == "/x/m.pt"
 
         record_model_provenance(
-            "/x/real.pt", "/x/real.config.yaml",
+            "/x/real.pt",
+            "/x/real.config.yaml",
             {"data_provenance": {"training_data": "synthetic_random"}},
         )
         assert STATE.model_kind == "demo"
         assert STATE.is_demo_model is True
 
-        record_model_provenance(
-            "/x/real.pt", "/x/real.config.yaml", {"model": {"model_kind": "real"}}
-        )
+        record_model_provenance("/x/real.pt", "/x/real.config.yaml", {"model": {"model_kind": "real"}})
         assert STATE.model_kind == "real"
         assert STATE.is_demo_model is False
 
@@ -409,6 +420,7 @@ class TestStateModule:
 # ---------------------------------------------------------------------------
 # Variant prediction route tests
 # ---------------------------------------------------------------------------
+
 
 class TestVariantPredictRoute:
     """Tests for POST /api/v1/predict/variant."""
@@ -456,13 +468,10 @@ class TestVariantPredictRoute:
         """confidence = min(max|delta_prob| * 2, 1.0)."""
         mock_workflow = MagicMock()
         mock_workflow.predict_from_hgvs.return_value = MagicMock(
-            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
-                     "ref_aa": "A", "alt_aa": "B"},
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1, "ref_aa": "A", "alt_aa": "B"},
             ptm_effects={
-                "Phosphorylation": {"wildtype_prob": 0.8, "mutant_prob": 0.2,
-                                    "delta_prob": -0.6, "effect": "loss"},
-                "Ubiquitination": {"wildtype_prob": 0.5, "mutant_prob": 0.9,
-                                   "delta_prob": 0.4, "effect": "gain"},
+                "Phosphorylation": {"wildtype_prob": 0.8, "mutant_prob": 0.2, "delta_prob": -0.6, "effect": "loss"},
+                "Ubiquitination": {"wildtype_prob": 0.5, "mutant_prob": 0.9, "delta_prob": 0.4, "effect": "gain"},
             },
             pathway_impacts=None,
         )
@@ -480,8 +489,7 @@ class TestVariantPredictRoute:
         mock_workflow = MagicMock()
         mock_workflow.fetch_sequence_from_uniprot.return_value = "M" * 80
         mock_workflow.predict_from_hgvs.return_value = MagicMock(
-            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
-                     "ref_aa": "A", "alt_aa": "B"},
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1, "ref_aa": "A", "alt_aa": "B"},
             ptm_effects={},
             pathway_impacts=None,
         )
@@ -493,14 +501,17 @@ class TestVariantPredictRoute:
         assert resp.status_code == 200
         mock_workflow.fetch_sequence_from_uniprot.assert_called_once_with("P12345")
 
-    @pytest.mark.parametrize("exc,expected", [
-        (ConnectionError("down"), 504),
-        (TimeoutError("slow"), 504),
-        (ValueError("bad id"), 400),
-        (KeyError("missing"), 400),
-        (TypeError("wrong type"), 400),
-        (OSError("io"), 400),
-    ])
+    @pytest.mark.parametrize(
+        "exc,expected",
+        [
+            (ConnectionError("down"), 504),
+            (TimeoutError("slow"), 504),
+            (ValueError("bad id"), 400),
+            (KeyError("missing"), 400),
+            (TypeError("wrong type"), 400),
+            (OSError("io"), 400),
+        ],
+    )
     def test_variant_uniprot_fetch_error_mapping(self, app_client, exc, expected):
         """UniProt fetch failures map to 504 (network) / 400 (parse, unexpected)."""
         mock_workflow = MagicMock()
@@ -527,11 +538,9 @@ class TestVariantPredictRoute:
         """With STATE.model initialized, cell_state_prediction is a known label."""
         mock_workflow = MagicMock()
         mock_workflow.predict_from_hgvs.return_value = MagicMock(
-            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
-                     "ref_aa": "A", "alt_aa": "B"},
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1, "ref_aa": "A", "alt_aa": "B"},
             ptm_effects={
-                "Phosphorylation": {"wildtype_prob": 0.8, "mutant_prob": 0.2,
-                                    "delta_prob": -0.6, "effect": "loss"},
+                "Phosphorylation": {"wildtype_prob": 0.8, "mutant_prob": 0.2, "delta_prob": -0.6, "effect": "loss"},
             },
             pathway_impacts=None,
         )
@@ -543,7 +552,10 @@ class TestVariantPredictRoute:
         assert resp.status_code == 200
         data = resp.json()
         assert data["cell_state_prediction"] in {
-            "proliferation", "differentiation", "apoptosis", "quiescence",
+            "proliferation",
+            "differentiation",
+            "apoptosis",
+            "quiescence",
         }
         assert not data["warnings"]
 
@@ -551,14 +563,12 @@ class TestVariantPredictRoute:
         """Cell-state model failure yields 200 + warning, never a 500."""
         mock_workflow = MagicMock()
         mock_workflow.predict_from_hgvs.return_value = MagicMock(
-            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
-                     "ref_aa": "A", "alt_aa": "B"},
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1, "ref_aa": "A", "alt_aa": "B"},
             ptm_effects={},
             pathway_impacts=None,
         )
         broken_model = MagicMock(side_effect=RuntimeError("boom"))
-        with patch.object(STATE, "variant_workflow", mock_workflow), \
-                patch.object(STATE, "model", broken_model):
+        with patch.object(STATE, "variant_workflow", mock_workflow), patch.object(STATE, "model", broken_model):
             resp = app_client.post(
                 "/api/v1/predict/variant",
                 json={"hgvs": "X:p.A1B", "sequence": "M" * 100},
@@ -572,8 +582,7 @@ class TestVariantPredictRoute:
         """include_pathways maps workflow dicts to PathwayImpact with thresholds."""
         mock_workflow = MagicMock()
         mock_workflow.predict_from_hgvs.return_value = MagicMock(
-            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1,
-                     "ref_aa": "A", "alt_aa": "B"},
+            variant={"hgvs": "X:p.A1B", "gene_symbol": "X", "position": 1, "ref_aa": "A", "alt_aa": "B"},
             ptm_effects={},
             pathway_impacts={
                 "MAPK cascade": {"activity": 0.8, "genes": ["BRAF", "MAP2K1"]},
@@ -583,8 +592,7 @@ class TestVariantPredictRoute:
         with patch.object(STATE, "variant_workflow", mock_workflow):
             resp = app_client.post(
                 "/api/v1/predict/variant",
-                json={"hgvs": "X:p.A1B", "sequence": "M" * 100,
-                      "include_pathways": True},
+                json={"hgvs": "X:p.A1B", "sequence": "M" * 100, "include_pathways": True},
             )
         assert resp.status_code == 200
         impacts = {p["pathway_name"]: p for p in resp.json()["pathway_impacts"]}
@@ -599,6 +607,7 @@ class TestVariantPredictRoute:
 # permanently skipped via a hard-coded has_real_weights=False flag.
 # ---------------------------------------------------------------------------
 
+
 class TestEndToEndPrediction:
     """Full predict chain: real nn.Module -> initialize_model -> route -> JSON.
 
@@ -612,9 +621,7 @@ class TestEndToEndPrediction:
             "/api/v1/predict",
             json={
                 "sequence": "ACDEFGHIKLMNPQRSTVWY",
-                "ptm_sites": [
-                    {"position": 5, "type": "phosphorylation", "amino_acid": "F"}
-                ],
+                "ptm_sites": [{"position": 5, "type": "phosphorylation", "amino_acid": "F"}],
             },
         )
         assert resp.status_code == 200, resp.text
@@ -631,9 +638,7 @@ class TestEndToEndPrediction:
             "/api/v1/predict",
             json={
                 "sequence": "ACDEFGHIKLMNPQRSTVWY",
-                "ptm_sites": [
-                    {"position": 5, "type": "phosphorylation", "amino_acid": "F"}
-                ],
+                "ptm_sites": [{"position": 5, "type": "phosphorylation", "amino_acid": "F"}],
             },
         )
         assert resp.status_code == 200, resp.text

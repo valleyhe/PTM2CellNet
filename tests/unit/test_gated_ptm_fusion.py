@@ -76,12 +76,7 @@ class TestGatedPTMFusion:
         """测试PTMModule使用gated融合类型"""
         sequence_emb, _, ptm_mask, embed_dim = sample_data
 
-        ptm_module = PTMModule(
-            num_ptm_types=10,
-            embed_dim=embed_dim,
-            num_layers=2,
-            fusion_type="gated"
-        )
+        ptm_module = PTMModule(num_ptm_types=10, embed_dim=embed_dim, num_layers=2, fusion_type="gated")
 
         # 生成有效的ptm_types (0-9，其中0表示无PTM)
         ptm_types = torch.randint(0, 10, (sequence_emb.size(0), sequence_emb.size(1)))
@@ -107,19 +102,15 @@ class TestGatedPTMFusion:
         """测试PTM2CellNet使用gated融合"""
         from src.models.architectures import PTM2CellNet
 
-        model = PTM2CellNet(
-            encoder_type='cnn',
-            num_classes=4,
-            ptm_fusion_type='gated'
-        )
+        model = PTM2CellNet(encoder_type="cnn", num_classes=4, ptm_fusion_type="gated")
 
         batch = {
-            'sequence': torch.randint(0, 20, (2, 50)),
-            'ptm_types': torch.randint(0, 10, (2, 50)),
-            'ptm_mask': torch.ones(2, 50)
+            "sequence": torch.randint(0, 20, (2, 50)),
+            "ptm_types": torch.randint(0, 10, (2, 50)),
+            "ptm_mask": torch.ones(2, 50),
         }
 
         output = model(batch)
 
-        assert 'logits' in output
-        assert output['logits'].shape == (2, 4)
+        assert "logits" in output
+        assert output["logits"].shape == (2, 4)

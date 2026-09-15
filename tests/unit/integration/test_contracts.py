@@ -137,15 +137,22 @@ def test_contract_field_types_are_correct() -> None:
     assert isinstance(record.delta_probability, float)
 
     request = GenePerturbationRequest(
-        gene_symbol="G1", source_protein_id="P1", source_ptm_type="p",
-        source_ptm_position=1, magnitude=0.5, mode="hard_ko",
+        gene_symbol="G1",
+        source_protein_id="P1",
+        source_ptm_type="p",
+        source_ptm_position=1,
+        magnitude=0.5,
+        mode="hard_ko",
     )
     assert isinstance(request.gene_symbol, str)
     assert isinstance(request.magnitude, float)
 
     result = PerturbationResult(
-        gene_symbol="G1", mode="hard_ko", distance_score=1.0,
-        ranked_genes=["A"], metadata={"k": "v"},
+        gene_symbol="G1",
+        mode="hard_ko",
+        distance_score=1.0,
+        ranked_genes=["A"],
+        metadata={"k": "v"},
     )
     assert isinstance(result.ranked_genes, list)
     assert isinstance(result.metadata, dict)

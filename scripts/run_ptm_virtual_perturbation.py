@@ -16,7 +16,9 @@ def _ensure_project_root() -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="运行 PTM-aware virtual perturbation")
-    parser.add_argument("--config", type=str, default="configs/integration/ptm_virtual_perturbation.yaml", help="配置文件路径")
+    parser.add_argument(
+        "--config", type=str, default="configs/integration/ptm_virtual_perturbation.yaml", help="配置文件路径"
+    )
     parser.add_argument("--gene", type=str, required=True, help="目标基因符号")
     parser.add_argument("--magnitude", type=float, default=None, help="扰动强度")
     parser.add_argument("--output", type=str, default="outputs/results/ptm_virtual_perturbation", help="输出目录")
@@ -62,7 +64,6 @@ def main():
     _ensure_project_root()
 
     from pathlib import Path
-
 
     from src.integration.contracts import GenePerturbationRequest
     from src.integration.genki_adapter import GenKIAdapter

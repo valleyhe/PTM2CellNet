@@ -2,6 +2,7 @@
 ESMTokenizedDataset单元测试
 验证tokenizer编码、PTM位置对齐、标签编码
 """
+
 import os
 import json
 import pytest
@@ -14,29 +15,33 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 @pytest.fixture(scope="module")
 def tokenizer():
     from src.models.pretrained_encoders import ESM2Encoder
+
     enc = ESM2Encoder(model_size="8M", freeze=True)
     return enc.tokenizer
 
 
 @pytest.fixture(scope="module")
 def sample_df():
-    return pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKL",
-            "ptm_sites": json.dumps([{"position": 3, "type": "Phosphorylation", "amino_acid": "D"}]),
-            "cell_state": "Activated",
-        },
-        {
-            "sequence": "MNPQRSTVWY",
-            "ptm_sites": json.dumps([]),
-            "cell_state": "Quiescent",
-        },
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKL",
+                "ptm_sites": json.dumps([{"position": 3, "type": "Phosphorylation", "amino_acid": "D"}]),
+                "cell_state": "Activated",
+            },
+            {
+                "sequence": "MNPQRSTVWY",
+                "ptm_sites": json.dumps([]),
+                "cell_state": "Quiescent",
+            },
+        ]
+    )
 
 
 @pytest.fixture(scope="module")
 def dataset(sample_df, tokenizer):
     from src.data.datasets import ESMTokenizedDataset
+
     return ESMTokenizedDataset(df=sample_df, tokenizer=tokenizer)
 
 
@@ -94,16 +99,20 @@ def test_multiple_ptm_sites(tokenizer):
     """测试多个PTM位点会被正确编码并对齐到token位置。"""
     from src.data.datasets import ESMTokenizedDataset
 
-    df = pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKL",
-            "ptm_sites": json.dumps([
-                {"position": 2, "type": "phosphorylation", "amino_acid": "C"},
-                {"position": 7, "type": "acetylation", "amino_acid": "H"},
-            ]),
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKL",
+                "ptm_sites": json.dumps(
+                    [
+                        {"position": 2, "type": "phosphorylation", "amino_acid": "C"},
+                        {"position": 7, "type": "acetylation", "amino_acid": "H"},
+                    ]
+                ),
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer)
     sample = dataset[0]
 
@@ -119,13 +128,15 @@ def test_ptm_at_sequence_end(tokenizer):
     from src.data.datasets import ESMTokenizedDataset
 
     sequence = "ACDEFGHIKL"
-    df = pd.DataFrame([
-        {
-            "sequence": sequence,
-            "ptm_sites": json.dumps([{"position": len(sequence), "type": "phosphorylation"}]),
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": sequence,
+                "ptm_sites": json.dumps([{"position": len(sequence), "type": "phosphorylation"}]),
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer)
     sample = dataset[0]
 
@@ -137,13 +148,15 @@ def test_invalid_ptm_json(tokenizer):
     """测试无效PTM JSON格式时降级为空列表处理。"""
     from src.data.datasets import ESMTokenizedDataset
 
-    df = pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKL",
-            "ptm_sites": "{invalid_json]",
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKL",
+                "ptm_sites": "{invalid_json]",
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer)
     sample = dataset[0]
 
@@ -155,12 +168,14 @@ def test_missing_ptm_sites_column(tokenizer):
     """测试缺少ptm_sites列时返回全零PTM掩码。"""
     from src.data.datasets import ESMTokenizedDataset
 
-    df = pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKL",
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKL",
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer)
     sample = dataset[0]
 
@@ -175,18 +190,22 @@ def test_long_sequence_truncation(tokenizer):
     from src.data.datasets import ESMTokenizedDataset
 
     sequence = "A" * 1200
-    df = pd.DataFrame([
-        {
-            "sequence": sequence,
-            "ptm_sites": json.dumps([
-                {"position": 1, "type": "phosphorylation"},
-                {"position": 1022, "type": "acetylation"},
-                {"position": 1023, "type": "methylation"},
-                {"position": 1200, "type": "ubiquitination"},
-            ]),
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": sequence,
+                "ptm_sites": json.dumps(
+                    [
+                        {"position": 1, "type": "phosphorylation"},
+                        {"position": 1022, "type": "acetylation"},
+                        {"position": 1023, "type": "methylation"},
+                        {"position": 1200, "type": "ubiquitination"},
+                    ]
+                ),
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer, max_length=1024)
     sample = dataset[0]
 
@@ -201,17 +220,21 @@ def test_ptm_position_out_of_range(tokenizer):
     """测试越界或非法位置的PTM位点会被忽略。"""
     from src.data.datasets import ESMTokenizedDataset
 
-    df = pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKL",
-            "ptm_sites": json.dumps([
-                {"position": 0, "type": "phosphorylation"},
-                {"position": -3, "type": "acetylation"},
-                {"position": 999, "type": "methylation"},
-            ]),
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKL",
+                "ptm_sites": json.dumps(
+                    [
+                        {"position": 0, "type": "phosphorylation"},
+                        {"position": -3, "type": "acetylation"},
+                        {"position": 999, "type": "methylation"},
+                    ]
+                ),
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer)
     sample = dataset[0]
 
@@ -224,13 +247,15 @@ def test_dataset_with_config(tokenizer):
     from src.data.datasets import ESMTokenizedDataset
 
     config = {"data": {"ptm_types": ["alpha", "beta", "gamma"]}}
-    df = pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKL",
-            "ptm_sites": json.dumps([{"position": 4, "type": "beta"}]),
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKL",
+                "ptm_sites": json.dumps([{"position": 4, "type": "beta"}]),
+                "cell_state": "Activated",
+            }
+        ]
+    )
     dataset = ESMTokenizedDataset(df=df, tokenizer=tokenizer, config=config)
     sample = dataset[0]
 

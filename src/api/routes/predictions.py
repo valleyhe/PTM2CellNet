@@ -31,6 +31,7 @@ logger = setup_logger(__name__)
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
 
+
 class DAVFSiteDict(TypedDict):
     """Shape of a single DAVF site dict passed to the model."""
 
@@ -50,12 +51,12 @@ class DAVFInputs(TypedDict, total=False):
 # Lowercase keys match the PTM types used in DEFAULT_PTM_TYPES / API requests.
 # "gain" = functional gain (e.g. activation), "loss" = functional loss (e.g. degradation).
 PTM_TYPE_TO_EFFECT: Dict[str, str] = {
-    "phosphorylation": "gain",    # phosphorylation often activates kinase/protein
-    "ubiquitination": "loss",     # ubiquitination often targets protein for degradation
-    "acetylation": "gain",        # acetylation can regulate function; default to gain
-    "methylation": "gain",        # methylation typically modulates interactions
-    "sumoylation": "gain",        # sumoylation regulates nuclear localization/transcription
-    "succinylation": "gain",      # succinylation regulates metabolism
+    "phosphorylation": "gain",  # phosphorylation often activates kinase/protein
+    "ubiquitination": "loss",  # ubiquitination often targets protein for degradation
+    "acetylation": "gain",  # acetylation can regulate function; default to gain
+    "methylation": "gain",  # methylation typically modulates interactions
+    "sumoylation": "gain",  # sumoylation regulates nuclear localization/transcription
+    "succinylation": "gain",  # succinylation regulates metabolism
 }
 
 # Default effect/delta_prob when PTM type is unknown or missing
@@ -129,8 +130,7 @@ def _require_davf_gene_symbols(ptm_sites: List, *, sample_label: str = "request"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"{sample_label}启用 DAVF 时，每个有效 PTM 位点都必须提供 gene_symbol；"
-                f"缺失位点: {missing_positions}"
+                f"{sample_label}启用 DAVF 时，每个有效 PTM 位点都必须提供 gene_symbol；缺失位点: {missing_positions}"
             ),
         )
 
@@ -243,7 +243,8 @@ def batch_preprocess(samples: List[PredictionRequest]) -> Dict[str, Any]:
                     {"position": p, "ptm_type": t}
                     for p, t in zip(
                         davf_inputs["davf_positions"],
-                        davf_inputs["davf_ptm_types"], strict=False,
+                        davf_inputs["davf_ptm_types"],
+                        strict=False,
                     )
                 ]
                 davf_sites_per_sample.append(sites_list)
@@ -286,12 +287,14 @@ def _compute_pathway_impacts(
             ptm_type_lower = ptm_type_raw.lower() if ptm_type_raw else ""
             effect = PTM_TYPE_TO_EFFECT.get(ptm_type_lower, _DEFAULT_EFFECT)
             delta_prob = _DEFAULT_DELTA_PROB
-            rows.append({
-                "gene_symbol": site.get("gene_symbol", ""),
-                "ptm_type": ptm_type_raw.capitalize() if ptm_type_raw else "",
-                "effect": effect,
-                "delta_prob": delta_prob,
-            })
+            rows.append(
+                {
+                    "gene_symbol": site.get("gene_symbol", ""),
+                    "ptm_type": ptm_type_raw.capitalize() if ptm_type_raw else "",
+                    "effect": effect,
+                    "delta_prob": delta_prob,
+                }
+            )
         if not rows:
             return None
         ptm_df = pd.DataFrame(rows)
@@ -302,21 +305,22 @@ def _compute_pathway_impacts(
                     pathway_name=name,
                     activity_change=activity,
                     confidence="high" if abs(activity) > 0.5 else "medium",
-                    key_genes=list(
-                        pathway_mapper.pathways.get(name, {}).get("output_genes", [])
-                    ),
+                    key_genes=list(pathway_mapper.pathways.get(name, {}).get("output_genes", [])),
                 )
                 for name, activity in report["pathway_activities"].items()
             ]
     except (ValueError, KeyError, RuntimeError) as exc:
         logger.warning(
             "Optional pathway analysis failed [%s]: %s",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
     except (TypeError, AttributeError, OSError) as exc:
         logger.warning(
             "Optional pathway analysis failed with unexpected error [%s]: %s",
-            type(exc).__name__, exc, exc_info=True,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
         )
     return None
 
@@ -401,7 +405,8 @@ def preprocess_request(request: PredictionRequest) -> Dict[str, Any]:
                 {"position": p, "ptm_type": t}
                 for p, t in zip(
                     davf_inputs["davf_positions"],
-                    davf_inputs["davf_ptm_types"], strict=False,
+                    davf_inputs["davf_ptm_types"],
+                    strict=False,
                 )
             ]
             out["davf_gene_names"] = davf_inputs["davf_gene_names"]
@@ -452,10 +457,7 @@ def _build_prediction_response(
     """Build a single PredictionResponse from model output tensors."""
     pred_label = STATE.idx_to_label.get(pred_idx, "unknown")
     confidence = float(probs_np[pred_idx])
-    prob_dict = {
-        STATE.idx_to_label.get(i, f"class_{i}"): float(probs_np[i])
-        for i in range(len(probs_np))
-    }
+    prob_dict = {STATE.idx_to_label.get(i, f"class_{i}"): float(probs_np[i]) for i in range(len(probs_np))}
     return PredictionResponse(
         cell_state=pred_label,
         predicted_cell_state=pred_label,
@@ -535,7 +537,10 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
         ) from e
     except Exception as e:
         logger.error(
-            "预测未知错误 [%s]: %s", type(e).__name__, e, exc_info=True,
+            "预测未知错误 [%s]: %s",
+            type(e).__name__,
+            e,
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -577,14 +582,11 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
             batch = batch_preprocess(request.samples)
             # Move tensors to device; leave DAVF list inputs untouched.
             batch = {
-                key: (val.to(STATE.device) if isinstance(val, torch.Tensor) else val)
-                for key, val in batch.items()
+                key: (val.to(STATE.device) if isinstance(val, torch.Tensor) else val) for key, val in batch.items()
             }
             probs_tensor, pred_tensor, _ = _run_prediction_on_batch(batch)
             impacts = [
-                _compute_pathway_impacts(
-                    request.samples[i].ptm_sites, STATE.pathway_mapper
-                )
+                _compute_pathway_impacts(request.samples[i].ptm_sites, STATE.pathway_mapper)
                 for i in range(len(request.samples))
             ]
             return probs_tensor, pred_tensor, impacts
@@ -626,7 +628,10 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
         ) from e
     except Exception as e:
         logger.error(
-            "批量预测未知错误 [%s]: %s", type(e).__name__, e, exc_info=True,
+            "批量预测未知错误 [%s]: %s",
+            type(e).__name__,
+            e,
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -713,7 +718,9 @@ async def _resolve_variant_sequence(
         except (TypeError, AttributeError, OSError) as e:
             logger.warning(
                 "UniProt fetch unexpected error [%s]: %s",
-                type(e).__name__, e, exc_info=True,
+                type(e).__name__,
+                e,
+                exc_info=True,
             )
             warnings_list.append(f"Failed to fetch sequence from UniProt: {e}")
             raise HTTPException(
@@ -777,19 +784,23 @@ async def _variant_cell_state_prediction(
         # to fail the already-computed variant effect response.
         logger.warning(
             "Variant cell-state prediction unavailable [%s]: %s",
-            type(exc).__name__, exc.detail,
+            type(exc).__name__,
+            exc.detail,
         )
         warnings_list.append(f"Cell-state prediction unavailable: {exc.detail}")
     except (ValueError, KeyError, RuntimeError) as exc:
         logger.warning(
             "Variant cell-state prediction failed [%s]: %s",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
         warnings_list.append(f"Cell-state prediction unavailable: {exc}")
     except (TypeError, AttributeError, OSError) as exc:
         logger.warning(
             "Variant cell-state prediction unexpected error [%s]: %s",
-            type(exc).__name__, exc, exc_info=True,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
         )
         warnings_list.append(f"Cell-state prediction unavailable: {exc}")
     return None
@@ -827,11 +838,7 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
         )
 
         ptm_effects = _ptm_effects_to_models(result.ptm_effects)
-        pathway_impacts = (
-            _pathway_impacts_to_models(result.pathway_impacts)
-            if request.include_pathways
-            else None
-        )
+        pathway_impacts = _pathway_impacts_to_models(result.pathway_impacts) if request.include_pathways else None
         confidence = _variant_confidence(ptm_effects)
         cell_state_prediction = await _variant_cell_state_prediction(
             sequence, list(result.ptm_effects.keys()), warnings_list
@@ -873,7 +880,9 @@ async def predict_variant(request: VariantPredictionRequest) -> VariantPredictio
     except Exception as e:
         logger.error(
             "Variant prediction unexpected error [%s]: %s",
-            type(e).__name__, e, exc_info=True,
+            type(e).__name__,
+            e,
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

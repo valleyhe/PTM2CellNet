@@ -56,10 +56,7 @@ class GeneformerEmbeddingLoader:
         return dict(self._gene_to_idx)
 
     def __init__(
-        self,
-        model_path: str = "ctheodoris/Geneformer",
-        device: Optional[torch.device] = None,
-        strict: bool = False
+        self, model_path: str = "ctheodoris/Geneformer", device: Optional[torch.device] = None, strict: bool = False
     ):
         """
         Initialize Geneformer embedding loader.
@@ -111,9 +108,7 @@ class GeneformerEmbeddingLoader:
             if vocab_path.is_file():
                 payload = json.loads(vocab_path.read_text(encoding="utf-8"))
                 if not isinstance(payload, dict) or not payload:
-                    raise GeneformerVocabularyError(
-                        f"Invalid vocab.json (must be a non-empty object): {vocab_path}"
-                    )
+                    raise GeneformerVocabularyError(f"Invalid vocab.json (must be a non-empty object): {vocab_path}")
                 self._gene_to_idx = {str(token): int(index) for token, index in payload.items()}
                 self._idx_to_gene = {index: token for token, index in self._gene_to_idx.items()}
                 out_of_range = [token for token, index in self._gene_to_idx.items() if index >= self._vocab_size]
@@ -123,9 +118,7 @@ class GeneformerEmbeddingLoader:
                         f"matrix range [0, {self._vocab_size}): {vocab_path}"
                     )
                 self._vocabulary_is_semantic = True
-                logger.info(
-                    "Loaded gene vocabulary from %s (%d tokens)", vocab_path, len(self._gene_to_idx)
-                )
+                logger.info("Loaded gene vocabulary from %s (%d tokens)", vocab_path, len(self._gene_to_idx))
                 return
 
         if model_path_for_hub and not Path(model_path_for_hub).is_dir():
@@ -136,9 +129,8 @@ class GeneformerEmbeddingLoader:
             for filename in hub_candidates:
                 try:
                     from huggingface_hub import hf_hub_download
-                    hub_path = Path(
-                        hf_hub_download(repo_id=model_path_for_hub, filename=filename)
-                    )
+
+                    hub_path = Path(hf_hub_download(repo_id=model_path_for_hub, filename=filename))
                 except Exception:  # noqa: BLE001 - try the next known location
                     continue
                 if hub_path.suffix == ".json":
@@ -220,8 +212,7 @@ class GeneformerEmbeddingLoader:
             from transformers import AutoModel, AutoConfig
         except ImportError:
             raise ImportError(
-                "transformers library required for Geneformer. "
-                "Install with: pip install transformers"
+                "transformers library required for Geneformer. Install with: pip install transformers"
             ) from None
 
         logger.info(f"Loading Geneformer from {self.model_path}...")
@@ -250,27 +241,30 @@ class GeneformerEmbeddingLoader:
                     break
 
             # Check if local directory with safetensors
-            local_dir = os.path.join(self.model_path, 'model.safetensors')
+            local_dir = os.path.join(self.model_path, "model.safetensors")
             use_safetensors_dir = os.path.isfile(local_dir)
 
             if local_safetensors_path:
                 # Load from local safetensors file (priority)
                 logger.info(f"Loading from local safetensors file: {local_safetensors_path}")
                 from safetensors.torch import load_file
+
                 state_dict = load_file(local_safetensors_path)
                 logger.info(f"Loaded safetensors with {len(state_dict)} keys")
 
                 # Extract word embeddings using correct key for Geneformer
-                embedding_key = 'bert.embeddings.word_embeddings.weight'
+                embedding_key = "bert.embeddings.word_embeddings.weight"
                 if embedding_key not in state_dict:
                     # Try alternative key names
                     for key in state_dict.keys():
-                        if 'word_embeddings' in key and 'weight' in key:
+                        if "word_embeddings" in key and "weight" in key:
                             embedding_key = key
                             logger.info(f"Using alternative embedding key: {embedding_key}")
                             break
                     else:
-                        raise KeyError(f"Could not find word_embeddings weight. Available keys: {list(state_dict.keys())[:10]}...")
+                        raise KeyError(
+                            f"Could not find word_embeddings weight. Available keys: {list(state_dict.keys())[:10]}..."
+                        )
 
                 self._embeddings = state_dict[embedding_key].detach()
                 logger.info(f"Extracted embeddings from {embedding_key}: {self._embeddings.shape}")
@@ -293,15 +287,16 @@ class GeneformerEmbeddingLoader:
                 safetensors_path = self.model_path if direct_safetensors else local_dir
                 logger.info(f"Loading from local safetensors file: {safetensors_path}")
                 from safetensors.torch import load_file
+
                 state_dict = load_file(safetensors_path)
                 logger.info(f"Loaded safetensors with {len(state_dict)} keys")
 
                 # Extract word embeddings directly from state dict
-                embedding_key = 'bert.embeddings.word_embeddings.weight'
+                embedding_key = "bert.embeddings.word_embeddings.weight"
                 if embedding_key not in state_dict:
                     # Try alternative key names
                     for key in state_dict.keys():
-                        if 'word_embeddings' in key and 'weight' in key:
+                        if "word_embeddings" in key and "weight" in key:
                             embedding_key = key
                             break
 
@@ -328,15 +323,15 @@ class GeneformerEmbeddingLoader:
 
                 # Extract gene embedding layer
                 # Geneformer uses 'embeddings.word_embedding' for gene tokens
-                if hasattr(model, 'embeddings') and hasattr(model.embeddings, 'word_embedding'):
+                if hasattr(model, "embeddings") and hasattr(model.embeddings, "word_embedding"):
                     self._embeddings = model.embeddings.word_embedding.weight.detach()
                 else:
                     # Try to find embedding layer in state dict
                     state_dict = model.state_dict()
                     embedding_key = None
                     for key in state_dict.keys():
-                        if 'word_embedding' in key or 'embedding' in key:
-                            if 'LayerNorm' not in key and 'position' not in key:
+                        if "word_embedding" in key or "embedding" in key:
+                            if "LayerNorm" not in key and "position" not in key:
                                 embedding_key = key
                                 break
 
@@ -382,9 +377,7 @@ class GeneformerEmbeddingLoader:
                     f"Error: {e}. Install the model or unset PTM2CELLNET_STRICT_MODEL_ASSETS."
                 ) from e
             logger.warning(
-                "Geneformer model '%s' failed to load: %s. "
-                "Falling back to random embeddings.",
-                self.model_path, e
+                "Geneformer model '%s' failed to load: %s. Falling back to random embeddings.", self.model_path, e
             )
             self._use_fallback()
 
@@ -407,11 +400,7 @@ class GeneformerEmbeddingLoader:
         )
         # Create random embeddings with correct dimension
         self._vocab_size = 30000  # Typical Geneformer vocab size
-        self._embeddings = torch.randn(
-            self._vocab_size,
-            self._embedding_dim,
-            device=self.device
-        )
+        self._embeddings = torch.randn(self._vocab_size, self._embedding_dim, device=self.device)
         self._gene_to_idx = {str(i): i for i in range(self._vocab_size)}
         self._idx_to_gene = {i: str(i) for i in range(self._vocab_size)}
 
@@ -440,14 +429,10 @@ class GeneformerEmbeddingLoader:
                     # error; hashing it onto a random row would fabricate an
                     # embedding and polluting the vocabulary would hide the
                     # miss from every later lookup.
-                    raise KeyError(
-                        f"Gene id {gene_id!r} is not in the Geneformer vocabulary"
-                    )
+                    raise KeyError(f"Gene id {gene_id!r} is not in the Geneformer vocabulary")
                 else:
                     if self.strict:
-                        raise KeyError(
-                            f"Gene id {gene_id!r} cannot be hashed onto a Geneformer row in strict mode"
-                        )
+                        raise KeyError(f"Gene id {gene_id!r} cannot be hashed onto a Geneformer row in strict mode")
                     # Explicit non-production fallback mode (random weights,
                     # loud warning, provenance flag): keep shape compatibility
                     # via a stable hash, but never write it back.
@@ -475,11 +460,7 @@ class GeneformerEmbeddingLoader:
         """Return the vocabulary size."""
         return self._vocab_size
 
-    def create_gene_id_mapping(
-        self,
-        dataset_genes: List[str],
-        gene_name_type: str = "ensembl"
-    ) -> Dict[str, int]:
+    def create_gene_id_mapping(self, dataset_genes: List[str], gene_name_type: str = "ensembl") -> Dict[str, int]:
         """
         Create a mapping from dataset gene IDs to Geneformer indices.
 
@@ -496,13 +477,9 @@ class GeneformerEmbeddingLoader:
             if gene in self._gene_to_idx:
                 mapping[gene] = self._gene_to_idx[gene]
             elif self._vocabulary_is_semantic:
-                raise KeyError(
-                    f"Gene id {gene!r} is not in the Geneformer vocabulary"
-                )
+                raise KeyError(f"Gene id {gene!r} is not in the Geneformer vocabulary")
             elif self.strict:
-                raise KeyError(
-                    f"Gene id {gene!r} cannot be hashed onto a Geneformer row in strict mode"
-                )
+                raise KeyError(f"Gene id {gene!r} cannot be hashed onto a Geneformer row in strict mode")
             else:
                 mapping[gene] = self._stable_gene_index(gene)
 
@@ -571,8 +548,7 @@ def get_model_source() -> str:
 
 
 def get_geneformer_loader(
-    model_path: str = "ctheodoris/Geneformer",
-    device: Optional[torch.device] = None
+    model_path: str = "ctheodoris/Geneformer", device: Optional[torch.device] = None
 ) -> GeneformerEmbeddingLoader:
     """
     Get or create the global GeneformerEmbeddingLoader instance.

@@ -20,9 +20,7 @@ from src.utils.safe_io import safe_torch_load
 
 def _model_and_loader(seed: int = 0):
     torch.manual_seed(seed)
-    model = MaskedPTMPrediction(
-        num_ptm_types=5, embed_dim=12, max_position=16, mask_probability=0.5
-    )
+    model = MaskedPTMPrediction(num_ptm_types=5, embed_dim=12, max_position=16, mask_probability=0.5)
     dataset = [
         {
             "ptm_types": torch.tensor([1, 2, 3, 0], dtype=torch.long) + i % 2,
@@ -42,8 +40,14 @@ def test_masked_pretrain_full_loop_with_interrupt_and_resume(tmp_path):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     # 首段：2 epochs，结束时必有 checkpoint（epoch 0 首次验证即 improved）
     losses1 = pretrain_masked_ptm(
-        model, loader, optimizer, device="cpu", epochs=2,
-        validation_split=0.5, validate_every=1, checkpoint_dir=ckpt_dir,
+        model,
+        loader,
+        optimizer,
+        device="cpu",
+        epochs=2,
+        validation_split=0.5,
+        validate_every=1,
+        checkpoint_dir=ckpt_dir,
     )
     ckpt_path = os.path.join(ckpt_dir, "best_model.pt")
     assert os.path.exists(ckpt_path)
@@ -57,8 +61,14 @@ def test_masked_pretrain_full_loop_with_interrupt_and_resume(tmp_path):
     model2, loader2 = _model_and_loader()
     optimizer2 = torch.optim.Adam(model2.parameters(), lr=0.01)
     losses2 = pretrain_masked_ptm(
-        model2, loader2, optimizer2, device="cpu", epochs=4,
-        validation_split=0.5, validate_every=1, checkpoint_dir=ckpt_dir,
+        model2,
+        loader2,
+        optimizer2,
+        device="cpu",
+        epochs=4,
+        validation_split=0.5,
+        validate_every=1,
+        checkpoint_dir=ckpt_dir,
         resume_from=ckpt_path,
     )
     assert len(losses2) == 4
@@ -86,7 +96,11 @@ def test_combined_pretrain_full_loop_with_interrupt_and_resume(tmp_path):
     model, loader = _model_and_loader()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     losses1 = pretrain_combined(
-        model, loader, optimizer, device="cpu", epochs=2,
+        model,
+        loader,
+        optimizer,
+        device="cpu",
+        epochs=2,
         checkpoint_dir=ckpt_dir,
     )
     ckpt_path = os.path.join(ckpt_dir, "best_combined_model.pt")
@@ -94,15 +108,28 @@ def test_combined_pretrain_full_loop_with_interrupt_and_resume(tmp_path):
 
     loaded = safe_torch_load(ckpt_path, map_location="cpu")
     assert isinstance(loaded, dict)
-    for key in ("masked_model", "contrastive_module", "denoising_module",
-                "optimizer", "epoch", "best_loss", "config", "history"):
+    for key in (
+        "masked_model",
+        "contrastive_module",
+        "denoising_module",
+        "optimizer",
+        "epoch",
+        "best_loss",
+        "config",
+        "history",
+    ):
         assert key in loaded
 
     model2, loader2 = _model_and_loader()
     optimizer2 = torch.optim.Adam(model2.parameters(), lr=0.01)
     losses2 = pretrain_combined(
-        model2, loader2, optimizer2, device="cpu", epochs=4,
-        checkpoint_dir=ckpt_dir, resume_from=ckpt_path,
+        model2,
+        loader2,
+        optimizer2,
+        device="cpu",
+        epochs=4,
+        checkpoint_dir=ckpt_dir,
+        resume_from=ckpt_path,
     )
     assert len(losses2) == 4
     assert losses2[: len(loaded["history"])] == loaded["history"]

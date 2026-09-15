@@ -103,9 +103,7 @@ class TestDockerfileUsesCore:
 
     def test_dockerfile_installs_core(self):
         text = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-        assert "requirements-core.txt" in text, (
-            "Dockerfile must install requirements-core.txt for a lean image (P1-2)."
-        )
+        assert "requirements-core.txt" in text, "Dockerfile must install requirements-core.txt for a lean image (P1-2)."
         # The default install must come from core, not the aggregated index.
         assert "pip install --no-cache-dir -r requirements-core.txt" in text
 

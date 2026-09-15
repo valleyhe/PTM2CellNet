@@ -1,4 +1,5 @@
 """Integration tests for variant effect workflow."""
+
 import pytest
 from unittest.mock import Mock, patch
 import requests
@@ -16,13 +17,13 @@ class TestVariantEffectWorkflow:
     @pytest.fixture
     def mock_predictor(self):
         """Create mock VariantPTMEffectPredictor."""
-        with patch('src.analysis.variant_workflow.VariantPTMEffectPredictor') as mock:
+        with patch("src.analysis.variant_workflow.VariantPTMEffectPredictor") as mock:
             mock_instance = Mock()
             mock_instance.predict_variant_effect.return_value = {
-                'wildtype_prob': 0.8,
-                'mutant_prob': 0.3,
-                'delta_prob': -0.5,
-                'effect': 'loss',
+                "wildtype_prob": 0.8,
+                "mutant_prob": 0.3,
+                "delta_prob": -0.5,
+                "effect": "loss",
             }
             mock.return_value = mock_instance
             yield mock
@@ -32,7 +33,7 @@ class TestVariantEffectWorkflow:
         """Create workflow fixture with mocked predictor."""
         return VariantEffectWorkflow(
             model_path="/fake/model.pt",
-            ptm_types=['Phosphorylation', 'Ubiquitination'],
+            ptm_types=["Phosphorylation", "Ubiquitination"],
         )
 
     def test_predict_from_hgvs_with_sequence(self, workflow):
@@ -43,14 +44,14 @@ class TestVariantEffectWorkflow:
         result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
 
         assert isinstance(result, VariantEffectResult)
-        assert result.variant['hgvs'] == hgvs
-        assert result.variant['position'] == 600
-        assert result.variant['ref_aa'] == "V"
-        assert result.variant['alt_aa'] == "E"
-        assert result.sequence_info['length'] == 700
-        assert result.sequence_info['validated'] is True
-        assert 'Phosphorylation' in result.ptm_effects
-        assert 'Ubiquitination' in result.ptm_effects
+        assert result.variant["hgvs"] == hgvs
+        assert result.variant["position"] == 600
+        assert result.variant["ref_aa"] == "V"
+        assert result.variant["alt_aa"] == "E"
+        assert result.sequence_info["length"] == 700
+        assert result.sequence_info["validated"] is True
+        assert "Phosphorylation" in result.ptm_effects
+        assert "Ubiquitination" in result.ptm_effects
 
     def test_predict_from_hgvs_reference_mismatch(self, workflow):
         """Test workflow when reference amino acid doesn't match sequence."""
@@ -60,7 +61,7 @@ class TestVariantEffectWorkflow:
 
         result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
 
-        assert result.sequence_info['validated'] is False
+        assert result.sequence_info["validated"] is False
 
     def test_predict_from_hgvs_requires_sequence(self, workflow):
         """Test that workflow raises error when sequence not provided and gene mapping fails."""
@@ -75,8 +76,8 @@ class TestVariantEffectWorkflow:
             hgvs_string=hgvs,
         )
 
-        with patch.object(workflow.parser, 'parse', return_value=parsed_variant):
-            with patch.object(workflow.gene_mapper, 'map_gene_to_uniprot', return_value=None):
+        with patch.object(workflow.parser, "parse", return_value=parsed_variant):
+            with patch.object(workflow.gene_mapper, "map_gene_to_uniprot", return_value=None):
                 with pytest.raises(ValueError) as exc_info:
                     workflow.predict_from_hgvs(hgvs)
 
@@ -96,14 +97,14 @@ class TestVariantEffectWorkflow:
             hgvs_string=hgvs,
         )
 
-        with patch.object(workflow.parser, 'parse', return_value=parsed_variant):
-            with patch.object(workflow.gene_mapper, 'map_gene_to_uniprot', return_value="P15056"):
-                with patch.object(workflow, 'fetch_sequence_from_uniprot', return_value=sequence) as mock_fetch:
+        with patch.object(workflow.parser, "parse", return_value=parsed_variant):
+            with patch.object(workflow.gene_mapper, "map_gene_to_uniprot", return_value="P15056"):
+                with patch.object(workflow, "fetch_sequence_from_uniprot", return_value=sequence) as mock_fetch:
                     result = workflow.predict_from_hgvs(hgvs)
 
         mock_fetch.assert_called_once_with("P15056")
-        assert result.sequence_info['length'] == 700
-        assert result.sequence_info['validated'] is True
+        assert result.sequence_info["length"] == 700
+        assert result.sequence_info["validated"] is True
 
     def test_predict_from_hgvs_refseq_accession_maps_to_uniprot_before_fetch(self, workflow):
         """Test that RefSeq HGVS accessions are resolved before UniProt sequence fetch."""
@@ -132,14 +133,16 @@ class TestVariantEffectWorkflow:
 
         # Mock predictors to return effects that will trigger MAPK pathway
         for _ptm_type, predictor in workflow.predictors.items():
-            predictor.predict_variant_effect = Mock(return_value={
-                'wildtype_prob': 0.8,
-                'mutant_prob': 0.2,
-                'delta_prob': -0.6,
-                'effect': 'loss',
-            })
+            predictor.predict_variant_effect = Mock(
+                return_value={
+                    "wildtype_prob": 0.8,
+                    "mutant_prob": 0.2,
+                    "delta_prob": -0.6,
+                    "effect": "loss",
+                }
+            )
 
-        with patch.object(workflow.gene_mapper, 'map_gene_to_uniprot', return_value="P15056"):
+        with patch.object(workflow.gene_mapper, "map_gene_to_uniprot", return_value="P15056"):
             result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
 
         assert result.pathway_impacts is not None
@@ -159,17 +162,19 @@ class TestVariantEffectWorkflow:
 
         # Mock predictors
         for _ptm_type, predictor in workflow.predictors.items():
-            predictor.predict_variant_effect = Mock(return_value={
-                'wildtype_prob': 0.8,
-                'mutant_prob': 0.2,
-                'delta_prob': -0.6,
-                'effect': 'loss',
-            })
+            predictor.predict_variant_effect = Mock(
+                return_value={
+                    "wildtype_prob": 0.8,
+                    "mutant_prob": 0.2,
+                    "delta_prob": -0.6,
+                    "effect": "loss",
+                }
+            )
 
         # Mock network analyzer to fail
         workflow.network_analyzer.analyze_variant = Mock(side_effect=RuntimeError("Network error"))
 
-        with patch.object(workflow.gene_mapper, 'map_gene_to_uniprot', return_value="P15056"):
+        with patch.object(workflow.gene_mapper, "map_gene_to_uniprot", return_value="P15056"):
             result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
 
         assert result.pathway_impacts == {}
@@ -206,37 +211,37 @@ class TestVariantEffectWorkflow:
 
         result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
 
-        assert result.variant['gene_symbol'] == "BRAF"
-        assert result.variant['position'] == 600
+        assert result.variant["gene_symbol"] == "BRAF"
+        assert result.variant["position"] == 600
 
     def test_predict_batch(self, workflow):
         """Test batch prediction."""
         variants = [
-            {'hgvs': "NP_004324.2:p.Val600Glu", 'sequence': "A" * 599 + "V" + "A" * 100},
-            {'hgvs': "NP_000546.2:p.Arg175His", 'sequence': "A" * 174 + "R" + "A" * 100},
+            {"hgvs": "NP_004324.2:p.Val600Glu", "sequence": "A" * 599 + "V" + "A" * 100},
+            {"hgvs": "NP_000546.2:p.Arg175His", "sequence": "A" * 174 + "R" + "A" * 100},
         ]
 
         results = workflow.predict_batch(variants)
 
         assert len(results) == 2
         assert all(isinstance(r, VariantEffectResult) for r in results)
-        assert results[0].variant['position'] == 600
-        assert results[1].variant['position'] == 175
+        assert results[0].variant["position"] == 600
+        assert results[1].variant["position"] == 175
 
     def test_predict_batch_handles_errors(self, workflow):
         """Test batch prediction handles individual errors gracefully."""
         variants = [
-            {'hgvs': "NP_004324.2:p.Val600Glu", 'sequence': "A" * 599 + "V" + "A" * 100},
-            {'hgvs': "invalid_hgvs"},  # No sequence, will fail
+            {"hgvs": "NP_004324.2:p.Val600Glu", "sequence": "A" * 599 + "V" + "A" * 100},
+            {"hgvs": "invalid_hgvs"},  # No sequence, will fail
         ]
 
         results = workflow.predict_batch(variants)
 
         assert len(results) == 2
         # First should succeed
-        assert 'error' not in results[0].variant
+        assert "error" not in results[0].variant
         # Second should have error info
-        assert 'error' in results[1].variant
+        assert "error" in results[1].variant
 
     def test_workflow_integration_components(self, workflow):
         """Test that workflow integrates all components."""
@@ -246,42 +251,43 @@ class TestVariantEffectWorkflow:
         result = workflow.predict_from_hgvs(hgvs, sequence=sequence)
 
         # Verify parser worked
-        assert result.variant['ref_aa'] == "V"
-        assert result.variant['alt_aa'] == "E"
+        assert result.variant["ref_aa"] == "V"
+        assert result.variant["alt_aa"] == "E"
 
         # Verify predictor was called
         assert len(result.ptm_effects) > 0
         for _ptm_type, effect in result.ptm_effects.items():
-            assert 'wildtype_prob' in effect
-            assert 'mutant_prob' in effect
-            assert 'delta_prob' in effect
-            assert 'effect' in effect
+            assert "wildtype_prob" in effect
+            assert "mutant_prob" in effect
+            assert "delta_prob" in effect
+            assert "effect" in effect
 
     def test_variant_effect_result_dataclass(self):
         """Test VariantEffectResult dataclass structure."""
         result = VariantEffectResult(
-            variant={'hgvs': 'test', 'position': 100},
-            sequence_info={'length': 200},
-            ptm_effects={'Phosphorylation': {'effect': 'gain'}},
+            variant={"hgvs": "test", "position": 100},
+            sequence_info={"length": 200},
+            ptm_effects={"Phosphorylation": {"effect": "gain"}},
         )
 
-        assert result.variant['hgvs'] == 'test'
-        assert result.sequence_info['length'] == 200
-        assert result.ptm_effects['Phosphorylation']['effect'] == 'gain'
+        assert result.variant["hgvs"] == "test"
+        assert result.sequence_info["length"] == 200
+        assert result.ptm_effects["Phosphorylation"]["effect"] == "gain"
         assert result.pathway_impacts is None  # Default value
 
     def test_workflow_with_partial_predictor_failure(self, mock_predictor):
         """Test workflow when some predictors fail to load."""
+
         # Make one predictor fail
         def side_effect(*args, **kwargs):
-            if kwargs.get('ptm_type') == 'Phosphorylation':
+            if kwargs.get("ptm_type") == "Phosphorylation":
                 raise RuntimeError("Failed to load")
             mock_instance = Mock()
             mock_instance.predict_variant_effect.return_value = {
-                'wildtype_prob': 0.5,
-                'mutant_prob': 0.5,
-                'delta_prob': 0.0,
-                'effect': 'neutral',
+                "wildtype_prob": 0.5,
+                "mutant_prob": 0.5,
+                "delta_prob": 0.0,
+                "effect": "neutral",
             }
             return mock_instance
 
@@ -289,8 +295,8 @@ class TestVariantEffectWorkflow:
 
         workflow = VariantEffectWorkflow(
             model_path="/fake/model.pt",
-            ptm_types=['Phosphorylation', 'Ubiquitination'],
+            ptm_types=["Phosphorylation", "Ubiquitination"],
         )
 
         # Should have only one predictor
-        assert 'Phosphorylation' not in workflow.predictors
+        assert "Phosphorylation" not in workflow.predictors

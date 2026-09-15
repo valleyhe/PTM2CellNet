@@ -73,11 +73,7 @@ def _feature_columns(features: pd.DataFrame) -> Tuple[pd.Index, pd.Index, pd.Ser
     if features.shape[1] == 0:
         raise ValueError("10x features file is empty")
     gene_ids = features.iloc[:, 0].astype(str).str.strip()
-    gene_symbols = (
-        features.iloc[:, 1].astype(str).str.strip()
-        if features.shape[1] >= 2
-        else gene_ids.copy()
-    )
+    gene_symbols = features.iloc[:, 1].astype(str).str.strip() if features.shape[1] >= 2 else gene_ids.copy()
     feature_type = (
         features.iloc[:, 2].astype(str).str.strip()
         if features.shape[1] >= 3
@@ -129,8 +125,7 @@ def _build_adata_from_components(
         matrix = matrix.T.tocsr()
     elif matrix.shape[0] != len(barcodes_array):
         raise ValueError(
-            "10x matrix/barcode dimensions disagree: "
-            f"matrix={matrix.shape}, barcodes={len(barcodes_array)}"
+            f"10x matrix/barcode dimensions disagree: matrix={matrix.shape}, barcodes={len(barcodes_array)}"
         )
     if selected_positions is not None:
         positions = np.asarray(selected_positions, dtype=np.int64)
@@ -139,10 +134,7 @@ def _build_adata_from_components(
     if matrix.shape[0] != len(barcodes_array):
         raise ValueError(f"Selected matrix/barcode dimensions disagree: {matrix.shape}")
     if matrix.shape[1] != len(gene_ids):
-        raise ValueError(
-            "10x matrix/feature dimensions disagree: "
-            f"matrix={matrix.shape}, features={len(gene_ids)}"
-        )
+        raise ValueError(f"10x matrix/feature dimensions disagree: matrix={matrix.shape}, features={len(gene_ids)}")
 
     var_names = _make_unique(gene_ids)
     var = pd.DataFrame(index=var_names)
@@ -184,16 +176,11 @@ def _read_disk_10x(
 
 def _member_by_suffix(tar: tarfile.TarFile, gsm: str, suffix: str) -> tarfile.TarInfo:
     candidates = [
-        member
-        for member in tar.getmembers()
-        if Path(member.name).name.startswith(gsm) and member.name.endswith(suffix)
+        member for member in tar.getmembers() if Path(member.name).name.startswith(gsm) and member.name.endswith(suffix)
     ]
     if len(candidates) != 1:
-        raise ValueError(
-            f"Expected one {suffix} member for {gsm}, found {[m.name for m in candidates]}"
-        )
+        raise ValueError(f"Expected one {suffix} member for {gsm}, found {[m.name for m in candidates]}")
     return candidates[0]
-
 
 
 def _extract_stream(tar: tarfile.TarFile, member: tarfile.TarInfo) -> IO[bytes]:
@@ -201,6 +188,7 @@ def _extract_stream(tar: tarfile.TarFile, member: tarfile.TarInfo) -> IO[bytes]:
     if stream is None:
         raise ValueError(f"tar member {member.name} has no byte stream")
     return stream
+
 
 def _read_gse231993_sample(tar: tarfile.TarFile, row: Mapping[Any, Any]):
     gsm = str(row["GSM"])
@@ -223,9 +211,7 @@ def _read_gse231993_sample(tar: tarfile.TarFile, row: Mapping[Any, Any]):
 
 def _read_gse266616_sample(tar: tarfile.TarFile, row: Mapping[Any, Any]):
     gsm = str(row["GSM"])
-    outer_candidates = [
-        member for member in tar.getmembers() if Path(member.name).name.startswith(gsm)
-    ]
+    outer_candidates = [member for member in tar.getmembers() if Path(member.name).name.startswith(gsm)]
     if len(outer_candidates) != 1:
         raise ValueError(f"Expected one nested archive for {gsm}, found {outer_candidates}")
 
@@ -352,9 +338,7 @@ def _selected_rows(metadata: pd.DataFrame, scope: str) -> pd.DataFrame:
     elif scope == "all":
         selected = metadata
     else:
-        raise ValueError(
-            f"Unknown IBD scope {scope!r}; use core, validation, core_plus_validation, or all"
-        )
+        raise ValueError(f"Unknown IBD scope {scope!r}; use core, validation, core_plus_validation, or all")
     return cast(pd.DataFrame, selected.sort_values(["dataset", "GSM"], kind="stable").reset_index(drop=True))
 
 
@@ -467,9 +451,7 @@ def add_sample_qc_metrics(adata: Any) -> Dict[str, Dict[str, float]]:
             for local_index in np.flatnonzero(failed):
                 reason = metric
                 local_reasons[local_index] = (
-                    f"{local_reasons[local_index]};{reason}"
-                    if local_reasons[local_index]
-                    else reason
+                    f"{local_reasons[local_index]};{reason}" if local_reasons[local_index] else reason
                 )
         qc_pass[indices] = sample_pass
         reasons[indices] = local_reasons
@@ -538,9 +520,7 @@ def run_qc_on_adata(adata: Any, run_doublet: bool = False) -> Dict[str, Dict[str
         if sample_id in summaries:
             summaries[sample_id]["doublet_cells"] = float((sample_qc & sample_doublets).sum())
             summaries[sample_id]["analysis_cells"] = float(sample_analysis.sum())
-            summaries[sample_id]["analysis_fraction"] = (
-                float(sample_analysis.mean()) if len(sample_analysis) else 0.0
-            )
+            summaries[sample_id]["analysis_fraction"] = float(sample_analysis.mean()) if len(sample_analysis) else 0.0
     return summaries
 
 

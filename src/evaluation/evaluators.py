@@ -181,6 +181,7 @@ def evaluate(
         # Compute ranking metrics if applicable
         try:
             from .metrics import calculate_ranking_metrics
+
             if probabilities_array is not None and probabilities_array.shape[-1] > 1:
                 ranking = calculate_ranking_metrics(targets_array, probabilities_array)
                 if ranking:
@@ -192,6 +193,7 @@ def evaluate(
         # Compute bootstrap confidence intervals for main metrics
         try:
             from .metrics import calculate_metric_ci
+
             if len(targets_array) >= 10:
                 ci_results = {}
                 for metric_name, metric_fn in [
@@ -307,9 +309,7 @@ def _calculate_classification_metrics(
         metrics["auc_pr"] = calculate_auc_pr(y_true, y_score)
 
     if y_score is not None and ptm_types is not None and len(ptm_types) == len(y_true):
-        metrics["per_ptm_type_metrics"] = calculate_per_ptm_type_metrics(
-            y_true, y_pred, y_score, ptm_types
-        )
+        metrics["per_ptm_type_metrics"] = calculate_per_ptm_type_metrics(y_true, y_pred, y_score, ptm_types)
 
     metrics["confusion_matrix"] = calculate_confusion_matrix(y_true, y_pred).tolist()
     metrics["classification_report"] = calculate_classification_report(y_true, y_pred)
@@ -452,22 +452,14 @@ class Evaluator:
         # 2. Determine split strategy
         if stratified:
             if stratify_labels is None:
-                raise ValueError(
-                    "stratify_labels must be provided when stratified=True"
-                )
+                raise ValueError("stratify_labels must be provided when stratified=True")
             try:
                 from sklearn.model_selection import StratifiedKFold
-                splitter = StratifiedKFold(
-                    n_splits=n_splits, shuffle=shuffle, random_state=seed if shuffle else None
-                )
-                fold_indices = [
-                    val_idx
-                    for _, val_idx in splitter.split(X=np.zeros(n_samples), y=stratify_labels)
-                ]
+
+                splitter = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=seed if shuffle else None)
+                fold_indices = [val_idx for _, val_idx in splitter.split(X=np.zeros(n_samples), y=stratify_labels)]
             except ImportError:
-                logger.warning(
-                    "scikit-learn not available; falling back to non-stratified CV"
-                )
+                logger.warning("scikit-learn not available; falling back to non-stratified CV")
                 fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=int)
                 fold_sizes[: n_samples % n_splits] += 1
                 if shuffle:
@@ -494,15 +486,15 @@ class Evaluator:
         # 3. Iterate folds
         for fold_idx in range(n_splits):
             val_idx = fold_indices[fold_idx]
-            train_idx = np.concatenate(
-                [fold_indices[j] for j in range(n_splits) if j != fold_idx]
-            )
+            train_idx = np.concatenate([fold_indices[j] for j in range(n_splits) if j != fold_idx])
 
             train_subset = Subset(dataset, train_idx.tolist())
             val_subset = Subset(dataset, val_idx.tolist())
 
             train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-            val_loader: DataLoader[Batch] = cast("DataLoader[Batch]", DataLoader(val_subset, batch_size=batch_size, shuffle=False))
+            val_loader: DataLoader[Batch] = cast(
+                "DataLoader[Batch]", DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+            )
 
             logger.info("交叉验证 fold %d/%d", fold_idx + 1, n_splits)
 
@@ -545,9 +537,7 @@ class Evaluator:
             # 计算t分布置信区间，跳过NaN/非有限值
             finite_values = [v for v in values if np.isfinite(v)]
             if finite_values and len(finite_values) == len(values):
-                lower, upper = calculate_cross_validation_ci(
-                    finite_values, confidence=0.95
-                )
+                lower, upper = calculate_cross_validation_ci(finite_values, confidence=0.95)
                 confidence_intervals[key] = {
                     "mean": mean_metrics[key],
                     "ci_lower": lower,

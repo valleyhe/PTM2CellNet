@@ -212,11 +212,8 @@ class ESM2Encoder(PretrainedEncoder):
             raise ValueError(f"无效的模型尺寸: '{model_size}'")
 
         # 验证是否只包含数字和有效后缀（M/B）
-        if not normalized[:-1].isdigit() or normalized[-1] not in ('M', 'B'):
-            raise ValueError(
-                f"无效的模型尺寸格式: '{model_size}'。"
-                f"期望格式如: '150M', '650m', '2B'"
-            )
+        if not normalized[:-1].isdigit() or normalized[-1] not in ("M", "B"):
+            raise ValueError(f"无效的模型尺寸格式: '{model_size}'。期望格式如: '150M', '650m', '2B'")
 
         return normalized
 
@@ -249,13 +246,11 @@ class ESM2Encoder(PretrainedEncoder):
         model_name = self.MODEL_NAMES.get(model_size_normalized)
         if model_name is None:
             available_sizes = ", ".join(self.MODEL_NAMES.keys())
-            raise ValueError(
-                f"不支持的ESM-2模型大小: {model_size}。"
-                f"可用的模型大小: {available_sizes}"
-            )
+            raise ValueError(f"不支持的ESM-2模型大小: {model_size}。可用的模型大小: {available_sizes}")
 
         super().__init__(model_name, freeze=freeze, cache_dir=cache_dir)
         from transformers import AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
 
         self.model_size = model_size_normalized
@@ -310,6 +305,7 @@ class ESM2Encoder(PretrainedEncoder):
 
         try:
             from ..training.peft_config import save_lora_adapters
+
             save_lora_adapters(self.model, save_path)
         except ImportError as e:
             logger.error(f"保存LoRA适配器失败: {e}")
@@ -328,6 +324,7 @@ class ESM2Encoder(PretrainedEncoder):
 
         try:
             from ..training.peft_config import load_lora_adapters
+
             self.model = load_lora_adapters(self.model, load_path)
             logger.info(f"LoRA适配器已从 {load_path} 加载")
         except ImportError as e:
@@ -336,13 +333,16 @@ class ESM2Encoder(PretrainedEncoder):
 
     def tokenize(self, sequences, max_length: int = 1024) -> dict:
         """对蛋白质序列进行tokenize，返回input_ids和attention_mask"""
-        return cast(dict, self.tokenizer(
-            sequences,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-        ))
+        return cast(
+            dict,
+            self.tokenizer(
+                sequences,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=max_length,
+            ),
+        )
 
     def encode_sequences(self, sequences: List[str]) -> torch.Tensor:
         """
@@ -364,10 +364,10 @@ class ESM3Encoder(nn.Module):
     """
     ESM-3编码器（使用EvolutionaryScale esm包）
     封装ESM-3多模态蛋白质语言模型（序列、结构、功能）
-    
+
     与ESM2Encoder不同，此类不继承PretrainedEncoder，因为ESM-3模型
     使用完全不同的架构（几何注意力，多模态输入），需要esm包支持。
-    
+
     支持从本地检查点加载或从HuggingFace自动下载。
     """
 
@@ -449,9 +449,7 @@ class ESM3Encoder(nn.Module):
             return self._load_from_local(checkpoint_path, device)
         return self._load_from_huggingface(device)
 
-    def _load_from_local(
-        self, path: str, device: Union[str, torch.device]
-    ) -> nn.Module:
+    def _load_from_local(self, path: str, device: Union[str, torch.device]) -> nn.Module:
         """从本地检查点文件加载ESM-3模型"""
         from esm.pretrained import (
             ESM3,
@@ -480,9 +478,7 @@ class ESM3Encoder(nn.Module):
         self._model_source = "local_checkpoint"
         return cast(nn.Module, model)
 
-    def _load_from_huggingface(
-        self, device: Union[str, torch.device]
-    ) -> nn.Module:
+    def _load_from_huggingface(self, device: Union[str, torch.device]) -> nn.Module:
         """从HuggingFace加载ESM-3模型"""
         from esm.pretrained import ESM3_sm_open_v0
 
@@ -584,10 +580,7 @@ class ESM3Encoder(nn.Module):
 
         if normalized not in ESM3Encoder.MODEL_NAMES:
             available = ", ".join(ESM3Encoder.MODEL_NAMES.keys())
-            raise ValueError(
-                f"无效的ESM-3模型尺寸: '{model_size}'。"
-                f"可用的模型尺寸: {available}"
-            )
+            raise ValueError(f"无效的ESM-3模型尺寸: '{model_size}'。可用的模型尺寸: {available}")
 
         return normalized
 
@@ -624,12 +617,8 @@ class ProtBERTEncoder(PretrainedEncoder):
 
         logger.info(f"加载预训练模型: {model_name}")
         try:
-            self.config = BertConfig.from_pretrained(
-                model_name, cache_dir=cache_dir, local_files_only=True
-            )
-            self.model = BertModel.from_pretrained(
-                model_name, cache_dir=cache_dir, local_files_only=True
-            )
+            self.config = BertConfig.from_pretrained(model_name, cache_dir=cache_dir, local_files_only=True)
+            self.model = BertModel.from_pretrained(model_name, cache_dir=cache_dir, local_files_only=True)
         except (OSError, ValueError):
             # 如果本地缓存不可用，尝试在线加载（会下载模型）
             logger.warning("本地缓存不可用，尝试在线加载模型")
@@ -645,9 +634,7 @@ class ProtBERTEncoder(PretrainedEncoder):
             logger.info(f"已冻结预训练模型参数: {model_name}")
 
         logger.info(
-            f"ProtBERT编码器初始化完成，"
-            f"隐藏维度: {self.hidden_dim}，"
-            f"参数量: {self.get_num_parameters() / 1e6:.1f}M"
+            f"ProtBERT编码器初始化完成，隐藏维度: {self.hidden_dim}，参数量: {self.get_num_parameters() / 1e6:.1f}M"
         )
 
 
@@ -677,19 +664,17 @@ class ProtT5Encoder(PretrainedEncoder):
         )
 
         logger.info(
-            f"ProtT5编码器初始化完成，"
-            f"隐藏维度: {self.hidden_dim}，"
-            f"参数量: {self.get_num_parameters() / 1e6:.1f}M"
+            f"ProtT5编码器初始化完成，隐藏维度: {self.hidden_dim}，参数量: {self.get_num_parameters() / 1e6:.1f}M"
         )
 
 
 class ESM3TokenizerAdapter:
     """
     ESM-3 tokenizer适配器
-    
+
     将ESM-3的TokenizerCollection接口适配为HuggingFace tokenizer兼容接口，
     使得ESMTokenizedDataset等下游组件可以无缝使用ESM-3 tokenizer。
-    
+
     ESM-3的序列tokenizer直接将每个氨基酸映射到一个token ID，不添加
     <cls>/<eos>等特殊token。本适配器为保持与ESM-2数据集兼容，会在序列
     首尾添加占位token（pad_token_id），使position mapping逻辑保持一致。
@@ -755,7 +740,7 @@ class ESM3TokenizerAdapter:
 
             # 截断（预留2个位置给BOS/EOS占位token）
             if truncation and len(token_ids) > max_length - 2:
-                token_ids = token_ids[:max_length - 2]
+                token_ids = token_ids[: max_length - 2]
 
             # 添加BOS和EOS占位token（与ESM-2的<cls>/<eos>对齐）
             token_ids = [self.bos_token_id] + token_ids + [self.eos_token_id]
@@ -830,7 +815,8 @@ def esm3_encoder(*args: Any, strict: bool = False, **kwargs: Any) -> nn.Module:
         except (OSError, ImportError, ValueError, RuntimeError) as exc:
             logger.warning(
                 "ESM3Encoder instantiation failed (%s: %s). %s",
-                type(exc).__name__, exc,
+                type(exc).__name__,
+                exc,
                 "Strict mode forbids fallback." if strict else "Falling back to ESM2Encoder.",
             )
             if strict:

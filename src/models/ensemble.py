@@ -38,18 +38,13 @@ class PTM2CellNetEnsemble(nn.Module):
             raise ValueError("models 列表不能为空，至少需要一个子模型")
 
         if aggregation not in self._VALID_AGGREGATIONS:
-            raise ValueError(
-                f"aggregation 必须是 {self._VALID_AGGREGATIONS} 之一，"
-                f"收到: {aggregation!r}"
-            )
+            raise ValueError(f"aggregation 必须是 {self._VALID_AGGREGATIONS} 之一，收到: {aggregation!r}")
 
         if aggregation == "weighted" and weights is None:
             raise ValueError("aggregation='weighted' 时必须提供 weights")
 
         if weights is not None and len(weights) != len(models):
-            raise ValueError(
-                f"weights 长度 ({len(weights)}) 必须等于 models 长度 ({len(models)})"
-            )
+            raise ValueError(f"weights 长度 ({len(weights)}) 必须等于 models 长度 ({len(models)})")
 
         self.aggregation = aggregation
         self.num_models = len(models)

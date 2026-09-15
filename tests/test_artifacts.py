@@ -25,6 +25,7 @@ from src.utils.config import Config
 # Mocks
 # ---------------------------------------------------------------------------
 
+
 class MockModel(nn.Module):
     """最小可保存 nn.Module, 供 state_dict 导出测试使用"""
 
@@ -38,19 +39,22 @@ class MockModel(nn.Module):
 
 def _make_config(num_classes=3, max_seq_len=1000):
     """构造一份最小可用 config dict"""
-    return Config({
-        "model": {"num_classes": num_classes, "hidden_dim": 8},
-        "data": {
-            "max_sequence_length": max_seq_len,
-            "ptm_types": ["phosphorylation"],
-            "cell_states": [f"state_{i}" for i in range(num_classes)],
-        },
-    })
+    return Config(
+        {
+            "model": {"num_classes": num_classes, "hidden_dim": 8},
+            "data": {
+                "max_sequence_length": max_seq_len,
+                "ptm_types": ["phosphorylation"],
+                "cell_states": [f"state_{i}" for i in range(num_classes)],
+            },
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # write_artifact_manifest
 # ---------------------------------------------------------------------------
+
 
 class TestWriteArtifactManifest:
     """artifact_manifest.json 写入格式测试"""
@@ -193,6 +197,7 @@ class TestWriteArtifactManifest:
 # export_inference_artifact
 # ---------------------------------------------------------------------------
 
+
 class TestExportInferenceArtifact:
     """best_model.pt + best_model.config.yaml 导出测试"""
 
@@ -201,7 +206,10 @@ class TestExportInferenceArtifact:
         model = MockModel(num_classes=3)
         cfg = _make_config(num_classes=3)
         paths = art.export_inference_artifact(
-            model, cfg, tmp_path, cell_states=["s0", "s1", "s2"],
+            model,
+            cfg,
+            tmp_path,
+            cell_states=["s0", "s1", "s2"],
         )
         assert Path(paths["checkpoint_path"]).exists()
         assert Path(paths["config_path"]).exists()
@@ -213,7 +221,10 @@ class TestExportInferenceArtifact:
         model = MockModel(num_classes=2)
         cfg = _make_config(num_classes=2)
         art.export_inference_artifact(
-            model, cfg, tmp_path, cell_states=["s0", "s1"],
+            model,
+            cfg,
+            tmp_path,
+            cell_states=["s0", "s1"],
         )
         state = torch.load(tmp_path / "best_model.pt", weights_only=True)
         assert isinstance(state, dict)
@@ -222,10 +233,14 @@ class TestExportInferenceArtifact:
     def test_config_yaml_contains_cell_states(self, tmp_path):
         """导出的 config.yaml 自描述 cell_states"""
         import yaml
+
         model = MockModel(num_classes=2)
         cfg = _make_config(num_classes=2)
         art.export_inference_artifact(
-            model, cfg, tmp_path, cell_states=["alpha", "beta"],
+            model,
+            cfg,
+            tmp_path,
+            cell_states=["alpha", "beta"],
         )
         with open(tmp_path / "best_model.config.yaml", encoding="utf-8") as f:
             saved = yaml.safe_load(f)
@@ -238,7 +253,10 @@ class TestExportInferenceArtifact:
         cfg = _make_config(num_classes=3)  # 故意设为 3
         with pytest.raises(ValueError):
             art.export_inference_artifact(
-                model, cfg, tmp_path, cell_states=["s0", "s1"],  # 只有 2 个
+                model,
+                cfg,
+                tmp_path,
+                cell_states=["s0", "s1"],  # 只有 2 个
             )
 
     def test_missing_cell_states_raises(self, tmp_path):
@@ -250,6 +268,7 @@ class TestExportInferenceArtifact:
 
     def test_lightning_module_unwrap(self, tmp_path):
         """传入带 .model 属性的 LightningModule 风格对象可正确解包"""
+
         class FakeLightningModule:
             def __init__(self, base):
                 self.model = base
@@ -257,7 +276,10 @@ class TestExportInferenceArtifact:
         base = MockModel(num_classes=2)
         cfg = _make_config(num_classes=2)
         paths = art.export_inference_artifact(
-            FakeLightningModule(base), cfg, tmp_path, cell_states=["s0", "s1"],
+            FakeLightningModule(base),
+            cfg,
+            tmp_path,
+            cell_states=["s0", "s1"],
         )
         assert Path(paths["checkpoint_path"]).exists()
 
@@ -266,13 +288,17 @@ class TestExportInferenceArtifact:
         cfg = _make_config(num_classes=2)
         with pytest.raises(TypeError):
             art.export_inference_artifact(
-                object(), cfg, tmp_path, cell_states=["s0", "s1"],
+                object(),
+                cfg,
+                tmp_path,
+                cell_states=["s0", "s1"],
             )
 
 
 # ---------------------------------------------------------------------------
 # Helpers: evaluate_release_gate / dataset_hash
 # ---------------------------------------------------------------------------
+
 
 class TestEvaluateReleaseGate:
     """release gate 评估逻辑测试"""

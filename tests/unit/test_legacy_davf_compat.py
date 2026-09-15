@@ -29,17 +29,13 @@ def _make_module(checkpoint_path: str) -> DAVFInferenceModule:
 
 
 def test_legacy_checkpoint_loads_as_davf():
-    mod = _make_module(
-        "checkpoints/latent_davf_ibd_norman/best_model.safe.pt"
-    )
+    mod = _make_module("checkpoints/latent_davf_ibd_norman/best_model.safe.pt")
     assert mod.model_source == "davf"
     assert type(mod.latent_davf).__name__ == "LegacyLatentDAVF"
 
 
 def test_legacy_features_are_direction_sensitive():
-    mod = _make_module(
-        "checkpoints/latent_davf_ibd_norman/best_model.safe.pt"
-    )
+    mod = _make_module("checkpoints/latent_davf_ibd_norman/best_model.safe.pt")
 
     def feats(g: int, d: int) -> torch.Tensor:
         out = PTMDirectionMapperOutput(
@@ -59,9 +55,7 @@ def test_legacy_features_are_direction_sensitive():
 
 
 def test_legacy_all_masked_no_nan():
-    mod = _make_module(
-        "checkpoints/latent_davf_ibd_norman/best_model.safe.pt"
-    )
+    mod = _make_module("checkpoints/latent_davf_ibd_norman/best_model.safe.pt")
     out = PTMDirectionMapperOutput(
         gene_ids=torch.zeros(1, 1, dtype=torch.long),
         directions=torch.zeros(1, 1, dtype=torch.long),

@@ -92,9 +92,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "ok": True,
                 "metrics": result["metrics"],
                 "artifacts": paths,
-                "split_sizes": {
-                    name: int(len(result["split"][name])) for name in ("train", "validation", "test")
-                },
+                "split_sizes": {name: int(len(result["split"][name])) for name in ("train", "validation", "test")},
             },
             ensure_ascii=False,
             indent=2,

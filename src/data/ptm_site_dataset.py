@@ -62,7 +62,7 @@ class PTMSiteDataset(Dataset):
 
         # 筛选PTM类型
         if ptm_type is not None:
-            df = df[df['ptm_type'] == ptm_type]
+            df = df[df["ptm_type"] == ptm_type]
 
         # 限制样本数
         if max_samples is not None and len(df) > max_samples:
@@ -70,8 +70,8 @@ class PTMSiteDataset(Dataset):
 
         # 平衡正负样本
         if balance:
-            pos_df = df[df['label'] == 1]
-            neg_df = df[df['label'] == 0]
+            pos_df = df[df["label"] == 1]
+            neg_df = df[df["label"] == 0]
             min_count = min(len(pos_df), len(neg_df))
             pos_df = pos_df.sample(n=min_count, random_state=seed)
             neg_df = neg_df.sample(n=min_count, random_state=seed)
@@ -80,8 +80,8 @@ class PTMSiteDataset(Dataset):
         self.df = df.reset_index(drop=True)
 
         # 统计信息
-        self.pos_count = (self.df['label'] == 1).sum()
-        self.neg_count = (self.df['label'] == 0).sum()
+        self.pos_count = (self.df["label"] == 1).sum()
+        self.neg_count = (self.df["label"] == 0).sum()
 
         logger.info("加载数据集: %s", csv_path)
         logger.info("总样本数: %d", len(self.df))
@@ -107,7 +107,7 @@ class PTMSiteDataset(Dataset):
         elif len(sequence) > self.window_size:
             # 居中截取
             start = (len(sequence) - self.window_size) // 2
-            sequence = sequence[start:start + self.window_size]
+            sequence = sequence[start : start + self.window_size]
 
         # One-hot编码: +1 for padding column (index 0)
         onehot = torch.zeros(self.window_size, len(AMINO_ACIDS) + 1, dtype=torch.float32)
@@ -129,10 +129,10 @@ class PTMSiteDataset(Dataset):
             (window_size,) 的索引tensor
         """
         if len(sequence) < self.window_size:
-            sequence = sequence + '-' * (self.window_size - len(sequence))
+            sequence = sequence + "-" * (self.window_size - len(sequence))
         elif len(sequence) > self.window_size:
             start = (len(sequence) - self.window_size) // 2
-            sequence = sequence[start:start + self.window_size]
+            sequence = sequence[start : start + self.window_size]
 
         indices = torch.zeros(self.window_size, dtype=torch.long)
         for i, aa in enumerate(sequence):
@@ -157,17 +157,17 @@ class PTMSiteDataset(Dataset):
         """
         row = self.df.iloc[idx]
 
-        sequence_window = row['sequence_window']
-        label = int(row['label'])
-        position = int(row['position'])
-        aa = row['aa']
+        sequence_window = row["sequence_window"]
+        label = int(row["label"])
+        position = int(row["position"])
+        aa = row["aa"]
 
         return {
-            'sequence_onehot': self._encode_sequence(sequence_window),
-            'sequence_indices': self._encode_sequence_indices(sequence_window),
-            'label': torch.tensor(label, dtype=torch.long),
-            'position': torch.tensor(position, dtype=torch.long),
-            'aa_idx': torch.tensor(AA_TO_IDX.get(aa, 20), dtype=torch.long),
+            "sequence_onehot": self._encode_sequence(sequence_window),
+            "sequence_indices": self._encode_sequence_indices(sequence_window),
+            "label": torch.tensor(label, dtype=torch.long),
+            "position": torch.tensor(position, dtype=torch.long),
+            "aa_idx": torch.tensor(AA_TO_IDX.get(aa, 20), dtype=torch.long),
         }
 
 
@@ -226,21 +226,13 @@ class PTMSiteDataModule(L.LightningDataModule):
         """准备数据集"""
         if self.val_path and self.test_path:
             # 使用单独的数据文件
-            self.train_dataset = PTMSiteDataset(
-                self.train_path, self.ptm_type, self.window_size
-            )
-            self.val_dataset = PTMSiteDataset(
-                self.val_path, self.ptm_type, self.window_size
-            )
-            self.test_dataset = PTMSiteDataset(
-                self.test_path, self.ptm_type, self.window_size
-            )
+            self.train_dataset = PTMSiteDataset(self.train_path, self.ptm_type, self.window_size)
+            self.val_dataset = PTMSiteDataset(self.val_path, self.ptm_type, self.window_size)
+            self.test_dataset = PTMSiteDataset(self.test_path, self.ptm_type, self.window_size)
         else:
             # 从单个文件划分
             if self._full_dataset is None:
-                self._full_dataset = PTMSiteDataset(
-                    self.train_path, self.ptm_type, self.window_size
-                )
+                self._full_dataset = PTMSiteDataset(self.train_path, self.ptm_type, self.window_size)
 
             total_size = len(self._full_dataset)
             test_size = int(total_size * self.test_split)
@@ -250,7 +242,7 @@ class PTMSiteDataModule(L.LightningDataModule):
             self.train_dataset, self.val_dataset, self.test_dataset = random_split(
                 self._full_dataset,
                 [train_size, val_size, test_size],
-                generator=torch.Generator().manual_seed(self.seed)
+                generator=torch.Generator().manual_seed(self.seed),
             )
 
             logger.info("数据划分: train=%d, val=%d, test=%d", train_size, val_size, test_size)

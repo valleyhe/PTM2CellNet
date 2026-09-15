@@ -42,9 +42,7 @@ def batch_predict_module():
 
 @pytest.fixture
 def mamba_test_module():
-    return _import_script(
-        "scripts.test_mamba_standalone", SCRIPTS_DIR / "test_mamba_standalone.py"
-    )
+    return _import_script("scripts.test_mamba_standalone", SCRIPTS_DIR / "test_mamba_standalone.py")
 
 
 class TestPredictScript:
@@ -125,7 +123,11 @@ class TestPredictScript:
                 return {"probabilities": torch.softmax(torch.randn(n, num_classes), dim=-1)}
 
         _, _, prob_rows = predict_module._predict_in_batches(
-            FakeModel(), rows, device="cpu", batch_size=2, cell_states=cell_states,
+            FakeModel(),
+            rows,
+            device="cpu",
+            batch_size=2,
+            cell_states=cell_states,
         )
         assert len(prob_rows) == num_samples
         for row in prob_rows:
@@ -134,12 +136,11 @@ class TestPredictScript:
     def test_is_demo_model_detects_demo_via_config(self, predict_module):
         """_is_demo_model flags model.model_kind == 'demo' (P1-3)."""
         from src.utils.config import Config
+
         assert predict_module._is_demo_model(Config({"model": {"model_kind": "demo"}})) is True
         assert predict_module._is_demo_model(Config({"model": {"model_kind": "real"}})) is False
         # data_provenance.training_data containing 'synthetic' also flags demo
-        assert predict_module._is_demo_model(
-            Config({"data_provenance": {"training_data": "synthetic_random"}})
-        ) is True
+        assert predict_module._is_demo_model(Config({"data_provenance": {"training_data": "synthetic_random"}})) is True
 
     def test_is_demo_model_detects_demo_via_manifest(self, predict_module):
         """_is_demo_model reads sibling manifest model_card/data_provenance."""

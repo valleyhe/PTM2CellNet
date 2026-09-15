@@ -41,7 +41,10 @@ class TestBuildDatasetProvenance:
     def test_emits_all_recommended_columns(self):
         df = integrate_data_v2.build_dataset(_sample_sequences(), _sample_sites())
         for col in (
-            "protein_accession", "gene_symbol", "source_db", "evidence_level",
+            "protein_accession",
+            "gene_symbol",
+            "source_db",
+            "evidence_level",
         ):
             assert col in df.columns, f"missing recommended column {col}"
         assert len(df) == 2
@@ -52,9 +55,7 @@ class TestBuildDatasetProvenance:
 
     def test_gene_symbol_mapped_from_idmapping(self):
         gene_map = {"P12345": "TP53"}
-        df = integrate_data_v2.build_dataset(
-            _sample_sequences(), _sample_sites(), gene_symbol_map=gene_map
-        )
+        df = integrate_data_v2.build_dataset(_sample_sequences(), _sample_sites(), gene_symbol_map=gene_map)
         by_id = df.set_index("uniprot_id")["gene_symbol"]
         assert by_id["P12345"] == "TP53"
         # 无映射的 accession 留空而非报错
@@ -94,24 +95,22 @@ class TestGeneSymbolMapLoader:
 class TestIntegrateLabelsProvenance:
     def test_pmads_columns_are_propagated(self, tmp_path, monkeypatch):
         """PMADS 分支：protein→protein_accession、source→source_db。"""
-        pmads = pd.DataFrame({
-            "id": ["p1"],
-            "sequence": ["ACDEFGHIK"],
-            "ptm_sites": ['[{"position":1,"type":"phosphorylation"}]'],
-            "cell_state": ["apoptosis"],
-            "protein": ["P12345"],
-            "ptm_position": [1],
-            "ptm_type": ["phosphorylation"],
-            "source": ["pmads_db"],
-        })
-        monkeypatch.setattr(
-            integrate_data_v2, "PROCESSED_DIR", str(tmp_path)
+        pmads = pd.DataFrame(
+            {
+                "id": ["p1"],
+                "sequence": ["ACDEFGHIK"],
+                "ptm_sites": ['[{"position":1,"type":"phosphorylation"}]'],
+                "cell_state": ["apoptosis"],
+                "protein": ["P12345"],
+                "ptm_position": [1],
+                "ptm_type": ["phosphorylation"],
+                "source": ["pmads_db"],
+            }
         )
+        monkeypatch.setattr(integrate_data_v2, "PROCESSED_DIR", str(tmp_path))
         pmads.to_csv(tmp_path / "pmads_combined.csv", index=False)
 
-        out = integrate_data_v2.integrate_labels(
-            pd.DataFrame(), gene_symbol_map={"P12345": "TP53"}
-        )
+        out = integrate_data_v2.integrate_labels(pd.DataFrame(), gene_symbol_map={"P12345": "TP53"})
         assert out.iloc[0]["protein_accession"] == "P12345"
         assert out.iloc[0]["gene_symbol"] == "TP53"
         assert out.iloc[0]["source_db"] == "pmads_db"

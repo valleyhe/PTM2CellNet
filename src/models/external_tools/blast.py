@@ -51,9 +51,7 @@ class BLASTClient:
             return []
 
         try:
-            result_handle = NCBIWWW.qblast(
-                "blastp", database, sequence, expect=e_value
-            )
+            result_handle = NCBIWWW.qblast("blastp", database, sequence, expect=e_value)
             blast_records = NCBIXML.parse(result_handle)
 
             hits: List[BLASTHit] = []

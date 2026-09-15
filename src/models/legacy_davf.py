@@ -53,9 +53,7 @@ class LegacyBiPerturbEncoder(nn.Module):
             embed_dim=direction_embed_dim,
             dropout=dropout,
         )
-        self.input_projection = nn.Linear(
-            gene_embed_dim + direction_embed_dim, hidden_dim
-        )
+        self.input_projection = nn.Linear(gene_embed_dim + direction_embed_dim, hidden_dim)
         self.direction_modulation = nn.Sequential(
             nn.Linear(direction_embed_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -159,10 +157,7 @@ class LegacyLatentDAVF(nn.Module):
         if (gene_ids < 0).any():
             raise ValueError("gene_ids must be non-negative")
         if gene_ids.numel() > 0 and gene_ids.max().item() >= self.GENE_TABLE_SIZE:
-            raise ValueError(
-                f"gene_ids must be in [0, {self.GENE_TABLE_SIZE}), "
-                f"got max {gene_ids.max().item()}"
-            )
+            raise ValueError(f"gene_ids must be in [0, {self.GENE_TABLE_SIZE}), got max {gene_ids.max().item()}")
         emb = self.gene_embed_table(gene_ids)  # [B, K, 1152]
         return cast(torch.Tensor, self.gene_embed_proj(emb))  # [B, K, 192]
 
@@ -170,6 +165,4 @@ class LegacyLatentDAVF(nn.Module):
     def is_legacy_state_dict(state_dict: Dict[str, torch.Tensor]) -> bool:
         """按参数块前缀判断是否为旧架构 checkpoint。"""
         keys = set(state_dict.keys())
-        return any(k.startswith("delta_mlp.") for k in keys) and any(
-            k.startswith("biperturb_encoder.") for k in keys
-        )
+        return any(k.startswith("delta_mlp.") for k in keys) and any(k.startswith("biperturb_encoder.") for k in keys)

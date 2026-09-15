@@ -27,6 +27,7 @@ logger = setup_logger(__name__)
 
 class _LatencyStats(TypedDict):
     """Percentile latency statistics."""
+
     avg_ms: float
     p50_ms: float
     p95_ms: float
@@ -35,6 +36,7 @@ class _LatencyStats(TypedDict):
 
 class _MetricsSnapshot(TypedDict):
     """Return type of _RuntimeMetrics.snapshot()."""
+
     request_count: int
     error_count: int
     error_rate: float
@@ -44,6 +46,7 @@ class _MetricsSnapshot(TypedDict):
 
 class _GpuMetrics(TypedDict, total=False):
     """GPU utilization metrics collected at /metrics."""
+
     gpu_utilization_pct: float
     gpu_memory_allocated_mb: float
     gpu_memory_reserved_mb: float
@@ -127,13 +130,16 @@ class _RuntimeMetrics:
         bucket_counts["le_+Inf"] = count
 
         error_rate = (error_count / request_count) if request_count else 0.0
-        return cast(_MetricsSnapshot, {
-            "request_count": request_count,
-            "error_count": error_count,
-            "error_rate": round(error_rate, 6),
-            "latency": latency_stats,
-            "latency_buckets": bucket_counts,
-        })
+        return cast(
+            _MetricsSnapshot,
+            {
+                "request_count": request_count,
+                "error_count": error_count,
+                "error_rate": round(error_rate, 6),
+                "latency": latency_stats,
+                "latency_buckets": bucket_counts,
+            },
+        )
 
 
 _RUNTIME_METRICS = _RuntimeMetrics()
@@ -321,10 +327,7 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
         if not allowed:
             return StarletteResponse(
                 status_code=429,
-                content=(
-                    "Rate limit exceeded. Try again in "
-                    f"{retry_after} second(s)."
-                ),
+                content=(f"Rate limit exceeded. Try again in {retry_after} second(s)."),
                 headers={"Retry-After": str(retry_after)},
             )
         return await call_next(request)

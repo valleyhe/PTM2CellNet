@@ -16,9 +16,7 @@ def _make_batch(batch_size: int = 2, seq_len: int = 16, num_classes: int = 4):
     return {
         "sequence": torch.randint(1, 21, (batch_size, seq_len)),
         "ptm_types": torch.zeros(batch_size, seq_len, dtype=torch.long),
-        "ptm_positions": (
-            torch.arange(seq_len).unsqueeze(0).repeat(batch_size, 1)
-        ),
+        "ptm_positions": (torch.arange(seq_len).unsqueeze(0).repeat(batch_size, 1)),
         "ptm_mask": torch.zeros(batch_size, seq_len),
         "label": torch.randint(0, num_classes, (batch_size,)),
     }
@@ -26,7 +24,10 @@ def _make_batch(batch_size: int = 2, seq_len: int = 16, num_classes: int = 4):
 
 def test_use_ptm_module_false_skips_module():
     model = PTM2CellNet(
-        encoder_type="cnn", embed_dim=32, num_classes=4, use_ptm_module=False,
+        encoder_type="cnn",
+        embed_dim=32,
+        num_classes=4,
+        use_ptm_module=False,
     )
     assert model.ptm_module is None
     out = model(_make_batch())

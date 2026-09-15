@@ -93,11 +93,15 @@ class _MockESM3(nn.Module):
         if sequence_tokens is None:
             raise ValueError("No tokens")
         batch_size, seq_len = sequence_tokens.shape
-        return type("Result", (), {
-            "embeddings": torch.randn(batch_size, seq_len, self.d_model),
-            "structure_logits": torch.randn(batch_size, seq_len, 4096),
-            "function_logits": torch.randn(batch_size, seq_len, 5),
-        })()
+        return type(
+            "Result",
+            (),
+            {
+                "embeddings": torch.randn(batch_size, seq_len, self.d_model),
+                "structure_logits": torch.randn(batch_size, seq_len, 4096),
+                "function_logits": torch.randn(batch_size, seq_len, 5),
+            },
+        )()
 
 
 def _mock_load_local(self, path, device):
@@ -106,7 +110,9 @@ def _mock_load_local(self, path, device):
     self.model = model
     self.hidden_dim = 1536
     self.tokenizer = type(
-        "Adapter", (), {
+        "Adapter",
+        (),
+        {
             "mask_token_id": 128,
             "pad_token_id": 0,
             "vocab_size": 4096,
@@ -114,7 +120,7 @@ def _mock_load_local(self, path, device):
             "eos_token_id": 0,
             "unk_token_id": 128,
             "__call__": lambda self, sequences, **kw: {"input_ids": torch.randint(0, 100, (len(sequences), 50))},
-        }
+        },
     )()
     self._device = device
     self._model_source = "local_checkpoint"
@@ -127,7 +133,9 @@ def _mock_load_hf(self, device):
     self.model = model
     self.hidden_dim = 1536
     self.tokenizer = type(
-        "Adapter", (), {
+        "Adapter",
+        (),
+        {
             "mask_token_id": 128,
             "pad_token_id": 0,
             "vocab_size": 4096,
@@ -135,7 +143,7 @@ def _mock_load_hf(self, device):
             "eos_token_id": 0,
             "unk_token_id": 128,
             "__call__": lambda self, sequences, **kw: {"input_ids": torch.randint(0, 100, (len(sequences), 50))},
-        }
+        },
     )()
     self._device = device
     self._model_source = "huggingface"

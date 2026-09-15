@@ -21,6 +21,7 @@ _ENSEMBL_RE = re.compile(r"^ENSG\d+$")
 _ENSEMBL_VERSION_RE = re.compile(r"\.\d+$")
 _VALID_PATHS = {"source_intervention", "within_state"}
 _VALID_MODES = {"mask", "pad", "delete", "overexpress"}
+_SPECIAL_TOKEN_NAMES = frozenset({"<cls>", "<eos>", "<mask>", "<pad>"})
 
 
 def _canonical_ensembl_id(value: Any) -> str:
@@ -125,6 +126,10 @@ def _token_values(
     values: dict[str, float] = {}
     if isinstance(token_vocabulary, Mapping):
         for gene, token in token_vocabulary.items():
+            if isinstance(gene, str) and gene in _SPECIAL_TOKEN_NAMES:
+                if isinstance(token, bool) or not isinstance(token, (int, np.integer)) or int(token) < 0:
+                    raise ValueError("token_vocabulary special-token IDs must be non-negative integers")
+                continue
             canonical = _canonical_ensembl_id(gene)
             if canonical in values:
                 raise ValueError("token_vocabulary contains duplicate Ensembl IDs")
@@ -137,6 +142,8 @@ def _token_values(
     if isinstance(token_vocabulary, (str, bytes)):
         raise ValueError("token_vocabulary must be a mapping or ordered sequence")
     for rank, gene in enumerate(token_vocabulary, start=1):
+        if isinstance(gene, str) and gene in _SPECIAL_TOKEN_NAMES:
+            continue
         canonical = _canonical_ensembl_id(gene)
         if canonical in values:
             raise ValueError("token_vocabulary contains duplicate Ensembl IDs")
@@ -302,9 +309,7 @@ def _validate_selection_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     excluded_ids = _canonical_ids(manifest["excluded_ids"], name="selection manifest excluded_ids")
     if target_id not in excluded_ids:
         raise ValueError("selection manifest excluded_ids must contain target")
-    candidate_ids = _canonical_ids(
-        manifest["excluded_candidate_ids"], name="selection manifest excluded_candidate_ids"
-    )
+    candidate_ids = _canonical_ids(manifest["excluded_candidate_ids"], name="selection manifest excluded_candidate_ids")
     if target_id in candidate_ids:
         raise ValueError("selection manifest excluded_candidate_ids must not contain target")
     if set(excluded_ids) != {target_id, *candidate_ids}:

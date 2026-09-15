@@ -101,9 +101,7 @@ def prepare_pmads_frame(df: pd.DataFrame, *, target_col: str = "label") -> pd.Da
             ptm_types = frame.get("ptm_type", pd.Series("unknown", index=frame.index))
             frame["ptm_sites"] = [
                 json.dumps(
-                    [{"position": int(position), "type": str(ptm_type)}]
-                    if pd.notna(position)
-                    else [],
+                    [{"position": int(position), "type": str(ptm_type)}] if pd.notna(position) else [],
                     ensure_ascii=False,
                 )
                 for position, ptm_type in zip(frame["ptm_position"], ptm_types, strict=False)
@@ -210,9 +208,7 @@ def deterministic_split(
                 test_size=relative_validation,
                 random_state=seed + 1,
             )
-            train_rel, val_rel = next(
-                second.split(train_val_idx, groups=groups.iloc[train_val_idx].to_numpy())
-            )
+            train_rel, val_rel = next(second.split(train_val_idx, groups=groups.iloc[train_val_idx].to_numpy()))
             train_idx, val_idx = train_val_idx[train_rel], train_val_idx[val_rel]
         split_strategy = "group_shuffle_split"
     else:
@@ -363,13 +359,16 @@ class PMADSRidgeBaseline:
             counts = {aa: sequence.count(aa) / length for aa in AMINO_ACIDS}
             site_features = self._site_features(row["ptm_sites"], length)
             values = [float(length)] + [float(counts[aa]) for aa in AMINO_ACIDS]
-            values += [site_features[name] for name in (
-                "ptm_count",
-                "ptm_position_mean",
-                "ptm_position_std",
-                "ptm_position_min",
-                "ptm_position_max",
-            )]
+            values += [
+                site_features[name]
+                for name in (
+                    "ptm_count",
+                    "ptm_position_mean",
+                    "ptm_position_std",
+                    "ptm_position_min",
+                    "ptm_position_max",
+                )
+            ]
             type_set = set(site_features["_types"])
             values += [1.0 if ptm_type in type_set else 0.0 for ptm_type in self.ptm_types_]
             values += [float(numeric_values[column][row_index]) for column in self.numeric_columns_]

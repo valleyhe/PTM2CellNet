@@ -99,6 +99,7 @@ def _validate_path_within_allowed(path: Path) -> Path:
         detail=f"Path escapes allowed directories: {resolved}",
     )
 
+
 _API_KEY_ENV = "PTM2CELLNET_API_KEY"
 _ENV_VAR = "PTM2CELLNET_ENV"
 # Environments in which /initialize may run without an API key (dev/test only).
@@ -160,9 +161,7 @@ def _detect_checkpoint_format(checkpoint: Any) -> str:
     if not isinstance(checkpoint, dict):
         return "unknown"
     if "pytorch-lightning_version" in checkpoint or (
-        "state_dict" in checkpoint and any(
-            k.startswith("model.") for k in checkpoint["state_dict"]
-        )
+        "state_dict" in checkpoint and any(k.startswith("model.") for k in checkpoint["state_dict"])
     ):
         return "lightning"
     if "model_state_dict" in checkpoint:
@@ -178,18 +177,13 @@ class InitializeRequest(BaseModel):
     checkpoint_path: str = Field(..., description="模型权重文件路径")
     config_path: Optional[str] = Field(
         None,
-        description=(
-            "配置文件路径。若留空，则自动查找 checkpoint 同目录的 "
-            "<name>.config.yaml"
-        ),
+        description=("配置文件路径。若留空，则自动查找 checkpoint 同目录的 <name>.config.yaml"),
     )
     cell_states: Optional[List[str]] = Field(
         None,
         description="细胞状态标签列表。若留空，则使用配置文件中的 data.cell_states。",
     )
-    device: Optional[str] = Field(
-        None, description="加载设备（cuda/cpu）。留空时自动选择。"
-    )
+    device: Optional[str] = Field(None, description="加载设备（cuda/cpu）。留空时自动选择。")
 
 
 class InitializeResponse(BaseModel):
@@ -201,14 +195,10 @@ class InitializeResponse(BaseModel):
     cell_states: List[str] = Field(default_factory=list, description="加载的细胞状态标签")
     device: str = Field(..., description="模型所在设备")
     message: Optional[str] = Field(None, description="附加信息（如警告）")
-    loaded_format: Optional[str] = Field(
-        None, description="识别到的 checkpoint 格式：state_dict/lightning/legacy"
-    )
+    loaded_format: Optional[str] = Field(None, description="识别到的 checkpoint 格式：state_dict/lightning/legacy")
     missing_keys_count: int = Field(0, description="加载时缺失的权重键数量")
     unexpected_keys_count: int = Field(0, description="加载时多余的权重键数量")
-    loaded_parameter_ratio: Optional[float] = Field(
-        None, description="已加载参数占模型总参数的比例 (0-1)"
-    )
+    loaded_parameter_ratio: Optional[float] = Field(None, description="已加载参数占模型总参数的比例 (0-1)")
 
 
 @router.post("/initialize", response_model=InitializeResponse)
@@ -234,9 +224,7 @@ async def initialize_endpoint(
         )
 
     try:
-        config_obj, config_source = resolve_inference_config(
-            request.checkpoint_path, request.config_path
-        )
+        config_obj, config_source = resolve_inference_config(request.checkpoint_path, request.config_path)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -275,7 +263,8 @@ async def initialize_endpoint(
             # 而非通过 missing/unexpected 报告。统一转为 400 可操作错误。
             logger.error(
                 "initialize: checkpoint 权重形状不匹配 (format=%s): %s",
-                loaded_format, shape_exc,
+                loaded_format,
+                shape_exc,
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -289,15 +278,15 @@ async def initialize_endpoint(
         if missing or unexpected:
             total_params = sum(p.numel() for p in model.parameters())
             matched_params = sum(
-                p.numel()
-                for name, p in model.named_parameters()
-                if name not in missing and name in state_dict
+                p.numel() for name, p in model.named_parameters() if name not in missing and name in state_dict
             )
             ratio = (matched_params / total_params) if total_params else 0.0
             logger.error(
-                "initialize: checkpoint 权重不匹配 (format=%s) missing=%d unexpected=%d "
-                "loaded_ratio=%.4f",
-                loaded_format, len(missing), len(unexpected), ratio,
+                "initialize: checkpoint 权重不匹配 (format=%s) missing=%d unexpected=%d loaded_ratio=%.4f",
+                loaded_format,
+                len(missing),
+                len(unexpected),
+                ratio,
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -321,7 +310,10 @@ async def initialize_endpoint(
         total_params = sum(p.numel() for p in model.parameters())
         logger.info(
             "模型热加载完成: checkpoint=%s, config=%s, device=%s, format=%s",
-            ckpt_path, config_source, device, loaded_format,
+            ckpt_path,
+            config_source,
+            device,
+            loaded_format,
         )
         return loaded_format, total_params
 

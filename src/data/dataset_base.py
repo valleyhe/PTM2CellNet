@@ -2,6 +2,7 @@
 数据集基类和工具函数
 功能概述: 提供共享功能和工具，减少ESMTokenizedDataset和PTMDataset之间的重复代码
 """
+
 import dataclasses
 import json
 from dataclasses import dataclass
@@ -192,8 +193,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
             if configured_labels:
                 self.labels = [str(label) for label in configured_labels]
                 self.label_to_idx = {
-                    str(label): int(configured_mapping.get(label, i))
-                    for i, label in enumerate(self.labels)
+                    str(label): int(configured_mapping.get(label, i)) for i, label in enumerate(self.labels)
                 }
             else:
                 self.labels = sorted(self.df["cell_state"].unique())
@@ -208,6 +208,7 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
         if self.config.cache_dir:
             try:
                 from .validation import DatasetCache
+
                 self.dataset_cache = DatasetCache(self.config.cache_dir)
             except (ImportError, TypeError, ValueError) as exc:  # 缓存初始化失败不阻塞数据加载
                 logger.warning("DatasetCache 初始化失败 (%s)，将不使用缓存", exc)
@@ -233,10 +234,9 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
         if label in self.label_to_idx:
             return torch.tensor(self.label_to_idx[label], dtype=torch.long)
         # 检查是否是传播的训练标签映射（有labels属性）导致的未知标签
-        if hasattr(self, 'labels') and self.labels and label not in self.label_to_idx:
+        if hasattr(self, "labels") and self.labels and label not in self.label_to_idx:
             raise ValueError(
-                f"验证/测试集中存在训练集中未见过的标签: '{label}'。 "
-                f"训练集标签: {list(self.label_to_idx.keys())}"
+                f"验证/测试集中存在训练集中未见过的标签: '{label}'。 训练集标签: {list(self.label_to_idx.keys())}"
             )
         raise ValueError(f"未知标签: {label}，可用标签: {list(self.label_to_idx.keys())}")
 
@@ -369,32 +369,32 @@ class PTMDatasetBase(Dataset[Dict[str, torch.Tensor]]):
         logger.info("=" * 50)
         logger.info("数据集统计信息")
         logger.info("=" * 50)
-        logger.info("样本总数: %d", stats['num_samples'])
-        logger.info("特征列数: %d", stats['num_features'])
-        logger.info("列名: %s", ', '.join(stats['columns']))
+        logger.info("样本总数: %d", stats["num_samples"])
+        logger.info("特征列数: %d", stats["num_features"])
+        logger.info("列名: %s", ", ".join(stats["columns"]))
 
         if "sequence_length" in stats:
             seq_stats = stats["sequence_length"]
             logger.info("序列长度统计:")
-            logger.info("  最小值: %d", seq_stats['min'])
-            logger.info("  最大值: %d", seq_stats['max'])
-            logger.info("  平均值: %.2f", seq_stats['mean'])
-            logger.info("  中位数: %.2f", seq_stats['median'])
+            logger.info("  最小值: %d", seq_stats["min"])
+            logger.info("  最大值: %d", seq_stats["max"])
+            logger.info("  平均值: %.2f", seq_stats["mean"])
+            logger.info("  中位数: %.2f", seq_stats["median"])
 
         if "num_classes" in stats:
             logger.info("类别信息:")
-            logger.info("  类别数: %d", stats['num_classes'])
+            logger.info("  类别数: %d", stats["num_classes"])
             logger.info("  标签分布:")
             for label, count in stats["label_distribution"].items():
-                percentage = (count / stats['num_samples']) * 100
+                percentage = (count / stats["num_samples"]) * 100
                 logger.info("    %s: %d (%.1f%%)", label, count, percentage)
 
         if "ptm_per_sample" in stats:
             ptm_stats = stats["ptm_per_sample"]
             logger.info("PTM统计:")
-            logger.info("  每样本PTM数: %d - %d", ptm_stats['min'], ptm_stats['max'])
-            logger.info("  平均每样本PTM: %.2f", ptm_stats['mean'])
-            logger.info("  含PTM的样本数: %d", ptm_stats['samples_with_ptm'])
+            logger.info("  每样本PTM数: %d - %d", ptm_stats["min"], ptm_stats["max"])
+            logger.info("  平均每样本PTM: %.2f", ptm_stats["mean"])
+            logger.info("  含PTM的样本数: %d", ptm_stats["samples_with_ptm"])
 
             if stats.get("ptm_type_distribution"):
                 logger.info("  PTM类型分布:")

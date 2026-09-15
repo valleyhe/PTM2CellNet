@@ -1,0 +1,242 @@
+"""Frozen research-design contract for the PTM-activity → AD intersection mainline.
+
+Implements stage 0 of ``docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md``
+(§7 阶段 0): before any real PTM asset is processed, the reference axis,
+contrast, research objective, activity method, network release, AD DEG
+thresholds, propagation parameters and the frozen cell-type list must be
+recorded in a ``ptm_research_config.yaml`` and validated fail-fast here.
+
+Every downstream CLI (``run_ptm_activity.py``, ``build_ptm_global_gene_scores.py``,
+``build_ptm_ad_intersections.py``, ``build_celltype_candidate_specs.py``)
+consumes this same frozen config so the thresholds cannot drift between
+stages (方案 §8.7: PTM-side thresholds must not be tuned on AD DEG results).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping
+
+import yaml
+
+PTM_RESEARCH_CONFIG_SCHEMA_VERSION = "ptm2cellnet.ptm-research-config/v1"
+
+VALID_RESEARCH_OBJECTIVES = ("association", "replication", "reversal")
+VALID_REPLICATE_POLICIES = ("fail", "mean")
+#: Direction fields that must stay separate per 方案 §3.1; the config freezes
+#: the *reference axis* used to interpret them, it never merges them.
+VALID_REFERENCE_AXES = (
+    "disease_minus_normal",
+    "contrast_specific",
+)
+
+
+class PTMResearchConfigError(ValueError):
+    """Raised when the frozen research design violates the plan contract."""
+
+
+@dataclass(frozen=True)
+class PropagationConfig:
+    """Signed-network propagation parameters (方案 §5.3).
+
+    ``max_depth`` bounds the simple-path search; ``decay`` is the per-hop
+    weight factor applied to every edge regardless of confidence;
+    ``gene_edge_types`` freezes which ``edge_type`` values terminate a path
+    at a gene (e.g. ``tf_regulation``). Genes reached only through other
+    edge types are intermediate network nodes, not scored genes.
+    """
+
+    max_depth: int
+    decay: float
+    gene_edge_types: tuple[str, ...]
+    max_paths_per_seed: int | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_depth, bool) or not isinstance(self.max_depth, int) or self.max_depth < 1:
+            raise PTMResearchConfigError("propagation.max_depth must be an integer >= 1")
+        if not isinstance(self.decay, float) or not 0.0 < self.decay <= 1.0:
+            raise PTMResearchConfigError("propagation.decay must be within (0, 1]")
+        types = tuple(str(value).strip() for value in self.gene_edge_types if str(value).strip())
+        if not types:
+            raise PTMResearchConfigError("propagation.gene_edge_types must contain at least one edge type")
+        object.__setattr__(self, "gene_edge_types", types)
+        if self.max_paths_per_seed is not None and (
+            isinstance(self.max_paths_per_seed, bool)
+            or not isinstance(self.max_paths_per_seed, int)
+            or self.max_paths_per_seed < 1
+        ):
+            raise PTMResearchConfigError("propagation.max_paths_per_seed must be a positive integer or None")
+
+
+@dataclass(frozen=True)
+class PTMResearchConfig:
+    """Frozen stage-0 research design (方案 §7 阶段 0)."""
+
+    schema_version: str
+    research_objective: str
+    reference_axis: str
+    contrast: str
+    primary_activity_method: str
+    network_release: str
+    cell_types: tuple[str, ...]
+    cohort_h5ad: str
+    cohort_pairing: str
+    species: str
+    ptm_cohort: str
+    deg_max_fdr: float
+    min_donors_per_state: int
+    replicate_policy: str
+    propagation: PropagationConfig
+    sensitivity_activity_method: str | None = None
+    semantic_context: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.schema_version != PTM_RESEARCH_CONFIG_SCHEMA_VERSION:
+            raise PTMResearchConfigError(
+                f"schema_version must be {PTM_RESEARCH_CONFIG_SCHEMA_VERSION!r}, got {self.schema_version!r}"
+            )
+        if self.research_objective not in VALID_RESEARCH_OBJECTIVES:
+            raise PTMResearchConfigError(f"research_objective must be one of {', '.join(VALID_RESEARCH_OBJECTIVES)}")
+        if self.reference_axis not in VALID_REFERENCE_AXES:
+            raise PTMResearchConfigError(
+                f"reference_axis must be one of {', '.join(VALID_REFERENCE_AXES)} (方案 §3.1 方向字段不得合并)"
+            )
+        for name in ("contrast", "primary_activity_method", "network_release", "cohort_h5ad", "species", "ptm_cohort"):
+            value = str(getattr(self, name)).strip()
+            if not value:
+                raise PTMResearchConfigError(f"{name} must be a non-empty string")
+            object.__setattr__(self, name, value)
+        if self.cohort_pairing not in ("within_donor", "between_donor"):
+            raise PTMResearchConfigError("cohort_pairing must be 'within_donor' or 'between_donor'")
+        cell_types = tuple(str(value).strip() for value in self.cell_types if str(value).strip())
+        if not cell_types:
+            raise PTMResearchConfigError("cell_types must contain at least one frozen cell type")
+        if len(set(cell_types)) != len(cell_types):
+            raise PTMResearchConfigError("cell_types must not contain duplicates")
+        object.__setattr__(self, "cell_types", cell_types)
+        if not isinstance(self.deg_max_fdr, float) or not 0.0 < self.deg_max_fdr <= 1.0:
+            raise PTMResearchConfigError("deg_max_fdr must be within (0, 1]")
+        if isinstance(self.min_donors_per_state, bool) or not isinstance(self.min_donors_per_state, int):
+            raise PTMResearchConfigError("min_donors_per_state must be an integer")
+        if self.min_donors_per_state < 1:
+            raise PTMResearchConfigError("min_donors_per_state must be >= 1")
+        if self.replicate_policy not in VALID_REPLICATE_POLICIES:
+            raise PTMResearchConfigError(
+                f"replicate_policy must be one of {', '.join(VALID_REPLICATE_POLICIES)}; "
+                "duplicate (sample, protein, residue, ptm_type) rows cannot be resolved silently (方案 §5.1)"
+            )
+        if not isinstance(self.propagation, PropagationConfig):
+            raise PTMResearchConfigError("propagation must be a PropagationConfig")
+        if self.semantic_context:
+            required = (
+                "context",
+                "intervention",
+                "comparison_baseline",
+                "reference_axis",
+                "research_objective",
+                "evidence_source",
+                "cohort",
+            )
+            missing = [key for key in required if key not in self.semantic_context]
+            if missing:
+                raise PTMResearchConfigError("semantic_context template is missing fields: " + ", ".join(missing))
+            frozen = {**self.semantic_context}
+            if frozen["research_objective"] != self.research_objective:
+                raise PTMResearchConfigError(
+                    "semantic_context.research_objective must match the frozen research_objective"
+                )
+            object.__setattr__(self, "semantic_context", frozen)
+
+    def semantic_context_for_cell_type(self, cell_type: str) -> dict[str, str]:
+        """Render the seven-field semantic context for one cell type.
+
+        ``{cell_type}`` placeholders are substituted; a template without
+        placeholders applies verbatim to every cell type. This mapping is
+        what the generated candidate specs carry into the existing E2E
+        semantic-context gate (方案 §3.1).
+        """
+
+        if not self.semantic_context:
+            raise PTMResearchConfigError(
+                "semantic_context template is required to emit candidate specs (方案 §3.1 七字段)"
+            )
+        rendered = {key: str(value).replace("{cell_type}", cell_type) for key, value in self.semantic_context.items()}
+        return rendered
+
+
+def load_ptm_research_config(path: str | Path) -> PTMResearchConfig:
+    """Load and validate the frozen research-design YAML (fail-fast)."""
+
+    resolved = Path(path).expanduser().resolve(strict=True)
+    payload = yaml.safe_load(resolved.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise PTMResearchConfigError(f"research config root must be a YAML mapping: {resolved}")
+    return parse_ptm_research_config(payload)
+
+
+def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
+    """Build a config from an already-parsed mapping."""
+
+    missing: list[str] = []
+    for key in (
+        "schema_version",
+        "research_objective",
+        "reference_axis",
+        "contrast",
+        "primary_activity_method",
+        "network_release",
+        "cell_types",
+        "cohort_h5ad",
+        "cohort_pairing",
+        "species",
+        "ptm_cohort",
+        "deg_max_fdr",
+        "min_donors_per_state",
+        "replicate_policy",
+        "propagation",
+    ):
+        if key not in payload:
+            missing.append(key)
+    if missing:
+        raise PTMResearchConfigError("research config is missing keys: " + ", ".join(missing))
+    propagation_payload = payload["propagation"]
+    if not isinstance(propagation_payload, Mapping):
+        raise PTMResearchConfigError("propagation must be a mapping")
+    for key in ("max_depth", "decay", "gene_edge_types"):
+        if key not in propagation_payload:
+            raise PTMResearchConfigError(f"propagation is missing key: {key}")
+    max_depth = propagation_payload["max_depth"]
+    decay = propagation_payload["decay"]
+    if isinstance(max_depth, bool) or not isinstance(max_depth, int):
+        raise PTMResearchConfigError("propagation.max_depth must be an integer")
+    if isinstance(decay, bool) or not isinstance(decay, (int, float)):
+        raise PTMResearchConfigError("propagation.decay must be numeric")
+    propagation = PropagationConfig(
+        max_depth=max_depth,
+        decay=float(decay),
+        gene_edge_types=tuple(propagation_payload["gene_edge_types"]),
+        max_paths_per_seed=propagation_payload.get("max_paths_per_seed"),
+    )
+    semantic_context = payload.get("semantic_context") or {}
+    if not isinstance(semantic_context, Mapping):
+        raise PTMResearchConfigError("semantic_context must be a mapping")
+    return PTMResearchConfig(
+        schema_version=payload["schema_version"],
+        research_objective=str(payload["research_objective"]).strip(),
+        reference_axis=str(payload["reference_axis"]).strip(),
+        contrast=str(payload["contrast"]).strip(),
+        primary_activity_method=str(payload["primary_activity_method"]).strip(),
+        network_release=str(payload["network_release"]).strip(),
+        cell_types=tuple(payload["cell_types"]),
+        cohort_h5ad=str(payload["cohort_h5ad"]),
+        cohort_pairing=str(payload["cohort_pairing"]),
+        species=str(payload["species"]),
+        ptm_cohort=str(payload["ptm_cohort"]),
+        deg_max_fdr=payload["deg_max_fdr"],
+        min_donors_per_state=payload["min_donors_per_state"],
+        replicate_policy=str(payload["replicate_policy"]).strip(),
+        propagation=propagation,
+        sensitivity_activity_method=payload.get("sensitivity_activity_method"),
+        semantic_context=dict(semantic_context),
+    )

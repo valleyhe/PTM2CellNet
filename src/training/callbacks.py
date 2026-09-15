@@ -17,6 +17,7 @@ logger = setup_logger(__name__)
 
 try:
     from lightning.pytorch.callbacks import Callback as _RealLightningCallback
+
     LightningCallback: type = _RealLightningCallback
 except ImportError:
     LightningCallback = object
@@ -206,9 +207,7 @@ class ModelCheckpoint(Callback):
         self.best_value = float(state.get("best_value", self.best_value))
         self.epochs_since_improvement = int(state.get("epochs_since_improvement", 0))
         raw_top_k = state.get("top_k_checkpoints", [])
-        self._top_k_checkpoints = [
-            (float(value), str(path)) for value, path in raw_top_k
-        ]
+        self._top_k_checkpoints = [(float(value), str(path)) for value, path in raw_top_k]
         # 恢复后按当前 mode 重新排序，防御旧数据未排序或模式漂移。
         self._top_k_checkpoints.sort(key=lambda x: x[0], reverse=(self.mode == "max"))
 
@@ -313,9 +312,7 @@ class ModelCheckpoint(Callback):
             # Track in top-k list
             self._top_k_checkpoints.append((current_value, epoch_filepath))
             # Sort: ascending for mode="min" (best first), descending for mode="max"
-            self._top_k_checkpoints.sort(
-                key=lambda x: x[0], reverse=(self.mode == "max")
-            )
+            self._top_k_checkpoints.sort(key=lambda x: x[0], reverse=(self.mode == "max"))
             self._cleanup_top_k()
 
             if self.verbose > 0:

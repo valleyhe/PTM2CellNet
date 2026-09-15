@@ -30,15 +30,24 @@ def _make_norman(root: Path, *, missing_guide: bool = False) -> Path:
     _write_gz(dataset / "GSE133344_filtered_genes.tsv.gz", "\n".join(genes) + "\n")
     _write_gz(dataset / "GSE133344_filtered_barcodes.tsv.gz", "c0\nc1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\n")
     entries = [
-        (1, 1, 10), (2, 1, 20),
-        (1, 2, 11), (2, 2, 21),
-        (1, 3, 12), (2, 3, 22),
-        (1, 4, 13), (2, 4, 23),
-        (1, 5, 14), (2, 5, 24),
-        (1, 6, 15), (2, 6, 25),
-        (1, 7, 16), (2, 7, 17),
-        (1, 8, 18), (2, 8, 19),
-        (1, 9, 20), (2, 9, 21),
+        (1, 1, 10),
+        (2, 1, 20),
+        (1, 2, 11),
+        (2, 2, 21),
+        (1, 3, 12),
+        (2, 3, 22),
+        (1, 4, 13),
+        (2, 4, 23),
+        (1, 5, 14),
+        (2, 5, 24),
+        (1, 6, 15),
+        (2, 6, 25),
+        (1, 7, 16),
+        (2, 7, 17),
+        (1, 8, 18),
+        (2, 8, 19),
+        (1, 9, 20),
+        (2, 9, 21),
     ]
     lines = [
         "%%MatrixMarket matrix coordinate integer general",
@@ -88,8 +97,15 @@ class _FakeAdapter:
 def _asset():
     return SimpleNamespace(
         gene_to_token={
-            "ENSG1": 17, "ENSG0": 23, "ENSG2": 29, "ENSG3": 31, "ENSG4": 37,
-            "ENSG5": 41, "ENSG6": 43, "ENSG7": 45, "ENSG8": 47,
+            "ENSG1": 17,
+            "ENSG0": 23,
+            "ENSG2": 29,
+            "ENSG3": 31,
+            "ENSG4": 37,
+            "ENSG5": 41,
+            "ENSG6": 43,
+            "ENSG7": 45,
+            "ENSG8": 47,
         },
         vocab_size=50,
         embedding_dim=8,
@@ -118,16 +134,29 @@ def test_build_is_reproducible_and_uses_perturbgen_tokens(tmp_path):
     asset = _asset()
 
     first = builder.build_latent_pairs(
-        dataset, tmp_path / "scvi", tmp_path / "asset", tmp_path / "out_a", seed=7,
-        adapter=adapter, asset=asset,
+        dataset,
+        tmp_path / "scvi",
+        tmp_path / "asset",
+        tmp_path / "out_a",
+        seed=7,
+        adapter=adapter,
+        asset=asset,
     )
     second = builder.build_latent_pairs(
-        dataset, tmp_path / "scvi", tmp_path / "asset", tmp_path / "out_b", seed=7,
-        adapter=adapter, asset=asset,
+        dataset,
+        tmp_path / "scvi",
+        tmp_path / "asset",
+        tmp_path / "out_b",
+        seed=7,
+        adapter=adapter,
+        asset=asset,
     )
     assert set(first) == {"train", "val", "test"}
     for split in first:
-        with np.load(first[split]["path"], allow_pickle=False) as a, np.load(second[split]["path"], allow_pickle=False) as b:
+        with (
+            np.load(first[split]["path"], allow_pickle=False) as a,
+            np.load(second[split]["path"], allow_pickle=False) as b,
+        ):
             for key in ("z_0", "z_1", "gene_ids", "directions", "attention_mask", "metadata_json"):
                 assert np.array_equal(a[key], b[key])
             assert a["gene_ids"].max() < asset.vocab_size
@@ -150,9 +179,7 @@ def test_build_is_reproducible_and_uses_perturbgen_tokens(tmp_path):
             )
             assert len(loaded) == first[split]["samples"]
     # These are asset token rows, not the scVI positions 0/1.
-    all_gene_ids = np.concatenate([
-        np.load(first[split]["path"], allow_pickle=False)["gene_ids"] for split in first
-    ])
+    all_gene_ids = np.concatenate([np.load(first[split]["path"], allow_pickle=False)["gene_ids"] for split in first])
     assert {17, 23}.issubset(set(all_gene_ids.ravel()))
 
 
@@ -222,5 +249,10 @@ def test_missing_perturbgen_mapping_fails_before_encoding(tmp_path):
     asset.gene_to_token.pop("ENSG1")
     with pytest.raises(builder.BuildDAVFLatentPairsError, match="absent from the PerturbGen asset"):
         builder.build_latent_pairs(
-            dataset, tmp_path / "scvi", tmp_path / "asset", tmp_path / "out", adapter=adapter, asset=asset,
+            dataset,
+            tmp_path / "scvi",
+            tmp_path / "asset",
+            tmp_path / "out",
+            adapter=adapter,
+            asset=asset,
         )

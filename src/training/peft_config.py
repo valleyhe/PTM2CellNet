@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from peft import LoraConfig as _LoraConfig_cls
     from peft import TaskType as _TaskType_cls
     from peft import get_peft_model as _get_peft_model_fn
+
     PEFT_AVAILABLE: bool
 else:
     PEFT_AVAILABLE = False
@@ -29,6 +30,7 @@ else:
         from peft import LoraConfig as _LoraConfig_cls
         from peft import TaskType as _TaskType_cls
         from peft import get_peft_model as _get_peft_model_fn
+
         PEFT_AVAILABLE = True
     except ImportError:
         logger.warning("peft库未安装，LoRA功能不可用。请运行: pip install peft>=0.8.0")
@@ -69,10 +71,7 @@ def get_lora_config(
         >>> print(config.r)  # 8
     """
     if not PEFT_AVAILABLE:
-        raise ImportError(
-            "peft库未安装，无法创建LoRA配置。"
-            "请运行: pip install peft>=0.8.0"
-        )
+        raise ImportError("peft库未安装，无法创建LoRA配置。请运行: pip install peft>=0.8.0")
 
     if target_modules is None:
         target_modules = ["query", "key", "value", "dense"]
@@ -86,10 +85,7 @@ def get_lora_config(
         task_type=_TaskType_cls.FEATURE_EXTRACTION,
     )
 
-    logger.info(
-        f"创建LoRA配置: r={r}, alpha={lora_alpha}, "
-        f"target_modules={target_modules}, dropout={lora_dropout}"
-    )
+    logger.info(f"创建LoRA配置: r={r}, alpha={lora_alpha}, target_modules={target_modules}, dropout={lora_dropout}")
 
     return config
 
@@ -114,10 +110,7 @@ def apply_lora_to_encoder(
         >>> print(f"可训练参数: {get_trainable_parameters(encoder)}")
     """
     if not PEFT_AVAILABLE:
-        raise ImportError(
-            "peft库未安装，无法应用LoRA。"
-            "请运行: pip install peft>=0.8.0"
-        )
+        raise ImportError("peft库未安装，无法应用LoRA。请运行: pip install peft>=0.8.0")
 
     # 如果未提供配置，使用默认配置
     if lora_config is None:
@@ -140,17 +133,11 @@ def apply_lora_to_encoder(
 
     # 记录可训练参数信息
     trainable_params, total_params, percentage = get_trainable_parameters(encoder)
-    logger.info(
-        f"LoRA应用完成: 可训练参数 {trainable_params:,} / {total_params:,} "
-        f"({percentage:.2f}%)"
-    )
+    logger.info(f"LoRA应用完成: 可训练参数 {trainable_params:,} / {total_params:,} ({percentage:.2f}%)")
 
     # 验证可训练参数比例<1%
     if percentage >= 1.0:
-        logger.warning(
-            f"可训练参数比例({percentage:.2f}%) >= 1%，"
-            f"可能影响参数高效微调的效果"
-        )
+        logger.warning(f"可训练参数比例({percentage:.2f}%) >= 1%，可能影响参数高效微调的效果")
 
     return encoder
 
@@ -212,10 +199,7 @@ def save_lora_adapters(model: nn.Module, save_path: str) -> None:
         >>> save_lora_adapters(model, "outputs/lora_adapters")
     """
     if not PEFT_AVAILABLE:
-        raise ImportError(
-            "peft库未安装，无法保存LoRA适配器。"
-            "请运行: pip install peft>=0.8.0"
-        )
+        raise ImportError("peft库未安装，无法保存LoRA适配器。请运行: pip install peft>=0.8.0")
 
     # 检查模型是否应用了LoRA
     if hasattr(model, "save_pretrained"):
@@ -243,10 +227,7 @@ def load_lora_adapters(model: nn.Module, load_path: str) -> nn.Module:
         >>> model = load_lora_adapters(encoder.model, "outputs/lora_adapters")
     """
     if not PEFT_AVAILABLE:
-        raise ImportError(
-            "peft库未安装，无法加载LoRA适配器。"
-            "请运行: pip install peft>=0.8.0"
-        )
+        raise ImportError("peft库未安装，无法加载LoRA适配器。请运行: pip install peft>=0.8.0")
 
     from peft import PeftModel
 
@@ -274,10 +255,7 @@ def merge_lora_adapters(model: nn.Module) -> nn.Module:
         >>> # merged_model可以像普通PyTorch模型一样使用
     """
     if not PEFT_AVAILABLE:
-        raise ImportError(
-            "peft库未安装，无法合并LoRA适配器。"
-            "请运行: pip install peft>=0.8.0"
-        )
+        raise ImportError("peft库未安装，无法合并LoRA适配器。请运行: pip install peft>=0.8.0")
 
     if hasattr(model, "merge_and_unload"):
         merged_model = model.merge_and_unload()

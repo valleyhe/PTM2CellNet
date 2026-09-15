@@ -13,10 +13,7 @@ from src.integration.perturbgen.dimensions import (
 
 
 def test_parse_dimension_probe_ignores_external_progress_lines():
-    dimensions = parse_dimension_probe_output(
-        "Loading dataset...\n"
-        '{"tgt_vocab_size": 2005, "max_seq_length": 248}\n'
-    )
+    dimensions = parse_dimension_probe_output('Loading dataset...\n{"tgt_vocab_size": 2005, "max_seq_length": 248}\n')
 
     assert dimensions == PerturbGenDimensions(tgt_vocab_size=2005, max_seq_length=248)
 

@@ -37,7 +37,7 @@ class MockESM2Encoder(nn.Module):
             # 填充随机token id
             input_ids[i, :length] = torch.randint(1, 29, (length,))
             input_ids[i, 0] = 0  # <cls>
-            input_ids[i, length-1] = 2  # <eos>
+            input_ids[i, length - 1] = 2  # <eos>
             attention_mask[i, :length] = 1
 
         return {
@@ -240,9 +240,9 @@ class TestSlidingWindowESM2:
 
         # 不同长度的序列
         sequences = [
-            "ACDEFGHIKLMNPQRSTVWY" * 10,   # 200 residues
-            "ACDEFGHIKLMNPQRSTVWY" * 75,   # 1500 residues
-            "ACDEFGHIKLMNPQRSTVWY" * 5,    # 100 residues
+            "ACDEFGHIKLMNPQRSTVWY" * 10,  # 200 residues
+            "ACDEFGHIKLMNPQRSTVWY" * 75,  # 1500 residues
+            "ACDEFGHIKLMNPQRSTVWY" * 5,  # 100 residues
         ]
 
         output = sliding_encoder(sequences)
@@ -395,6 +395,7 @@ class TestESM2EncoderLongSequenceWiring:
     @pytest.fixture
     def mock_esm2_encoder(self, monkeypatch):
         """创建一个模拟的ESM2Encoder，避免下载真实模型"""
+
         def mock_init(self, *args, **kwargs):
             nn.Module.__init__(self)
             self.hidden_dim = 128
@@ -429,6 +430,7 @@ class MockTokenizer:
 
     def __call__(self, sequences, return_tensors="pt", padding=True, truncation=True, max_length=1024):
         import torch
+
         batch_size = len(sequences)
         seq_lengths = [min(len(seq) + 2, max_length) for seq in sequences]
         max_len = max(seq_lengths)

@@ -45,7 +45,7 @@ class AttentionPooling(nn.Module):
         self.out_proj = nn.Linear(hidden_dim, hidden_dim)
 
         self.dropout = nn.Dropout(dropout)
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
         self._init_weights()
 
@@ -92,7 +92,7 @@ class AttentionPooling(nn.Module):
         if attention_mask is not None:
             # attention_mask: [B, L] -> [B, 1, 1, L]
             mask = attention_mask.unsqueeze(1).unsqueeze(2)
-            scores = scores.masked_fill(mask == 0, float('-inf'))
+            scores = scores.masked_fill(mask == 0, float("-inf"))
 
         # softmax获取注意力权重
         attn_weights = F.softmax(scores, dim=-1)  # [B, num_heads, 1, L]
@@ -141,13 +141,9 @@ class MultiHeadAttentionPooling(nn.Module):
         assert self.head_dim * num_heads == hidden_dim, "hidden_dim必须能被num_heads整除"
 
         # 多个可学习的query向量
-        self.query = nn.Parameter(
-            torch.randn(1, num_heads, num_queries, self.head_dim)
-        )
+        self.query = nn.Parameter(torch.randn(1, num_heads, num_queries, self.head_dim))
 
-        self.attention = nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout, batch_first=True
-        )
+        self.attention = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
 
         # 聚合多个query的输出
         if num_queries > 1:
@@ -185,10 +181,7 @@ class MultiHeadAttentionPooling(nn.Module):
             query = self.query[:, :, q_idx, :].expand(batch_size, -1, -1)
             query = query.reshape(batch_size, 1, self.hidden_dim)
 
-            output, _ = self.attention(
-                query, hidden_states, hidden_states,
-                key_padding_mask=key_padding_mask
-            )
+            output, _ = self.attention(query, hidden_states, hidden_states, key_padding_mask=key_padding_mask)
             outputs.append(output.squeeze(1))  # [B, H]
 
         # 聚合多个query的输出
@@ -238,7 +231,7 @@ class WeightedMeanPooling(nn.Module):
 
         # 应用mask
         if attention_mask is not None:
-            weights = weights.masked_fill(attention_mask == 0, float('-inf'))
+            weights = weights.masked_fill(attention_mask == 0, float("-inf"))
 
         # softmax归一化
         weights = F.softmax(weights, dim=-1)  # [B, L]
@@ -250,11 +243,7 @@ class WeightedMeanPooling(nn.Module):
         return pooled
 
 
-def create_pooling_layer(
-    pool_type: str,
-    hidden_dim: int,
-    **kwargs
-) -> nn.Module:
+def create_pooling_layer(pool_type: str, hidden_dim: int, **kwargs) -> nn.Module:
     """
     工厂函数：创建池化层
 
@@ -277,6 +266,7 @@ def create_pooling_layer(
                     x = x * mask_expanded
                     return x.sum(dim=1) / mask.sum(dim=1, keepdim=True).clamp(min=1)
                 return x.mean(dim=1)
+
         return MeanPooling()
 
     elif pool_type == "attention":

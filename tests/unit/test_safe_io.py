@@ -1,4 +1,5 @@
 """Tests for safe I/O utilities (SafeUnpickler, safe_pickle_load, safe_torch_load)."""
+
 import io
 import os
 import pickle
@@ -106,6 +107,7 @@ class TestSafeTorchLoad:
     def test_enforce_safe_only_defaults_true(self):
         """safe_torch_load should default enforce_safe_only=True."""
         import inspect
+
         sig = inspect.signature(safe_torch_load)
         assert sig.parameters["enforce_safe_only"].default is True
 

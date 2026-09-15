@@ -136,14 +136,17 @@ def test_perturb_stage_requires_explicit_e2e_gate_report(tmp_path):
 
 def test_training_only_does_not_require_e2e_gate(tmp_path, monkeypatch):
     _stub_pipeline_main(monkeypatch)
-    assert pipeline.main(
-        [
-            "--config",
-            str(tmp_path / "config.yaml"),
-            "--stages",
-            "tokenise",
-        ]
-    ) == 0
+    assert (
+        pipeline.main(
+            [
+                "--config",
+                str(tmp_path / "config.yaml"),
+                "--stages",
+                "tokenise",
+            ]
+        )
+        == 0
+    )
 
 
 def test_valid_explicit_e2e_gate_report_allows_perturb_stage(tmp_path, monkeypatch):
@@ -151,16 +154,19 @@ def test_valid_explicit_e2e_gate_report_allows_perturb_stage(tmp_path, monkeypat
     report = tmp_path / "e2e-gate.json"
     report.write_text(json.dumps({"candidates": [_valid_gate_record(tmp_path / "config.yaml")]}), encoding="utf-8")
 
-    assert pipeline.main(
-        [
-            "--config",
-            str(tmp_path / "config.yaml"),
-            "--stages",
-            "perturb",
-            "--e2e-gate-report",
-            str(report),
-        ]
-    ) == 0
+    assert (
+        pipeline.main(
+            [
+                "--config",
+                str(tmp_path / "config.yaml"),
+                "--stages",
+                "perturb",
+                "--e2e-gate-report",
+                str(report),
+            ]
+        )
+        == 0
+    )
 
 
 def test_e2e_gate_report_rejects_unbound_davf_score(tmp_path):
@@ -172,9 +178,7 @@ def test_e2e_gate_report_rejects_unbound_davf_score(tmp_path):
     with pytest.raises(ValueError, match="exactly match"):
         pipeline._validate_e2e_gate_report(
             report,
-            expected_binding=pipeline._config_gate_binding(
-                _config(), path=None, config_path=tmp_path / "config.yaml"
-            ),
+            expected_binding=pipeline._config_gate_binding(_config(), path=None, config_path=tmp_path / "config.yaml"),
         )
 
 
@@ -187,9 +191,7 @@ def test_e2e_gate_report_rejects_missing_semantic_context(tmp_path):
     with pytest.raises(ValueError, match="semantic_context"):
         pipeline._validate_e2e_gate_report(
             report,
-            expected_binding=pipeline._config_gate_binding(
-                _config(), path=None, config_path=tmp_path / "config.yaml"
-            ),
+            expected_binding=pipeline._config_gate_binding(_config(), path=None, config_path=tmp_path / "config.yaml"),
         )
 
 
@@ -202,9 +204,7 @@ def test_e2e_gate_report_rejects_invalid_semantic_objective(tmp_path):
     with pytest.raises(ValueError, match="research_objective"):
         pipeline._validate_e2e_gate_report(
             report,
-            expected_binding=pipeline._config_gate_binding(
-                _config(), path=None, config_path=tmp_path / "config.yaml"
-            ),
+            expected_binding=pipeline._config_gate_binding(_config(), path=None, config_path=tmp_path / "config.yaml"),
         )
 
 

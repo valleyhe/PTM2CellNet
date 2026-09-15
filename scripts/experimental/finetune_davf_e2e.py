@@ -69,10 +69,15 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for DeltaProjection")
     parser.add_argument("--backbone_lr", type=float, default=1e-5, help="Learning rate for backbone (when unfrozen)")
-    parser.add_argument("--unfreeze_after", type=int, default=None,
-                        help="Epoch after which to unfreeze DAVF backbone (None = never unfreeze)")
-    parser.add_argument("--state_space", default="scvi_latent", choices=["scvi_latent", "gene"],
-                        help="DAVF state space mode")
+    parser.add_argument(
+        "--unfreeze_after",
+        type=int,
+        default=None,
+        help="Epoch after which to unfreeze DAVF backbone (None = never unfreeze)",
+    )
+    parser.add_argument(
+        "--state_space", default="scvi_latent", choices=["scvi_latent", "gene"], help="DAVF state space mode"
+    )
     parser.add_argument("--feature_dim", type=int, default=128, help="DAVF feature dimension")
     parser.add_argument("--hidden_dim", type=int, default=256, help="DAVF hidden dimension")
     parser.add_argument("--latent_dim", type=int, default=10, help="DAVF latent dimension")
@@ -152,15 +157,13 @@ def main():
 
     # Resolve label column
     if "label" not in df.columns:
-        raise ValueError(
-            f"No 'label' column found in {args.data_path}. "
-            f"Got columns: {list(df.columns)}"
-        )
+        raise ValueError(f"No 'label' column found in {args.data_path}. Got columns: {list(df.columns)}")
 
     df = df[[seq_col, "label"]].dropna()
     logger.info(
         "Loaded %d samples (seq_col='%s', label_col='label')",
-        len(df), seq_col,
+        len(df),
+        seq_col,
     )
 
     # Step 5: Create Dataset and DataLoader
@@ -207,10 +210,12 @@ def main():
                 backbone_params.extend(model.latent_davf.parameters())
             elif hasattr(model, "gene_encoder"):
                 backbone_params.extend(model.gene_encoder.parameters())
-            optimizer = optim.Adam([
-                {"params": trainable_params, "lr": args.lr},
-                {"params": backbone_params, "lr": args.backbone_lr},
-            ])
+            optimizer = optim.Adam(
+                [
+                    {"params": trainable_params, "lr": args.lr},
+                    {"params": backbone_params, "lr": args.backbone_lr},
+                ]
+            )
 
         for batch_sequences, batch_labels in train_loader:
             batch_sequences = batch_sequences.to(device)
@@ -222,7 +227,7 @@ def main():
             features = davf_output.davf_features  # [B, feature_dim]
 
             # Forward through downstream head
-            logits = downstream_head(features)    # [B, num_classes]
+            logits = downstream_head(features)  # [B, num_classes]
             loss = criterion(logits, batch_labels)
 
             # Backward + step
@@ -238,13 +243,16 @@ def main():
 
     # Step 7: Save fine-tuned model
     output_path = os.path.join(args.output_dir, "davf_finetuned.pt")
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "downstream_head_state_dict": downstream_head.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "epochs_completed": args.epochs,
-        "training_completed": True,
-    }, output_path)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "downstream_head_state_dict": downstream_head.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epochs_completed": args.epochs,
+            "training_completed": True,
+        },
+        output_path,
+    )
     logger.info("Saved fine-tuned checkpoint to %s", output_path)
 
     logger.info("Fine-tuning complete.")

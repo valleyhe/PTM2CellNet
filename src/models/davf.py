@@ -15,9 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Dict, List, cast
 
-from src.models.biperturb import (
-    BiPerturbEncoder
-)
+from src.models.biperturb import BiPerturbEncoder
 from src.models.geneformer_embedding import GeneformerEmbeddingLoader
 
 # Re-exported symbols from sub-modules for backward compatibility.
@@ -55,7 +53,7 @@ class DAVF(nn.Module):
         self,
         config: DAVFConfig,
         embedding_loader: Optional[GeneformerEmbeddingLoader] = None,
-        gene_names: Optional[List[str]] = None
+        gene_names: Optional[List[str]] = None,
     ):
         super().__init__()
         self.config = config
@@ -93,7 +91,7 @@ class DAVF(nn.Module):
     def _init_weights(self, module):
         """Initialize weights with Xavier uniform, skipping modules with special initialization."""
         # Skip modules that have special initialization (e.g., FiLM identity mapping)
-        if hasattr(module, 'no_init_weights') and module.no_init_weights:
+        if hasattr(module, "no_init_weights") and module.no_init_weights:
             return
 
         if isinstance(module, nn.Linear):
@@ -113,9 +111,7 @@ class DAVF(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if condition_source not in {"internal_targets", "external_embedding"}:
-            raise ValueError(
-                "condition_source must be 'internal_targets' or 'external_embedding'"
-            )
+            raise ValueError("condition_source must be 'internal_targets' or 'external_embedding'")
 
         if condition_source == "external_embedding":
             if external_condition is None:
@@ -151,9 +147,7 @@ class DAVF(nn.Module):
                 raise ValueError(
                     f"external_condition must be [B, {self.config.hidden_dim}], got {tuple(condition.shape)}"
                 )
-            raise ValueError(
-                f"condition embedding must be [B, {self.config.hidden_dim}], got {tuple(condition.shape)}"
-            )
+            raise ValueError(f"condition embedding must be [B, {self.config.hidden_dim}], got {tuple(condition.shape)}")
         return condition
 
     def forward_flow_matching(
@@ -232,14 +226,7 @@ class DAVF(nn.Module):
         # Compute loss
         loss = F.mse_loss(v_t, u_t)
 
-        return {
-            'x_t': x_t,
-            'v_t': v_t,
-            'u_t': u_t,
-            't': t,
-            'condition': condition,
-            'loss': loss
-        }
+        return {"x_t": x_t, "v_t": v_t, "u_t": u_t, "t": t, "condition": condition, "loss": loss}
 
     def predict(
         self,
@@ -342,9 +329,7 @@ class DAVF(nn.Module):
         # Use pretrained embeddings (Geneformer or scGPT) if loader is available
         if self.embedding_loader is not None and len(self.gene_names) > 0:
             if gene_ids.max().item() >= len(self.gene_names):
-                raise ValueError(
-                    f"gene_ids must be in [0, {len(self.gene_names)}), got max {gene_ids.max().item()}"
-                )
+                raise ValueError(f"gene_ids must be in [0, {len(self.gene_names)}), got max {gene_ids.max().item()}")
             # Vectorized batch lookup (replaces the previous double Python
             # ``for i in range(B): for j in range(K):`` loop that called
             # ``.item()`` B*K times and hit the embedding loader once per row).
@@ -371,9 +356,7 @@ class DAVF(nn.Module):
             embed_dim = flat_embeddings.shape[-1]
             embeddings = flat_embeddings.reshape(B, K, embed_dim)
             projection_device = (
-                self.gene_embed_proj.weight.device
-                if self.gene_embed_proj is not None
-                else gene_ids.device
+                self.gene_embed_proj.weight.device if self.gene_embed_proj is not None else gene_ids.device
             )
             embeddings = embeddings.to(projection_device)
 
@@ -440,21 +423,23 @@ class DAVF(nn.Module):
                 delta_pred = x_1_pred - x_0
                 delta_true = x_1 - x_0
                 # Sanitize gene_ids: replace -1 padding with 0 before gather
-                safe_gene_ids = torch.where(
-                    gene_ids >= 0, gene_ids, torch.zeros_like(gene_ids)
-                )
+                safe_gene_ids = torch.where(gene_ids >= 0, gene_ids, torch.zeros_like(gene_ids))
                 target_delta_pred = torch.gather(delta_pred, 1, safe_gene_ids)
                 target_delta_true = torch.gather(delta_true, 1, safe_gene_ids)
 
-                valid_mask = attention_mask.bool() if attention_mask is not None else torch.ones_like(directions, dtype=torch.bool)
+                valid_mask = (
+                    attention_mask.bool()
+                    if attention_mask is not None
+                    else torch.ones_like(directions, dtype=torch.bool)
+                )
 
                 # 按方向分组计算准确率
                 results = {}
                 available_metrics = []
-                for dir_name, dir_idx in [('KO', 0), ('KD', 1), ('OE', 2)]:
+                for dir_name, dir_idx in [("KO", 0), ("KD", 1), ("OE", 2)]:
                     mask = (directions == dir_idx) & valid_mask
                     if mask.sum() == 0:
-                        results[f'{dir_name.lower()}_direction_acc'] = 0.0
+                        results[f"{dir_name.lower()}_direction_acc"] = 0.0
                         continue
 
                     # 对于OE，delta_pred应该>0；对于KO，delta_pred应该<0
@@ -464,13 +449,14 @@ class DAVF(nn.Module):
                         correct = (target_delta_pred[mask] < 0) == (target_delta_true[mask] < 0)
 
                     acc = correct.float().mean().item()
-                    results[f'{dir_name.lower()}_direction_acc'] = acc
+                    results[f"{dir_name.lower()}_direction_acc"] = acc
                     available_metrics.append(acc)
 
-                results['overall_acc'] = float(sum(available_metrics) / len(available_metrics)) if available_metrics else 0.0
+                results["overall_acc"] = (
+                    float(sum(available_metrics) / len(available_metrics)) if available_metrics else 0.0
+                )
 
                 return results
         finally:
             if was_training:
                 self.train()
-

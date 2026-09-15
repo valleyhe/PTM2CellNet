@@ -68,10 +68,7 @@ def main() -> None:
 
         expected_shape = (batch_size, seq_len, hidden_dim)
         if output.shape != expected_shape:
-            print(
-                f"FAILURE: 输出形状不匹配。期望 {expected_shape}，"
-                f"实际 {tuple(output.shape)}"
-            )
+            print(f"FAILURE: 输出形状不匹配。期望 {expected_shape}，实际 {tuple(output.shape)}")
             sys.exit(1)
 
         print(f"SUCCESS: 前向传播完成，输出形状 {tuple(output.shape)}")

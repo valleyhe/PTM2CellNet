@@ -77,9 +77,7 @@ class PTMTokenAdapter(nn.Module):
             lengths = torch.full((batch_size,), sequence_length, device=device, dtype=torch.long)
         elif isinstance(sequence_length, torch.Tensor):
             if sequence_length.ndim == 0:
-                lengths = torch.full(
-                    (batch_size,), int(sequence_length.item()), device=device, dtype=torch.long
-                )
+                lengths = torch.full((batch_size,), int(sequence_length.item()), device=device, dtype=torch.long)
             elif sequence_length.ndim == 1 and sequence_length.shape[0] == batch_size:
                 if sequence_length.dtype not in (torch.int32, torch.int64):
                     raise ValueError("sequence_length tensor must use an integer dtype")
@@ -133,22 +131,16 @@ class PTMTokenAdapter(nn.Module):
         active = mask > 0
         invalid_types = active & ((ptm_types < 1) | (ptm_types > self.num_ptm_types))
         invalid_positions = active & (
-            (ptm_positions < 1)
-            | (ptm_positions > self.max_position)
-            | (ptm_positions > lengths.unsqueeze(1))
+            (ptm_positions < 1) | (ptm_positions > self.max_position) | (ptm_positions > lengths.unsqueeze(1))
         )
         if invalid_types.any():
             raise ValueError("active PTM types must be in [1, num_ptm_types]")
         if invalid_positions.any():
-            raise ValueError(
-                "active PTM positions must be one-based and within each sequence length"
-            )
+            raise ValueError("active PTM positions must be one-based and within each sequence length")
 
         safe_types = torch.where(active, ptm_types, torch.zeros_like(ptm_types))
         safe_positions = torch.where(active, ptm_positions, torch.zeros_like(ptm_positions))
-        site_tokens = self.token_projection(
-            self.type_embedding(safe_types) + self.position_embedding(safe_positions)
-        )
+        site_tokens = self.token_projection(self.type_embedding(safe_types) + self.position_embedding(safe_positions))
         site_tokens = self.dropout(site_tokens) * mask.unsqueeze(-1)
 
         dense_tokens = torch.zeros(

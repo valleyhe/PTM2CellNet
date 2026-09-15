@@ -29,6 +29,7 @@ from src.api.middleware import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_request(path="/predict", headers=None, client_host="127.0.0.1"):
     """Build a minimal ``Request``-like object for middleware tests."""
     if headers is None:
@@ -53,6 +54,7 @@ def _make_call_next():
 # ---------------------------------------------------------------------------
 # _RateLimitState
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimitState:
     """Tests for the sliding-window token-bucket rate limiter."""
@@ -127,6 +129,7 @@ class TestRateLimitState:
 # _RuntimeMetrics
 # ---------------------------------------------------------------------------
 
+
 class TestRuntimeMetrics:
     """Tests for the lightweight runtime metrics collector."""
 
@@ -183,6 +186,7 @@ class TestRuntimeMetrics:
 # _RequestBodySizeLimitMiddleware
 # ---------------------------------------------------------------------------
 
+
 class TestRequestBodySizeLimitMiddleware:
     """Tests for request body size limiting."""
 
@@ -231,6 +235,7 @@ class TestRequestBodySizeLimitMiddleware:
 # _OptionalAuthMiddleware
 # ---------------------------------------------------------------------------
 
+
 class TestOptionalAuthMiddleware:
     """Tests for API-key authentication middleware."""
 
@@ -255,9 +260,7 @@ class TestOptionalAuthMiddleware:
         """Wrong X-API-Key header on protected path returns 403."""
         app = MagicMock()
         mw = _OptionalAuthMiddleware(app, api_key="secret123")
-        request = _make_mock_request(
-            path="/api/v1/predict", headers={"x-api-key": "wrong-key"}
-        )
+        request = _make_mock_request(path="/api/v1/predict", headers={"x-api-key": "wrong-key"})
         result = asyncio.run(mw.dispatch(request, _make_call_next()))
         assert result.status_code == 403
         assert "Invalid API key" in result.body.decode()
@@ -266,9 +269,7 @@ class TestOptionalAuthMiddleware:
         """Correct X-API-Key header on protected path should pass."""
         app = MagicMock()
         mw = _OptionalAuthMiddleware(app, api_key="secret123")
-        request = _make_mock_request(
-            path="/api/v1/predict", headers={"x-api-key": "secret123"}
-        )
+        request = _make_mock_request(path="/api/v1/predict", headers={"x-api-key": "secret123"})
         result = asyncio.run(mw.dispatch(request, _make_call_next()))
         assert result.status_code == 200
 
@@ -292,6 +293,7 @@ class TestOptionalAuthMiddleware:
 # ---------------------------------------------------------------------------
 # _RateLimitMiddleware
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimitMiddleware:
     """Tests for the rate-limit middleware."""
@@ -323,6 +325,7 @@ class TestRateLimitMiddleware:
 # Module-level constants
 # ---------------------------------------------------------------------------
 
+
 class TestModuleConstants:
     """Sanity checks for module-level constants."""
 
@@ -340,6 +343,7 @@ class TestModuleConstants:
 # Module import smoke test
 # ---------------------------------------------------------------------------
 
+
 class TestModuleImport:
     """All middleware components should be importable."""
 
@@ -351,6 +355,7 @@ class TestModuleImport:
             _RuntimeMetrics,
             _RateLimitState,
         )
+
         assert _RequestBodySizeLimitMiddleware is not None
         assert _RateLimitMiddleware is not None
         assert _OptionalAuthMiddleware is not None

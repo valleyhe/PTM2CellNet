@@ -99,9 +99,7 @@ class TestSignalingNetworkMapperBehavior:
         assert mapper.pathway_db_path is None
 
     def test_accepts_organism_kwargs(self):
-        mapper = SignalingNetworkMapper(
-            pathway_db_path="kegg", organism="mmu", organism_name="Mus musculus"
-        )
+        mapper = SignalingNetworkMapper(pathway_db_path="kegg", organism="mmu", organism_name="Mus musculus")
         assert mapper.organism == "mmu"
         assert mapper.organism_name == "Mus musculus"
 

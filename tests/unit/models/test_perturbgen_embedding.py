@@ -20,14 +20,19 @@ def _asset(tmp_path):
     vocab_path = tmp_path / "vocabulary.json"
     save_file({"gene_embeddings": torch.arange(6, dtype=torch.float32).reshape(2, 3)}, str(tensor_path))
     vocab_path.write_text(json.dumps({"ENSG000001": 0, "ENSG000002": 1}), encoding="utf-8")
-    (tmp_path / "manifest.json").write_text(json.dumps({
-        "schema_version": 1,
-        "embedding_shape": [2, 3],
-        "files": {
-            tensor_path.name: {"sha256": _sha(tensor_path)},
-            vocab_path.name: {"sha256": _sha(vocab_path)},
-        },
-    }), encoding="utf-8")
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "embedding_shape": [2, 3],
+                "files": {
+                    tensor_path.name: {"sha256": _sha(tensor_path)},
+                    vocab_path.name: {"sha256": _sha(vocab_path)},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     return tensor_path, vocab_path
 
 

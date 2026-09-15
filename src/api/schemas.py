@@ -23,6 +23,7 @@ class PTMSite(BaseModel):
     cannot map the PTM site to a gene latent. It is accepted (and ignored)
     by the non-DAVF path for backwards compatibility.
     """
+
     position: int = Field(..., description="PTM位点在序列中的位置（从1开始）", ge=1)
     type: str = Field(..., description="PTM类型，如phosphorylation、acetylation等")
     amino_acid: Optional[str] = Field(None, description="该位点的氨基酸")
@@ -63,6 +64,7 @@ class PredictionRequest(BaseModel):
     """
     单样本预测请求模型
     """
+
     sequence: str = Field(..., description="蛋白质氨基酸序列")
     ptm_sites: Optional[List[PTMSite]] = Field(default_factory=list, description="PTM位点列表")
     use_davf: bool = Field(
@@ -77,6 +79,7 @@ class BatchPredictionRequest(BaseModel):
     """
     批量预测请求模型
     """
+
     samples: List[PredictionRequest] = Field(..., description="样本列表")
 
     @validator("samples")
@@ -88,8 +91,10 @@ class BatchPredictionRequest(BaseModel):
 
 # Variant prediction schemas (FEAT-01, FEAT-02)
 
+
 class PTMEffect(BaseModel):
     """PTM effect prediction for a specific modification type."""
+
     ptm_type: str = Field(..., description="PTM type (Phosphorylation, Ubiquitination, etc.)")
     wildtype_prob: float = Field(..., description="PTM probability in wildtype", ge=0.0, le=1.0)
     mutant_prob: float = Field(..., description="PTM probability in mutant", ge=0.0, le=1.0)
@@ -99,6 +104,7 @@ class PTMEffect(BaseModel):
 
 class PathwayImpact(BaseModel):
     """Signal pathway impact from variant."""
+
     pathway_name: str = Field(..., description="Pathway name")
     activity_change: float = Field(..., description="Predicted activity change")
     confidence: str = Field(..., description="Confidence level: high/medium/low")
@@ -112,6 +118,7 @@ class PredictionResponse(BaseModel):
     ``cell_state`` 是规范字段；``predicted_cell_state`` 为旧字段名，
     通过真实字段和校验回填保留，以兼容 Pydantic v1/v2 以及仍读取旧键的客户端与测试。
     """
+
     cell_state: str = Field(..., description="预测的细胞状态")
     predicted_cell_state: Optional[str] = Field(
         None,
@@ -123,9 +130,7 @@ class PredictionResponse(BaseModel):
     model_kind: Optional[str] = Field(
         None, description="Model nature: 'demo' / 'real' / 'synthetic_fallback' / None (unknown)"
     )
-    is_demo_model: bool = Field(
-        False, description="Trained on synthetic data (not for real biology)"
-    )
+    is_demo_model: bool = Field(False, description="Trained on synthetic data (not for real biology)")
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
 
     @validator("predicted_cell_state", always=True)
@@ -141,6 +146,7 @@ class BatchPredictionResponse(BaseModel):
     """
     批量预测响应模型
     """
+
     predictions: List[PredictionResponse] = Field(..., description="预测结果列表")
     total_processing_time_ms: Optional[float] = Field(None, description="总处理时间（毫秒）")
     sample_count: int = Field(..., description="处理的样本数量")
@@ -150,6 +156,7 @@ class HealthResponse(BaseModel):
     """
     健康检查响应模型
     """
+
     status: str = Field(..., description="服务状态，'healthy' 或 'unhealthy'")
     version: str = Field(..., description="API版本")
     model_loaded: bool = Field(..., description="模型是否已加载")
@@ -160,6 +167,7 @@ class LiveResponse(BaseModel):
     """
     存活检查响应模型
     """
+
     status: str = Field(..., description="服务存活状态")
 
 
@@ -167,6 +175,7 @@ class ReadyResponse(BaseModel):
     """
     就绪检查响应模型
     """
+
     status: str = Field(..., description="服务就绪状态")
     model_loaded: bool = Field(..., description="模型是否已加载")
 
@@ -178,6 +187,7 @@ class VariantReadyResponse(BaseModel):
     核心模型已加载但变体 workflow 不可用时，``/predict`` 可用而
     ``/predict/variant`` 不可用。该响应让运维/K8s 单独判断变体能力就绪状态。
     """
+
     status: str = Field(..., description="变体能力就绪状态：'ready' 或 'not_ready'")
     variant_workflow_loaded: bool = Field(..., description="变体预测 workflow 是否已加载")
     model_loaded: bool = Field(..., description="核心模型是否已加载")
@@ -187,6 +197,7 @@ class ModelInfoResponse(BaseModel):
     """
     模型信息响应模型
     """
+
     model_name: str = Field(..., description="模型名称")
     model_version: str = Field(..., description="模型版本")
     encoder_type: str = Field(..., description="编码器类型")
@@ -195,25 +206,18 @@ class ModelInfoResponse(BaseModel):
     cell_states: List[str] = Field(..., description="支持的细胞状态列表")
     supported_ptm_types: List[str] = Field(..., description="支持的PTM类型列表")
     # P1-1: capability flags so callers know which endpoints are usable.
-    variant_workflow_loaded: bool = Field(
-        False, description="变体预测 workflow 是否已加载"
-    )
-    pathway_mapper_loaded: bool = Field(
-        False, description="信号通路分析器是否已加载"
-    )
+    variant_workflow_loaded: bool = Field(False, description="变体预测 workflow 是否已加载")
+    pathway_mapper_loaded: bool = Field(False, description="信号通路分析器是否已加载")
     # P1-3: provenance — surface demo vs real so the model is not misused.
-    model_kind: Optional[str] = Field(
-        None, description="模型性质：'demo' / 'real' / None（未知）"
-    )
-    is_demo_model: bool = Field(
-        False, description="是否为合成数据训练的 demo 模型（不可用于真实生物学预测）"
-    )
+    model_kind: Optional[str] = Field(None, description="模型性质：'demo' / 'real' / None（未知）")
+    is_demo_model: bool = Field(False, description="是否为合成数据训练的 demo 模型（不可用于真实生物学预测）")
     checkpoint_path: Optional[str] = Field(None, description="当前加载的 checkpoint 路径")
     config_path: Optional[str] = Field(None, description="当前加载的配置文件路径")
 
 
 class VariantInfo(BaseModel):
     """Variant information."""
+
     hgvs: str = Field(..., description="HGVS notation")
     gene_symbol: Optional[str] = Field(None, description="Gene symbol")
     uniprot_id: Optional[str] = Field(None, description="UniProt ID")
@@ -224,6 +228,7 @@ class VariantInfo(BaseModel):
 
 class VariantPredictionRequest(BaseModel):
     """Variant effect prediction request."""
+
     hgvs: str = Field(..., description="HGVS variant notation (e.g., 'BRAF:p.V600E')")
     sequence: Optional[str] = Field(None, description="Protein sequence (optional)")
     uniprot_id: Optional[str] = Field(None, description="UniProt ID for sequence lookup")
@@ -232,6 +237,7 @@ class VariantPredictionRequest(BaseModel):
 
 class VariantPredictionResponse(BaseModel):
     """Variant effect prediction response."""
+
     variant: VariantInfo = Field(..., description="Parsed variant information")
     ptm_effects: List[PTMEffect] = Field(..., description="PTM effects by type")
     pathway_impacts: Optional[List[PathwayImpact]] = Field(None, description="Pathway impacts")

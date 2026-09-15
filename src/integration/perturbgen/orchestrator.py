@@ -43,6 +43,7 @@ from .contracts import (
     SemanticContext,
 )
 from .direction_gate import build_direction_gated_candidate
+from .reports import to_plain_object
 
 
 InterventionType = Literal["KO", "KD"]
@@ -184,9 +185,9 @@ class PerturbGenInvocation:
             "target_token_id": self.target_token_id,
             "perturbation_mode": self.perturbation_mode,
             "paths": list(self.paths),
-            "semantic_context": _to_plain(self.semantic_context),
-            "candidate": _to_plain(self.candidate),
-            "davf_evidence": _to_plain(self.davf_evidence),
+            "semantic_context": to_plain_object(self.semantic_context),
+            "candidate": to_plain_object(self.candidate),
+            "davf_evidence": to_plain_object(self.davf_evidence),
             "perturbgen_config_path": (
                 str(self.perturbgen_config_path) if self.perturbgen_config_path is not None else None
             ),
@@ -215,9 +216,9 @@ class DAVFPerturbGenPreparation:
         return {
             "intervention_type": self.intervention_type,
             "status": self.status,
-            "davf_evidence": _to_plain(self.davf_evidence),
-            "direction_gate": _to_plain(self.direction_gate),
-            "candidate": _to_plain(self.candidate),
+            "davf_evidence": to_plain_object(self.davf_evidence),
+            "direction_gate": to_plain_object(self.direction_gate),
+            "candidate": to_plain_object(self.candidate),
             "invocation": self.invocation.to_dict() if self.invocation is not None else None,
         }
 
@@ -860,15 +861,3 @@ def _select_mapper_row(output: PTMDirectionMapperOutput, row: int) -> PTMDirecti
         directions=output.directions[row : row + 1].clone(),
         attention_mask=output.attention_mask[row : row + 1].clone(),
     )
-
-
-def _to_plain(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Mapping):
-        return {str(key): _to_plain(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_to_plain(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return {field_name: _to_plain(getattr(value, field_name)) for field_name in value.__dataclass_fields__}
-    return str(value)

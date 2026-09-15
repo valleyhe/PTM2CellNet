@@ -18,10 +18,12 @@ from src.models.ptm_direction_mapper import PTMDirectionMapperOutput
 # Test Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_latent_davf_config():
     """Create mock LatentDAVFConfig with test defaults."""
     from src.models.latent_davf import LatentDAVFConfig
+
     return LatentDAVFConfig(
         latent_dim=10,
         num_genes=5000,
@@ -72,12 +74,14 @@ def mock_checkpoint(temp_checkpoint_dir):
 # Test DAVFInferenceConfig
 # ============================================================================
 
+
 class TestDAVFInferenceConfig:
     """Test suite for DAVFInferenceConfig validation."""
 
     def test_valid_config_scvi_latent(self):
         """state_space='scvi_latent' validates correctly."""
         from src.models.davf_inference import DAVFInferenceConfig
+
         config = DAVFInferenceConfig(state_space="scvi_latent")
         assert config.state_space == "scvi_latent"
         assert config.feature_dim == 128
@@ -94,24 +98,28 @@ class TestDAVFInferenceConfig:
     def test_invalid_state_space_raises(self):
         """Invalid state_space raises ValueError."""
         from src.models.davf_inference import DAVFInferenceConfig
+
         with pytest.raises(ValueError, match="state_space must be"):
             DAVFInferenceConfig(state_space="invalid")
 
     def test_negative_feature_dim_raises(self):
         """Negative feature_dim raises ValueError."""
         from src.models.davf_inference import DAVFInferenceConfig
+
         with pytest.raises(ValueError, match="feature_dim must be positive"):
             DAVFInferenceConfig(feature_dim=-1)
 
     def test_negative_hidden_dim_raises(self):
         """Negative hidden_dim raises ValueError."""
         from src.models.davf_inference import DAVFInferenceConfig
+
         with pytest.raises(ValueError, match="hidden_dim must be positive"):
             DAVFInferenceConfig(hidden_dim=-1)
 
     def test_default_checkpoint_path(self):
         """Default checkpoint path is set correctly."""
         from src.models.davf_inference import DAVFInferenceConfig
+
         config = DAVFInferenceConfig()
         assert "latent_davf_ibd_norman" in config.checkpoint_path
 
@@ -120,12 +128,14 @@ class TestDAVFInferenceConfig:
 # Test DeltaProjection
 # ============================================================================
 
+
 class TestDeltaProjection:
     """Test suite for DeltaProjection module."""
 
     def test_delta_projection_shape(self):
         """DeltaProjection maps [B, 256] to [B, 128]."""
         from src.models.davf_inference import DeltaProjection
+
         projection = DeltaProjection(hidden_dim=256, feature_dim=128)
         x = torch.randn(4, 256)  # [B, hidden_dim]
         out = projection(x)
@@ -134,6 +144,7 @@ class TestDeltaProjection:
     def test_delta_projection_different_dims(self):
         """DeltaProjection works with custom dimensions."""
         from src.models.davf_inference import DeltaProjection
+
         projection = DeltaProjection(hidden_dim=512, feature_dim=64)
         x = torch.randn(2, 512)
         out = projection(x)
@@ -142,6 +153,7 @@ class TestDeltaProjection:
     def test_delta_projection_trainable(self):
         """DeltaProjection parameters have requires_grad=True by default."""
         from src.models.davf_inference import DeltaProjection
+
         projection = DeltaProjection()
         for param in projection.parameters():
             assert param.requires_grad
@@ -150,6 +162,7 @@ class TestDeltaProjection:
 # ============================================================================
 # Test DAVFInferenceModule
 # ============================================================================
+
 
 class TestDAVFInferenceModule:
     """Test suite for DAVFInferenceModule."""
@@ -322,6 +335,7 @@ class TestDAVFInferenceModule:
 # Test DAVFInferenceOutput
 # ============================================================================
 
+
 class TestDAVFInferenceOutput:
     """Test suite for DAVFInferenceOutput dataclass."""
 
@@ -334,7 +348,7 @@ class TestDAVFInferenceOutput:
 
         output = module(mock_mapper_output)
 
-        assert hasattr(output, 'davf_features')
+        assert hasattr(output, "davf_features")
         assert isinstance(output.davf_features, torch.Tensor)
 
     def test_output_shape_matches_batch_size(self, mock_checkpoint):
@@ -358,6 +372,7 @@ class TestDAVFInferenceOutput:
 # ============================================================================
 # Test Checkpoint Loading Edge Cases
 # ============================================================================
+
 
 class TestCheckpointLoading:
     """Test suite for checkpoint loading edge cases."""
@@ -393,9 +408,7 @@ class TestCheckpointLoading:
         with patch("src.models.davf_inference.torch.load") as mock_load:
             mock_load.side_effect = pickle.UnpicklingError("legacy pickle")
 
-            module = DAVFInferenceModule(
-                DAVFInferenceConfig(checkpoint_path=str(ckpt_path))
-            )
+            module = DAVFInferenceModule(DAVFInferenceConfig(checkpoint_path=str(ckpt_path)))
 
         assert module._checkpoint_loaded is False
         assert mock_load.call_count == 1
@@ -489,6 +502,7 @@ class TestCheckpointLoading:
 # Test Integration with PTMDirectionMapperOutput
 # ============================================================================
 
+
 class TestPTMIntegration:
     """Test integration with PTMDirectionMapper output."""
 
@@ -537,6 +551,7 @@ class TestPTMIntegration:
 # Schema v2: PerturbGen embedding asset injection (replaces geneformer_path)
 # ============================================================================
 
+
 class TestEmbeddingAssetInjection:
     """Regression tests for the M4 injection chain [R1] §3.2 A2.
 
@@ -556,9 +571,7 @@ class TestEmbeddingAssetInjection:
         vocab_path = tmp_path / "vocabulary.json"
         matrix = torch.arange(12, dtype=torch.float32).reshape(4, 3)
         save_file({"gene_embeddings": matrix}, str(tensor_path))
-        vocab_path.write_text(
-            json.dumps({f"ENSG00000{i}": i for i in range(4)}), encoding="utf-8"
-        )
+        vocab_path.write_text(json.dumps({f"ENSG00000{i}": i for i in range(4)}), encoding="utf-8")
 
         def _sha(path):
             return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -642,9 +655,7 @@ class TestEmbeddingAssetInjection:
         monkeypatch.setenv("PTM2CELLNET_STRICT_MODEL_ASSETS", "1")
         assert os.environ["PTM2CELLNET_STRICT_MODEL_ASSETS"] == "1"
         ckpt_path = tmp_path / "future.pt"
-        torch.save(
-            {"schema_version": 99, "model_state_dict": {}}, str(ckpt_path)
-        )
+        torch.save({"schema_version": 99, "model_state_dict": {}}, str(ckpt_path))
         config = DAVFInferenceConfig(
             state_space="scvi_latent",
             checkpoint_path=str(ckpt_path),

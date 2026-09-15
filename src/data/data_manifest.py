@@ -148,9 +148,7 @@ def validate_manifest(
     profile_required_ids: set = set()
     if profile is not None:
         if not isinstance(profiles_raw, Mapping):
-            errors.append(
-                f"manifest has no profiles declared; cannot activate profile {profile!r}"
-            )
+            errors.append(f"manifest has no profiles declared; cannot activate profile {profile!r}")
         else:
             profile_spec = profiles_raw.get(profile)
             if not isinstance(profile_spec, Mapping):
@@ -160,27 +158,18 @@ def validate_manifest(
                 )
             else:
                 required_ids = profile_spec.get("required_datasets")
-                if not isinstance(required_ids, list) or not all(
-                    isinstance(item, str) for item in required_ids
-                ):
-                    errors.append(
-                        f"profile {profile!r}.required_datasets must be a non-empty list of dataset ids"
-                    )
+                if not isinstance(required_ids, list) or not all(isinstance(item, str) for item in required_ids):
+                    errors.append(f"profile {profile!r}.required_datasets must be a non-empty list of dataset ids")
                 else:
                     profile_required_ids = set(required_ids)
                 optional_ids = profile_spec.get("optional_datasets", [])
-                if not isinstance(optional_ids, list) or not all(
-                    isinstance(item, str) for item in optional_ids
-                ):
-                    errors.append(
-                        f"profile {profile!r}.optional_datasets must be a list of dataset ids"
-                    )
+                if not isinstance(optional_ids, list) or not all(isinstance(item, str) for item in optional_ids):
+                    errors.append(f"profile {profile!r}.optional_datasets must be a list of dataset ids")
                 else:
                     overlap = profile_required_ids.intersection(optional_ids)
                     if overlap:
                         errors.append(
-                            f"profile {profile!r} lists the same dataset as required and optional: "
-                            f"{sorted(overlap)}"
+                            f"profile {profile!r} lists the same dataset as required and optional: {sorted(overlap)}"
                         )
     # -----------------------------------------------------------------------
 
@@ -208,9 +197,7 @@ def validate_manifest(
 
         status = dataset.get("status")
         if status not in VALID_STATUSES:
-            errors.append(
-                f"{context}.status={status!r} is invalid; expected one of {sorted(VALID_STATUSES)}"
-            )
+            errors.append(f"{context}.status={status!r} is invalid; expected one of {sorted(VALID_STATUSES)}")
 
         source = _as_mapping(dataset.get("source"), f"{context}.source", errors)
         if source is not None:
@@ -257,9 +244,7 @@ def validate_manifest(
                 elif profile_forced:
                     # P1-04: profile 激活时要求本地快照路径存在——无路径即失败，
                     # 不依赖 --check-files（这是"资产齐备"的机器可判定条件）。
-                    errors.append(
-                        f"{file_context} is required by profile {profile!r} but has no registered path"
-                    )
+                    errors.append(f"{file_context} is required by profile {profile!r} but has no registered path")
                     entry_report["status"] = "missing_path"
                 else:
                     entry_report["status"] = "not_available"
@@ -293,9 +278,7 @@ def validate_manifest(
                     errors.append(f"{file_context}.sha256 must be a 64-character hash when verifying")
                     entry_report["status"] = "missing_hash"
                 elif expected_hash.lower() != actual_hash:
-                    errors.append(
-                        f"{file_context} SHA-256 mismatch: expected {expected_hash}, got {actual_hash}"
-                    )
+                    errors.append(f"{file_context} SHA-256 mismatch: expected {expected_hash}, got {actual_hash}")
                     entry_report["status"] = "hash_mismatch"
             elif expected_hash and str(expected_hash).lower() != actual_hash:
                 warnings.append(f"{file_context} SHA-256 differs from the recorded snapshot")
@@ -314,9 +297,7 @@ def validate_manifest(
     if profile is not None:
         unknown_ids = sorted(profile_required_ids - seen_ids)
         if unknown_ids:
-            errors.append(
-                f"profile {profile!r} references unknown dataset ids: {unknown_ids}"
-            )
+            errors.append(f"profile {profile!r} references unknown dataset ids: {unknown_ids}")
 
     if strict_warnings and warnings:
         errors.extend(f"warning promoted to error: {warning}" for warning in warnings)
@@ -368,9 +349,7 @@ def load_manifest(
         profile=profile,
     )
     if not report["ok"]:
-        raise DataManifestError(
-            f"Invalid data manifest {manifest_path}: " + "; ".join(report["errors"])
-        )
+        raise DataManifestError(f"Invalid data manifest {manifest_path}: " + "; ".join(report["errors"]))
     return payload
 
 

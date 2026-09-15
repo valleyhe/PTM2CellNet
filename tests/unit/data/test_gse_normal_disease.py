@@ -31,14 +31,17 @@ def _matrix_text(values: list[list[int]]) -> str:
         for column_index, value in enumerate(row)
         if value
     ]
-    return "\n".join(
-        [
-            "%%MatrixMarket matrix coordinate integer general",
-            "%",
-            f"{rows} {columns} {len(entries)}",
-            *(f"{row} {column} {value}" for row, column, value in entries),
-        ]
-    ) + "\n"
+    return (
+        "\n".join(
+            [
+                "%%MatrixMarket matrix coordinate integer general",
+                "%",
+                f"{rows} {columns} {len(entries)}",
+                *(f"{row} {column} {value}" for row, column, value in entries),
+            ]
+        )
+        + "\n"
+    )
 
 
 def _make_sample(root: Path, *, index: int, state: str) -> GSE10xSample:
@@ -48,10 +51,7 @@ def _make_sample(root: Path, *, index: int, state: str) -> GSE10xSample:
     matrix_path = root / f"{accession}_{label}_matrix.mtx.gz"
     features_path = root / f"{accession}_{label}_features.tsv.gz"
     barcodes_path = root / f"{accession}_{label}_barcodes.tsv.gz"
-    gene_rows = [
-        f"ENSG0000000000{gene_index}\tG{gene_index}\tGene Expression"
-        for gene_index in range(1, 6)
-    ]
+    gene_rows = [f"ENSG0000000000{gene_index}\tG{gene_index}\tGene Expression" for gene_index in range(1, 6)]
     _write_gz(features_path, "\n".join(gene_rows) + "\n")
     _write_gz(barcodes_path, "b0\nb1\nunannotated\n")
     first_gene = 30 if state == "disease" else 10

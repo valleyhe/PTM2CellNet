@@ -8,11 +8,13 @@ Lightning训练脚本
 import sys
 from pathlib import Path
 
+
 # 确保项目根目录在sys.path中
 def _ensure_project_root():
     project_root = Path(__file__).parent.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+
 
 _ensure_project_root()
 
@@ -207,10 +209,7 @@ def main():
     # 从训练标签计算逆频率权重并写入 config，使 FocalLoss 消费之。这激活了
     # PTM2CellNetLightning.compute_class_weights 静态方法（此前为死代码）。
     training_cfg = config.get("training", {}) or {}
-    if (
-        training_cfg.get("auto_class_weights", False)
-        and training_cfg.get("class_weights") is None
-    ):
+    if training_cfg.get("auto_class_weights", False) and training_cfg.get("class_weights") is None:
         import torch as _torch
         from src.training.lightning_module import PTM2CellNetLightning as _LightningMod
 
@@ -222,9 +221,7 @@ def main():
             num_classes = len(cell_states)
             weights = _LightningMod.compute_class_weights(labels_tensor, num_classes)
             config.set("training.class_weights", weights.tolist())
-            logger.info(
-                "auto_class_weights 已计算类别权重: %s", weights.tolist()
-            )
+            logger.info("auto_class_weights 已计算类别权重: %s", weights.tolist())
 
     lightning_model = PTM2CellNetLightning(model, config.to_dict())
 
@@ -247,9 +244,7 @@ def main():
     if checkpoint_config.get("enabled", True):
         checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
-            filename=checkpoint_config.get(
-                "filename", "ptm2cellnet-{epoch:02d}-{val_loss:.4f}"
-            ),
+            filename=checkpoint_config.get("filename", "ptm2cellnet-{epoch:02d}-{val_loss:.4f}"),
             monitor=checkpoint_config.get("monitor", "val_loss"),
             mode=checkpoint_config.get("mode", "min"),
             save_top_k=checkpoint_config.get("save_top_k", 3),
@@ -321,6 +316,7 @@ def main():
     # Lightning 的 ckpt_path 参数完成。
     if args.resume is not None:
         import os as _os
+
         if not _os.path.exists(args.resume):
             raise SystemExit(f"--resume 指定的 checkpoint 不存在: {args.resume}")
         logger.info("断点续训: 从 %s 恢复", args.resume)
@@ -355,8 +351,12 @@ def main():
     # （裸 best_model.pt + best_model.config.yaml + 标签映射），使 CLI/API 推理入口
     # 可直接消费 Lightning 训练产物。.ckpt 仍保留用于恢复训练。
     _export_inference_artifact(
-        lightning_model, data_module, config, checkpoint_dir,
-        is_demo_data=is_demo_data, data_source=data_source,
+        lightning_model,
+        data_module,
+        config,
+        checkpoint_dir,
+        is_demo_data=is_demo_data,
+        data_source=data_source,
     )
 
     # P1-3: 导出 artifact manifest
@@ -393,9 +393,9 @@ def main():
             "Demo/smoke model trained on the synthetic sample fixture. "
             "Validates the engineering pipeline only; predictions have no "
             "biological meaning."
-        ) if is_demo_data else (
-            "Model trained on real data. Verify dataset provenance before use."
-        ),
+        )
+        if is_demo_data
+        else ("Model trained on real data. Verify dataset provenance before use."),
     }
     manifest["data_provenance"] = {
         "model_kind": model_kind,
@@ -408,8 +408,7 @@ def main():
     save_json(manifest, os.path.join(checkpoint_dir, "artifact_manifest.json"))
     if is_demo_data:
         logger.warning(
-            "⚠️ 该模型在合成/示例数据上训练，将标记为 model_kind=demo。"
-            "产物仅用于工程链路验证，不可用于真实生物学预测。"
+            "⚠️ 该模型在合成/示例数据上训练，将标记为 model_kind=demo。产物仅用于工程链路验证，不可用于真实生物学预测。"
         )
     logger.info("artifact manifest 已导出")
 
@@ -436,10 +435,7 @@ def _export_inference_artifact(
     train_ds = getattr(data_module, "train_dataset", None)
     cell_states = list(getattr(train_ds, "labels", []) or [])
     if not cell_states:
-        logger.warning(
-            "导出推理 artifact 时未解析到 cell_states，跳过导出。"
-            "推理将无法可靠解码类别索引。"
-        )
+        logger.warning("导出推理 artifact 时未解析到 cell_states，跳过导出。推理将无法可靠解码类别索引。")
         return
 
     config.set("data.cell_states", cell_states)

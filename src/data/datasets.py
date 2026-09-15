@@ -151,17 +151,13 @@ class PTMDataset(PTMDatasetBase):
                 self._parsed_ptm_sites = [None] * len(self.df)
 
             if self.dataset_cache is not None and "ptm_sites" in self.df.columns:
-                self.dataset_cache.save(
-                    self.df, {"parse_ptm_sites": cache_key_config}, self._parsed_ptm_sites
-                )
+                self.dataset_cache.save(self.df, {"parse_ptm_sites": cache_key_config}, self._parsed_ptm_sites)
 
         self.feature_extractor = feature_extractor or FeatureExtractor(self._raw_config or {})
         self.return_sequence = return_sequence
         self.return_ptm = return_ptm
         self.return_label = return_label
-        self.use_feature_extractor = bool(
-            use_feature_extractor or self.config.use_feature_extractor
-        )
+        self.use_feature_extractor = bool(use_feature_extractor or self.config.use_feature_extractor)
         self.training = training
         self.use_davf = self.config.use_davf
 
@@ -358,9 +354,7 @@ class PTMDataset(PTMDatasetBase):
                 if feat_ptm_sites is None:
                     feat_ptm_sites = []
                 sample["ptm_features"] = torch.tensor(
-                    self.feature_extractor.extract_ptm_features_array(
-                        cast("List[Any]", feat_ptm_sites), len(sequence)
-                    ),
+                    self.feature_extractor.extract_ptm_features_array(cast("List[Any]", feat_ptm_sites), len(sequence)),
                     dtype=torch.float32,
                 )
 
@@ -389,9 +383,7 @@ class PTMDataset(PTMDatasetBase):
                 sample["davf_sites"] = _davf_result[0]
                 sample["davf_type_names"] = _davf_result[1]
                 sample["davf_attention_mask"] = _davf_result[2]
-                sample["davf_gene_names"] = cast(
-                    "Union[List[int], List[str]]", _davf_result[3] or []
-                )
+                sample["davf_gene_names"] = cast("Union[List[int], List[str]]", _davf_result[3] or [])
 
         if self.return_label and "cell_state" in row:
             sample["label"] = self._encode_label(str(row["cell_state"]))
@@ -436,9 +428,7 @@ class PTMPlainDataModule:
             self.config = DatasetConfig.from_dict(config)
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.use_feature_extractor = bool(
-            use_feature_extractor or self.config.use_feature_extractor
-        )
+        self.use_feature_extractor = bool(use_feature_extractor or self.config.use_feature_extractor)
 
         self.feature_extractor = FeatureExtractor(self._raw_config)
         self.train_dataset: Optional[PTMDataset] = None
@@ -657,9 +647,7 @@ class ESMTokenizedDataset(PTMDatasetBase):
         )
         return encoded["input_ids"][0], encoded["attention_mask"][0]
 
-    def _encode_ptm_esm(
-        self, ptm_sites_json: str, tokenized_length: int
-    ) -> tuple:
+    def _encode_ptm_esm(self, ptm_sites_json: str, tokenized_length: int) -> tuple:
         """
         编码PTM位点，位置偏移+1以对齐ESM tokenized序列（跳过<cls>）
 
@@ -733,4 +721,3 @@ class ESMTokenizedDataset(PTMDatasetBase):
             sample["label"] = self._encode_label(str(row["cell_state"]))
 
         return sample
-

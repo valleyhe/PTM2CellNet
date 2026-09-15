@@ -171,9 +171,7 @@ def _validate_scvi_metadata(
     try:
         canonical_names = [normalize_ensembl_id(name) for name in names]
     except ValueError as exc:
-        raise DAVFCheckpointContractError(
-            "checkpoint.scvi.gene_names must contain canonical ENSG identifiers"
-        ) from exc
+        raise DAVFCheckpointContractError("checkpoint.scvi.gene_names must contain canonical ENSG identifiers") from exc
     if names != canonical_names:
         raise DAVFCheckpointContractError(
             "checkpoint.scvi.gene_names must contain canonical ENSG identifiers without version suffixes"
@@ -240,9 +238,7 @@ def _validate_training_metadata(
             )
         return
     if intervention_type not in DAVF_DIRECTION_CODES:
-        raise DAVFCheckpointContractError(
-            "checkpoint.training.intervention_type must be one of KO, KD, or OE"
-        )
+        raise DAVFCheckpointContractError("checkpoint.training.intervention_type must be one of KO, KD, or OE")
     expected_code = DAVF_DIRECTION_CODES[intervention_type]
     if isinstance(direction_code, bool) or not isinstance(direction_code, int):
         raise DAVFCheckpointContractError("checkpoint.training.direction_code must be an integer")

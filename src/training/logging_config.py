@@ -58,12 +58,10 @@ def _import_lightning():
     try:
         import lightning as L
         from lightning.pytorch import loggers as L_loggers
+
         return L, L_loggers
     except ImportError as e:  # pragma: no cover - environment dependent
-        raise ImportError(
-            "Lightning is required for logger configuration but is not available: "
-            f"{e}"
-        ) from e
+        raise ImportError(f"Lightning is required for logger configuration but is not available: {e}") from e
 
 
 def build_logger(
@@ -97,40 +95,24 @@ def build_logger(
     kind_lower = kind.lower()
     if kind_lower == "tensorboard":
         if not hasattr(L_loggers, "TensorBoardLogger"):
-            logger.info(
-                "TensorBoardLogger unavailable; falling back to CSVLogger."
-            )
-            return L_loggers.CSVLogger(
-                save_dir=resolved_save_dir, name=name, version=version, **kwargs
-            )
+            logger.info("TensorBoardLogger unavailable; falling back to CSVLogger.")
+            return L_loggers.CSVLogger(save_dir=resolved_save_dir, name=name, version=version, **kwargs)
         try:
-            return L_loggers.TensorBoardLogger(
-                save_dir=resolved_save_dir, name=name, version=version, **kwargs
-            )
+            return L_loggers.TensorBoardLogger(save_dir=resolved_save_dir, name=name, version=version, **kwargs)
         except (ModuleNotFoundError, ImportError) as e:
             # tensorboard / tensorboardX optional dependency missing.
             logger.info(
-                "TensorBoardLogger construction failed (%s); falling back to "
-                "CSVLogger.", e,
+                "TensorBoardLogger construction failed (%s); falling back to CSVLogger.",
+                e,
             )
-            return L_loggers.CSVLogger(
-                save_dir=resolved_save_dir, name=name, version=version, **kwargs
-            )
+            return L_loggers.CSVLogger(save_dir=resolved_save_dir, name=name, version=version, **kwargs)
     if kind_lower == "csv":
-        return L_loggers.CSVLogger(
-            save_dir=resolved_save_dir, name=name, version=version, **kwargs
-        )
+        return L_loggers.CSVLogger(save_dir=resolved_save_dir, name=name, version=version, **kwargs)
     if kind_lower == "wandb":
         if not hasattr(L_loggers, "WandbLogger"):
-            raise ImportError(
-                "WandbLogger requested but not available; install 'wandb'."
-            )
-        return L_loggers.WandbLogger(
-            save_dir=resolved_save_dir, name=name, version=version, **kwargs
-        )
-    raise ValueError(
-        f"Unsupported logger kind '{kind}'. Use 'tensorboard', 'csv', or 'wandb'."
-    )
+            raise ImportError("WandbLogger requested but not available; install 'wandb'.")
+        return L_loggers.WandbLogger(save_dir=resolved_save_dir, name=name, version=version, **kwargs)
+    raise ValueError(f"Unsupported logger kind '{kind}'. Use 'tensorboard', 'csv', or 'wandb'.")
 
 
 def configure_default_logger(
@@ -165,12 +147,12 @@ def configure_default_logger(
     """
     log_dir = str(save_dir) if save_dir else str(get_default_log_dir())
     Path(log_dir).mkdir(parents=True, exist_ok=True)
-    lg = build_logger(
-        kind=kind, save_dir=log_dir, name=name, version=version, **kwargs
-    )
+    lg = build_logger(kind=kind, save_dir=log_dir, name=name, version=version, **kwargs)
     logger.info(
         "Configured default Lightning logger: kind=%s save_dir=%s name=%s",
-        kind, log_dir, name,
+        kind,
+        log_dir,
+        name,
     )
     return lg
 

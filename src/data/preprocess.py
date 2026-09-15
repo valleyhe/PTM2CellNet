@@ -47,9 +47,7 @@ class DataPreprocessor:
     # 非标准氨基酸字符映射表 (统一从aa_constants导入)
     NON_STANDARD_AA_MAP = dict(_NON_STANDARD_AA_MAP)
 
-    def standardize_amino_acids(
-        self, df: pd.DataFrame, sequence_col: str = "sequence"
-    ) -> pd.DataFrame:
+    def standardize_amino_acids(self, df: pd.DataFrame, sequence_col: str = "sequence") -> pd.DataFrame:
         """
         将非标准氨基酸字符映射为标准字符
 
@@ -77,17 +75,11 @@ class DataPreprocessor:
             count = df[sequence_col].apply(lambda s, c=old_char: s.count(c)).sum()
             if count > 0:
                 original_count += count
-                df[sequence_col] = df[sequence_col].str.replace(
-                    old_char, new_char, regex=False
-                )
-                logger.info(
-                    "将 %d 个 '%s' 替换为 '%s'", count, old_char, new_char
-                )
+                df[sequence_col] = df[sequence_col].str.replace(old_char, new_char, regex=False)
+                logger.info("将 %d 个 '%s' 替换为 '%s'", count, old_char, new_char)
 
         if original_count > 0:
-            logger.info(
-                "氨基酸标准化完成: 共替换 %d 个非标准字符", original_count
-            )
+            logger.info("氨基酸标准化完成: 共替换 %d 个非标准字符", original_count)
         else:
             logger.info("无需标准化，所有字符均为标准氨基酸")
 
@@ -412,9 +404,7 @@ class DataPreprocessor:
 
         # --- Label column -------------------------------------------------
         if label_col not in df.columns:
-            hard_failures.append(
-                f"缺少标签列 '{label_col}'；训练数据必须包含 cell_state 标签。"
-            )
+            hard_failures.append(f"缺少标签列 '{label_col}'；训练数据必须包含 cell_state 标签。")
         else:
             non_null = df[label_col].dropna()
             n_null = len(df) - len(non_null)
@@ -423,9 +413,7 @@ class DataPreprocessor:
             dist = non_null.astype(str).value_counts().to_dict()
             report["label_distribution"] = {str(k): int(v) for k, v in dist.items()}
             if len(dist) < 2:
-                hard_failures.append(
-                    f"标签列仅含 {len(dist)} 个类别（需 ≥ 2 才能训练）：" f"{list(dist)}"
-                )
+                hard_failures.append(f"标签列仅含 {len(dist)} 个类别（需 ≥ 2 才能训练）：{list(dist)}")
             elif len(dist) == 2:
                 # Binary is fine, but note it for awareness.
                 warnings.append("标签为二分类，将走二分类训练路径。")
@@ -435,16 +423,11 @@ class DataPreprocessor:
                 max_c, min_c = max(counts), min(counts)
                 ratio = max_c / min_c if min_c > 0 else float("inf")
                 if ratio > 10:
-                    warnings.append(
-                        f"标签分布严重不均衡（最大/最小 = {ratio:.1f}），"
-                        "建议使用分层采样或类别加权。"
-                    )
+                    warnings.append(f"标签分布严重不均衡（最大/最小 = {ratio:.1f}），建议使用分层采样或类别加权。")
 
         # --- Sequence column ----------------------------------------------
         if sequence_col not in df.columns:
-            hard_failures.append(
-                f"缺少序列列 '{sequence_col}'；训练数据必须包含蛋白质序列。"
-            )
+            hard_failures.append(f"缺少序列列 '{sequence_col}'；训练数据必须包含蛋白质序列。")
         else:
             seqs = df[sequence_col].dropna().astype(str)
             empty_seqs = int((seqs.str.len() == 0).sum())
@@ -453,8 +436,7 @@ class DataPreprocessor:
             too_long = int((seqs.str.len() > self.max_sequence_length).sum())
             if too_long > 0:
                 warnings.append(
-                    f"{too_long} 条序列超过 max_sequence_length="
-                    f"{self.max_sequence_length}，预处理时会被删除。"
+                    f"{too_long} 条序列超过 max_sequence_length={self.max_sequence_length}，预处理时会被删除。"
                 )
             invalid_chars = 0
             for s in seqs:
@@ -481,17 +463,18 @@ class DataPreprocessor:
                     continue
                 if not isinstance(sites, list):
                     continue
-                seq_len = len(str(row[sequence_col])) if sequence_col in df.columns and pd.notna(row.get(sequence_col)) else None
+                seq_len = (
+                    len(str(row[sequence_col]))
+                    if sequence_col in df.columns and pd.notna(row.get(sequence_col))
+                    else None
+                )
                 for site in sites:
                     ok, _ = validate_ptm_site(site, seq_len)
                     if not ok:
                         invalid_sites += 1
             report["invalid_ptm_site_count"] = invalid_sites
             if invalid_sites > 0:
-                warnings.append(
-                    f"{invalid_sites} 个 PTM 位点未通过校验（位置越界或类型未知），"
-                    "预处理时会被丢弃。"
-                )
+                warnings.append(f"{invalid_sites} 个 PTM 位点未通过校验（位置越界或类型未知），预处理时会被丢弃。")
 
         report["ok"] = len(hard_failures) == 0
         if hard_failures and strict:
@@ -587,9 +570,7 @@ class DataPreprocessor:
                 "valid_amino_acids 不覆盖数据中出现的字符、或数据文件列名不匹配。"
             )
         if len(val) == 0 or len(test) == 0:
-            logger.warning(
-                "预处理后验证/测试集为空（但仍可训练）。过滤统计: %s", filter_stats
-            )
+            logger.warning("预处理后验证/测试集为空（但仍可训练）。过滤统计: %s", filter_stats)
 
         logger.info("预处理流程完成")
         return train, val, test

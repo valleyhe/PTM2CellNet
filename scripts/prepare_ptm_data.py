@@ -17,7 +17,7 @@ import random
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -26,18 +26,18 @@ class PTMDataPreparer:
 
     # PTM类型到修饰残基的映射
     PTM_RESIDUE_MAP = {
-        'Phosphorylation': ['S', 'T', 'Y'],
-        'Ubiquitination': ['K'],
-        'Acetylation': ['K'],
-        'Methylation': ['K', 'R'],
-        'Sumoylation': ['K'],
-        'Succinylation': ['K'],
-        'Malonylation': ['K'],
-        'N-linked Glycosylation': ['N'],
-        'O-linked Glycosylation': ['S', 'T'],
-        'S-nitrosylation': ['C'],
-        'S-palmitoylation': ['C'],
-        'Glutathionylation': ['C'],
+        "Phosphorylation": ["S", "T", "Y"],
+        "Ubiquitination": ["K"],
+        "Acetylation": ["K"],
+        "Methylation": ["K", "R"],
+        "Sumoylation": ["K"],
+        "Succinylation": ["K"],
+        "Malonylation": ["K"],
+        "N-linked Glycosylation": ["N"],
+        "O-linked Glycosylation": ["S", "T"],
+        "S-nitrosylation": ["C"],
+        "S-palmitoylation": ["C"],
+        "Glutathionylation": ["C"],
     }
 
     def __init__(self, dbptm_dir: str, uniprot_dir: str, output_dir: str):
@@ -61,7 +61,7 @@ class PTMDataPreparer:
         """
         if fasta_file is None:
             # 尝试查找文件
-            for ext in ['.fasta', '.fasta.gz']:
+            for ext in [".fasta", ".fasta.gz"]:
                 candidate = self.uniprot_dir / f"uniprot_sprot{ext}"
                 if candidate.exists():
                     fasta_file = str(candidate)
@@ -74,10 +74,10 @@ class PTMDataPreparer:
         logger.info(f"加载UniProt序列: {fasta_file}")
 
         count = 0
-        is_gz = fasta_file.endswith('.gz')
+        is_gz = fasta_file.endswith(".gz")
 
         open_func = gzip.open if is_gz else open
-        mode = 'rt' if is_gz else 'r'
+        mode = "rt" if is_gz else "r"
 
         with open_func(fasta_file, mode) as f:
             current_id = None
@@ -85,15 +85,15 @@ class PTMDataPreparer:
 
             for line in f:
                 line = line.strip()
-                if line.startswith('>'):
+                if line.startswith(">"):
                     # 保存前一个序列
                     if current_id and current_seq:
-                        self.sequences[current_id] = ''.join(current_seq)
+                        self.sequences[current_id] = "".join(current_seq)
                         count += 1
 
                     # 解析header
                     # 格式: >sp|P31946|1433B_HUMAN ... 或 >tr|...
-                    parts = line.split('|')
+                    parts = line.split("|")
                     if len(parts) >= 2:
                         current_id = parts[1]  # UniProt accession
                     else:
@@ -105,7 +105,7 @@ class PTMDataPreparer:
 
             # 保存最后一个序列
             if current_id and current_seq:
-                self.sequences[current_id] = ''.join(current_seq)
+                self.sequences[current_id] = "".join(current_seq)
                 count += 1
 
         logger.info(f"加载完成: {count:,} 条序列")
@@ -128,25 +128,27 @@ class PTMDataPreparer:
             return pd.DataFrame()
 
         # 跳过可能的PaxHeader
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
 
         # 过滤掉PaxHeader行
-        data_lines = [l for l in lines if not l.startswith('././@PaxHeader')]
+        data_lines = [l for l in lines if not l.startswith("././@PaxHeader")]
 
         # 解析数据
         records = []
         for line in data_lines:
-            parts = line.strip().split('\t')
+            parts = line.strip().split("\t")
             if len(parts) >= 6:
-                records.append({
-                    'protein_id': parts[0],
-                    'uniprot_id': parts[1],
-                    'position': int(parts[2]),
-                    'ptm_type': parts[3],
-                    'pubmed_id': parts[4],
-                    'sequence_window': parts[5]
-                })
+                records.append(
+                    {
+                        "protein_id": parts[0],
+                        "uniprot_id": parts[1],
+                        "position": int(parts[2]),
+                        "ptm_type": parts[3],
+                        "pubmed_id": parts[4],
+                        "sequence_window": parts[5],
+                    }
+                )
 
         df = pd.DataFrame(records)
         logger.info(f"加载 {ptm_type}: {len(df):,} 条记录")
@@ -165,7 +167,7 @@ class PTMDataPreparer:
         if ptm_types is None:
             # 自动检测可用的PTM类型
             ptm_types = []
-            for f in self.dbptm_dir.glob('*.txt'):
+            for f in self.dbptm_dir.glob("*.txt"):
                 ptm_types.append(f.stem)
 
         total = 0
@@ -178,8 +180,7 @@ class PTMDataPreparer:
         logger.info(f"加载完成: {len(self.ptm_data)} 种PTM类型, {total:,} 条记录")
         return total
 
-    def extract_sequence_window(self, sequence: str, position: int,
-                                 window_size: int = 15) -> Optional[str]:
+    def extract_sequence_window(self, sequence: str, position: int, window_size: int = 15) -> Optional[str]:
         """
         从序列中提取窗口
 
@@ -206,11 +207,11 @@ class PTMDataPreparer:
         left_pad = window_size - (idx - start)
         right_pad = window_size - (end - idx - 1)
 
-        return '-' * left_pad + window + '-' * right_pad
+        return "-" * left_pad + window + "-" * right_pad
 
-    def prepare_training_data(self, ptm_type: str,
-                               negative_ratio: float = 1.0,
-                               min_samples: int = 5000) -> pd.DataFrame:
+    def prepare_training_data(
+        self, ptm_type: str, negative_ratio: float = 1.0, min_samples: int = 5000
+    ) -> pd.DataFrame:
         """
         准备单个PTM类型的训练数据
 
@@ -242,8 +243,8 @@ class PTMDataPreparer:
         positive_samples = []
 
         for _, row in df.iterrows():
-            uniprot_id = row['uniprot_id']
-            position = row['position']
+            uniprot_id = row["uniprot_id"]
+            position = row["position"]
 
             if uniprot_id not in self.sequences:
                 continue
@@ -260,14 +261,16 @@ class PTMDataPreparer:
 
             window = self.extract_sequence_window(sequence, position)
             if window:
-                positive_samples.append({
-                    'uniprot_id': uniprot_id,
-                    'position': position,
-                    'aa': aa,
-                    'sequence_window': window,
-                    'label': 1,
-                    'ptm_type': ptm_type
-                })
+                positive_samples.append(
+                    {
+                        "uniprot_id": uniprot_id,
+                        "position": position,
+                        "aa": aa,
+                        "sequence_window": window,
+                        "label": 1,
+                        "ptm_type": ptm_type,
+                    }
+                )
 
         logger.info(f"正样本: {len(positive_samples):,}")
 
@@ -290,7 +293,7 @@ class PTMDataPreparer:
         # 排除正样本位点
         positive_sites = set()
         for sample in positive_samples:
-            positive_sites.add((sample['uniprot_id'], sample['position']))
+            positive_sites.add((sample["uniprot_id"], sample["position"]))
 
         # 随机采样负样本
         all_neg_sites = []
@@ -307,14 +310,16 @@ class PTMDataPreparer:
             window = self.extract_sequence_window(sequence, position)
 
             if window:
-                negative_samples.append({
-                    'uniprot_id': uniprot_id,
-                    'position': position,
-                    'aa': aa,
-                    'sequence_window': window,
-                    'label': 0,
-                    'ptm_type': ptm_type
-                })
+                negative_samples.append(
+                    {
+                        "uniprot_id": uniprot_id,
+                        "position": position,
+                        "aa": aa,
+                        "sequence_window": window,
+                        "label": 0,
+                        "ptm_type": ptm_type,
+                    }
+                )
 
         logger.info(f"负样本: {len(negative_samples):,}")
 
@@ -328,8 +333,9 @@ class PTMDataPreparer:
         logger.info(f"总计: {len(result_df):,} 样本")
         return result_df
 
-    def prepare_all_training_data(self, ptm_types: Optional[List[str]] = None,
-                                   output_prefix: str = "ptm_train") -> Dict[str, int]:
+    def prepare_all_training_data(
+        self, ptm_types: Optional[List[str]] = None, output_prefix: str = "ptm_train"
+    ) -> Dict[str, int]:
         """
         准备所有PTM类型的训练数据
 
@@ -346,7 +352,7 @@ class PTMDataPreparer:
         results = {}
 
         for ptm_type in ptm_types:
-            logger.info(f"\n{'='*60}")
+            logger.info(f"\n{'=' * 60}")
             logger.info(f"处理: {ptm_type}")
 
             train_df = self.prepare_training_data(ptm_type)
@@ -374,13 +380,13 @@ class PTMDataPreparer:
         report.append("|---------|--------|----------|\n")
 
         for ptm_type, df in sorted(self.ptm_data.items(), key=lambda x: -len(x[1])):
-            residues = ', '.join(self.PTM_RESIDUE_MAP.get(ptm_type, ['Unknown']))
+            residues = ", ".join(self.PTM_RESIDUE_MAP.get(ptm_type, ["Unknown"]))
             report.append(f"| {ptm_type} | {len(df):,} | {residues} |\n")
 
-        report_content = ''.join(report)
+        report_content = "".join(report)
 
         report_path = self.output_dir / output_file
-        with open(report_path, 'w', encoding='utf-8') as f:
+        with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
 
         logger.info(f"报告保存: {report_path}")
@@ -389,15 +395,12 @@ class PTMDataPreparer:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='准备PTM训练数据')
-    parser.add_argument('--dbptm-dir', '-d', default='data/dbptm',
-                       help='dbPTM数据目录')
-    parser.add_argument('--uniprot-dir', '-u', default='data/uniprot',
-                       help='UniProt数据目录')
-    parser.add_argument('--output-dir', '-o', default='data/processed',
-                       help='输出目录')
-    parser.add_argument('--ptm-types', '-t', nargs='+',
-                       help='指定PTM类型')
+
+    parser = argparse.ArgumentParser(description="准备PTM训练数据")
+    parser.add_argument("--dbptm-dir", "-d", default="data/dbptm", help="dbPTM数据目录")
+    parser.add_argument("--uniprot-dir", "-u", default="data/uniprot", help="UniProt数据目录")
+    parser.add_argument("--output-dir", "-o", default="data/processed", help="输出目录")
+    parser.add_argument("--ptm-types", "-t", nargs="+", help="指定PTM类型")
     args = parser.parse_args()
 
     preparer = PTMDataPreparer(args.dbptm_dir, args.uniprot_dir, args.output_dir)
@@ -419,5 +422,5 @@ def main():
     preparer.generate_summary_report()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

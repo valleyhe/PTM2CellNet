@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
 
+
 class PTMSiteDict(TypedDict, total=False):
     """Shape of a PTM site dict for serialization / deserialization.
 
@@ -44,6 +45,7 @@ class PTMSite:
     :class:`src.api.schemas.PTMSite` (Pydantic) that extends this
     with request-validation fields like ``gene_symbol``.
     """
+
     position: int
     type: str
     amino_acid: Optional[str] = None
@@ -68,6 +70,7 @@ class PTMSite:
         fields (e.g. ``gene_symbol``) default to ``None``.
         """
         from src.api.schemas import PTMSite as ApiPTMSite
+
         return ApiPTMSite(
             position=self.position,
             type=self.type,

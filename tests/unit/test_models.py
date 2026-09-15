@@ -34,19 +34,13 @@ class TestEncoders:
 
     def test_transformer_encoder(self, sample_sequences):
         """测试Transformer编码器"""
-        encoder = TransformerEncoder(
-            vocab_size=20, embed_dim=128, max_len=1000,
-            num_layers=2, num_heads=4
-        )
+        encoder = TransformerEncoder(vocab_size=20, embed_dim=128, max_len=1000, num_layers=2, num_heads=4)
         output = encoder(sample_sequences)
         assert output.shape == (4, 50, 128)
 
     def test_lstm_encoder(self, sample_sequences):
         """测试LSTM编码器"""
-        encoder = LSTMEncoder(
-            vocab_size=20, embed_dim=128, max_len=1000,
-            hidden_dim=256, num_layers=2
-        )
+        encoder = LSTMEncoder(vocab_size=20, embed_dim=128, max_len=1000, hidden_dim=256, num_layers=2)
         output = encoder(sample_sequences)
         assert output.shape == (4, 50, 128)
 
@@ -92,10 +86,7 @@ class TestPTMModules:
     def test_ptm_module(self, sample_ptm_data):
         """测试PTM完整模块"""
         sequence_emb, ptm_types, ptm_positions, ptm_mask = sample_ptm_data
-        ptm_module = PTMModule(
-            num_ptm_types=10, embed_dim=128, max_position=1000,
-            num_attention_heads=8, num_layers=2
-        )
+        ptm_module = PTMModule(num_ptm_types=10, embed_dim=128, max_position=1000, num_attention_heads=8, num_layers=2)
         output = ptm_module(sequence_emb, ptm_types, ptm_positions, ptm_mask)
         assert output.shape == (4, 50, 128)
 
@@ -112,9 +103,7 @@ class TestPredictors:
 
     def test_classification_predictor(self, sample_features):
         """测试分类预测器"""
-        predictor = ClassificationPredictor(
-            input_dim=256, num_classes=4, hidden_dims=[512, 256]
-        )
+        predictor = ClassificationPredictor(input_dim=256, num_classes=4, hidden_dims=[512, 256])
         output = predictor(sample_features)
         assert "logits" in output
         assert "probabilities" in output
@@ -125,9 +114,7 @@ class TestPredictors:
 
     def test_regression_predictor(self, sample_features):
         """测试回归预测器"""
-        predictor = RegressionPredictor(
-            input_dim=256, output_dim=1, hidden_dims=[512, 256]
-        )
+        predictor = RegressionPredictor(input_dim=256, output_dim=1, hidden_dims=[512, 256])
         output = predictor(sample_features)
         assert "predictions" in output
         assert "logits" in output
@@ -272,10 +259,7 @@ class TestPretrainedEncoders:
             lambda *args, **kwargs: MagicMock(hidden_size=1024, num_hidden_layers=30),
         )
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_esm2_encoder_init(self):
         """测试ESM-2编码器初始化"""
         from src.models.pretrained_encoders import ESM2Encoder
@@ -284,10 +268,7 @@ class TestPretrainedEncoders:
         assert encoder.hidden_dim > 0
         assert encoder.model_size == "8M"
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_esm2_encoder_forward(self, sample_sequences):
         """测试ESM-2编码器前向传播"""
         from src.models.pretrained_encoders import ESM2Encoder
@@ -300,10 +281,7 @@ class TestPretrainedEncoders:
         assert output.shape[1] == 50
         assert output.shape[2] == 320
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_protbert_encoder_init(self):
         """测试ProtBERT编码器初始化"""
         from src.models.pretrained_encoders import ProtBERTEncoder
@@ -311,10 +289,7 @@ class TestPretrainedEncoders:
         encoder = ProtBERTEncoder(freeze=True)
         assert encoder.hidden_dim == 1024
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_freeze_parameters(self):
         """测试参数冻结"""
         from src.models.pretrained_encoders import ESM2Encoder
@@ -325,10 +300,7 @@ class TestPretrainedEncoders:
         for param in encoder.parameters():
             assert not param.requires_grad
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_unfreeze_layers(self):
         """测试逐层解冻"""
         from src.models.pretrained_encoders import ESM2Encoder
@@ -402,10 +374,7 @@ class TestPTM2CellNetWithPretrained:
             lambda *args, **kwargs: MagicMock(hidden_size=1024, num_hidden_layers=30),
         )
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_ptm2cellnet_esm2_8m(self, sample_batch):
         """测试PTM2CellNet ESM-2 8M版本"""
         model = PTM2CellNet(
@@ -421,10 +390,7 @@ class TestPTM2CellNetWithPretrained:
         assert "predictions" in output
         assert output["logits"].shape == (2, 4)
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_ptm2cellnet_protbert(self):
         """测试PTM2CellNet ProtBERT版本"""
         # ProtBERT使用不同的词表大小(30)，需要单独创建batch
@@ -448,10 +414,7 @@ class TestPTM2CellNetWithPretrained:
         assert "predictions" in output
         assert output["logits"].shape == (2, 4)
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(),
-        reason="预训练模型测试需要GPU"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="预训练模型测试需要GPU")
     def test_ptm2cellnet_pretrained_from_config(self, sample_batch):
         """测试从配置创建预训练模型"""
         config = {

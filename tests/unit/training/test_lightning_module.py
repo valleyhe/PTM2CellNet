@@ -217,6 +217,7 @@ class TestConfigureSchedulers:
         assert "optimizer" in result
         assert "lr_scheduler" in result
         from torch.optim.lr_scheduler import CosineAnnealingLR
+
         assert isinstance(result["lr_scheduler"]["scheduler"], CosineAnnealingLR)
 
     def test_configure_plateau(self, mock_model, base_config):
@@ -225,6 +226,7 @@ class TestConfigureSchedulers:
         result = module.configure_optimizers()
         assert isinstance(result, dict)
         from torch.optim.lr_scheduler import ReduceLROnPlateau
+
         assert isinstance(result["lr_scheduler"]["scheduler"], ReduceLROnPlateau)
 
     def test_configure_step(self, mock_model, base_config):
@@ -233,6 +235,7 @@ class TestConfigureSchedulers:
         result = module.configure_optimizers()
         assert isinstance(result, dict)
         from torch.optim.lr_scheduler import StepLR
+
         assert isinstance(result["lr_scheduler"]["scheduler"], StepLR)
 
     def test_no_scheduler(self, mock_model, base_config):
@@ -489,6 +492,7 @@ class TestLightningTrainerIntegration:
         )
         # 创建简单的DataLoader
         from torch.utils.data import TensorDataset, DataLoader
+
         dataset = TensorDataset(
             torch.randint(0, 21, (8, 10)),
             torch.randint(0, 4, (8,)),

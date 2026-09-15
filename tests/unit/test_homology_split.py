@@ -82,10 +82,12 @@ class TestHomologyAwareSplitter:
             sequences.append(f"XXXXXXXXXXXXXXXXXXX{i}")
             labels.append("class_C")
 
-        return pd.DataFrame({
-            "sequence": sequences,
-            "cell_state": labels,
-        })
+        return pd.DataFrame(
+            {
+                "sequence": sequences,
+                "cell_state": labels,
+            }
+        )
 
     def test_splitter_init(self):
         """测试分割器初始化"""
@@ -185,12 +187,16 @@ class TestHomologyAwareSplitter:
         splitter = HomologyAwareSplitter(identity_threshold=0.1)
 
         # 创建有重叠的数据集
-        train_df = pd.DataFrame({
-            "sequence": ["ACDEFGHIKLMNPQRSTVWY"],
-        })
-        val_df = pd.DataFrame({
-            "sequence": ["ACDEFGHIKLMNPQRSTVWY"],  # 完全相同
-        })
+        train_df = pd.DataFrame(
+            {
+                "sequence": ["ACDEFGHIKLMNPQRSTVWY"],
+            }
+        )
+        val_df = pd.DataFrame(
+            {
+                "sequence": ["ACDEFGHIKLMNPQRSTVWY"],  # 完全相同
+            }
+        )
         test_df = pd.DataFrame({"sequence": []})
 
         results = splitter.verify_no_leakage(train_df, val_df, test_df)
@@ -215,10 +221,12 @@ class TestHomologyAwareSplitter:
     def test_single_sequence(self):
         """测试单条序列"""
         splitter = HomologyAwareSplitter()
-        single_df = pd.DataFrame({
-            "sequence": ["ACDEFGHIKLMNPQRSTVWY"],
-            "label": ["A"],
-        })
+        single_df = pd.DataFrame(
+            {
+                "sequence": ["ACDEFGHIKLMNPQRSTVWY"],
+                "label": ["A"],
+            }
+        )
 
         train_df, val_df, test_df = splitter.split(
             single_df,
@@ -260,10 +268,12 @@ class TestHomologyIntegration:
 
         preprocessor = DataPreprocessor(config)
 
-        data = pd.DataFrame({
-            "sequence": ["AAAAA", "AAAAB", "BBBBB", "BBBBB", "CCCCC", "CCCCD"],
-            "cell_state": ["A", "A", "B", "B", "C", "C"],
-        })
+        data = pd.DataFrame(
+            {
+                "sequence": ["AAAAA", "AAAAB", "BBBBB", "BBBBB", "CCCCC", "CCCCD"],
+                "cell_state": ["A", "A", "B", "B", "C", "C"],
+            }
+        )
 
         train, val, test = preprocessor.split_dataset(
             data,
@@ -288,10 +298,12 @@ class TestHomologyIntegration:
 
         preprocessor = DataPreprocessor(config)
 
-        data = pd.DataFrame({
-            "sequence": [f"SEQ{i}" for i in range(20)],
-            "cell_state": ["A" if i < 10 else "B" for i in range(20)],
-        })
+        data = pd.DataFrame(
+            {
+                "sequence": [f"SEQ{i}" for i in range(20)],
+                "cell_state": ["A" if i < 10 else "B" for i in range(20)],
+            }
+        )
 
         train, val, test = preprocessor.split_dataset(data)
 

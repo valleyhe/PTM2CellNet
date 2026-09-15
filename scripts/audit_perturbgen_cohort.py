@@ -39,9 +39,7 @@ from src.integration.perturbgen.contracts import PerturbGenDataSpec
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data" / "raw" / "scperturb"
-OUTPUT_DIR = REPO_ROOT / "outputs" / "perturbgen" / "spike" / (
-    _dt.date.today().strftime("%Y%m%d") + "_donor_audit"
-)
+OUTPUT_DIR = REPO_ROOT / "outputs" / "perturbgen" / "spike" / (_dt.date.today().strftime("%Y%m%d") + "_donor_audit")
 
 DONOR_LIKE_COLUMNS = ("patient", "donor", "patient_id", "donor_id", "individual")
 # Only these values count as a normal-state label; missing/None/"" is absent
@@ -66,24 +64,15 @@ def audit_file(path: Path) -> dict:
     info["obs_names_unique"] = bool(obs.index.is_unique)
     info["has_ensembl_id"] = "ensembl_id" in adata.var.columns
 
-    donor_cols = {
-        col: int(obs[col].nunique())
-        for col in DONOR_LIKE_COLUMNS
-        if col in obs.columns
-    }
+    donor_cols = {col: int(obs[col].nunique()) for col in DONOR_LIKE_COLUMNS if col in obs.columns}
     if donor_cols:
         info["donor_like_columns"] = donor_cols
     if "cell_line" in obs.columns:
         info["cell_line_nunique"] = int(obs["cell_line"].nunique())
     if "tissue_type" in obs.columns:
-        info["tissue_type_values"] = sorted(
-            set(obs["tissue_type"].astype(str))
-        )
+        info["tissue_type_values"] = sorted(set(obs["tissue_type"].astype(str)))
     if "disease" in obs.columns:
-        info["disease_values"] = {
-            str(k): int(v)
-            for k, v in obs["disease"].astype(str).value_counts().items()
-        }
+        info["disease_values"] = {str(k): int(v) for k, v in obs["disease"].astype(str).value_counts().items()}
 
     tissue_types = set(info.get("tissue_type_values", []))
     disease_values = set(info.get("disease_values", {}))
@@ -95,7 +84,9 @@ def audit_file(path: Path) -> dict:
     max_donors = max(donor_cols.values()) if donor_cols else 0
     info["donor_count_ok"] = max_donors >= 3
     info["is_primary_tissue"] = bool(tissue_types) and tissue_types <= {
-        "primary", "organoid", "primary_cells",
+        "primary",
+        "organoid",
+        "primary_cells",
     }
 
     reasons: list[str] = []
@@ -106,18 +97,13 @@ def audit_file(path: Path) -> dict:
     if not info["has_ensembl_id"]:
         reasons.append("var lacks ensembl_id")
     if not info["is_primary_tissue"]:
-        reasons.append(
-            "tissue_type is not primary (cell lines are not donors per contract)"
-        )
+        reasons.append("tissue_type is not primary (cell lines are not donors per contract)")
     if not donor_cols:
         reasons.append("no explicit donor-like column")
     elif not info["donor_count_ok"]:
         reasons.append(f"max donor-like column cardinality {max_donors} < 3")
     if not info["state_pair_possible"]:
-        reasons.append(
-            "no normal/disease state pair within the file "
-            "(single disease state or no healthy-class label)"
-        )
+        reasons.append("no normal/disease state pair within the file (single disease state or no healthy-class label)")
     info["compliant_candidate"] = not reasons
     info["rejection_reasons"] = reasons
     return info
@@ -154,9 +140,7 @@ def run_m1_preflight(path: Path) -> dict:
         "donor_column_exists": spec.donor_col in subset.obs.columns,
     }
     try:
-        report = prepare_perturbgen_anndata(
-            subset, cell_type=PREFLIGHT_CELL_TYPE, spec=spec
-        )
+        report = prepare_perturbgen_anndata(subset, cell_type=PREFLIGHT_CELL_TYPE, spec=spec)
     except ValueError as exc:
         result["preflight"] = "REJECTED"
         result["contract_error"] = str(exc)
@@ -176,9 +160,7 @@ def main() -> int:
 
     audits = {path.name: audit_file(path) for path in files}
     readable = [name for name, info in audits.items() if info["readable"]]
-    candidates = [
-        name for name, info in audits.items() if info.get("compliant_candidate")
-    ]
+    candidates = [name for name, info in audits.items() if info.get("compliant_candidate")]
 
     preflight_target = DATA_DIR / PREFLIGHT_FILE
     preflight = run_m1_preflight(preflight_target)
@@ -187,15 +169,18 @@ def main() -> int:
         "run_id": _dt.date.today().strftime("%Y%m%d") + "_donor_audit",
         "collected_at": _dt.datetime.now().isoformat(timespec="seconds"),
         "purpose": (
-            "M0-6 donor cohort audit per DAVF_PerturbGen plan section 4.6 "
-            "rule 1 and M1 preflight on real data"
+            "M0-6 donor cohort audit per DAVF_PerturbGen plan section 4.6 rule 1 and M1 preflight on real data"
         ),
         "policy": {
             "donor_like_columns": list(DONOR_LIKE_COLUMNS),
             "normal_state_values": sorted(NORMAL_STATE_VALUES),
             "never_reinterpreted_as_donor": [
-                "sample", "batch", "replicate", "cell_line",
-                "CRISPR control", "plate well id",
+                "sample",
+                "batch",
+                "replicate",
+                "cell_line",
+                "CRISPR control",
+                "plate well id",
             ],
             "state_pair_scope": "within a single file",
         },
@@ -211,15 +196,21 @@ def main() -> int:
     out_path = OUTPUT_DIR / "evidence.json"
     out_path.write_text(json.dumps(evidence, indent=2, ensure_ascii=False))
 
-    print(json.dumps({
-        "evidence_file": str(out_path),
-        "files_audited": len(files),
-        "files_readable": len(readable),
-        "compliant_candidates": candidates,
-        "datlinger_preflight": preflight["preflight"],
-        "datlinger_contract_error": preflight.get("contract_error"),
-        "verdict": evidence["verdict"],
-    }, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "evidence_file": str(out_path),
+                "files_audited": len(files),
+                "files_readable": len(readable),
+                "compliant_candidates": candidates,
+                "datlinger_preflight": preflight["preflight"],
+                "datlinger_contract_error": preflight.get("contract_error"),
+                "verdict": evidence["verdict"],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -31,11 +31,16 @@ SCRIPTS = PROJECT_ROOT / "scripts"
 # Tiny HF stand-ins (no network).
 # ---------------------------------------------------------------------------
 
+
 class _DummyTokenizer:
     """Minimal tokenizer stand-in returning fixed-size id/mask tensors."""
 
     def __call__(
-        self, sequences, return_tensors="pt", padding=True, truncation=True,
+        self,
+        sequences,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
         max_length=1024,
     ):
         del return_tensors, padding, truncation
@@ -57,9 +62,7 @@ class _DummyHFModel(nn.Module):
     def __init__(self, hidden_size=16, num_layers=2):
         super().__init__()
         self.embed = nn.Embedding(64, hidden_size)
-        self.layers = nn.ModuleList(
-            [nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]
-        )
+        self.layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)])
 
     def forward(self, input_ids, attention_mask=None, output_attentions=False):
         del attention_mask
@@ -153,7 +156,7 @@ def _make_data(tmp_path: Path, num_classes: int) -> Path:
         "ACDEFGHIKLMNPQRSTVWH",
     ]
     for i in range(6):
-        rows.append(f'{seqs[i]},c{i % num_classes},[]')
+        rows.append(f"{seqs[i]},c{i % num_classes},[]")
     csv.write_text("\n".join(rows) + "\n", encoding="utf-8")
     return csv
 
@@ -172,11 +175,16 @@ class TestPretrainedArtifactContract:
 
         sys.argv = [
             "train_pretrained.py",
-            "--model", "esm2_8M",
-            "--config", str(cfg_path),
-            "--data", str(data_csv),
-            "--max-epochs", "1",
-            "--batch-size", "2",
+            "--model",
+            "esm2_8M",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_csv),
+            "--max-epochs",
+            "1",
+            "--batch-size",
+            "2",
             "--freeze",
         ]
         tp.main()
@@ -218,11 +226,16 @@ class TestPretrainedArtifactContract:
 
         sys.argv = [
             "train_pretrained.py",
-            "--model", "esm2_8M",
-            "--config", str(cfg_path),
-            "--data", str(data_csv),
-            "--max-epochs", "1",
-            "--batch-size", "2",
+            "--model",
+            "esm2_8M",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_csv),
+            "--max-epochs",
+            "1",
+            "--batch-size",
+            "2",
             "--freeze",
         ]
         tp.main()
@@ -236,10 +249,14 @@ class TestPretrainedArtifactContract:
 
         sys.argv = [
             "predict.py",
-            "--model", str(ckpt),
-            "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-            "--output", str(out),
-            "--device", "cpu",
+            "--model",
+            str(ckpt),
+            "--sequence",
+            "ACDEFGHIKLMNPQRSTVWY",
+            "--output",
+            str(out),
+            "--device",
+            "cpu",
         ]
         pred.main()
 

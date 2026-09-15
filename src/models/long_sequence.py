@@ -95,9 +95,7 @@ class LongSequenceHandler:
             ValueError: 如果位置超出范围
         """
         if orig_pos < 0 or orig_pos >= self.sequence_length:
-            raise ValueError(
-                f"位置 {orig_pos} 超出范围 [0, {self.sequence_length})"
-            )
+            raise ValueError(f"位置 {orig_pos} 超出范围 [0, {self.sequence_length})")
 
         for window_idx, (start, end) in enumerate(self.window_boundaries):
             if start <= orig_pos < end:
@@ -181,15 +179,11 @@ class SlidingWindowHandler:
 
             if seq_len <= self.window_size:
                 # 短序列：直接tokenize并提取残基嵌入
-                residue_emb = self._encode_short_sequence(
-                    encoder, seq, device
-                )
+                residue_emb = self._encode_short_sequence(encoder, seq, device)
                 batch_embeddings.append(residue_emb)
             else:
                 # 长序列：使用滑动窗口
-                residue_emb = self._encode_long_sequence(
-                    encoder, seq, device, dtype, hidden_dim
-                )
+                residue_emb = self._encode_long_sequence(encoder, seq, device, dtype, hidden_dim)
                 batch_embeddings.append(residue_emb)
 
         # 填充到相同长度并堆叠
@@ -213,7 +207,7 @@ class SlidingWindowHandler:
 
         # 去掉 <cls> (位置0) 和 <eos> (位置 seq_len+1)
         token_len = outputs.size(1)
-        residue_emb = outputs[:, 1:token_len - 1, :]
+        residue_emb = outputs[:, 1 : token_len - 1, :]
         # 截断到实际序列长度
         seq_len = len(seq)
         if residue_emb.size(1) > seq_len:
@@ -250,7 +244,7 @@ class SlidingWindowHandler:
                 outputs = encoder(input_ids=input_ids, attention_mask=attention_mask)
 
             token_len = outputs.size(1)
-            window_emb = outputs[:, 1:token_len - 1, :]
+            window_emb = outputs[:, 1 : token_len - 1, :]
             window_len = end - start
             if window_emb.size(1) > window_len:
                 window_emb = window_emb[:, :window_len, :]
@@ -332,10 +326,7 @@ class SlidingWindowESM2(nn.Module):
                 nn.Linear(self.hidden_dim // 4, 1),
             )
 
-        logger.info(
-            f"滑动窗口ESM-2初始化: window_size={window_size}, "
-            f"overlap={overlap}, pool_type={pool_type}"
-        )
+        logger.info(f"滑动窗口ESM-2初始化: window_size={window_size}, overlap={overlap}, pool_type={pool_type}")
 
     def _create_windows(self, sequence: str) -> List[str]:
         """
@@ -394,9 +385,7 @@ class SlidingWindowESM2(nn.Module):
             if attention_mask is not None:
                 # 将掩码位置设为很大的负数
                 mask_expanded = attention_mask.unsqueeze(-1).float()
-                window_embeddings = window_embeddings.masked_fill(
-                    mask_expanded == 0, -1e9
-                )
+                window_embeddings = window_embeddings.masked_fill(mask_expanded == 0, -1e9)
             pooled, _ = window_embeddings.max(dim=1)
             return pooled.mean(dim=0)
 

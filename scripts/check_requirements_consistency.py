@@ -93,9 +93,7 @@ def check_track(
                 errors.append(f"[{track_name}] '{req.name}' missing from lock")
             continue
         if req.specifier and not req.specifier.contains(pin, prereleases=True):
-            errors.append(
-                f"[{track_name}] '{req.name}' pin {pin} violates '{req.specifier}'"
-            )
+            errors.append(f"[{track_name}] '{req.name}' pin {pin} violates '{req.specifier}'")
     return errors
 
 

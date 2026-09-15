@@ -86,6 +86,7 @@ ManifestDict = Dict[str, object]
 # Label mapping
 # ---------------------------------------------------------------------------
 
+
 def derive_and_apply_label_mapping(
     config: Union[Config, ConfigDict],
     train_df: pd.DataFrame,
@@ -106,15 +107,14 @@ def derive_and_apply_label_mapping(
     cfg.set("data.cell_states", cell_states)
     cfg.set("data.label_to_idx", label_to_idx)
     cfg.set("model.num_classes", len(cell_states))
-    logger.info(
-        "同步训练标签映射: cell_states=%s, num_classes=%d", cell_states, len(cell_states)
-    )
+    logger.info("同步训练标签映射: cell_states=%s, num_classes=%d", cell_states, len(cell_states))
     return cell_states, label_to_idx
 
 
 # ---------------------------------------------------------------------------
 # Inference artifact export (state_dict + config)
 # ---------------------------------------------------------------------------
+
 
 def _unwrap_model(model_or_module: Union[nn.Module, object]) -> nn.Module:
     """Return the bare ``nn.Module`` from a Lightning module or pass through."""
@@ -227,7 +227,10 @@ def export_inference_artifact(
 
     logger.info(
         "已导出推理 artifact: %s + %s (cell_states=%s, num_classes=%d)",
-        checkpoint_path, config_path, resolved_states, len(resolved_states),
+        checkpoint_path,
+        config_path,
+        resolved_states,
+        len(resolved_states),
     )
     return {
         "checkpoint_path": str(checkpoint_path),
@@ -239,11 +242,14 @@ def export_inference_artifact(
 # Artifact manifest (provenance + release gating)
 # ---------------------------------------------------------------------------
 
+
 def _git_commit() -> str:
     try:
         return subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError) as e:
         logger.warning("Failed to get git commit hash: %s", e)
@@ -282,7 +288,9 @@ def evaluate_release_gate(
         if metric_name not in metrics or metrics[metric_name] is None:
             missing.append(metric_name)
             checked[metric_name] = {
-                "threshold": threshold, "value": None, "passed": False,
+                "threshold": threshold,
+                "value": None,
+                "passed": False,
             }
             all_passed = False
             continue
@@ -292,7 +300,9 @@ def evaluate_release_gate(
         except (TypeError, ValueError):
             ok = False
         checked[metric_name] = {
-            "threshold": threshold, "value": value, "passed": bool(ok),
+            "threshold": threshold,
+            "value": value,
+            "passed": bool(ok),
         }
         if not ok:
             all_passed = False
@@ -351,9 +361,7 @@ def write_artifact_manifest(
                 "engineering pipeline only; predictions have no biological meaning."
             )
             if is_demo_data
-            else (
-                "Model trained on real data. Verify dataset provenance before use."
-            ),
+            else ("Model trained on real data. Verify dataset provenance before use."),
         },
         "data_provenance": {
             "model_kind": model_kind,
@@ -384,8 +392,9 @@ def write_artifact_manifest(
     if metrics:
         manifest["metrics"] = dict(metrics)
     manifest["intended_use"] = intended_use or (
-        "Engineering pipeline validation only." if is_demo_data else
-        "Cell-state prediction. Validate on held-out biological data before use."
+        "Engineering pipeline validation only."
+        if is_demo_data
+        else "Cell-state prediction. Validate on held-out biological data before use."
     )
     if limitations:
         manifest["limitations"] = limitations
@@ -410,8 +419,7 @@ def write_artifact_manifest(
     logger.info("artifact manifest 已导出: %s", manifest_path)
     if is_demo_data:
         logger.warning(
-            "⚠️ 该模型在合成/示例数据上训练，已标记 model_kind=demo。"
-            "产物仅用于工程链路验证，不可用于真实生物学预测。"
+            "⚠️ 该模型在合成/示例数据上训练，已标记 model_kind=demo。产物仅用于工程链路验证，不可用于真实生物学预测。"
         )
     return manifest
 

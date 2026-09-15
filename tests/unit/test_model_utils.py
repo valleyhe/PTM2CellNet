@@ -9,7 +9,6 @@
 estimate_max_batch_size 硬编码层数已修复，但缺乏回归测试。
 """
 
-
 from torch import nn
 
 from src.models.model_utils import (
@@ -23,8 +22,10 @@ from src.models.model_utils import (
 # 辅助模型: 不同层数暴露方式
 # =============================================================================
 
+
 class ModelWithNumLayers(nn.Module):
     """通过 num_layers 属性暴露层数。"""
+
     def __init__(self, hidden_dim=128, num_layers=6):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -34,27 +35,26 @@ class ModelWithNumLayers(nn.Module):
 
 class ModelWithEncoderLayers(nn.Module):
     """通过 encoder.layers (ModuleList) 暴露层数。"""
+
     def __init__(self, hidden_dim=128, num_layers=4):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.encoder = nn.Module()
-        self.encoder.layers = nn.ModuleList([
-            nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)
-        ])
+        self.encoder.layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)])
 
 
 class ModelWithNestedModuleList(nn.Module):
     """仅通过 nn.ModuleList 暴露层数（启发式路径）。"""
+
     def __init__(self, hidden_dim=128, num_layers=3):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.blocks = nn.ModuleList([
-            nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)
-        ])
+        self.blocks = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)])
 
 
 class ModelWithoutLayerInfo(nn.Module):
     """不暴露层数的模型 — 应使用保守回退值。"""
+
     def __init__(self, hidden_dim=256):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -64,6 +64,7 @@ class ModelWithoutLayerInfo(nn.Module):
 # =============================================================================
 # TestInferActivationDepth
 # =============================================================================
+
 
 class TestInferActivationDepth:
     """_infer_activation_depth 多路径探测逻辑。"""
@@ -137,6 +138,7 @@ class TestInferActivationDepth:
 # TestEstimateMaxBatchSize
 # =============================================================================
 
+
 class TestEstimateMaxBatchSize:
     """estimate_max_batch_size 功能验证。"""
 
@@ -178,10 +180,14 @@ class TestEstimateMaxBatchSize:
         model = ModelWithNumLayers(hidden_dim=256, num_layers=12)
         # 使用 config 覆盖为更少层数
         bs_default = estimate_max_batch_size(
-            model, seq_len=1000, available_memory_gb=4.0,
+            model,
+            seq_len=1000,
+            available_memory_gb=4.0,
         )
         bs_config = estimate_max_batch_size(
-            model, seq_len=1000, available_memory_gb=4.0,
+            model,
+            seq_len=1000,
+            available_memory_gb=4.0,
             config={"num_layers": 2},
         )
         assert bs_config > bs_default, "更少层数应产生更大的估算批次"
@@ -191,6 +197,7 @@ class TestEstimateMaxBatchSize:
 # TestGetModelMemoryUsage
 # =============================================================================
 
+
 class TestGetModelMemoryUsage:
     """get_model_memory_usage 功能验证。"""
 
@@ -198,11 +205,15 @@ class TestGetModelMemoryUsage:
         """返回结构包含所有必填字段。"""
         model = ModelWithNumLayers(hidden_dim=64, num_layers=2)
         usage = get_model_memory_usage(
-            model, batch_size=8, seq_len=512,
+            model,
+            batch_size=8,
+            seq_len=512,
         )
         expected_keys = {
-            "params_memory_mb", "activation_memory_mb",
-            "total_memory_mb", "recommended_batch_size",
+            "params_memory_mb",
+            "activation_memory_mb",
+            "total_memory_mb",
+            "recommended_batch_size",
         }
         assert expected_keys.issubset(usage.keys())
 
@@ -216,10 +227,7 @@ class TestGetModelMemoryUsage:
         """total_memory_mb 是各分项之和。"""
         model = ModelWithNumLayers(hidden_dim=128, num_layers=2)
         usage = get_model_memory_usage(model, batch_size=4, seq_len=256)
-        assert abs(
-            usage["total_memory_mb"]
-            - (usage["params_memory_mb"] + usage["activation_memory_mb"])
-        ) < 1e-6
+        assert abs(usage["total_memory_mb"] - (usage["params_memory_mb"] + usage["activation_memory_mb"])) < 1e-6
 
     def test_recommended_batch_size_reasonable(self):
         """推荐的批次大小在合理范围内。"""

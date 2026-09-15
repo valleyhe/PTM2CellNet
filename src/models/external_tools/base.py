@@ -27,6 +27,7 @@ try:
     from requests.exceptions import ConnectionError as RequestsConnectionError  # noqa: F811, F401
     from requests.exceptions import Timeout as RequestsTimeout  # noqa: F811, F401
     from requests.exceptions import HTTPError as RequestsHTTPError  # noqa: F811, F401
+
     REQUESTS_AVAILABLE = True
 except ImportError:
     logger.info("requests library not installed; HTTP-based external tools will be unavailable.")
@@ -37,6 +38,7 @@ BIO_BLAST_AVAILABLE = False
 
 try:
     from Bio.Blast import NCBIWWW, NCBIXML  # noqa: F811, F401
+
     BIO_BLAST_AVAILABLE = True
 except ImportError:
     logger.info("Bio.Blast not installed; BLAST web search will be unavailable.")
@@ -45,6 +47,7 @@ BIO_CLUSTAL_APP_AVAILABLE = False
 
 try:
     from Bio.Align.Applications import ClustalwCommandline, ClustalOmegaCommandline
+
     BIO_CLUSTAL_APP_AVAILABLE = True
 except ImportError:
     ClustalwCommandline = None
@@ -63,6 +66,7 @@ try:
     from Bio import SeqIO  # noqa: F811, F401
     from Bio.Seq import Seq  # noqa: F811, F401
     from Bio.SeqRecord import SeqRecord  # noqa: F811, F401
+
     BIO_ALIGN_AVAILABLE = True
 except ImportError:
     logger.info("BioPython not installed; alignment and sequence tools will be unavailable.")
@@ -193,9 +197,7 @@ class ToolConfig:
     def __contains__(self, key: str) -> bool:
         return key in self.params
 
-    def get(
-        self, key: str, default: Union[str, int, float, bool, None] = None
-    ) -> Union[str, int, float, bool, None]:
+    def get(self, key: str, default: Union[str, int, float, bool, None] = None) -> Union[str, int, float, bool, None]:
         return self.params.get(key, default)
 
     def __eq__(self, other: object) -> bool:
@@ -279,9 +281,7 @@ class SecondaryStructurePrediction:
 # ---------------------------------------------------------------------------
 
 
-def _needleman_wunsch(
-    seq1: str, seq2: str, match: int = 2, mismatch: int = -1, gap: int = -2
-) -> Tuple[str, str]:
+def _needleman_wunsch(seq1: str, seq2: str, match: int = 2, mismatch: int = -1, gap: int = -2) -> Tuple[str, str]:
     n, m = len(seq1), len(seq2)
     dp = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(n + 1):
@@ -299,9 +299,7 @@ def _needleman_wunsch(
     i, j = n, m
     a1_chars, a2_chars = [], []
     while i > 0 or j > 0:
-        if i > 0 and j > 0 and dp[i][j] == dp[i - 1][j - 1] + (
-            match if seq1[i - 1] == seq2[j - 1] else mismatch
-        ):
+        if i > 0 and j > 0 and dp[i][j] == dp[i - 1][j - 1] + (match if seq1[i - 1] == seq2[j - 1] else mismatch):
             a1_chars.append(seq1[i - 1])
             a2_chars.append(seq2[j - 1])
             i -= 1
@@ -317,9 +315,7 @@ def _needleman_wunsch(
     return "".join(reversed(a1_chars)), "".join(reversed(a2_chars))
 
 
-def _nw_score(
-    seq1: str, seq2: str, match: int = 2, mismatch: int = -1, gap: int = -2
-) -> int:
+def _nw_score(seq1: str, seq2: str, match: int = 2, mismatch: int = -1, gap: int = -2) -> int:
     """Return the Needleman-Wunsch optimal score (DP table value)."""
     n, m = len(seq1), len(seq2)
     dp = [[0] * (m + 1) for _ in range(2)]

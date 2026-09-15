@@ -31,6 +31,7 @@ from src.integration.perturbgen.frozen_cohort import (  # noqa: E402
     build_frozen_manifest,
     load_frozen_manifest,
     replay_verdicts,
+    sha256_file,
     verify_eval_input_against_manifest,
 )
 
@@ -45,6 +46,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cohort-h5ad", type=Path)
     parser.add_argument("--cell-type")
     parser.add_argument("--donor-obs-column", default="donor")
+    parser.add_argument(
+        "--cohort-pairing",
+        choices=("within_donor", "between_donor"),
+        default="within_donor",
+        help=(
+            "donor/state design frozen into the manifest: within_donor requires every frozen donor "
+            "in both states; between_donor accepts case-control cohorts with donor-disjoint state groups"
+        ),
+    )
     parser.add_argument("--train-donors", help="comma-separated donor labels")
     parser.add_argument("--held-out-donors", help="comma-separated donor labels")
     parser.add_argument("--candidates-csv", type=Path)
@@ -101,6 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             seeds=[int(item) for item in args.seeds.split(",") if item.strip()],
             matched_nulls=args.matched_nulls,
             source_config=args.source_config,
+            pairing=args.cohort_pairing,
         )
         payload = manifest.to_payload()
     elif args.plan:
@@ -122,12 +133,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.manifest is None or args.eval_input is None or args.report_manifest is None:
             raise SystemExit("--verify requires --manifest, --eval-input and --report-manifest")
         manifest = load_frozen_manifest(args.manifest)
-        eval_payload = json.loads(args.eval_input.expanduser().resolve(strict=True).read_text(encoding="utf-8"))
-        verification = verify_eval_input_against_manifest(manifest, eval_payload)
+        eval_input_path = args.eval_input.expanduser().resolve(strict=True)
+        eval_payload = json.loads(eval_input_path.read_text(encoding="utf-8"))
+        if not isinstance(eval_payload, dict):
+            raise SystemExit("--eval-input must contain a JSON object")
+        eval_payload = dict(eval_payload)
+        eval_payload.setdefault("input_json", str(eval_input_path))
+        eval_payload.setdefault("input_sha256", sha256_file(eval_input_path))
         report_payload = json.loads(args.report_manifest.expanduser().resolve(strict=True).read_text(encoding="utf-8"))
+        require_formal = any(
+            str(payload.get("evaluation_mode", "")).strip().lower() == "formal"
+            for payload in (eval_payload, report_payload)
+        )
+        verification = verify_eval_input_against_manifest(
+            manifest,
+            eval_payload,
+            require_formal=require_formal,
+        )
         result: dict = {
             "verification": verification,
-            "replay": replay_verdicts(report_payload, manifest=manifest),
+            "replay": replay_verdicts(
+                report_payload,
+                manifest=manifest,
+                eval_input=eval_payload,
+                require_formal=require_formal,
+            ),
         }
         payload = result
 

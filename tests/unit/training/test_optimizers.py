@@ -93,9 +93,7 @@ class TestConfigureScheduler:
 
     def test_configure_cosine(self, adam_optimizer):
         """配置CosineAnnealingLR"""
-        scheduler = _create_scheduler(
-            adam_optimizer, "cosine", max_epochs=100, scheduler_params={}
-        )
+        scheduler = _create_scheduler(adam_optimizer, "cosine", max_epochs=100, scheduler_params={})
 
         assert isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingLR)
         assert scheduler.T_max == 100
@@ -103,9 +101,7 @@ class TestConfigureScheduler:
 
     def test_configure_plateau(self, adam_optimizer):
         """配置ReduceLROnPlateau"""
-        scheduler = _create_scheduler(
-            adam_optimizer, "plateau", max_epochs=100, scheduler_params={}
-        )
+        scheduler = _create_scheduler(adam_optimizer, "plateau", max_epochs=100, scheduler_params={})
 
         assert isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau)
         assert scheduler.patience == 10
@@ -113,9 +109,7 @@ class TestConfigureScheduler:
 
     def test_configure_step(self, adam_optimizer):
         """配置StepLR"""
-        scheduler = _create_scheduler(
-            adam_optimizer, "step", max_epochs=100, scheduler_params={}
-        )
+        scheduler = _create_scheduler(adam_optimizer, "step", max_epochs=100, scheduler_params={})
 
         assert isinstance(scheduler, torch.optim.lr_scheduler.StepLR)
         assert scheduler.step_size == 30
@@ -149,9 +143,7 @@ class TestSchedulerBehavior:
     def test_cosine_lr_decay(self, simple_model):
         """验证余弦退火学习率下降"""
         optimizer = torch.optim.Adam(simple_model.parameters(), lr=0.01)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=10, eta_min=0.0
-        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10, eta_min=0.0)
 
         initial_lr = optimizer.param_groups[0]["lr"]
         for _ in range(5):
@@ -183,9 +175,7 @@ class TestSchedulerBehavior:
     def test_plateau_reduction(self, simple_model):
         """模拟验证损失plateau后学习率下降"""
         optimizer = torch.optim.Adam(simple_model.parameters(), lr=0.01)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.1, patience=0
-        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=0)
 
         initial_lr = optimizer.param_groups[0]["lr"]
 

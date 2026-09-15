@@ -353,8 +353,10 @@ class TestNullDistribution:
         gene_index = ref["gene_names"].index("TP53")
         request = adapter.build_request(gene_symbol="TP53", mode="hard_ko", magnitude=1.0)
         combined_shift = adapter._score_from_dense_matrices(
-            np.asarray(ref["counts"]), np.asarray(ref["network"]),
-            np.asarray(ref["counts"]), np.asarray(ref["network"]),
+            np.asarray(ref["counts"]),
+            np.asarray(ref["network"]),
+            np.asarray(ref["counts"]),
+            np.asarray(ref["network"]),
         )
         null_scores = adapter._build_null_distribution(
             gene_index=gene_index,
@@ -367,6 +369,7 @@ class TestNullDistribution:
 
     def test_pseudo_target_resampling_method(self) -> None:
         from src.integration.genki_adapter import GenKIAdapter as GA
+
         adapter = GA(
             ref_root="tests/fixtures/genki",
             null_permutations=4,
@@ -412,11 +415,13 @@ class TestNullDistribution:
 class TestBaggingStatistics:
     def test_compute_bagging_statistics(self) -> None:
         adapter = GenKIAdapter(ref_root="tests/fixtures/genki")
-        null_scores = np.array([
-            [0.1, 0.5, 0.9],
-            [0.2, 0.4, 0.8],
-            [0.3, 0.6, 0.7],
-        ])
+        null_scores = np.array(
+            [
+                [0.1, 0.5, 0.9],
+                [0.2, 0.4, 0.8],
+                [0.3, 0.6, 0.7],
+            ]
+        )
         hits, frequencies = adapter._compute_bagging_statistics(null_scores)
         assert hits.shape == (3,)
         assert frequencies.shape == (3,)

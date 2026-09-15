@@ -170,9 +170,7 @@ def _identity_columns(header: Sequence[str]) -> tuple[int, int, int]:
     except ValueError as exc:
         raise BuildDAVFLatentPairsError("cell identities is missing the guide_identity column") from exc
     try:
-        group_index = next(
-            index for index, name in enumerate(names) if name in {"gemgroup", "gem_group"}
-        )
+        group_index = next(index for index, name in enumerate(names) if name in {"gemgroup", "gem_group"})
     except StopIteration as exc:
         raise BuildDAVFLatentPairsError(
             "cell identities is missing the gemgroup column required for batch-matched controls"
@@ -210,8 +208,7 @@ def parse_guide_identity(value: str) -> tuple[str, bool]:
             raise BuildDAVFLatentPairsError(f"control guide_identity has no gene prefix: {value!r}")
         return CONTROL_LABEL, True
     target_parts = [
-        part for part in left.split("_")
-        if not re.fullmatch(r"(?:negctrl|posctrl)\d+", part, flags=re.IGNORECASE)
+        part for part in left.split("_") if not re.fullmatch(r"(?:negctrl|posctrl)\d+", part, flags=re.IGNORECASE)
     ]
     if not 1 <= len(target_parts) <= MAX_PERTURBATION_GENES:
         raise BuildDAVFLatentPairsError(f"guide_identity has more than two target genes: {value!r}")
@@ -242,8 +239,7 @@ def _read_labels(
     extra = sorted(set(annotations) - set(barcodes))
     if extra:
         raise BuildDAVFLatentPairsError(
-            "cell identities contains barcodes absent from the 10x matrix "
-            f"(extra={extra[:3]})"
+            f"cell identities contains barcodes absent from the 10x matrix (extra={extra[:3]})"
         )
     # The GEO identity table can omit a small number of filtered cells.  Those
     # cells have no valid perturbation label and are excluded by the caller;
@@ -332,10 +328,7 @@ def align_to_scvi_gene_order(
         missing = [name for name in names if name not in id_index and name not in symbol_indices]
         ambiguous = [name for name in names if name in symbol_indices and len(symbol_indices[name]) != 1]
         detail = f"missing={missing[:5]}, ambiguous_symbols={ambiguous[:5]}"
-        raise BuildDAVFLatentPairsError(
-            "raw Norman genes do not completely cover adapter.gene_names; "
-            f"{detail}"
-        )
+        raise BuildDAVFLatentPairsError(f"raw Norman genes do not completely cover adapter.gene_names; {detail}")
     return data.matrix[:, raw_indices].tocsr()
 
 
@@ -360,9 +353,7 @@ def _resolve_target_tokens(
     for gene_id, symbol in zip(data.raw_gene_ids, data.raw_gene_symbols, strict=True):
         symbol_to_ids.setdefault(symbol, []).append(gene_id)
     symbols = set(symbol_to_ids)
-    labels = sorted(
-        set(labels) if labels is not None else {label for label in data.labels if label != CONTROL_LABEL}
-    )
+    labels = sorted(set(labels) if labels is not None else {label for label in data.labels if label != CONTROL_LABEL})
     resolved: dict[str, tuple[int, ...]] = {}
     for label in labels:
         tokens: list[int] = []
@@ -413,9 +404,7 @@ def _split_resolvable_labels(
         else:
             valid.append(label)
     if not valid:
-        raise BuildDAVFLatentPairsError(
-            "Norman data contains no perturbation labels with observable raw target genes"
-        )
+        raise BuildDAVFLatentPairsError("Norman data contains no perturbation labels with observable raw target genes")
     return tuple(valid), excluded
 
 
@@ -464,9 +453,15 @@ def _allocate_control_pools(
     """Partition control cells across splits while allowing reuse within one split."""
 
     control_by_group: dict[str, np.ndarray] = {}
-    for group in sorted({data.pairing_groups[index] for index, label in enumerate(data.labels) if label == CONTROL_LABEL}):
+    for group in sorted(
+        {data.pairing_groups[index] for index, label in enumerate(data.labels) if label == CONTROL_LABEL}
+    ):
         control_by_group[group] = np.asarray(
-            [index for index, label in enumerate(data.labels) if label == CONTROL_LABEL and data.pairing_groups[index] == group],
+            [
+                index
+                for index, label in enumerate(data.labels)
+                if label == CONTROL_LABEL and data.pairing_groups[index] == group
+            ],
             dtype=np.int64,
         )
 
@@ -474,9 +469,7 @@ def _allocate_control_pools(
     for split, labels in splits.items():
         label_set = set(labels)
         target_groups_by_split[split] = {
-            data.pairing_groups[index]
-            for index, label in enumerate(data.labels)
-            if label in label_set
+            data.pairing_groups[index] for index, label in enumerate(data.labels) if label in label_set
         }
 
     pools: dict[str, dict[str, np.ndarray]] = {split: {} for split in splits}
@@ -524,18 +517,13 @@ def _build_pair_arrays(
                 np.asarray([data.pairing_groups[index] == group for index in control_indices], dtype=bool)
             ]
     else:
-        controls_by_group = {
-            str(group): np.asarray(values, dtype=np.int64)
-            for group, values in control_pools.items()
-        }
+        controls_by_group = {str(group): np.asarray(values, dtype=np.int64) for group, values in control_pools.items()}
     chosen_controls = np.empty(target_indices.size, dtype=np.int64)
     for row, target_index in enumerate(target_indices):
         group = data.pairing_groups[target_index]
         candidates = controls_by_group.get(group)
         if candidates is None or candidates.size == 0:
-            raise BuildDAVFLatentPairsError(
-                f"Norman gemgroup {group!r} has target cells but no control cells"
-            )
+            raise BuildDAVFLatentPairsError(f"Norman gemgroup {group!r} has target cells but no control cells")
         chosen_controls[row] = rng.choice(candidates)
     labels = tuple(data.labels[index] for index in target_indices)
     z_0 = np.asarray(latent[chosen_controls], dtype=np.float32)
@@ -567,7 +555,9 @@ def _build_pair_arrays(
     )
 
 
-def _make_adata(matrix: sp.csr_matrix, gene_names: Sequence[str], adapter: Any, *, batch_value: str, dataset_value: str):
+def _make_adata(
+    matrix: sp.csr_matrix, gene_names: Sequence[str], adapter: Any, *, batch_value: str, dataset_value: str
+):
     try:
         import anndata
     except ImportError as exc:

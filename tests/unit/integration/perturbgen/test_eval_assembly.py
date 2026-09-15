@@ -123,6 +123,7 @@ def _e2e_report(tmp_path, run_root) -> dict:
                 "gene_symbol": GENE,
                 "ensembl_id": ENSEMBL,
                 "output_root": str(run_root),
+                "prepare_root": str(run_root),
                 "stages": [],
             }
         ],
@@ -148,7 +149,7 @@ def deg_and_null(tmp_path):
 
 class TestResolveRunArtifacts:
     def test_binds_both_paths_from_stage_manifests(self, run_root):
-        artifacts = resolve_run_artifacts(run_root, GENE)
+        artifacts = resolve_run_artifacts(run_root, GENE, prepare_root=run_root)
         assert set(artifacts) == {"source_intervention", "within_state"}
         src = artifacts["source_intervention"]
         assert len(src) == 1
@@ -157,6 +158,21 @@ class TestResolveRunArtifacts:
         assert src[0].fingerprint == "abc123"
         assert src[0].path.endswith(".h5ad")
 
+    def test_binds_tokenise_manifest_from_shared_prepare_root(self, tmp_path, run_root):
+        prepare_root = tmp_path / "perturbgen" / "KO" / "_prepare"
+        prepare_manifest = prepare_root / "tokenise" / "stage_manifest.json"
+        prepare_manifest.parent.mkdir(parents=True)
+        prepare_manifest.write_text(
+            (run_root / "tokenise" / "stage_manifest.json").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        artifacts = resolve_run_artifacts(run_root, GENE, prepare_root=prepare_root)
+
+        assert {item.tokenise_stage_manifest for values in artifacts.values() for item in values} == {
+            str(prepare_manifest.resolve())
+        }
+
     def test_multi_seed_and_sensitivity_artifacts_are_all_bound(self, tmp_path):
         root = tmp_path / "perturbgen" / "KO" / ENSEMBL
         for seed in (0, 1, 2):
@@ -164,7 +180,7 @@ class TestResolveRunArtifacts:
         for mode in ("pad", "delete"):
             _write_stage(root, "source_intervention", seed=0, mode=mode, subdir=f"{mode}_seed0")
         _write_stage(root, "within_state", seed=0, mode="mask")
-        artifacts = resolve_run_artifacts(root, GENE)
+        artifacts = resolve_run_artifacts(root, GENE, prepare_root=root)
         src_modes = {(item.mode, item.seed) for item in artifacts["source_intervention"]}
         assert src_modes == {("mask", 0), ("mask", 1), ("mask", 2), ("pad", 0), ("delete", 0)}
 
@@ -172,17 +188,17 @@ class TestResolveRunArtifacts:
         root = tmp_path / "run_failed"
         _write_stage(root, "source_intervention", status="failed")
         with pytest.raises(EvalAssemblyError, match="did not succeed"):
-            resolve_run_artifacts(root, GENE)
+            resolve_run_artifacts(root, GENE, prepare_root=root)
 
     def test_missing_manifest_is_rejected(self, tmp_path):
         root = tmp_path / "run_empty"
         root.mkdir(parents=True)
         with pytest.raises(EvalAssemblyError, match="no successful perturb artifacts"):
-            resolve_run_artifacts(root, GENE)
+            resolve_run_artifacts(root, GENE, prepare_root=root)
 
     def test_gene_mismatch_is_rejected(self, run_root):
         with pytest.raises(EvalAssemblyError, match="targets gene"):
-            resolve_run_artifacts(run_root, "BRAF")
+            resolve_run_artifacts(run_root, "BRAF", prepare_root=run_root)
 
     def test_sequence_path_mismatch_is_rejected(self, tmp_path):
         root = tmp_path / "run_mismatch"
@@ -204,7 +220,7 @@ class TestResolveRunArtifacts:
             encoding="utf-8",
         )
         with pytest.raises(EvalAssemblyError, match="does not match path"):
-            resolve_run_artifacts(root, GENE)
+            resolve_run_artifacts(root, GENE, prepare_root=root)
 
     def test_manifest_without_seed_is_rejected(self, tmp_path):
         root = tmp_path / "run_noseed"
@@ -223,7 +239,7 @@ class TestResolveRunArtifacts:
             encoding="utf-8",
         )
         with pytest.raises(EvalAssemblyError, match="random_seed"):
-            resolve_run_artifacts(root, GENE)
+            resolve_run_artifacts(root, GENE, prepare_root=root)
 
 
 class TestBuildEvalInputPayload:
@@ -334,9 +350,7 @@ class TestBuildEvalInputPayload:
         with pytest.raises(EvalAssemblyError, match="unperturbed_quality_status"):
             self._payload(tmp_path, run_root, deg_and_null, unperturbed_quality_status="maybe")
 
-    def test_legacy_null_distribution_path_preserves_short_inconclusive_compatibility(
-        self, tmp_path, run_root
-    ):
+    def test_legacy_null_distribution_path_preserves_short_inconclusive_compatibility(self, tmp_path, run_root):
         deg = tmp_path / "deg.csv"
         deg.write_text("donor,gene_symbol,log2fc,fdr\nd1,G1,1.0,0.01\n", encoding="utf-8")
         short_null = tmp_path / "short-null.json"
@@ -355,7 +369,7 @@ class TestBuildEvalInputPayload:
             for mode in ("mask", "pad"):
                 for seed in (3, 4):
                     _write_stage(run_root, path_kind, seed=seed, mode=mode, subdir=f"{mode}_seed{seed}")
-        artifacts = resolve_run_artifacts(run_root, GENE)
+        artifacts = resolve_run_artifacts(run_root, GENE, prepare_root=run_root)
         distributions = [
             {
                 "schema_version": "perturbgen_null_distribution/v1",
@@ -416,9 +430,7 @@ class TestBuildEvalInputPayload:
                 uniform_candidate_pvalue=0.04,
             )
 
-    def test_formal_mode_requires_extracted_quality_and_omits_candidate_pvalue(
-        self, tmp_path, run_root, deg_and_null
-    ):
+    def test_formal_mode_requires_extracted_quality_and_omits_candidate_pvalue(self, tmp_path, run_root, deg_and_null):
         payload = self._payload(
             tmp_path,
             run_root,

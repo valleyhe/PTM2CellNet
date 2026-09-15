@@ -110,9 +110,7 @@ def load_donor_split(payload: Mapping[str, Any]) -> DonorSplit:
     split = build_donor_split(payload.get("train_donors", ()), payload.get("held_out_donors", ()))
     recorded = payload.get("sha256")
     if recorded is not None and str(recorded) != split.sha256:
-        raise DonorSplitError(
-            f"donor split sha256 drifted: payload has {recorded!r}, canonical is {split.sha256}"
-        )
+        raise DonorSplitError(f"donor split sha256 drifted: payload has {recorded!r}, canonical is {split.sha256}")
     return split
 
 
@@ -123,9 +121,7 @@ def bind_frozen_donor_split(split: DonorSplit, frozen_manifest: Any) -> None:
     held_out = tuple(frozen_manifest.held_out_donors)
     frozen = build_donor_split(train, held_out)
     if split.train_donors != frozen.train_donors or split.held_out_donors != frozen.held_out_donors:
-        raise DonorSplitError(
-            "donor split does not match frozen cohort manifest train/held-out lists"
-        )
+        raise DonorSplitError("donor split does not match frozen cohort manifest train/held-out lists")
     if split.sha256 != frozen.sha256:
         raise DonorSplitError(
             f"donor split sha256 {split.sha256} does not match frozen manifest sha256 {frozen.sha256}"

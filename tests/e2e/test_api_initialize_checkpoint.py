@@ -60,16 +60,21 @@ def _restore_state():
 def _model_config(num_classes=4, embed_dim=16):
     return {
         "model": {
-            "encoder_type": "cnn", "vocab_size": 21, "embed_dim": embed_dim,
-            "num_filters": 16, "kernel_sizes": [3], "max_seq_len": 64,
-            "num_ptm_types": 5, "num_classes": num_classes,
-            "pool_type": "mean", "dropout": 0.1,
+            "encoder_type": "cnn",
+            "vocab_size": 21,
+            "embed_dim": embed_dim,
+            "num_filters": 16,
+            "kernel_sizes": [3],
+            "max_seq_len": 64,
+            "num_ptm_types": 5,
+            "num_classes": num_classes,
+            "pool_type": "mean",
+            "dropout": 0.1,
         },
         "data": {
             "cell_states": [f"class_{i}" for i in range(num_classes)],
             "max_sequence_length": 64,
-            "ptm_types": ["phosphorylation", "acetylation", "methylation",
-                          "ubiquitination", "sumoylation"],
+            "ptm_types": ["phosphorylation", "acetylation", "methylation", "ubiquitination", "sumoylation"],
         },
     }
 
@@ -92,11 +97,14 @@ class TestAPICheckpointStrictness:
 
         client = TestClient(create_app())
         cell_states = cfg["data"]["cell_states"]
-        r = client.post("/api/v1/initialize", json={
-            "checkpoint_path": str(ckpt),
-            "config_path": str(cfg_path),
-            "cell_states": cell_states,
-        })
+        r = client.post(
+            "/api/v1/initialize",
+            json={
+                "checkpoint_path": str(ckpt),
+                "config_path": str(cfg_path),
+                "cell_states": cell_states,
+            },
+        )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["status"] == "success"
@@ -117,11 +125,14 @@ class TestAPICheckpointStrictness:
         cfg_path = _write_config(tmp_path / "shape.config.yaml", infer_cfg)
 
         client = TestClient(create_app())
-        r = client.post("/api/v1/initialize", json={
-            "checkpoint_path": str(ckpt),
-            "config_path": str(cfg_path),
-            "cell_states": infer_cfg["data"]["cell_states"],
-        })
+        r = client.post(
+            "/api/v1/initialize",
+            json={
+                "checkpoint_path": str(ckpt),
+                "config_path": str(cfg_path),
+                "cell_states": infer_cfg["data"]["cell_states"],
+            },
+        )
         assert r.status_code == 400, f"形状不匹配应返回 400，实际 {r.status_code}: {r.text}"
         assert "不匹配" in r.json()["detail"]
 
@@ -132,20 +143,26 @@ class TestAPICheckpointStrictness:
         sd = model.state_dict()
         # 模拟 Lightning 原始 ckpt：state_dict 带 model. 前缀 + 外层 epoch/loops
         lightning_ckpt = {
-            "epoch": 1, "global_step": 5, "pytorch-lightning_version": "2.0",
+            "epoch": 1,
+            "global_step": 5,
+            "pytorch-lightning_version": "2.0",
             "state_dict": {f"model.{k}": v for k, v in sd.items()},
-            "loops": [], "lr_schedulers": [],
+            "loops": [],
+            "lr_schedulers": [],
         }
         ckpt = tmp_path / "lightning.ckpt"
         torch.save(lightning_ckpt, ckpt)
         cfg_path = _write_config(tmp_path / "lightning.config.yaml", cfg)
 
         client = TestClient(create_app())
-        r = client.post("/api/v1/initialize", json={
-            "checkpoint_path": str(ckpt),
-            "config_path": str(cfg_path),
-            "cell_states": cfg["data"]["cell_states"],
-        })
+        r = client.post(
+            "/api/v1/initialize",
+            json={
+                "checkpoint_path": str(ckpt),
+                "config_path": str(cfg_path),
+                "cell_states": cfg["data"]["cell_states"],
+            },
+        )
         # 统一合约已支持剥离 model. 前缀，因此此处应成功（验证转换路径）
         assert r.status_code == 200, f"Lightning 裸权重经统一合约应可加载: {r.text}"
         body = r.json()
@@ -167,10 +184,13 @@ class TestAPICheckpointStrictness:
         cfg_path = _write_config(tmp_path / "partial.config.yaml", cfg)
 
         client = TestClient(create_app())
-        r = client.post("/api/v1/initialize", json={
-            "checkpoint_path": str(ckpt),
-            "config_path": str(cfg_path),
-            "cell_states": cfg["data"]["cell_states"],
-        })
+        r = client.post(
+            "/api/v1/initialize",
+            json={
+                "checkpoint_path": str(ckpt),
+                "config_path": str(cfg_path),
+                "cell_states": cfg["data"]["cell_states"],
+            },
+        )
         assert r.status_code == 400, f"缺失键应返回 400，实际 {r.status_code}"
         assert "缺失" in r.json()["detail"]

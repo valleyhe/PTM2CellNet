@@ -169,10 +169,7 @@ class TestCreateAppFactory:
                 headers={"Origin": "https://env.example.com"},
             )
             assert resp.status_code == 200
-            assert (
-                resp.headers.get("access-control-allow-origin")
-                == "https://env.example.com"
-            )
+            assert resp.headers.get("access-control-allow-origin") == "https://env.example.com"
         finally:
             if prev is None:
                 os.environ.pop(env_key, None)

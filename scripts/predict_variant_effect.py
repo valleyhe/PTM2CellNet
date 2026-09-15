@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.models.variant_effect import VariantPTMEffectPredictor, predict_ptm_effects_for_variant
 from src.models.signaling_network import PTMNetworkAnalyzer
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -28,14 +28,14 @@ def load_sequences(fasta_path: str) -> dict:
     current_id = None
     current_seq = []
 
-    with open(fasta_path, 'r') as f:
+    with open(fasta_path, "r") as f:
         for line in f:
             line = line.strip()
-            if line.startswith('>'):
+            if line.startswith(">"):
                 if current_id and current_seq:
-                    sequences[current_id] = ''.join(current_seq)
+                    sequences[current_id] = "".join(current_seq)
                 # 解析ID
-                parts = line.split('|')
+                parts = line.split("|")
                 if len(parts) >= 2:
                     current_id = parts[1]
                 else:
@@ -45,32 +45,35 @@ def load_sequences(fasta_path: str) -> dict:
                 current_seq.append(line)
 
         if current_id and current_seq:
-            sequences[current_id] = ''.join(current_seq)
+            sequences[current_id] = "".join(current_seq)
 
     return sequences
 
 
 def main():
-    parser = argparse.ArgumentParser(description='预测变异的PTM效应')
-    parser.add_argument('--variant', '-v', type=str, required=True,
-                        help='变异信息 (格式: UniProtID:Position:RefAA:AltAA, 如 P15056:600:V:E)')
-    parser.add_argument('--model-dir', '-m', type=str,
-                        default='outputs/ptm_pretrain',
-                        help='模型目录')
-    parser.add_argument('--fasta', '-f', type=str,
-                        default='data/uniprot/uniprot_sprot.fasta',
-                        help='UniProt FASTA文件')
-    parser.add_argument('--ptm-types', '-p', type=str, nargs='+',
-                        default=['Phosphorylation', 'Acetylation', 'Ubiquitination',
-                                 'Methylation', 'Succinylation', 'Sumoylation'],
-                        help='PTM类型')
-    parser.add_argument('--output', '-o', type=str,
-                        default='variant_prediction.json',
-                        help='输出文件')
+    parser = argparse.ArgumentParser(description="预测变异的PTM效应")
+    parser.add_argument(
+        "--variant",
+        "-v",
+        type=str,
+        required=True,
+        help="变异信息 (格式: UniProtID:Position:RefAA:AltAA, 如 P15056:600:V:E)",
+    )
+    parser.add_argument("--model-dir", "-m", type=str, default="outputs/ptm_pretrain", help="模型目录")
+    parser.add_argument("--fasta", "-f", type=str, default="data/uniprot/uniprot_sprot.fasta", help="UniProt FASTA文件")
+    parser.add_argument(
+        "--ptm-types",
+        "-p",
+        type=str,
+        nargs="+",
+        default=["Phosphorylation", "Acetylation", "Ubiquitination", "Methylation", "Succinylation", "Sumoylation"],
+        help="PTM类型",
+    )
+    parser.add_argument("--output", "-o", type=str, default="variant_prediction.json", help="输出文件")
     args = parser.parse_args()
 
     # 解析变异
-    parts = args.variant.split(':')
+    parts = args.variant.split(":")
     if len(parts) != 4:
         logger.error("变异格式错误，应为: UniProtID:Position:RefAA:AltAA")
         sys.exit(1)
@@ -98,15 +101,15 @@ def main():
     # 加载模型
     models = {}
     for ptm_type in args.ptm_types:
-        model_path = Path(args.model_dir) / ptm_type.lower() / 'checkpoints'
-        ckpt_files = list(model_path.glob('*.ckpt'))
+        model_path = Path(args.model_dir) / ptm_type.lower() / "checkpoints"
+        ckpt_files = list(model_path.glob("*.ckpt"))
 
         if not ckpt_files:
             logger.warning(f"未找到 {ptm_type} 模型")
             continue
 
         # 选择最佳模型（排除last.ckpt）
-        ckpt_files = [f for f in ckpt_files if 'val_auroc' in f.stem]
+        ckpt_files = [f for f in ckpt_files if "val_auroc" in f.stem]
         if not ckpt_files:
             logger.warning(f"未找到 {ptm_type} 验证模型")
             continue
@@ -129,9 +132,7 @@ def main():
 
     # 预测PTM效应
     logger.info("预测PTM效应...")
-    ptm_effects = predict_ptm_effects_for_variant(
-        uniprot_id, position, ref_aa, alt_aa, sequence, models
-    )
+    ptm_effects = predict_ptm_effects_for_variant(uniprot_id, position, ref_aa, alt_aa, sequence, models)
 
     # 分析信号网络效应
     logger.info("分析信号网络效应...")
@@ -162,28 +163,28 @@ def main():
         print(f"    变化: {effect['delta_prob']:+.3f} ({effect['effect']})")
 
     print("\n【信号网络效应】")
-    network = result['network_effects']
+    network = result["network_effects"]
     print(f"  影响的通路数: {network['summary']['affected_pathways']}")
 
-    if network['key_pathways']:
+    if network["key_pathways"]:
         print("  关键通路:")
-        for pathway, score in network['key_pathways']:
+        for pathway, score in network["key_pathways"]:
             direction = "激活" if score > 0 else "抑制"
             print(f"    - {pathway}: {direction} ({score:.2f})")
 
     print("\n【生物学解释】")
-    print(network['interpretation'])
+    print(network["interpretation"])
 
     # 保存结果
-    with open(args.output, 'w', encoding='utf-8') as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         # 转换为可序列化格式
         output = {
-            'variant': result['variant'],
-            'ptm_effects': ptm_effects,
-            'network_effects': {
-                'summary': network['summary'],
-                'pathway_activities': network['pathway_activities'],
-                'key_pathways': network['key_pathways'],
+            "variant": result["variant"],
+            "ptm_effects": ptm_effects,
+            "network_effects": {
+                "summary": network["summary"],
+                "pathway_activities": network["pathway_activities"],
+                "key_pathways": network["key_pathways"],
             },
         }
         json.dump(output, f, indent=2, ensure_ascii=False)
@@ -191,5 +192,5 @@ def main():
     logger.info(f"结果保存至: {args.output}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

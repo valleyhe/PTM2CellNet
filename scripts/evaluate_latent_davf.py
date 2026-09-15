@@ -106,10 +106,7 @@ def compute_endpoint_metrics(
             F.cosine_similarity(predicted_delta, target_delta, dim=1, eps=1e-8).mean().detach().cpu()
         ),
         "latent_delta_sign_accuracy": float(
-            (
-                torch.sign(predicted_delta[direction_mask])
-                == torch.sign(target_delta[direction_mask])
-            )
+            (torch.sign(predicted_delta[direction_mask]) == torch.sign(target_delta[direction_mask]))
             .to(dtype=torch.float32)
             .mean()
             .detach()
@@ -168,9 +165,7 @@ def compute_gene_direction_metrics(
         "gene_direction_sign_total": float(nonzero_count),
         "gene_direction_inconclusive_fraction": float((~observed_nonzero).to(dtype=torch.float32).mean().item()),
         "gene_predicted_nonzero_fraction": float(predicted_nonzero.to(dtype=torch.float32).mean().item()),
-        "gene_predicted_delta_norm_ratio": float(
-            (predicted_delta.square().mean() / observed_delta_mse).sqrt().item()
-        ),
+        "gene_predicted_delta_norm_ratio": float((predicted_delta.square().mean() / observed_delta_mse).sqrt().item()),
     }
 
 
@@ -197,9 +192,7 @@ def _load_evaluation_context(
         if isinstance(dataset_metadata, Mapping):
             context_value = dataset_metadata.get("prepared_anndata")
     if not isinstance(context_value, (str, Path)) or not str(context_value):
-        raise ValueError(
-            "gene-level DAVF evaluation requires --context-h5ad or dataset.prepared_anndata provenance"
-        )
+        raise ValueError("gene-level DAVF evaluation requires --context-h5ad or dataset.prepared_anndata provenance")
 
     context_path = Path(context_value).expanduser().resolve()
     if not context_path.is_file():
@@ -308,12 +301,7 @@ def _evaluate_model(
             )
             direction_mask = target_delta.abs() > 1e-8
             totals["direction_sign_correct"] += int(
-                (
-                    torch.sign(predicted_delta[direction_mask])
-                    == torch.sign(target_delta[direction_mask])
-                )
-                .sum()
-                .cpu()
+                (torch.sign(predicted_delta[direction_mask]) == torch.sign(target_delta[direction_mask])).sum().cpu()
             )
             totals["direction_sign_total"] += int(direction_mask.sum().cpu())
             totals["elements"] += int(z_0.numel())
@@ -362,25 +350,16 @@ def _evaluate_model(
             observed_delta = observed_target - baseline_target
             predicted_delta = predicted_target - baseline_target
             observed_nonzero = np.abs(observed_delta) > gene_direction_epsilon
-            totals["gene_endpoint_squared_error"] += float(
-                np.square(predicted_target - observed_target).sum()
-            )
-            totals["gene_endpoint_absolute_error"] += float(
-                np.abs(predicted_target - observed_target).sum()
-            )
+            totals["gene_endpoint_squared_error"] += float(np.square(predicted_target - observed_target).sum())
+            totals["gene_endpoint_absolute_error"] += float(np.abs(predicted_target - observed_target).sum())
             totals["gene_observed_delta_squared"] += float(np.square(observed_delta).sum())
             totals["gene_predicted_delta_squared"] += float(np.square(predicted_delta).sum())
             totals["gene_direction_sign_correct"] += int(
-                (
-                    np.sign(predicted_delta[observed_nonzero])
-                    == np.sign(observed_delta[observed_nonzero])
-                ).sum()
+                (np.sign(predicted_delta[observed_nonzero]) == np.sign(observed_delta[observed_nonzero])).sum()
             )
             totals["gene_direction_sign_total"] += int(observed_nonzero.sum())
             totals["gene_direction_inconclusive"] += int((~observed_nonzero).sum())
-            totals["gene_predicted_nonzero"] += int(
-                (np.abs(predicted_delta) > gene_direction_epsilon).sum()
-            )
+            totals["gene_predicted_nonzero"] += int((np.abs(predicted_delta) > gene_direction_epsilon).sum())
             totals["gene_samples"] += count
 
     if totals["samples"] == 0 or totals["elements"] == 0:
@@ -407,33 +386,20 @@ def _evaluate_model(
         "target_delta_rmse": (totals["target_delta_squared"] / totals["elements"]) ** 0.5,
         "predicted_delta_rmse": (totals["predicted_delta_squared"] / totals["elements"]) ** 0.5,
         "latent_delta_cosine_mean": totals["direction_cosine"] / totals["samples"],
-        "latent_delta_sign_accuracy": (
-            totals["direction_sign_correct"] / totals["direction_sign_total"]
-        ),
-        "predicted_delta_norm_ratio": (
-            totals["predicted_delta_squared"] / totals["target_delta_squared"]
-        ) ** 0.5,
+        "latent_delta_sign_accuracy": (totals["direction_sign_correct"] / totals["direction_sign_total"]),
+        "predicted_delta_norm_ratio": (totals["predicted_delta_squared"] / totals["target_delta_squared"]) ** 0.5,
         "gene_endpoint_mse": totals["gene_endpoint_squared_error"] / totals["gene_samples"],
         "gene_endpoint_mae": totals["gene_endpoint_absolute_error"] / totals["gene_samples"],
-        "gene_observed_delta_rmse": (
-            totals["gene_observed_delta_squared"] / totals["gene_samples"]
-        ) ** 0.5,
-        "gene_predicted_delta_rmse": (
-            totals["gene_predicted_delta_squared"] / totals["gene_samples"]
-        ) ** 0.5,
-        "gene_direction_sign_accuracy": (
-            totals["gene_direction_sign_correct"] / totals["gene_direction_sign_total"]
-        ),
+        "gene_observed_delta_rmse": (totals["gene_observed_delta_squared"] / totals["gene_samples"]) ** 0.5,
+        "gene_predicted_delta_rmse": (totals["gene_predicted_delta_squared"] / totals["gene_samples"]) ** 0.5,
+        "gene_direction_sign_accuracy": (totals["gene_direction_sign_correct"] / totals["gene_direction_sign_total"]),
         "gene_direction_sign_total": int(totals["gene_direction_sign_total"]),
-        "gene_direction_inconclusive_fraction": (
-            totals["gene_direction_inconclusive"] / totals["gene_samples"]
-        ),
-        "gene_predicted_nonzero_fraction": (
-            totals["gene_predicted_nonzero"] / totals["gene_samples"]
-        ),
+        "gene_direction_inconclusive_fraction": (totals["gene_direction_inconclusive"] / totals["gene_samples"]),
+        "gene_predicted_nonzero_fraction": (totals["gene_predicted_nonzero"] / totals["gene_samples"]),
         "gene_predicted_delta_norm_ratio": (
             totals["gene_predicted_delta_squared"] / totals["gene_observed_delta_squared"]
-        ) ** 0.5,
+        )
+        ** 0.5,
     }
 
 

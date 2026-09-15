@@ -2,6 +2,7 @@
 ESM2Encoder tokenizer功能单元测试
 验证tokenizer正确加载和tokenize方法输出格式
 """
+
 import os
 import pytest
 import torch
@@ -12,6 +13,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 @pytest.fixture(scope="module")
 def esm2_encoder():
     from src.models.pretrained_encoders import ESM2Encoder
+
     return ESM2Encoder(model_size="8M", freeze=True)
 
 
@@ -54,12 +56,15 @@ def test_input_ids_in_vocab_range(esm2_encoder):
     assert input_ids.min().item() >= 0
     assert input_ids.max().item() < esm2_encoder.tokenizer.vocab_size
 
+
 def test_forward_with_input_ids_batch(esm2_encoder):
     """测试PTM2CellNet.forward()能正确处理含input_ids的batch"""
     import os
+
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
     from src.models.architectures import PTM2CellNet
     import torch
+
     model = PTM2CellNet(
         encoder_type="esm2_8M",
         num_classes=2,

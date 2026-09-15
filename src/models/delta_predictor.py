@@ -109,7 +109,9 @@ class DeltaPredictor(LatentDAVF):
 
         logger.info(
             "DeltaPredictor initialized: latent_dim=%d hidden_dim=%d delta_hidden=%d",
-            config.latent_dim, config.hidden_dim, hidden,
+            config.latent_dim,
+            config.hidden_dim,
+            hidden,
         )
 
     def _compute_delta(
@@ -129,7 +131,9 @@ class DeltaPredictor(LatentDAVF):
         condition, attention masking, etc.).
         """
         condition = self._resolve_condition(
-            gene_ids=gene_ids, directions=directions, magnitudes=magnitudes,
+            gene_ids=gene_ids,
+            directions=directions,
+            magnitudes=magnitudes,
             condition_source="internal_targets" if external_condition is None else "external",
             external_condition=external_condition,
             attention_mask=attention_mask,
@@ -184,14 +188,9 @@ class DeltaPredictor(LatentDAVF):
             if z_0.ndim != 2:
                 raise ValueError(f"z_0 must be 2D [B, latent_dim], got {tuple(z_0.shape)}")
             if z_0.shape[1] != self.config.latent_dim:
-                raise ValueError(
-                    f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, "
-                    f"got {z_0.shape[1]}"
-                )
+                raise ValueError(f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}")
             if num_steps != 1:
-                logger.debug(
-                    "DeltaPredictor is single-step; num_steps=%d ignored.", num_steps
-                )
+                logger.debug("DeltaPredictor is single-step; num_steps=%d ignored.", num_steps)
 
             B = z_0.shape[0]
             with torch.no_grad():
@@ -233,10 +232,7 @@ class DeltaPredictor(LatentDAVF):
             if z_0.ndim != 2:
                 raise ValueError(f"z_0 must be 2D [B, latent_dim], got {tuple(z_0.shape)}")
             if z_0.shape[1] != self.config.latent_dim:
-                raise ValueError(
-                    f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, "
-                    f"got {z_0.shape[1]}"
-                )
+                raise ValueError(f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}")
             B = z_0.shape[0]
             with torch.no_grad():
                 delta_z = self._compute_delta(
@@ -275,10 +271,7 @@ class DeltaPredictor(LatentDAVF):
         if z_0.ndim != 2:
             raise ValueError(f"z_0 must be 2D [B, latent_dim], got {tuple(z_0.shape)}")
         if z_0.shape[1] != self.config.latent_dim:
-            raise ValueError(
-                f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, "
-                f"got {z_0.shape[1]}"
-            )
+            raise ValueError(f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}")
         B = z_0.shape[0]
 
         delta_pred = self._compute_delta(
@@ -293,9 +286,7 @@ class DeltaPredictor(LatentDAVF):
 
         if z_1 is not None:
             if z_1.shape != z_0.shape:
-                raise ValueError(
-                    f"z_1 shape {tuple(z_1.shape)} must match z_0 {tuple(z_0.shape)}"
-                )
+                raise ValueError(f"z_1 shape {tuple(z_1.shape)} must match z_0 {tuple(z_0.shape)}")
             delta_target = z_1 - z_0
             loss = nn.functional.mse_loss(delta_pred, delta_target)
             return {"delta_pred": delta_pred, "delta_target": delta_target, "loss": loss}

@@ -8,11 +8,13 @@
 import sys
 from pathlib import Path
 
+
 # 确保项目根目录在sys.path中
 def _ensure_project_root():
     project_root = Path(__file__).parent.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+
 
 _ensure_project_root()
 
@@ -201,9 +203,7 @@ def main():
     config.set("data.cell_states", cell_states)
     config.set("data.label_to_idx", label_to_idx)
     config.set("model.num_classes", len(cell_states))
-    logger.info(
-        "训练标签映射: cell_states=%s, num_classes=%d", cell_states, len(cell_states)
-    )
+    logger.info("训练标签映射: cell_states=%s, num_classes=%d", cell_states, len(cell_states))
 
     # 运行前数据预检：drop_last=True 时训练样本数必须 >= batch_size。
     batch_size = config.get("training.batch_size", 32)
@@ -393,7 +393,8 @@ def main():
         metrics=test_metrics or None,
         encoder_metadata=encoder_metadata,
         intended_use=(
-            "Engineering pipeline validation only." if is_demo_data
+            "Engineering pipeline validation only."
+            if is_demo_data
             else "Cell-state prediction with a pretrained protein LM backbone."
         ),
     )

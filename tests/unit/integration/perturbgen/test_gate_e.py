@@ -56,9 +56,7 @@ class TestBenchmark:
 
     @pytest.mark.parametrize("ensembl_id", ["", "not-an-ensembl-id"])
     def test_missing_or_invalid_ensembl_rejected(self, tmp_path, ensembl_id):
-        benchmark = load_benchmark(
-            _benchmark_csv(tmp_path, [f"STAT3,{ensembl_id},phosphorylation,12\n"])
-        )
+        benchmark = load_benchmark(_benchmark_csv(tmp_path, [f"STAT3,{ensembl_id},phosphorylation,12\n"]))
         with pytest.raises(GateEError, match="ensembl_id"):
             benchmark.validate(min_samples=1)
 

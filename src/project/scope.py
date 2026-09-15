@@ -103,8 +103,16 @@ CANCELLED_FEATURES: list[CancelledFeature] = [
 
 # Features completed and ready for production
 COMPLETED_FEATURES: list[str] = [
-    "V1-01", "V1-02", "V1-03", "V1-04", "V1-05",
-    "V1-06", "V1-07", "V1-08", "V1-09", "V1-10",
+    "V1-01",
+    "V1-02",
+    "V1-03",
+    "V1-04",
+    "V1-05",
+    "V1-06",
+    "V1-07",
+    "V1-08",
+    "V1-09",
+    "V1-10",
 ]
 
 

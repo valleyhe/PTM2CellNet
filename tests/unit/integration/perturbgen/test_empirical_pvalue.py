@@ -59,7 +59,9 @@ def test_aggregation_takes_max_of_required_primary_runs_and_ignores_pad() -> Non
 
 
 def test_missing_required_run_is_an_error_not_a_fabricated_p() -> None:
-    rows = [row for row in _runs() if not (row["path"] == "within_state" and row["seed"] == 3 and row["mode"] == "mask")]
+    rows = [
+        row for row in _runs() if not (row["path"] == "within_state" and row["seed"] == 3 and row["mode"] == "mask")
+    ]
     with pytest.raises(EmpiricalPvalueError, match="missing finite empirical_pvalue"):
         aggregate_candidate_empirical_pvalues(rows, "KD", "up", ensembl_id="ENSG00000168610")
 

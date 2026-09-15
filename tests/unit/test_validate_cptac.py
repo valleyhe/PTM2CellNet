@@ -131,7 +131,8 @@ def test_main_mock_mode_marks_results_not_valid(monkeypatch, tmp_path):
     # Argv with --mock + --download-only to avoid the model load path
     # (which would require a real checkpoint).
     monkeypatch.setattr(
-        sys, "argv",
+        sys,
+        "argv",
         ["validate_cptac.py", "--mock", "-o", str(out_dir), "--download-only"],
     )
     module.main()
@@ -151,9 +152,9 @@ def test_main_mock_full_run_marks_results_not_valid(monkeypatch, tmp_path):
     out_dir.mkdir()
 
     monkeypatch.setattr(
-        sys, "argv",
-        ["validate_cptac.py", "--mock", "-o", str(out_dir),
-         "-m", str(tmp_path / "no_models")],
+        sys,
+        "argv",
+        ["validate_cptac.py", "--mock", "-o", str(out_dir), "-m", str(tmp_path / "no_models")],
     )
     module.main()
 
@@ -183,9 +184,7 @@ def test_parse_phospho_tsv_basic(tmp_path):
 
     tsv_path = tmp_path / "phospho.tsv"
     tsv_path.write_text(
-        "Gene_Site\tSample_1\tSample_2\tGene\tPosition\n"
-        "P53_S15\t1.0\t2.0\tTP53\t15\n"
-        "P53_T18\t3.0\t4.0\tTP53\t18\n",
+        "Gene_Site\tSample_1\tSample_2\tGene\tPosition\nP53_S15\t1.0\t2.0\tTP53\t15\nP53_T18\t3.0\t4.0\tTP53\t18\n",
         encoding="utf-8",
     )
     df = module._parse_phospho_tsv(tsv_path)
@@ -244,12 +243,14 @@ def test_validator_predictor_not_wired_emits_unknown(monkeypatch, tmp_path):
 
     import pandas as _pd
 
-    mut = _pd.DataFrame({
-        "UniProt_ID": ["P53"],
-        "Protein_Position": [15],
-        "Reference_AA": ["S"],
-        "Variant_AA": ["A"],
-    })
+    mut = _pd.DataFrame(
+        {
+            "UniProt_ID": ["P53"],
+            "Protein_Position": [15],
+            "Reference_AA": ["S"],
+            "Variant_AA": ["A"],
+        }
+    )
     validator = module.CPTACValidator(
         model_dir=str(tmp_path / "no_models"),
         phospho_data=_pd.DataFrame(),
@@ -271,12 +272,14 @@ def test_validator_predictor_wired_scores_mutation(monkeypatch, tmp_path):
 
     import pandas as _pd
 
-    mut = _pd.DataFrame({
-        "UniProt_ID": ["P53"],
-        "Protein_Position": [15],
-        "Reference_AA": ["S"],
-        "Variant_AA": ["A"],
-    })
+    mut = _pd.DataFrame(
+        {
+            "UniProt_ID": ["P53"],
+            "Protein_Position": [15],
+            "Reference_AA": ["S"],
+            "Variant_AA": ["A"],
+        }
+    )
 
     # Build a validator with a fake predictor injected directly.
     validator = module.CPTACValidator.__new__(module.CPTACValidator)
@@ -295,20 +298,28 @@ def test_validator_predictor_wired_scores_mutation(monkeypatch, tmp_path):
         def predict_protein(self, sequence, protein_id, threshold=0.0):
             # WT scores low at the mutation site; mutant scores higher → gain.
             if protein_id == "mut":
-                return _pd.DataFrame([{
-                    "protein_id": protein_id,
-                    "position": 15,
-                    "aa": "S",
-                    "ptm_type": "Phosphorylation",
-                    "probability": 0.9,
-                }])
-            return _pd.DataFrame([{
-                "protein_id": protein_id,
-                "position": 15,
-                "aa": "S",
-                "ptm_type": "Phosphorylation",
-                "probability": 0.4,
-            }])
+                return _pd.DataFrame(
+                    [
+                        {
+                            "protein_id": protein_id,
+                            "position": 15,
+                            "aa": "S",
+                            "ptm_type": "Phosphorylation",
+                            "probability": 0.9,
+                        }
+                    ]
+                )
+            return _pd.DataFrame(
+                [
+                    {
+                        "protein_id": protein_id,
+                        "position": 15,
+                        "aa": "S",
+                        "ptm_type": "Phosphorylation",
+                        "probability": 0.4,
+                    }
+                ]
+            )
 
     validator._predictor = _FakePredictor()
     out = validator.validate_predictions()
@@ -336,8 +347,7 @@ def test_main_pdc_mode_uses_real_download(monkeypatch, tmp_path):
         study_name = "CPTAC Breast Cancer"
         disease_type = "Breast"
         primary_site = "Breast"
-        files = [{"file_id": "f1", "file_name": "phospho.tsv",
-                  "data_category": "Phosphoproteomics"}]
+        files = [{"file_id": "f1", "file_name": "phospho.tsv", "data_category": "Phosphoproteomics"}]
 
     class _FakeClient:
         def __init__(self, *a, **kw):
@@ -348,6 +358,7 @@ def test_main_pdc_mode_uses_real_download(monkeypatch, tmp_path):
 
         def download_file(self, file_id, target_dir, **kw):
             from pathlib import Path
+
             target = Path(target_dir)
             target.mkdir(parents=True, exist_ok=True)
             f = target / "phospho.tsv"
@@ -361,9 +372,9 @@ def test_main_pdc_mode_uses_real_download(monkeypatch, tmp_path):
 
     # download-only to keep this test focused on the matrix path.
     monkeypatch.setattr(
-        sys, "argv",
-        ["validate_cptac.py", "-o", str(out_dir), "--download-only",
-         "-s", "BRCA"],
+        sys,
+        "argv",
+        ["validate_cptac.py", "-o", str(out_dir), "--download-only", "-s", "BRCA"],
     )
     module.main()
 
@@ -371,6 +382,7 @@ def test_main_pdc_mode_uses_real_download(monkeypatch, tmp_path):
     cached = out_dir / "BRCA_phosphoproteomics.csv"
     assert cached.is_file()
     import pandas as _pd
+
     df = _pd.read_csv(cached, index_col=0)
     assert df.shape == (2, 1)
     assert "Sample_1" in df.columns

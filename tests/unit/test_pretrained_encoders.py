@@ -54,9 +54,7 @@ class _DummyHFModel(nn.Module):
     def __init__(self, hidden_size: int = 16, num_layers: int = 4):
         super().__init__()
         self.embed = nn.Embedding(64, hidden_size)
-        self.layers = nn.ModuleList(
-            [nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]
-        )
+        self.layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)])
 
     def forward(self, input_ids, attention_mask=None, output_attentions=False):
         del attention_mask
@@ -67,9 +65,7 @@ class _DummyHFModel(nn.Module):
         attentions = None
         if output_attentions:
             batch_size, seq_len = input_ids.shape
-            attentions = tuple(
-                torch.ones(batch_size, 1, seq_len, seq_len) for _ in self.layers
-            )
+            attentions = tuple(torch.ones(batch_size, 1, seq_len, seq_len) for _ in self.layers)
 
         return SimpleNamespace(last_hidden_state=hidden, attentions=attentions)
 
@@ -138,9 +134,7 @@ def test_esm2_all_model_sizes(_mock_hf_components, monkeypatch):
 
     assert len(_mock_hf_components["model"]) == 4
     assert len(_mock_hf_components["tokenizer"]) == 4
-    assert {
-        model_name for model_name, _ in _mock_hf_components["model"]
-    } == {small_model_name}
+    assert {model_name for model_name, _ in _mock_hf_components["model"]} == {small_model_name}
 
 
 def test_protbert_encoder_initialization(_mock_hf_components, monkeypatch):
@@ -156,12 +150,8 @@ def test_protbert_encoder_initialization(_mock_hf_components, monkeypatch):
         _mock_hf_components["model"].append((model_name, cache_dir))
         return _DummyHFModel(hidden_size=16, num_layers=4)
 
-    monkeypatch.setattr(
-        BertConfig, "from_pretrained", staticmethod(fake_bert_config_from_pretrained)
-    )
-    monkeypatch.setattr(
-        BertModel, "from_pretrained", staticmethod(fake_bert_model_from_pretrained)
-    )
+    monkeypatch.setattr(BertConfig, "from_pretrained", staticmethod(fake_bert_config_from_pretrained))
+    monkeypatch.setattr(BertModel, "from_pretrained", staticmethod(fake_bert_model_from_pretrained))
 
     encoder = ProtBERTEncoder(freeze=False)
     assert encoder.model_name == "Rostlab/prot_bert"
@@ -212,16 +202,8 @@ def test_encoder_unfreeze_layers(_mock_hf_components):
     frozen_layers = encoder.model.layers[:-2]
     unfrozen_layers = encoder.model.layers[-2:]
 
-    assert all(
-        not param.requires_grad
-        for layer in frozen_layers
-        for param in layer.parameters()
-    )
-    assert all(
-        param.requires_grad
-        for layer in unfrozen_layers
-        for param in layer.parameters()
-    )
+    assert all(not param.requires_grad for layer in frozen_layers for param in layer.parameters())
+    assert all(param.requires_grad for layer in unfrozen_layers for param in layer.parameters())
 
     # 非layers参数仍保持冻结（例如embedding）
     assert all(not param.requires_grad for param in encoder.model.embed.parameters())

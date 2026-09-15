@@ -23,6 +23,7 @@ from src.models.geneformer_embedding import GeneformerEmbeddingLoader
 @dataclass
 class LatentDAVFConfig:
     """Configuration for LatentDAVF model."""
+
     # Default architecture constants — aligned with DAVFConfig
     _DEFAULT_HIDDEN_DIM: int = 256
     _DEFAULT_X_ENCODER_HIDDEN: int = 512
@@ -58,13 +59,9 @@ class LatentDAVFConfig:
         if self.num_heads <= 0:
             raise ValueError(f"num_heads must be positive, got {self.num_heads}")
         if self.num_heads > self.hidden_dim:
-            raise ValueError(
-                f"num_heads ({self.num_heads}) cannot exceed hidden_dim ({self.hidden_dim})"
-            )
+            raise ValueError(f"num_heads ({self.num_heads}) cannot exceed hidden_dim ({self.hidden_dim})")
         if self.hidden_dim % self.num_heads != 0:
-            raise ValueError(
-                f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({self.num_heads})"
-            )
+            raise ValueError(f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({self.num_heads})")
         if self.gene_embed_dim <= 0:
             raise ValueError(f"gene_embed_dim must be positive, got {self.gene_embed_dim}")
         if self.gene_embed_dim % self.num_heads != 0:
@@ -76,9 +73,7 @@ class LatentDAVFConfig:
         if self.num_directions <= 0:
             raise ValueError(f"num_directions must be positive, got {self.num_directions}")
         if not (0.0 < self.residual_gate_init < 1.0):
-            raise ValueError(
-                f"residual_gate_init must be in (0, 1), got {self.residual_gate_init}"
-            )
+            raise ValueError(f"residual_gate_init must be in (0, 1), got {self.residual_gate_init}")
         if not (0.0 <= self.dropout < 1.0):
             raise ValueError(f"dropout must be in [0, 1), got {self.dropout}")
         if not (0.0 <= self.attention_dropout < 1.0):
@@ -159,19 +154,19 @@ class LatentConditionalVelocityField(nn.Module):
         in_dim = total_input_dim
         for i in range(config.num_velocity_layers):
             hidden_dim = config.velocity_hidden if i < config.num_velocity_layers - 1 else config.x_encoder_hidden
-            velocity_layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim) if i < config.num_velocity_layers - 1 else nn.Identity(),
-                nn.GELU() if i < config.num_velocity_layers - 1 else nn.Identity(),
-                nn.Dropout(config.dropout) if i < config.num_velocity_layers - 1 else nn.Identity(),
-            ])
+            velocity_layers.extend(
+                [
+                    nn.Linear(in_dim, hidden_dim),
+                    nn.LayerNorm(hidden_dim) if i < config.num_velocity_layers - 1 else nn.Identity(),
+                    nn.GELU() if i < config.num_velocity_layers - 1 else nn.Identity(),
+                    nn.Dropout(config.dropout) if i < config.num_velocity_layers - 1 else nn.Identity(),
+                ]
+            )
             in_dim = hidden_dim
         velocity_layers.append(nn.Linear(in_dim, config.latent_dim))
         self.velocity_net = nn.Sequential(*velocity_layers)
 
-    def forward(
-        self, z_t: torch.Tensor, t: torch.Tensor, condition: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, z_t: torch.Tensor, t: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         z_emb = self.x_encoder(z_t)
         t_emb = self.time_encoder(t)
         cond_emb = self.condition_projection(condition)
@@ -248,19 +243,13 @@ class LatentDAVF(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if condition_source not in {"internal_targets", "external_embedding"}:
-            raise ValueError(
-                "condition_source must be 'internal_targets' or 'external_embedding'"
-            )
+            raise ValueError("condition_source must be 'internal_targets' or 'external_embedding'")
         if condition_source == "external_embedding":
             if external_condition is None:
-                raise ValueError(
-                    "external_condition is required when condition_source='external_embedding'"
-                )
+                raise ValueError("external_condition is required when condition_source='external_embedding'")
             return external_condition
         if gene_ids is None or directions is None:
-            raise ValueError(
-                "gene_ids and directions are required when condition_source='internal_targets'"
-            )
+            raise ValueError("gene_ids and directions are required when condition_source='internal_targets'")
         gene_ids = self._sanitize_gene_ids(gene_ids, attention_mask=attention_mask)
         if attention_mask is not None:
             valid_targets = attention_mask.to(dtype=torch.bool).any(dim=1)
@@ -271,7 +260,9 @@ class LatentDAVF(nn.Module):
                 )
         gene_embeddings = self._get_gene_embeddings(gene_ids)
         condition, _ = self.biperturb_encoder(
-            gene_embeddings, directions, magnitudes,
+            gene_embeddings,
+            directions,
+            magnitudes,
             return_attention=False,
             attention_mask=attention_mask,
         )
@@ -292,9 +283,7 @@ class LatentDAVF(nn.Module):
                 raise ValueError(
                     f"external_condition must be [B, {self.config.hidden_dim}], got {tuple(condition.shape)}"
                 )
-            raise ValueError(
-                f"condition embedding must be [B, {self.config.hidden_dim}], got {tuple(condition.shape)}"
-            )
+            raise ValueError(f"condition embedding must be [B, {self.config.hidden_dim}], got {tuple(condition.shape)}")
         return condition
 
     def forward_flow_matching(
@@ -313,13 +302,9 @@ class LatentDAVF(nn.Module):
         if z_0.ndim != 2 or z_1.ndim != 2:
             raise ValueError("z_0 and z_1 must be 2D tensors [B, latent_dim]")
         if z_0.shape[1] != self.config.latent_dim:
-            raise ValueError(
-                f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}"
-            )
+            raise ValueError(f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}")
         if z_1.shape[1] != self.config.latent_dim:
-            raise ValueError(
-                f"z_1 latent_dim mismatch: expected {self.config.latent_dim}, got {z_1.shape[1]}"
-            )
+            raise ValueError(f"z_1 latent_dim mismatch: expected {self.config.latent_dim}, got {z_1.shape[1]}")
 
         B = z_0.shape[0]
         device = z_0.device
@@ -336,13 +321,18 @@ class LatentDAVF(nn.Module):
         z_t = (1 - t).view(B, 1) * z_0 + t.view(B, 1) * z_1
 
         condition = self._resolve_condition(
-            gene_ids=gene_ids, directions=directions, magnitudes=magnitudes,
+            gene_ids=gene_ids,
+            directions=directions,
+            magnitudes=magnitudes,
             condition_source=condition_source,
             external_condition=external_condition,
             attention_mask=attention_mask,
         )
         condition = self._align_condition(
-            condition, batch_size=B, condition_source=condition_source, reference=z_0,
+            condition,
+            batch_size=B,
+            condition_source=condition_source,
+            reference=z_0,
         )
 
         v_t = self.velocity_field(z_t, t, condition)
@@ -365,7 +355,7 @@ class LatentDAVF(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Predict z_1 from z_0 using ODE integration.
-        
+
         NOTE: use_ema=False by default. EMA was found to cause collapse
         to identity mapping (z_1_pred ≈ z_0) because it pulls z_t back
         towards z_0 at every step.
@@ -376,9 +366,7 @@ class LatentDAVF(nn.Module):
             if z_0.ndim != 2:
                 raise ValueError(f"z_0 must be 2D [B, latent_dim], got {tuple(z_0.shape)}")
             if z_0.shape[1] != self.config.latent_dim:
-                raise ValueError(
-                    f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}"
-                )
+                raise ValueError(f"z_0 latent_dim mismatch: expected {self.config.latent_dim}, got {z_0.shape[1]}")
             if num_steps <= 0:
                 raise ValueError(f"num_steps must be > 0, got {num_steps}")
             if not (0.0 <= ema_alpha <= 1.0):
@@ -388,13 +376,18 @@ class LatentDAVF(nn.Module):
 
             with torch.no_grad():
                 condition = self._resolve_condition(
-                    gene_ids=gene_ids, directions=directions, magnitudes=magnitudes,
+                    gene_ids=gene_ids,
+                    directions=directions,
+                    magnitudes=magnitudes,
                     condition_source=condition_source,
                     external_condition=external_condition,
                     attention_mask=attention_mask,
                 )
                 condition = self._align_condition(
-                    condition, batch_size=B, condition_source=condition_source, reference=z_0,
+                    condition,
+                    batch_size=B,
+                    condition_source=condition_source,
+                    reference=z_0,
                 )
 
             dt = 1.0 / num_steps
@@ -428,8 +421,13 @@ class LatentDAVF(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         z_1 = self.predict(
-            z_0, gene_ids=gene_ids, directions=directions, magnitudes=magnitudes,
-            num_steps=num_steps, use_ema=use_ema, ema_alpha=ema_alpha,
+            z_0,
+            gene_ids=gene_ids,
+            directions=directions,
+            magnitudes=magnitudes,
+            num_steps=num_steps,
+            use_ema=use_ema,
+            ema_alpha=ema_alpha,
             condition_source=condition_source,
             external_condition=external_condition,
             attention_mask=attention_mask,
@@ -462,9 +460,7 @@ class LatentDAVF(nn.Module):
 
         if self.embedding_loader is not None and len(self.gene_names) > 0:
             if gene_ids.max().item() >= len(self.gene_names):
-                raise ValueError(
-                    f"gene_ids must be in [0, {len(self.gene_names)}), got max {gene_ids.max().item()}"
-                )
+                raise ValueError(f"gene_ids must be in [0, {len(self.gene_names)}), got max {gene_ids.max().item()}")
             gene_names_list = []
             for i in range(B):
                 batch_gene_names = []
@@ -484,8 +480,7 @@ class LatentDAVF(nn.Module):
                 raise RuntimeError("gene_embed_table is not initialized")
             if gene_ids.max().item() >= self.gene_embed_table.num_embeddings:
                 raise ValueError(
-                    f"gene_ids must be in [0, {self.gene_embed_table.num_embeddings}), "
-                    f"got max {gene_ids.max().item()}"
+                    f"gene_ids must be in [0, {self.gene_embed_table.num_embeddings}), got max {gene_ids.max().item()}"
                 )
             embeddings = cast(torch.Tensor, self.gene_embed_table(gene_ids))
 

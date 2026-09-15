@@ -61,6 +61,7 @@ logger = setup_logger(__name__)
 # Task head
 # ---------------------------------------------------------------------------
 
+
 class TaskHead(nn.Module):
     """Configurable classification head for DAVF features.
 
@@ -84,6 +85,7 @@ class TaskHead(nn.Module):
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DAVF E2E Fine-Tuning (production)")
@@ -114,6 +116,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
+
 
 def load_data(data_path: str, config: Optional[Dict[str, Any]] = None):
     """Load and preprocess labeled PTM data into train/val/test splits."""
@@ -201,6 +204,7 @@ def create_dataloaders(
 # Model building
 # ---------------------------------------------------------------------------
 
+
 def build_model(
     checkpoint_path: str,
     feature_dim: int,
@@ -232,6 +236,7 @@ def build_model(
 # Batch conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def _build_ptm_sites_from_batch(
     davf_sites: List[List[int]],
     davf_type_names: List[List[str]],
@@ -245,10 +250,7 @@ def _build_ptm_sites_from_batch(
     """
     result: List[List[PTMSite]] = []
     for sites, types, _genes in zip(davf_sites, davf_type_names, davf_gene_names, strict=False):
-        ptm_sites = [
-            PTMSite(position=pos, type=ptm_type)
-            for pos, ptm_type in zip(sites, types, strict=False)
-        ]
+        ptm_sites = [PTMSite(position=pos, type=ptm_type) for pos, ptm_type in zip(sites, types, strict=False)]
         result.append(ptm_sites)
     return result
 
@@ -267,6 +269,7 @@ def _move_to_device(obj: Any, device: torch.device) -> Any:
 # ---------------------------------------------------------------------------
 # Training helpers
 # ---------------------------------------------------------------------------
+
 
 @torch.no_grad()
 def evaluate(
@@ -390,6 +393,7 @@ def train_epoch(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     args = parse_args()
     os.makedirs(args.output, exist_ok=True)
@@ -397,6 +401,7 @@ def main() -> None:
     config: Optional[Dict[str, Any]] = None
     if args.config:
         from src.utils.config import Config
+
         config = Config.from_yaml(args.config).to_dict()
 
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -405,15 +410,17 @@ def main() -> None:
     # 1. Load data
     train_df, val_df, test_df = load_data(args.data, config)
     train_loader, val_loader, test_loader = create_dataloaders(
-        train_df, val_df, test_df, args.batch_size, config,
+        train_df,
+        val_df,
+        test_df,
+        args.batch_size,
+        config,
     )
     num_classes = len(train_df["cell_state"].unique())
     logger.info("类别数: %d", num_classes)
 
     # 2. Build model
-    davf_module, mapper = build_model(
-        args.checkpoint, args.feature_dim, device, args.embedding_asset
-    )
+    davf_module, mapper = build_model(args.checkpoint, args.feature_dim, device, args.embedding_asset)
     head = TaskHead(feature_dim=args.feature_dim, num_classes=num_classes, dropout=args.dropout).to(device)
 
     results: Dict[str, Any] = {"args": vars(args), "num_classes": num_classes}
@@ -436,18 +443,25 @@ def main() -> None:
 
             logger.info(
                 "[Stage1] epoch %d/%d  train_loss=%.4f  val_loss=%.4f  val_acc=%.4f  val_f1=%.4f  (%.1fs)",
-                epoch, args.stage1_epochs, train_loss,
-                val_metrics.get("loss", float("inf")), val_metrics.get("accuracy", 0.0),
-                val_metrics.get("f1", 0.0), time.time() - t0,
+                epoch,
+                args.stage1_epochs,
+                train_loss,
+                val_metrics.get("loss", float("inf")),
+                val_metrics.get("accuracy", 0.0),
+                val_metrics.get("f1", 0.0),
+                time.time() - t0,
             )
 
             if val_metrics.get("f1", 0.0) > best_val_f1:
                 best_val_f1 = val_metrics.get("f1", 0.0)
-                torch.save({
-                    "head_state_dict": head.state_dict(),
-                    "davf_state_dict": davf_module.state_dict(),
-                    "config": vars(args),
-                }, os.path.join(args.output, "best_model_stage1.pt"))
+                torch.save(
+                    {
+                        "head_state_dict": head.state_dict(),
+                        "davf_state_dict": davf_module.state_dict(),
+                        "config": vars(args),
+                    },
+                    os.path.join(args.output, "best_model_stage1.pt"),
+                )
 
         results["stage1"] = {"history": stage1_history, "best_val_f1": best_val_f1}
 
@@ -473,20 +487,27 @@ def main() -> None:
 
             logger.info(
                 "[Stage2] epoch %d/%d  train_loss=%.4f  val_loss=%.4f  val_acc=%.4f  val_f1=%.4f  (%.1fs)",
-                epoch, args.stage2_epochs, train_loss,
-                val_metrics.get("loss", float("inf")), val_metrics.get("accuracy", 0.0),
-                val_metrics.get("f1", 0.0), time.time() - t0,
+                epoch,
+                args.stage2_epochs,
+                train_loss,
+                val_metrics.get("loss", float("inf")),
+                val_metrics.get("accuracy", 0.0),
+                val_metrics.get("f1", 0.0),
+                time.time() - t0,
             )
 
             if val_metrics.get("f1", 0.0) > best_val_f1:
                 best_val_f1 = val_metrics.get("f1", 0.0)
-                torch.save({
-                    "head_state_dict": head.state_dict(),
-                    "davf_state_dict": davf_module.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "epoch": epoch,
-                    "config": vars(args),
-                }, os.path.join(args.output, "best_model_stage2.pt"))
+                torch.save(
+                    {
+                        "head_state_dict": head.state_dict(),
+                        "davf_state_dict": davf_module.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "epoch": epoch,
+                        "config": vars(args),
+                    },
+                    os.path.join(args.output, "best_model_stage2.pt"),
+                )
 
         results["stage2"] = {"history": stage2_history, "best_val_f1": best_val_f1}
 
@@ -496,11 +517,14 @@ def main() -> None:
     logger.info("测试集指标: %s", json.dumps(test_metrics, indent=2))
 
     # 6. Save final artifacts
-    torch.save({
-        "head_state_dict": head.state_dict(),
-        "davf_state_dict": davf_module.state_dict(),
-        "config": vars(args),
-    }, os.path.join(args.output, "final_model.pt"))
+    torch.save(
+        {
+            "head_state_dict": head.state_dict(),
+            "davf_state_dict": davf_module.state_dict(),
+            "config": vars(args),
+        },
+        os.path.join(args.output, "final_model.pt"),
+    )
     save_json(results, os.path.join(args.output, "finetune_results.json"))
     logger.info("结果已保存至 %s", args.output)
 

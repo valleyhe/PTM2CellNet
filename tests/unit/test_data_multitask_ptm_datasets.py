@@ -23,13 +23,15 @@ class TestMultiTaskPTMDataset:
     @pytest.fixture
     def temp_data_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            df = pd.DataFrame({
-                "uniprot_id": ["P1", "P2", "P3", "P4"],
-                "position": [10, 20, 30, 40],
-                "aa": ["S", "T", "Y", "K"],
-                "sequence_window": ["A" * 31, "C" * 31, "D" * 31, "E" * 31],
-                "label": [1, 0, 1, 0],
-            })
+            df = pd.DataFrame(
+                {
+                    "uniprot_id": ["P1", "P2", "P3", "P4"],
+                    "position": [10, 20, 30, 40],
+                    "aa": ["S", "T", "Y", "K"],
+                    "sequence_window": ["A" * 31, "C" * 31, "D" * 31, "E" * 31],
+                    "label": [1, 0, 1, 0],
+                }
+            )
             phos_path = os.path.join(tmpdir, "ptm_train_phosphorylation.csv")
             acetyl_path = os.path.join(tmpdir, "ptm_train_acetylation.csv")
             df.to_csv(phos_path, index=False)
@@ -65,13 +67,15 @@ class TestMultiTaskPTMDataModule:
     @pytest.fixture
     def temp_data_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            df = pd.DataFrame({
-                "uniprot_id": [f"P{i}" for i in range(20)],
-                "position": list(range(1, 21)),
-                "aa": ["S"] * 20,
-                "sequence_window": ["A" * 31] * 20,
-                "label": ([1] * 10 + [0] * 10),
-            })
+            df = pd.DataFrame(
+                {
+                    "uniprot_id": [f"P{i}" for i in range(20)],
+                    "position": list(range(1, 21)),
+                    "aa": ["S"] * 20,
+                    "sequence_window": ["A" * 31] * 20,
+                    "label": ([1] * 10 + [0] * 10),
+                }
+            )
             phos_path = os.path.join(tmpdir, "ptm_train_phosphorylation.csv")
             df.to_csv(phos_path, index=False)
             yield tmpdir
@@ -112,14 +116,16 @@ class TestPTMSiteDataset:
     @pytest.fixture
     def temp_site_csv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            df = pd.DataFrame({
-                "uniprot_id": ["P1", "P2", "P3"],
-                "position": [10, 20, 30],
-                "aa": ["S", "T", "Y"],
-                "sequence_window": ["ACDEFGHIKLMNPQRSTVWY"] * 3,
-                "label": [1, 0, 1],
-                "ptm_type": ["Phosphorylation"] * 3,
-            })
+            df = pd.DataFrame(
+                {
+                    "uniprot_id": ["P1", "P2", "P3"],
+                    "position": [10, 20, 30],
+                    "aa": ["S", "T", "Y"],
+                    "sequence_window": ["ACDEFGHIKLMNPQRSTVWY"] * 3,
+                    "label": [1, 0, 1],
+                    "ptm_type": ["Phosphorylation"] * 3,
+                }
+            )
             path = os.path.join(tmpdir, "sites.csv")
             df.to_csv(path, index=False)
             yield path
@@ -141,14 +147,16 @@ class TestPTMSiteDataModule:
     @pytest.fixture
     def temp_site_csv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            df = pd.DataFrame({
-                "uniprot_id": [f"P{i}" for i in range(30)],
-                "position": list(range(1, 31)),
-                "aa": ["S"] * 30,
-                "sequence_window": ["ACDEFGHIKLMNPQRSTVWY"] * 30,
-                "label": ([1] * 15 + [0] * 15),
-                "ptm_type": ["Phosphorylation"] * 30,
-            })
+            df = pd.DataFrame(
+                {
+                    "uniprot_id": [f"P{i}" for i in range(30)],
+                    "position": list(range(1, 31)),
+                    "aa": ["S"] * 30,
+                    "sequence_window": ["ACDEFGHIKLMNPQRSTVWY"] * 30,
+                    "label": ([1] * 15 + [0] * 15),
+                    "ptm_type": ["Phosphorylation"] * 30,
+                }
+            )
             path = os.path.join(tmpdir, "sites.csv")
             df.to_csv(path, index=False)
             yield path

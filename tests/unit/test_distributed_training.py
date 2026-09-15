@@ -60,9 +60,7 @@ class TestDistributedTrainingSmoke:
                     model = MagicMock()
                     config = {"training": {"lr": 0.001}}
                     with pytest.raises(RuntimeError):
-                        distributed_trainer(
-                            model, config=config, devices=4, strict=True
-                        )
+                        distributed_trainer(model, config=config, devices=4, strict=True)
 
     # ----------------------------------------------------------------
     # Test 4: Env var strict mode
@@ -77,8 +75,6 @@ class TestDistributedTrainingSmoke:
                         model = MagicMock()
                         config = {"training": {"lr": 0.001}}
                         with pytest.raises(RuntimeError):
-                            distributed_trainer(
-                                model, config=config, devices=4
-                            )
+                            distributed_trainer(model, config=config, devices=4)
         finally:
             os.environ.pop("PTM2CELLNET_STRICT_MODEL_ASSETS", None)

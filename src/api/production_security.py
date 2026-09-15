@@ -88,9 +88,7 @@ def audit_production_security() -> ProductionSecurityReport:
     # default (env var unset) is the curated production allowlist and is
     # therefore considered restricted.
     allowlist_env = os.environ.get("PTM2CELLNET_DOWNLOAD_ALLOWLIST", None)
-    download_allowlist_restricted = not (
-        allowlist_env is not None and allowlist_env.strip() == ""
-    )
+    download_allowlist_restricted = not (allowlist_env is not None and allowlist_env.strip() == "")
 
     if not is_production:
         return ProductionSecurityReport(
@@ -112,9 +110,7 @@ def audit_production_security() -> ProductionSecurityReport:
             "explicitly opt out with PTM2CELLNET_ALLOW_UNAUTHED_PROD=1 "
             "(not recommended)."
         )
-    if not download_allowlist_restricted and not _truthy(
-        "PTM2CELLNET_ALLOW_UNRESTRICTED_DOWNLOADS"
-    ):
+    if not download_allowlist_restricted and not _truthy("PTM2CELLNET_ALLOW_UNRESTRICTED_DOWNLOADS"):
         reasons.append(
             "PTM2CELLNET_ENV=production but PTM2CELLNET_DOWNLOAD_ALLOWLIST is "
             "empty — any host could be downloaded from. Set a comma-separated "

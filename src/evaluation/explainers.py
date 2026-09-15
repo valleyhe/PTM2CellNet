@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # TypedDict / Protocol definitions for structured dicts and duck-typed deps
 # ---------------------------------------------------------------------------
 
+
 class PtmSite(TypedDict, total=False):
     """Shape of a single PTM site dictionary used throughout this module."""
 
@@ -169,10 +170,7 @@ class LeaveOnePTMOutScorer:
             device = next(model.parameters()).device
         except (AttributeError, StopIteration):
             device = torch.device("cpu")
-        batch = {
-            key: (value.to(device) if isinstance(value, torch.Tensor) else value)
-            for key, value in batch.items()
-        }
+        batch = {key: (value.to(device) if isinstance(value, torch.Tensor) else value) for key, value in batch.items()}
         outputs = model(batch)
         probabilities = outputs["probabilities"][0]
         prediction_index = int(outputs["predictions"][0].item())
@@ -378,7 +376,10 @@ class TwoStageExplanationPipeline:
         save_dataframe(pd.DataFrame(unmapped_rows), str(output_path / "unmapped_candidates.csv"))
         save_dataframe(pd.DataFrame(failed_rows), str(output_path / "failed_candidates.csv"))
         save_json(cast(List[object], explanation_rows), str(output_path / "genki_explanations.json"))
-        save_json(cast(Dict[str, object], build_two_stage_summary_payload(results)), str(output_path / "two_stage_summary.json"))
+        save_json(
+            cast(Dict[str, object], build_two_stage_summary_payload(results)),
+            str(output_path / "two_stage_summary.json"),
+        )
         self._write_markdown_summary(results, output_path)
         return results
 

@@ -89,6 +89,12 @@ python scripts/predict_cross_scale.py \
 仓库中的跨尺度测试使用 synthetic fixtures，仅证明工程契约、checkpoint
 round-trip 和批量输出可运行，不代表真实扰动数据或生物学效果已验收。
 
+### PTM activity → AD 交集研究主线（当前主线入口）
+
+当前研究主线由 [执行方案](docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md)（v1.0）定义，命令与数据契约见 [PTM activity 管线指南](docs/guides/ptm_activity_pipeline.md)：真实 PTM 定量（全局、不区分 cell type）→ KSTAR/PhosR activity inference（独立环境运行）→ 有符号网络（OmniPath signed signaling + TF regulon）传播得到 global PTM gene score → 与 AD 队列每个 cell type 的 donor-level DEG 做同方向交集 → PTM 源蛋白/激酶作为 gene-level intervention 生成 `candidate-spec/v1`，进入下方 DAVF × PerturbGen 路径。
+
+冻结决策：PTM 阶段不区分 cell type、AD 阶段保留 cell type；各方向字段（activity/predicted_gene/observed 等）分字段记录，禁止全局同号/取反；source（PTM 源蛋白/激酶）与 target（交集 DEG）角色分离；无独立 null 前不写 PTM 侧显著性（`prediction_status=direction_only`）。当前已落地代码契约层（5 模块 + 4 CLI，合成数据验证）；真实 PTM 定量、signed 网络与 activity benchmark 仍是外部输入（方案 §10），合成契约 PASS 不构成生物学 PASS。
+
 ### DAVF × PerturbGen 研究路径（按需）
 
 这条研究路径有三个需要分别验收的终点：
@@ -122,7 +128,7 @@ python -m pytest tests/e2e/ -v --timeout=600
 ```
 PTM2CellNet/
 ├── src/                        # 核心源码
-│   ├── analysis/               # 变异解析、基因映射、通路整合、PTM工作流
+│   ├── analysis/               # 变异解析、基因映射、通路整合、PTM activity → AD 交集主线
 │   ├── api/                    # FastAPI 推理服务
 │   │   └── routes/             # predictions / state / model_info
 │   ├── data/                   # 数据集、预处理、特征提取、增强、验证
@@ -146,7 +152,7 @@ PTM2CellNet/
 │   ├── predict*.py             # 推理入口（细胞状态推理、PTM位点推理、变异效应）
 │   ├── evaluate.py             # 模型评估
 │   ├── prepare_*.py            # 数据准备
-│   └── run_*.py                # 虚拟扰动、两阶段解释
+│   └── run_*.py                # 虚拟扰动、两阶段解释、PTM activity 主线阶段 1/3/4/5 CLI
 ├── configs/                    # 配置文件
 │   ├── default.yaml            # 默认配置
 │   ├── production.yaml         # 生产配置
@@ -354,8 +360,9 @@ print(output["probabilities"])
 | `src/models/signaling_network.py` | 信号通路网络建模 |
 | `src/models/variant_effect.py` | 变异效应预测 |
 | `src/analysis/variant_workflow.py` | 变异解析完整工作流 |
+| `src/analysis/ptm_research_config.py` 等 | PTM activity → AD 交集主线：阶段 0 冻结研究设计、PTM 输入标准化、有符号网络传播、per-cell-type 交集与 candidate spec 生成（见 [管线指南](docs/guides/ptm_activity_pipeline.md)） |
 | `src/integration/genki/` | GenKI 图扰动与显著性分析 |
-| `src/integration/perturbgen/` | DAVF 候选准入、PerturbGen runner、双路径与统计接口 |
+| `src/integration/perturbgen/` | DAVF 候选准入、PerturbGen runner、双路径与统计接口、downstream target-set 评估 |
 | `src/training/lightning_module.py` | PyTorch Lightning 训练模块 |
 | `src/training/peft_config.py` | LoRA/PEFT 参数高效微调配置 |
 

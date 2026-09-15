@@ -36,6 +36,7 @@ def _reset_state_around():
 # Pure label-resolution logic
 # ---------------------------------------------------------------------------
 
+
 class TestResolveCellStatesPriority:
     def _normalize(self, labels, source):
         return list(labels), source
@@ -48,9 +49,7 @@ class TestResolveCellStatesPriority:
         assert "config" in source
 
     def test_manifest_cell_states_wins_when_config_missing(self):
-        labels, source = _resolve_autoinit_cell_states(
-            {}, {"cell_states": ["x", "y", "z"]}, "c,d"
-        )
+        labels, source = _resolve_autoinit_cell_states({}, {"cell_states": ["x", "y", "z"]}, "c,d")
         assert labels == ["x", "y", "z"]
         assert "manifest" in source
 
@@ -71,6 +70,7 @@ class TestResolveCellStatesPriority:
 # ---------------------------------------------------------------------------
 # Logits-dim inference helper
 # ---------------------------------------------------------------------------
+
 
 class TestInferLogitsDim:
     def test_returns_none_for_empty(self):
@@ -93,6 +93,7 @@ class TestInferLogitsDim:
 # ---------------------------------------------------------------------------
 # Full auto-init via FastAPI lifespan
 # ---------------------------------------------------------------------------
+
 
 def _train_tiny_artifact(output_dir: Path, cell_states: list[str]) -> Path:
     """Train a minimal CNN and write best_model.pt + config + manifest."""
@@ -130,9 +131,7 @@ def _train_tiny_artifact(output_dir: Path, cell_states: list[str]) -> Path:
         "num_classes": num_classes,
         "model_kind": "real",
     }
-    (output_dir / "artifact_manifest.json").write_text(
-        json.dumps(manifest), encoding="utf-8"
-    )
+    (output_dir / "artifact_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return ckpt
 
 
@@ -161,9 +160,19 @@ class TestAutoInitLifespan:
         """No config/manifest/env labels -> model must NOT load (no hard-coded fallback)."""
         ckpt = _train_tiny_artifact(tmp_path, ["a", "b"])
         # Strip labels from both config and manifest.
-        bad_cfg = {"model": {"encoder_type": "cnn", "vocab_size": 21, "embed_dim": 16,
-                             "num_filters": 16, "kernel_sizes": [3], "max_seq_len": 64,
-                             "num_ptm_types": 5, "num_classes": 2, "pool_type": "mean"}}
+        bad_cfg = {
+            "model": {
+                "encoder_type": "cnn",
+                "vocab_size": 21,
+                "embed_dim": 16,
+                "num_filters": 16,
+                "kernel_sizes": [3],
+                "max_seq_len": 64,
+                "num_ptm_types": 5,
+                "num_classes": 2,
+                "pool_type": "mean",
+            }
+        }
         bad_cfg_path = tmp_path / "no_labels.config.yaml"
         bad_cfg_path.write_text(yaml.safe_dump(bad_cfg), encoding="utf-8")
         monkeypatch.setenv("PTM2CELLNET_CHECKPOINT", str(ckpt))
@@ -184,9 +193,7 @@ class TestAutoInitLifespan:
         monkeypatch.delenv("PTM2CELLNET_CELL_STATES", raising=False)
 
         with TestClient(create_app()) as client:
-            assert STATE.model is not None, (
-                "model must auto-load via sibling config discovery"
-            )
+            assert STATE.model is not None, "model must auto-load via sibling config discovery"
             assert STATE.cell_states == cell_states
             r = client.post("/api/v1/predict", json={"sequence": "ACDEFGHIK", "ptm_sites": []})
             assert r.status_code == 200, r.text
@@ -214,9 +221,17 @@ class TestAutoInitLifespan:
         ckpt = _train_tiny_artifact(tmp_path, cell_states)
         # Corrupt config: 3 labels but num_classes=4.
         bad_cfg = {
-            "model": {"encoder_type": "cnn", "vocab_size": 21, "embed_dim": 16,
-                      "num_filters": 16, "kernel_sizes": [3], "max_seq_len": 64,
-                      "num_ptm_types": 5, "num_classes": 4, "pool_type": "mean"},
+            "model": {
+                "encoder_type": "cnn",
+                "vocab_size": 21,
+                "embed_dim": 16,
+                "num_filters": 16,
+                "kernel_sizes": [3],
+                "max_seq_len": 64,
+                "num_ptm_types": 5,
+                "num_classes": 4,
+                "pool_type": "mean",
+            },
             "data": {"cell_states": cell_states},
         }
         bad_cfg_path = tmp_path / "mismatch.config.yaml"

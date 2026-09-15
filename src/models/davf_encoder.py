@@ -23,6 +23,7 @@ class DAVFConfig:
 
     Extends BiPerturbConfig with Flow Matching specific fields.
     """
+
     # Default architecture constants (also mirrored as DAVF class-level attrs)
     _DEFAULT_HIDDEN_DIM: int = 256
     _DEFAULT_X_ENCODER_HIDDEN: int = 512
@@ -51,7 +52,7 @@ class DAVFConfig:
     # Flow Matching specific
     time_embed_dim: int = 64
     x_encoder_hidden: int = _DEFAULT_X_ENCODER_HIDDEN  # 256 -> 512
-    velocity_hidden: int = _DEFAULT_VELOCITY_HIDDEN     # 256 -> 512
+    velocity_hidden: int = _DEFAULT_VELOCITY_HIDDEN  # 256 -> 512
     num_velocity_layers: int = 3
 
     # Residual connection (v2.0 improvement)
@@ -69,8 +70,8 @@ class DAVFConfig:
 
     # Hybrid injection fields (D19-01~05)
     condition_injection: str = "hybrid"  # "hybrid" | "concat"
-    modulation_dim: int = _DEFAULT_MODULATION_DIM   # Cross-Attention + FiLM internal dim
-    num_kv_heads: int = 8                # Number of condition sub-vectors for K/V
+    modulation_dim: int = _DEFAULT_MODULATION_DIM  # Cross-Attention + FiLM internal dim
+    num_kv_heads: int = 8  # Number of condition sub-vectors for K/V
 
     def __post_init__(self):
         if self.hidden_dim <= 0:
@@ -78,20 +79,14 @@ class DAVFConfig:
         if self.num_heads <= 0:
             raise ValueError(f"num_heads must be positive, got {self.num_heads}")
         if self.num_heads > self.hidden_dim:
-            raise ValueError(
-                f"num_heads ({self.num_heads}) cannot exceed hidden_dim ({self.hidden_dim})"
-            )
+            raise ValueError(f"num_heads ({self.num_heads}) cannot exceed hidden_dim ({self.hidden_dim})")
         if self.hidden_dim % self.num_heads != 0:
-            raise ValueError(
-                f"hidden_dim ({self.hidden_dim}) must be divisible by "
-                f"num_heads ({self.num_heads})"
-            )
+            raise ValueError(f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({self.num_heads})")
         if self.gene_embed_dim <= 0:
             raise ValueError(f"gene_embed_dim must be positive, got {self.gene_embed_dim}")
         if self.gene_embed_dim % self.num_heads != 0:
             raise ValueError(
-                f"gene_embed_dim ({self.gene_embed_dim}) must be divisible by "
-                f"num_heads ({self.num_heads})"
+                f"gene_embed_dim ({self.gene_embed_dim}) must be divisible by num_heads ({self.num_heads})"
             )
         if self.num_genes <= 0:
             raise ValueError(f"num_genes must be positive, got {self.num_genes}")
@@ -100,14 +95,9 @@ class DAVFConfig:
         if self.direction_embed_dim <= 0:
             raise ValueError(f"direction_embed_dim must be positive, got {self.direction_embed_dim}")
         if self.condition_injection not in ("hybrid", "concat"):
-            raise ValueError(
-                f"condition_injection must be 'hybrid' or 'concat', "
-                f"got {self.condition_injection!r}"
-            )
+            raise ValueError(f"condition_injection must be 'hybrid' or 'concat', got {self.condition_injection!r}")
         if not (0.0 < self.residual_gate_init < 1.0):
-            raise ValueError(
-                f"residual_gate_init must be in (0, 1), got {self.residual_gate_init}"
-            )
+            raise ValueError(f"residual_gate_init must be in (0, 1), got {self.residual_gate_init}")
         if not (0.0 <= self.dropout < 1.0):
             raise ValueError(f"dropout must be in [0, 1), got {self.dropout}")
         if not (0.0 <= self.attention_dropout < 1.0):
@@ -126,7 +116,7 @@ class DAVFConfig:
             num_heads=self.num_heads,
             attention_dropout=self.attention_dropout,
             dropout=self.dropout,
-            num_genes=self.num_genes
+            num_genes=self.num_genes,
         )
 
 
@@ -165,8 +155,9 @@ class TimeEncoder(nn.Module):
 
         # Create frequency bands
         freqs = torch.exp(
-            -torch.log(torch.tensor(10000.0, device=device)) *
-            torch.arange(0, half_dim, dtype=torch.float, device=device) / half_dim
+            -torch.log(torch.tensor(10000.0, device=device))
+            * torch.arange(0, half_dim, dtype=torch.float, device=device)
+            / half_dim
         )
 
         # Compute angles
@@ -202,7 +193,7 @@ class GeneSpecificModulation(nn.Module):
         modulation_dim: int = 128,
         num_kv: int = 8,
         num_heads: int = 4,
-        dropout: float = 0.1
+        dropout: float = 0.1,
     ):
         super().__init__()
         self.num_genes = num_genes
@@ -214,17 +205,12 @@ class GeneSpecificModulation(nn.Module):
 
         # Condition splitter: [B, hidden_dim] -> [B, num_kv * modulation_dim]
         self.condition_splitter = nn.Sequential(
-            nn.Linear(hidden_dim, num_kv * modulation_dim),
-            nn.LayerNorm(num_kv * modulation_dim),
-            nn.GELU()
+            nn.Linear(hidden_dim, num_kv * modulation_dim), nn.LayerNorm(num_kv * modulation_dim), nn.GELU()
         )
 
         # Cross-attention: gene_emb (Q) attend to condition sub-vectors (K/V)
         self.cross_attention = nn.MultiheadAttention(
-            embed_dim=modulation_dim,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True
+            embed_dim=modulation_dim, num_heads=num_heads, dropout=dropout, batch_first=True
         )
         self.cross_attn_norm = nn.LayerNorm(modulation_dim)
 
@@ -232,7 +218,7 @@ class GeneSpecificModulation(nn.Module):
         self.film_generator = nn.Sequential(
             nn.Linear(modulation_dim, modulation_dim),
             nn.GELU(),
-            nn.Linear(modulation_dim, 2)  # gamma and beta per gene
+            nn.Linear(modulation_dim, 2),  # gamma and beta per gene
         )
 
         # FiLM initialization critical: gamma=1, beta=0 for identity mapping
@@ -244,11 +230,7 @@ class GeneSpecificModulation(nn.Module):
         # Mark FiLM layer to skip standard initialization (prevents overwrite by DAVF._init_weights)
         self.film_generator[-1].no_init_weights = True
 
-    def forward(
-        self,
-        condition: torch.Tensor,
-        velocity: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, condition: torch.Tensor, velocity: torch.Tensor) -> torch.Tensor:
         """Apply gene-specific modulation to velocity.
 
         Args:
@@ -274,7 +256,7 @@ class GeneSpecificModulation(nn.Module):
         # 4. FiLM: generate per-gene gamma and beta
         film_params = self.film_generator(attn_out)  # [B, num_genes, 2]
         gamma = film_params[:, :, 0]  # [B, num_genes]
-        beta = film_params[:, :, 1]   # [B, num_genes]
+        beta = film_params[:, :, 1]  # [B, num_genes]
 
         # 5. Modulate velocity
         return cast(torch.Tensor, gamma * velocity + beta)

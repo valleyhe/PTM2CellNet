@@ -144,7 +144,13 @@ def _delta_expression(
     if not rows:
         raise ScPerturbParseError("all perturbations had zero cells after filtering")
     delta = sp.csr_matrix(np.vstack(rows))
-    return delta, unique_ids[: len(cell_counts)], np.asarray(cell_counts), control_mean, np.array([int(control_mask.sum())])
+    return (
+        delta,
+        unique_ids[: len(cell_counts)],
+        np.asarray(cell_counts),
+        control_mean,
+        np.array([int(control_mask.sum())]),
+    )
 
 
 def parse_study(h5ad_path: Path, output_dir: Path) -> Dict[str, Any]:
@@ -190,9 +196,8 @@ def parse_study(h5ad_path: Path, output_dir: Path) -> Dict[str, Any]:
         control_cell_count=control_count,
     )
     perturbations_path.write_text(
-        "perturbation_id\tn_cells\n" + "".join(
-            f"{pid}\t{cnt}\n" for pid, cnt in zip(perturbation_ids, n_cells, strict=True)
-        ),
+        "perturbation_id\tn_cells\n"
+        + "".join(f"{pid}\t{cnt}\n" for pid, cnt in zip(perturbation_ids, n_cells, strict=True)),
         encoding="utf-8",
     )
 
@@ -297,15 +302,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     if args.manifest:
-        Path(args.manifest).write_text(
-            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        Path(args.manifest).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "n_targets": report["n_targets"],
+                "n_parsed": report["n_parsed"],
+                "n_errors": report["n_errors"],
+            },
+            ensure_ascii=False,
         )
-    print(json.dumps({
-        "ok": True,
-        "n_targets": report["n_targets"],
-        "n_parsed": report["n_parsed"],
-        "n_errors": report["n_errors"],
-    }, ensure_ascii=False))
+    )
     return 0 if report["n_errors"] == 0 else 1
 
 

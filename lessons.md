@@ -449,3 +449,238 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
    donor 证据、GSE147528 仍为 raw droplets 且诊断缺失，四队列未合并；
    train/held-out donor split 由既有 `donor_split/v1` 工具在配对生成时
    施加，Gate-0 本身不指定 split。
+
+## L-2026-0914-02｜第七轮修复：between_donor 贯穿 frozen/统计层与 AD 审计口径闭合
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0914-02 |
+| 时间戳 | 2026-09-14 |
+| 决策级别 | 工程修复级（L-2026-0914-01 契约的代码贯穿完成，语义未变） |
+| 决策来源 | project_analysis_20260914.md §6.2（F-10～F-16、TD-14）+ 用户第七轮修复指令 |
+| 状态 | 代码、测试、文档与真实 data/AD 重验完成；正式生物学验收仍待 GPU 资产 |
+
+1. **F-10 frozen×pairing（方案 A+B 组合）**：`FrozenCohortManifest` 新增
+   `pairing` 字段（默认 within_donor 向后兼容），`_validate_frozen_cohort_asset`
+   以 `pairing=manifest.pairing` 构造 Gate-0 spec，missing 检查按 pairing 分支
+   （within_donor 逐态全量覆盖；between_donor 并集存在性，每态 ≥3 与不相交仍由
+   `prepare_perturbgen_anndata` 强制）；生成端 `run_frozen_acceptance.py
+   --freeze --cohort-pairing` 写入，E2E 加载 frozen manifest 时硬校验与
+   `--perturbgen-cohort-pairing` 一致。旧 manifest（无 pairing 字段）按
+   within_donor 消费；between_donor 冻结验收必须重新 --freeze。证据：
+   tests/unit/integration/perturbgen/test_frozen_cohort.py TestBetweenDonorPairing。
+2. **F-11 统计 lineage pairing**：eval input 顶层新增 `cohort_pairing`、E2E
+   `statistical_evidence.pairing` 与 `deg_columns`；`verify_eval_input_against_manifest`
+   新增声明一致性检查（不一致仅使 covered=false，不掩盖其余 issue）。
+   证据：test_run_davf_perturbgen_e2e.py
+   test_assemble_statistical_evidence_records_between_donor_pairing_in_lineage。
+3. **F-12 state 覆盖为 opt-in 契约而非默认**：`build_scperturb_latent_pairs
+   --state-obs-column X --require-state-coverage` 仅在显式开启时要求 held-out
+   池覆盖 ≥2 个 state 值并记录 `held_out_state_coverage`；无 donor_split 时
+   开启该选项为硬失败（不做静默降级）。单态评估设计仍合法，未被禁止。
+4. **F-14 审计口径**：audit_ad_cohort_gate0.py 重跑产出
+   `GATE0_UNLOCKED_FOR_BETWEEN_DONOR_GSE174367_ONLY`（每队列 gate0_status +
+   compute_verdict 动态推导）；20260914_ad_cohort_audit/evidence.json 已被
+   本次重跑覆盖为新口径，旧 BLOCKED 结论作废。standardize 脚本 per-sample
+   基数检查纳入 Diagnosis，退出码三态 0/2/1。
+5. **回归基线**：全量 2671 passed / 1 failed（已知真实资产 checkpoint 基线，
+   与第三～五轮同一失败）/ 21 skipped；mypy 166 文件 0 errors。TD-14-01 按
+   分析报告 §7.4 建议以 CHANGELOG Versioning note 处置（不为对齐发版），
+   下次真实 release 统一 setup.py/__version__。
+
+## L-2026-0914-03｜第八轮：GSE174367 between_donor M6 数据契约冻结与 GPU 前置资产
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0914-03 |
+| 时间戳 | 2026-09-14 |
+| 决策级别 | 资产冻结级（第七轮修复报告 §4 #1/#2/#3 的 CPU 可执行前置 + 1 项真实缺口修复） |
+| 决策来源 | project_repair_report_20260914.md §4 + 用户第八轮指令 |
+| 状态 | M6 数据契约冻结完成（真实数据校验 PASS）；六阶段 GPU 执行与统计验收仍未运行 |
+
+1. **M6 冻结（§4 #3，高，闭合）**：GSE174367 EX 完成 between_donor 冻结
+   （outputs/perturbgen/frozen/20260914_gse174367_ex/）。donor split 采用
+   分层（state 组内）固定 seed 抽样：seed=2 是 0..99 中第一个满足
+   train/held-out 四组（held Control/AD、train Control/AD）均含两性的
+   seed；held-out Control 3 + AD 3（between_donor 每组 ≥3 的最小可评估
+   设计），train Control 4 + AD 8，并集覆盖全部 18 donor（frozen 契约
+   要求）。候选为 AD 三通路 5 基因（APP/PSEN1/BACE1/MAPT/APOE，KO，
+   外部假设）：ENSG 一律从 cohort h5ad var 查证（禁止凭记忆写 ID），
+   token index 在 embedding_asset_20260822 词表全部有效。真实资产上
+   `_validate_frozen_cohort_asset` PASS（6,369 cells、无 issue）——F-10
+   修复（L-2026-0914-02 第 1 条）在真实数据的首次验证。
+2. **真实词表暴露的缺口**：`null_selection._token_values` 原样拒绝含
+   `<cls>`/`<pad>` 等特殊 token 的正式 embedding 词表（此前该路径从未
+   被真实词表消费）。修复为跳过非 ENSG 键（特殊 token 无基因 rank
+   语义），基因 rank 保持词表原始位置（与 mapping 形式的绝对 index
+   一致）；版本化 ENSG 仍经 `_canonical_ensembl_id` 归一。教训：
+   "合成测试全绿"不覆盖"正式资产首次消费"，match-null/六阶段等
+   GPU 前接口应以真实资产预演为准。
+3. **matched-null selection 前置资产**：per 候选 99 个表达特征匹配
+   null 已用真实 EX 子集生成（mean/detection + token_rank 三真实特征；
+   fc 特征在 DEG 表缺省时显式标记 `unavailable/default`，不是静默
+   填充）。DEG 表（donor-level disease−normal）就绪后可重生成以启用
+   fc 维度。selection manifest 只绑定 cohort 特征与候选 ENSG，不依赖
+   E2E 报告，故可先于六阶段冻结。
+4. **接口事实（GPU runbook 要点）**：① E2E context 直接用标准化 cohort
+   h5ad（Gate-0 在内存副本按 cell_type 校验，tokenise 输入保持原样
+   canonical）；② matched-null CLI 只提供 --dry-run 计划，GPU 执行走
+   `null_generation.run_matched_null_stages` Python API，rescue 分数用
+   `results.summarize_rescue_by_donor`（per-donor held-out signature，
+   R=S(unperturbed)−S(perturbed)）绑定 perturb 输出；③ candidate_spec
+   的 position(≥1)/ptm_type 是契约必填——AD 基因级候选需文献 PTM site
+   锚点 + 外部方向假设 + DEG observed 证据，属研究输入不可自动生成。
+5. **口径不变**：M6 冻结、selection 与 preflight 都是数据契约验收；
+   生物学 PASS 仍需六阶段 GPU 真实运行、≥99 matched nulls、未扰动
+   质量与双路径统计（沙箱 NVML mismatch，GPU 须脱离沙箱执行）。
+
+## L-2026-0914-04｜第八轮补充：词表特殊 token 必须精确白名单，runbook 示例必须可解析
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0914-04 |
+| 时间戳 | 2026-09-14 |
+| 决策级别 | 硬失败边界与文档契约修复 |
+| 决策来源 | 用户第八轮补充核查 + `project_analysis_20260914.md` §4 |
+| 状态 | 代码、最小测试、bridge runbook 已修复并验证；正式 GPU/生物学执行仍未运行 |
+
+1. **`null_selection._token_values`**：正式词表实际包含且仅包含
+   `<cls>`、`<eos>`、`<mask>`、`<pad>` 四个特殊键；只能跳过这四个明确 token。
+   `<unk>`、任意非法 gene key、负数或非整数特殊 token ID 均硬失败，不能用
+   `except ValueError: continue` 静默吞掉。该约束同时适用于 mapping 和 sequence
+   词表；mapping 的特殊 token ID 仍校验为非负整数。真实词表核对为 18,967 个键、
+   18,963 个 canonical gene rank + 4 个特殊键；`{"<unk>": 4}` 已实测硬失败。
+2. **`docs/guides/perturbgen_bridge.md` §3**：第 2 步补齐真实 parser 要求的
+   `--perturbgen-config`、`--seeds 0,1,2`、`--sensitivity-modes pad,delete`，与
+   5 候选 × 2 path × 3 seed × 3 mode = 90-run frozen plan 对齐；新增从 E2E
+   `statistical_evidence.eval_input/report_manifest` 读取实际路径的
+   `run_frozen_acceptance.py --verify` 命令。缺失或篡改资产由 CLI 非零退出，不能
+   解释成 PASS。
+3. 同一节的 matched-null Python 片段改成语法有效的接口骨架，使用真实签名的
+   `rescue_extractor(request, stage_result)` 与 `output_path=`。骨架明确要求外部
+   研究代码绑定登记的真实 perturb h5ad、per-donor 表达和 donor-level DEG，未实现
+   时显式 `NotImplementedError`，不伪造 rescue 分数或研究输入。
+
+## L-2026-0914-05｜第八轮后续：PTM activity → AD 交集主线契约层落地
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0914-05 |
+| 时间戳 | 2026-09-14 |
+| 决策级别 | 新主线代码契约层（方案 §6.2 全量） |
+| 决策来源 | 用户 /goal 指令 + `docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` |
+| 状态 | 5 模块 + 4 CLI + 84 新测试全绿（合成契约级）；真实 PTM/网络/benchmark 资产未到位 |
+
+1. **落地范围**：方案 §6.2 清单全部实现——`src/analysis/ptm_research_config.py`
+   （阶段 0 冻结契约，含七字段 semantic_context 模板与 `{cell_type}` 渲染）、
+   `ptm_activity.py`（§4.1/§4.2/§5.1）、`signed_network.py`（§4.3/§5.3）、
+   `ptm_gene_score.py`（§4.4/§5.4/§4.6）、
+   `src/integration/perturbgen/downstream_target_evaluation.py`（sidecar +
+   delta 评估），CLI `run_ptm_activity.py`/`build_ptm_global_gene_scores.py`/
+   `build_ptm_ad_intersections.py`/`build_celltype_candidate_specs.py`。
+   KSTAR/PhosR 运行、OmniPath signed 网络导出、E2E 六阶段执行不在本轮范围。
+2. **传播算法冻结**：有符号简单路径枚举，路径在 `gene_edge_types` 边终止于
+   基因，per (source,target) 聚合 `activity × Π(sign_e×confidence_e) ×
+   decay^length`；平行边同号取最强 confidence、异号整体剔除并计数（禁止静默
+   选边）；score 表一行一个 (source_activity, target_gene) 对，不聚合成
+   per-gene 单值——多 source 同 gene 不同向是真实状态，聚合规则不得隐式发明。
+   `network_coverage`=该 source 全部 gene 路径中到达该 target 的比例，
+   `degree_normalized`=每路径平均贡献。无独立 null 前 `prediction_status`
+   保持 `direction_only`，禁止写 PTM 侧 q 值。
+3. **语义边界落实在代码**：① source 无该 cell type DEG → 只进 exploratory
+   清单，不生成正式候选行（target-set 一致性不能替代 source 三方 gate）；
+   ② `context_cell_index` 绑定该 cell type 在 cohort 的第一个 cell 位置
+   （positional，非行标签）；③ `--embedding-vocab` 下 source 无 token 硬失败；
+   ④ matches_predicted/matches_observed 分字段，不合并；⑤ 无 total protein 的
+   行归一化列保持 NaN 不回填原始值。candidate spec 与现有
+   `ptm2cellnet.candidate-spec/v1` 及 E2E `downstream_required` 字段完全兼容。
+4. **本轮自检修复的实现缺陷**（测试驱动暴露）：① TSV gene map 的 csv.DictReader
+   漏 `delimiter="\t"`；② 传播聚合漏乘 `decay^length`（docstring 声明了但代码
+   没做，单元测试手算期望值抓出）；③ groupby 聚合 `reset_index(drop=True)` 丢
+   key 列；④ `context_cell_index` 误取行标签（anndata obs 字符串 index）而非
+   位置；⑤ 无 total 行的归一化列误回填原始值。教训延续 L-2026-0914-03：
+   期望值必须手算，不能复用被测代码的输出。
+5. **待办边界**：downstream target 评估结果写入 E2E report lineage、driver–target
+   gate contract、真实 PTM 资产接入（§10 六项外部输入）均为后续工作；正式
+   DEG 表（GSE174367 donor-level）生成前 fc 维度与交集只能用合成数据验证。
+   synthetic 契约 PASS ≠ 生物学 PASS 口径不变。
+
+## L-2026-0914-06｜文档同步轮：全仓文档对齐 PTM activity 主线指南
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0914-06 |
+| 时间戳 | 2026-09-14 |
+| 决策级别 | 文档契约同步（无代码改动） |
+| 决策来源 | 用户指令 + `docs/guides/ptm_activity_pipeline.md` + 执行方案 v1.0 |
+| 状态 | 12 处文档同步完成；本轮未触碰代码与测试 |
+
+1. **同步范围**：README（新主线研究路径置于 DAVF × PerturbGen 路径之前、
+   模块表/目录注释）、`.planning/task_plan.md`（整表重写为主线执行顺序，
+   已闭合项打勾、外部资产/lineage/GPU 项保持未勾）、STATE/ROADMAP/PROJECT/
+   progress/findings/REQUIREMENTS（新增 P-01～P-06 主线需求行）、
+   CURRENT_STATUS（研究边界加第 0 项上游主线 + 文档入口）、`index.rst`
+   toctree、E2E/bridge 指南（candidate spec 上游生成入口交叉引用）、
+   2026-08-21 方案（头部上游注记）、TEST_COVERAGE（新测试清单 + 口径）、
+   `project_analysis_20260914.md` §6 增补、AGENTS.md（新主线约束节）。
+2. **修正的文档漂移**：① ROADMAP/TEST_COVERAGE/PROJECT/progress/findings
+   仍写"Gate-0 cohort 为 0/统计接续未完成/每候选重复准备"——第五/四轮已
+   分别落地 GSE174367 between_donor preflight+M6 冻结、
+   `--assemble-statistical-evidence`、`build_shared_prepare_plans`；② 多处
+   引用已归档的 `project_analysis_20260913.md`（权威为 20260914）；③
+   TEST_COVERAGE 的 `../task_plan.md` 失效链接（实际在 `.planning/`）。
+   教训：每轮落地后 living docs 若只更新 CURRENT_STATUS/CHANGELOG，
+   `.planning/` 层会在下一轮形成反向漂移。
+3. **AGENTS.md 新增「2026-09-14 PTM activity 主线约束」**：方向字段分字段、
+   source/target 不合并、`direction_only` 无 q 值、外部标准表输入、
+   exploratory 不生成候选行、lineage/driver–target gate 是待办——后续代码
+   修改与测试以该节 + 指南为执行口径。
+## L-2026-0915-01｜PTM activity A/B/C 批次接线与定向验证
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0915-01 |
+| 时间戳 | 2026-09-15 |
+| 状态 | A/B/C 代码契约与定向验证完成；真实外部资产/GPU 生物学验收未运行 |
+
+- A 新增 AD donor-level 聚合与 CLI：复用 donor log2 normalization、Welch/BH，同 run 产出 aggregate 八列和 donor-level 表，配置/队列/obs 契约硬失败。
+- B 将显式 --downstream-target-sidecar 接入 E2E：对 gated 候选的 result.h5ad 计算 pred_counts→X donor delta，写入 payload/lineage；matches_predicted 与 matches_observed 分开，source 三方 gate 仍是唯一 pass/fail。
+- C 增加 max_paths_per_seed：正整数校验，超限硬失败不截断，manifest/diagnostics 记录 per-seed 路径计数。
+- 新增 A 核心与 CLI 测试；相关回归实际结果为 80 passed、8 warnings，ruff check/format check/compileall 通过。
+- 外部 KSTAR/PhosR/OmniPath/benchmark、真实 GPU 六阶段及生物学 PASS 仍待真实输入；synthetic/contract PASS 不等于 biology PASS；本批次不新增 hash 或 fallback。
+
+## L-2026-0915-02｜全量测试债收口与 E2E 真实数据复核的三项硬发现
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0915-02 |
+| 时间戳 | 2026-09-15 |
+| 状态 | 工程修复完成；DEG 统计口径与 DAVF 基因轴覆盖属研究设计决策，未擅自更改 |
+
+- 全量非 slow/gpu pytest 真实耗时约 818s（2795 passed/3 failed/22 skipped），
+  此前 420s timeout 属外层截断而非挂起；3 个失败已修：dual_path 两个测试
+  fixture 补齐 formal `evidence_class/pvalue_source/contract` 新必填声明，
+  `test_scvi_davf_connection` 方向测试从 Norman 旧链（legacy checkpoint 被
+  canonical-ENSG gate 正确拒绝）迁移到 KD 正式链 `davf_kd_nadig`
+  （sumoylation→KD code 1、LCK ENSG00000182866 token 328/decoder 2260）。
+- 全仓 ruff format 一次性收口（324 files），format/lint/mypy/requirements 全绿。
+- E2E dry-run 在显式工程 context（EX 分层 donor 轮转、KO scVI 4018 基因轴、
+  33 基因缺失显式填零、davf_batch 绑定 Dixit batch）上全链路跑通：Gate-0
+  （counts 层/ensembl_id var 列/双 state≥3 donor）→ DAVF 真实 decode
+  （finite delta）→ 三方 gate（三方向同号但 observed FDR=1.0 →
+  inconclusive "observed_expression_not_significant"，正确拦截）→ 无
+  invocation。工程 context 不是正式资产，批次绑定语义待研究冻结。
+- 发现一（阻塞性）：E2E DAVF 推理契约要求 context_h5ad 与 scVI 4018 基因轴
+  完全一致 + davf_batch 列，但仓库没有 GSE174367→scVI-aligned context 的
+  准备工具；KO 链 33/4018 基因在 GSE174367 缺失，batch 跨数据集绑定语义
+  未冻结。D1 前必须补 context 准备步骤并冻结绑定决策。
+- 发现二（阻塞性）：AD 冻结候选 5 基因中仅 APOE 在 KO route（Dixit K562）
+  scVI/alias 中存在，APP/PSEN1/BACE1/MAPT 在 KO/KD 两链均缺席；DAVF 现有
+  训练资产（血液细胞系 perturbation）不覆盖 AD 主线候选基因轴。需要
+  Workflow B（按 AD 队列重训 scVI+LatentDAVF）或候选集与资产对齐研究决策。
+- 发现三（高）：`_donor_log2_means` 为每细胞 log2(CPM+1) 再 donor 平均；
+  该口径下 GSE174367 EX Welch t（7 vs 11 donor）min p≈6.3e-5，BH 后 0 个
+  显著基因（全表 FDR=1.0，117,352 行）；而 donor pseudobulk counts 先聚合
+  再变换的口径 min p 可达 ~1e-13。三方 gate observed 方在当前口径下数学上
+  不可通过；改口径（pseudobulk counts + 检验选择）是研究设计决策，须与
+  deg_max_fdr 语义一起冻结后重算，不得静默更换。

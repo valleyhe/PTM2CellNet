@@ -87,9 +87,7 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
         raw_version = self._arrays.get("schema_version")
         version = str(raw_version.item()) if raw_version is not None and raw_version.ndim == 0 else None
         if version != CROSS_SCALE_DATA_SCHEMA_VERSION:
-            errors.append(
-                f"schema_version 必须为 {CROSS_SCALE_DATA_SCHEMA_VERSION!r}，实际为 {version!r}"
-            )
+            errors.append(f"schema_version 必须为 {CROSS_SCALE_DATA_SCHEMA_VERSION!r}，实际为 {version!r}")
 
         embedding_keys = [f"{name}_embeddings" for name in self.backbone_names]
         for key in embedding_keys:
@@ -137,13 +135,9 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
         if not np.issubdtype(signal_gene_map.dtype, np.floating) or not np.isfinite(signal_gene_map).all():
             errors.append("signal_gene_map 必须是有限浮点数组")
 
-        if signal_edge_index.size and (
-            signal_edge_index.min() < 0 or signal_edge_index.max() >= sequence_length
-        ):
+        if signal_edge_index.size and (signal_edge_index.min() < 0 or signal_edge_index.max() >= sequence_length):
             errors.append("signal_edge_index 含越界节点")
-        if cell_edge_index.size and (
-            cell_edge_index.min() < 0 or cell_edge_index.max() >= gene_count
-        ):
+        if cell_edge_index.size and (cell_edge_index.min() < 0 or cell_edge_index.max() >= gene_count):
             errors.append("cell_edge_index 含越界节点")
 
         # TD-M02（2026-08-09）: 模型 forward 会读取可选的 cell_edge_weight
@@ -166,9 +160,7 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
 
         for key in _OPTIONAL_SAMPLE_INPUT_KEYS:
             optional_value = self._arrays.get(key)
-            if optional_value is not None and (
-                optional_value.ndim == 0 or optional_value.shape[0] != sample_count
-            ):
+            if optional_value is not None and (optional_value.ndim == 0 or optional_value.shape[0] != sample_count):
                 errors.append(f"{key} 的首维必须为样本数 {sample_count}")
         if ("ptm_types" in self._arrays) != ("ptm_positions" in self._arrays):
             errors.append("ptm_types 与 ptm_positions 必须同时存在")
@@ -203,8 +195,7 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
         inputs: Dict[str, Any] = {
-            f"{name}_embeddings": _as_tensor(self._arrays[f"{name}_embeddings"][index])
-            for name in self.backbone_names
+            f"{name}_embeddings": _as_tensor(self._arrays[f"{name}_embeddings"][index]) for name in self.backbone_names
         }
         for key in _OPTIONAL_SAMPLE_INPUT_KEYS:
             if key in self._arrays:
@@ -233,10 +224,7 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
             "sequence_length": self.sequence_length,
             "gene_count": self.gene_count,
             "backbones": list(self.backbone_names),
-            "backbone_dims": {
-                name: int(self._arrays[f"{name}_embeddings"].shape[-1])
-                for name in self.backbone_names
-            },
+            "backbone_dims": {name: int(self._arrays[f"{name}_embeddings"].shape[-1]) for name in self.backbone_names},
             "has_cell_edge_weight": "cell_edge_weight" in self._arrays,
             "targets_present": self.require_targets,
         }
@@ -265,8 +253,7 @@ def cross_scale_collate(samples: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     }
     if "targets" in samples[0]:
         batch["targets"] = {
-            key: torch.stack([sample["targets"][key] for sample in samples])
-            for key in samples[0]["targets"]
+            key: torch.stack([sample["targets"][key] for sample in samples]) for key in samples[0]["targets"]
         }
     return batch
 

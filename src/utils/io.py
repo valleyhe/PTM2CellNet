@@ -46,6 +46,7 @@ class SerializationConfig(TypedDict, total=False):
     can handle are listed.  Keys are dynamic so this serves as
     documentation rather than an exhaustive contract.
     """
+
     pass  # Keys are dynamic; this marks the shape for readers.
 
 
@@ -124,11 +125,16 @@ def _read_hdf5_dataset(dataset: "h5py.Dataset") -> Union[str, np.ndarray, torch.
     if item_type == "torch_tensor":
         return torch.from_numpy(np.asarray(value))
     if item_type == "scalar":
-        return cast(Union[str, np.ndarray, torch.Tensor, np.generic, int, float, bool], value.item() if hasattr(value, "item") else value)
+        return cast(
+            Union[str, np.ndarray, torch.Tensor, np.generic, int, float, bool],
+            value.item() if hasattr(value, "item") else value,
+        )
     return np.asarray(value)
 
 
-def _read_hdf5_value(node: Union["h5py.Dataset", "h5py.Group"]) -> Union[str, np.ndarray, torch.Tensor, pd.DataFrame, np.generic, int, float, bool]:
+def _read_hdf5_value(
+    node: Union["h5py.Dataset", "h5py.Group"],
+) -> Union[str, np.ndarray, torch.Tensor, pd.DataFrame, np.generic, int, float, bool]:
     if h5py is None:
         raise RuntimeError("h5py is required for HDF5 deserialization")
 
@@ -144,8 +150,6 @@ def _read_hdf5_value(node: Union["h5py.Dataset", "h5py.Group"]) -> Union[str, np
     column_group = node["columns"]
     data = {column: _read_hdf5_value(column_group[column]) for column in columns}
     return pd.DataFrame(data, index=index_values)
-
-
 
 
 def save_pickle(obj: object, file_path: str) -> None:
@@ -274,7 +278,6 @@ def save_model(model: torch.nn.Module, file_path: str) -> None:
     torch.save(model.state_dict(), file_path)
 
 
-
 def load_model(
     model: torch.nn.Module,
     file_path: str,
@@ -351,7 +354,8 @@ def save_dataframe(df: pd.DataFrame, file_path: str) -> None:
         except (ImportError, ValueError, KeyError) as exc:
             # to_hdf 需要 pytables；若不可用，回退到项目 save_hdf5
             logger.warning(
-                "df.to_hdf 失败 (%s)，尝试使用 save_hdf5 回退", exc,
+                "df.to_hdf 失败 (%s)，尝试使用 save_hdf5 回退",
+                exc,
             )
             save_hdf5({"dataframe": df}, file_path)
         return
@@ -382,7 +386,8 @@ def load_dataframe(file_path: str) -> pd.DataFrame:
         except (ImportError, ValueError, KeyError) as exc:
             # read_hdf 需要 pytables；若不可用或 key 不匹配，回退到 load_hdf5
             logger.warning(
-                "pd.read_hdf 失败 (%s)，尝试使用 load_hdf5 回退", exc,
+                "pd.read_hdf 失败 (%s)，尝试使用 load_hdf5 回退",
+                exc,
             )
             data = load_hdf5(file_path)
             if isinstance(data, pd.DataFrame):
@@ -391,9 +396,7 @@ def load_dataframe(file_path: str) -> pd.DataFrame:
                 value = next(iter(data.values()))
                 if isinstance(value, pd.DataFrame):
                     return value
-            raise TypeError(
-                f"HDF5 文件内容无法解析为 DataFrame: {file_path}"
-            ) from None
+            raise TypeError(f"HDF5 文件内容无法解析为 DataFrame: {file_path}") from None
 
     return pd.read_csv(file_path)
 

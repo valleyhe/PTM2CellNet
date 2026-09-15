@@ -99,9 +99,7 @@ def inspect_plm_asset(path: str | Path) -> Dict[str, Any]:
         shards = sorted({str(value) for value in weight_map.values()})
         missing_shards = [name for name in shards if not (candidate / name).is_file()]
         empty_shards = [
-            name
-            for name in shards
-            if (candidate / name).is_file() and (candidate / name).stat().st_size <= 0
+            name for name in shards if (candidate / name).is_file() and (candidate / name).stat().st_size <= 0
         ]
         if missing_shards:
             errors.append(f"{index_name} 引用缺失分片: {missing_shards}")

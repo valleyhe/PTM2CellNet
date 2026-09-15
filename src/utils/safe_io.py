@@ -22,6 +22,7 @@ logger = setup_logger(__name__)
 # _load_pickle_archive
 # ---------------------------------------------------------------------------
 
+
 def _load_pickle_archive(file_path: str) -> Dict[str, object]:
     with open(file_path, "rb") as file_obj:
         data = _SafeUnpickler(file_obj).load()
@@ -34,20 +35,32 @@ def _load_pickle_archive(file_path: str) -> Dict[str, object]:
 # SafeUnpickler — simple module/class allowlist
 # ---------------------------------------------------------------------------
 
-_SAFE_MODULES: Set[str] = {'builtins', 'collections', 'typing', 'numpy', 'torch'}
-_SAFE_CLASSES: Set[str] = {'dict', 'list', 'tuple', 'str', 'int', 'float', 'bool',
-                           'OrderedDict', 'defaultdict', 'Counter', 'ndarray', 'DataFrame'}
+_SAFE_MODULES: Set[str] = {"builtins", "collections", "typing", "numpy", "torch"}
+_SAFE_CLASSES: Set[str] = {
+    "dict",
+    "list",
+    "tuple",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "OrderedDict",
+    "defaultdict",
+    "Counter",
+    "ndarray",
+    "DataFrame",
+}
 
 
 class SafeUnpickler(pickle.Unpickler):
     """Restricted unpickler that only allows known-safe modules and classes."""
 
     def find_class(self, module: str, name: str):
-        mod = module.split('.')[0]
+        mod = module.split(".")[0]
         if mod not in _SAFE_MODULES:
-            raise pickle.UnpicklingError('Unsafe module: ' + module)
+            raise pickle.UnpicklingError("Unsafe module: " + module)
         if name not in _SAFE_CLASSES:
-            raise pickle.UnpicklingError('Unsafe class: ' + module + '.' + name)
+            raise pickle.UnpicklingError("Unsafe class: " + module + "." + name)
         return super().find_class(module, name)
 
 
@@ -71,12 +84,13 @@ def safe_pickle_load(file_obj: BinaryIO) -> object:
     try:
         return SafeUnpickler(file_obj).load()
     except pickle.UnpicklingError as e:
-        raise ValueError('Unsafe pickle: ' + str(e)) from e
+        raise ValueError("Unsafe pickle: " + str(e)) from e
 
 
 # ---------------------------------------------------------------------------
 # _SafeUnpickler — comprehensive allowlist covering torch/pandas internals
 # ---------------------------------------------------------------------------
+
 
 class _SafeUnpickler(pickle.Unpickler):
     """受控反序列化器：仅允许已知安全或显式声明的全局对象。
@@ -326,11 +340,15 @@ def safe_torch_load(
         if "allowed_classes" in str(exc) or "unexpected keyword" in str(exc):
             logger.debug(
                 "safe_torch_load: 'allowed_classes' not supported by this PyTorch "
-                "version; retrying without it. Path: %s", path,
+                "version; retrying without it. Path: %s",
+                path,
             )
             try:
                 return torch.load(
-                    path, map_location=map_location, weights_only=True, **kwargs,
+                    path,
+                    map_location=map_location,
+                    weights_only=True,
+                    **kwargs,
                 )
             except (TypeError, ValueError) as inner_exc:
                 # weights_only=True itself may be unsupported or the checkpoint
@@ -340,7 +358,9 @@ def safe_torch_load(
                         "safe_torch_load: weights_only=True failed for '%s' "
                         "(%s: %s) and enforce_safe_only=True forbids the "
                         "weights_only=False fallback; re-raising.",
-                        path, type(inner_exc).__name__, inner_exc,
+                        path,
+                        type(inner_exc).__name__,
+                        inner_exc,
                     )
                     raise
                 logger.warning(
@@ -351,15 +371,23 @@ def safe_torch_load(
                     "If this checkpoint contains safe types not in the default "
                     "allowlist, pass them via allowed_classes= or load with "
                     "weights_only=False explicitly.",
-                    path, type(inner_exc).__name__, inner_exc,
+                    path,
+                    type(inner_exc).__name__,
+                    inner_exc,
                 )
                 return torch.load(
-                    path, map_location=map_location, weights_only=False, **kwargs,
+                    path,
+                    map_location=map_location,
+                    weights_only=False,
+                    **kwargs,
                 )
         # Other TypeError (not about allowed_classes) — try plain weights_only=True.
         try:
             return torch.load(
-                path, map_location=map_location, weights_only=True, **kwargs,
+                path,
+                map_location=map_location,
+                weights_only=True,
+                **kwargs,
             )
         except (TypeError, ValueError) as inner_exc:
             if enforce_safe_only:
@@ -367,7 +395,9 @@ def safe_torch_load(
                     "safe_torch_load: weights_only=True failed for '%s' "
                     "(%s: %s) and enforce_safe_only=True forbids the "
                     "weights_only=False fallback; re-raising.",
-                    path, type(inner_exc).__name__, inner_exc,
+                    path,
+                    type(inner_exc).__name__,
+                    inner_exc,
                 )
                 raise
             logger.warning(
@@ -375,10 +405,15 @@ def safe_torch_load(
                 "(%s: %s). Falling back to weights_only=False. "
                 "This allows arbitrary code execution via pickle deserialization \u2014 "
                 "only load files you trust completely.",
-                path, type(inner_exc).__name__, inner_exc,
+                path,
+                type(inner_exc).__name__,
+                inner_exc,
             )
             return torch.load(
-                path, map_location=map_location, weights_only=False, **kwargs,
+                path,
+                map_location=map_location,
+                weights_only=False,
+                **kwargs,
             )
     except ValueError as exc:
         # ValueError from weights_only=True: checkpoint contains types not on the
@@ -390,7 +425,8 @@ def safe_torch_load(
                 "safe_torch_load: weights_only=True rejected types in '%s' "
                 "(ValueError: %s) and enforce_safe_only=True forbids the "
                 "weights_only=False fallback; re-raising.",
-                path, exc,
+                path,
+                exc,
             )
             raise
         logger.warning(
@@ -399,8 +435,12 @@ def safe_torch_load(
             "This allows arbitrary code execution via pickle deserialization \u2014 "
             "only load files you trust completely. "
             "Consider passing allowed_classes= with the required types.",
-            path, exc,
+            path,
+            exc,
         )
         return torch.load(
-            path, map_location=map_location, weights_only=False, **kwargs,
+            path,
+            map_location=map_location,
+            weights_only=False,
+            **kwargs,
         )

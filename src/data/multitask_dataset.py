@@ -40,12 +40,12 @@ class MultiTaskPTMDataset(Dataset):
     AA_TO_IDX = dict(AA_TO_IDX)
 
     PTM_TO_IDX = {
-        'Phosphorylation': 0,
-        'Acetylation': 1,
-        'Ubiquitination': 2,
-        'Methylation': 3,
-        'Sumoylation': 4,
-        'Succinylation': 5,
+        "Phosphorylation": 0,
+        "Acetylation": 1,
+        "Ubiquitination": 2,
+        "Methylation": 3,
+        "Sumoylation": 4,
+        "Succinylation": 5,
     }
 
     def __init__(
@@ -79,9 +79,7 @@ class MultiTaskPTMDataset(Dataset):
         self.samples: List[SampleDict] = []
         if samples is not None:
             self.samples = list(samples)
-            self.ptm_types = ptm_types if ptm_types is not None else sorted(
-                {s['ptm_type'] for s in self.samples}
-            )
+            self.ptm_types = ptm_types if ptm_types is not None else sorted({s["ptm_type"] for s in self.samples})
         else:
             self.ptm_types = list(data_files.keys()) if data_files else []
             for ptm_type, file_path in (data_files or {}).items():
@@ -91,8 +89,8 @@ class MultiTaskPTMDataset(Dataset):
                 # 限制样本数
                 if max_samples_per_type and len(df) > max_samples_per_type:
                     # 平衡正负样本
-                    pos_df = df[df['label'] == 1]
-                    neg_df = df[df['label'] == 0]
+                    pos_df = df[df["label"] == 1]
+                    neg_df = df[df["label"] == 0]
                     n_per_class = max_samples_per_type // 2
 
                     if len(pos_df) > n_per_class:
@@ -103,14 +101,16 @@ class MultiTaskPTMDataset(Dataset):
                     df = pd.concat([pos_df, neg_df])
 
                 for _, row in df.iterrows():
-                    self.samples.append({
-                        'uniprot_id': row['uniprot_id'],
-                        'position': row['position'],
-                        'aa': row['aa'],
-                        'sequence_window': row['sequence_window'],
-                        'label': int(row['label']),
-                        'ptm_type': ptm_type,
-                    })
+                    self.samples.append(
+                        {
+                            "uniprot_id": row["uniprot_id"],
+                            "position": row["position"],
+                            "aa": row["aa"],
+                            "sequence_window": row["sequence_window"],
+                            "label": int(row["label"]),
+                            "ptm_type": ptm_type,
+                        }
+                    )
 
             # 平衡各 PTM 类型样本数
             if self.balance_types:
@@ -126,19 +126,17 @@ class MultiTaskPTMDataset(Dataset):
         # 统计
         self.type_counts: Dict[str, int] = defaultdict(int)
         for s in self.samples:
-            self.type_counts[s['ptm_type']] += 1
+            self.type_counts[s["ptm_type"]] += 1
 
         logger.info(f"总样本数: {len(self.samples)}")
         for ptm, count in self.type_counts.items():
             logger.info(f"  {ptm}: {count}")
 
-    def _balance_by_ptm_type(
-        self, samples: List[SampleDict]
-    ) -> List[SampleDict]:
+    def _balance_by_ptm_type(self, samples: List[SampleDict]) -> List[SampleDict]:
         """对各 PTM 类型进行下采样至最小类型样本数（保持正负比例）。"""
         by_type: Dict[str, List[SampleDict]] = defaultdict(list)
         for s in samples:
-            by_type[s['ptm_type']].append(s)
+            by_type[s["ptm_type"]].append(s)
         if not by_type:
             return samples
         min_count = min(len(v) for v in by_type.values())
@@ -151,13 +149,11 @@ class MultiTaskPTMDataset(Dataset):
         logger.info(f"balance_types: 各类型下采样至 {min_count}，共 {len(balanced)} 样本")
         return balanced
 
-    def _augment_minority_types(
-        self, samples: List[SampleDict]
-    ) -> List[SampleDict]:
+    def _augment_minority_types(self, samples: List[SampleDict]) -> List[SampleDict]:
         """对少数类 PTM 类型过采样至中位数样本数（复制样本，不引入噪声）。"""
         by_type: Dict[str, List[SampleDict]] = defaultdict(list)
         for s in samples:
-            by_type[s['ptm_type']].append(s)
+            by_type[s["ptm_type"]].append(s)
         if not by_type:
             return samples
         counts = [len(v) for v in by_type.values()]
@@ -172,9 +168,7 @@ class MultiTaskPTMDataset(Dataset):
                 deficit = target - len(items)
                 oversampled = [rng.choice(items) for _ in range(deficit)]
                 augmented.extend(oversampled)
-                logger.info(
-                    f"augment_minority: {ptm_type} 从 {len(items)} 过采样至 {target}"
-                )
+                logger.info(f"augment_minority: {ptm_type} 从 {len(items)} 过采样至 {target}")
         return augmented
 
     def __len__(self) -> int:
@@ -184,16 +178,16 @@ class MultiTaskPTMDataset(Dataset):
         sample = self.samples[idx]
 
         # 编码序列
-        seq_indices = self._encode_sequence(sample['sequence_window'])
+        seq_indices = self._encode_sequence(sample["sequence_window"])
 
         # PTM类型索引
-        ptm_idx = self.PTM_TO_IDX.get(sample['ptm_type'], 0)
+        ptm_idx = self.PTM_TO_IDX.get(sample["ptm_type"], 0)
 
         return {
-            'sequence_indices': torch.tensor(seq_indices, dtype=torch.long),
-            'label': torch.tensor(sample['label'], dtype=torch.long),
-            'ptm_type': sample['ptm_type'],
-            'ptm_idx': torch.tensor(ptm_idx, dtype=torch.long),
+            "sequence_indices": torch.tensor(seq_indices, dtype=torch.long),
+            "label": torch.tensor(sample["label"], dtype=torch.long),
+            "ptm_type": sample["ptm_type"],
+            "ptm_idx": torch.tensor(ptm_idx, dtype=torch.long),
         }
 
     def _encode_sequence(self, sequence: str) -> List[int]:
@@ -290,23 +284,21 @@ class MultiTaskPTMDataModule:
 
             # 限制样本数
             if self.max_samples_per_type and len(df) > self.max_samples_per_type:
-                pos_df = df[df['label'] == 1].sample(
-                    self.max_samples_per_type // 2, random_state=42
-                )
-                neg_df = df[df['label'] == 0].sample(
-                    self.max_samples_per_type // 2, random_state=42
-                )
+                pos_df = df[df["label"] == 1].sample(self.max_samples_per_type // 2, random_state=42)
+                neg_df = df[df["label"] == 0].sample(self.max_samples_per_type // 2, random_state=42)
                 df = pd.concat([pos_df, neg_df])
 
             for _, row in df.iterrows():
-                all_samples.append({
-                    'uniprot_id': row['uniprot_id'],
-                    'position': row['position'],
-                    'aa': row['aa'],
-                    'sequence_window': row['sequence_window'],
-                    'label': int(row['label']),
-                    'ptm_type': ptm_type,
-                })
+                all_samples.append(
+                    {
+                        "uniprot_id": row["uniprot_id"],
+                        "position": row["position"],
+                        "aa": row["aa"],
+                        "sequence_window": row["sequence_window"],
+                        "label": int(row["label"]),
+                        "ptm_type": ptm_type,
+                    }
+                )
 
         # 打乱
         random.shuffle(all_samples)
@@ -317,8 +309,8 @@ class MultiTaskPTMDataModule:
         n_val = int(n_total * self.val_ratio)
 
         train_samples = all_samples[:n_train]
-        val_samples = all_samples[n_train:n_train + n_val]
-        test_samples = all_samples[n_train + n_val:]
+        val_samples = all_samples[n_train : n_train + n_val]
+        test_samples = all_samples[n_train + n_val :]
 
         # 创建数据集：训练集使用 MultiTaskPTMDataset 以启用 balance/augment 逻辑，
         # 验证/测试集使用 SampleDataset 保持原始分布（不增强）。
@@ -375,12 +367,12 @@ class SampleDataset(Dataset):
     AA_TO_IDX = dict(AA_TO_IDX)
 
     PTM_TO_IDX = {
-        'Phosphorylation': 0,
-        'Acetylation': 1,
-        'Ubiquitination': 2,
-        'Methylation': 3,
-        'Sumoylation': 4,
-        'Succinylation': 5,
+        "Phosphorylation": 0,
+        "Acetylation": 1,
+        "Ubiquitination": 2,
+        "Methylation": 3,
+        "Sumoylation": 4,
+        "Succinylation": 5,
     }
 
     def __init__(self, samples: List[SampleDict], window_size: int = 15) -> None:
@@ -393,14 +385,14 @@ class SampleDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         sample = self.samples[idx]
 
-        seq_indices = [self.AA_TO_IDX.get(aa, PAD_IDX) for aa in sample['sequence_window']]
-        ptm_idx = self.PTM_TO_IDX.get(sample['ptm_type'], 0)
+        seq_indices = [self.AA_TO_IDX.get(aa, PAD_IDX) for aa in sample["sequence_window"]]
+        ptm_idx = self.PTM_TO_IDX.get(sample["ptm_type"], 0)
 
         return {
-            'sequence_indices': torch.tensor(seq_indices, dtype=torch.long),
-            'label': torch.tensor(sample['label'], dtype=torch.long),
-            'ptm_type': sample['ptm_type'],
-            'ptm_idx': torch.tensor(ptm_idx, dtype=torch.long),
+            "sequence_indices": torch.tensor(seq_indices, dtype=torch.long),
+            "label": torch.tensor(sample["label"], dtype=torch.long),
+            "ptm_type": sample["ptm_type"],
+            "ptm_idx": torch.tensor(ptm_idx, dtype=torch.long),
         }
 
 
@@ -414,31 +406,31 @@ def collate_multitask_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     type_batches = defaultdict(list)
 
     for item in batch:
-        type_batches[item['ptm_type']].append(item)
+        type_batches[item["ptm_type"]].append(item)
 
     # 构建输出
     outputs: Dict[str, Any] = {
-        'sequence_indices': [],
-        'labels': {},
-        'ptm_types': [],
-        'ptm_indices': [],
+        "sequence_indices": [],
+        "labels": {},
+        "ptm_types": [],
+        "ptm_indices": [],
     }
 
     for ptm_type, items in type_batches.items():
         for item in items:
-            outputs['sequence_indices'].append(item['sequence_indices'])
-            outputs['ptm_types'].append(ptm_type)
-            outputs['ptm_indices'].append(item['ptm_idx'])
+            outputs["sequence_indices"].append(item["sequence_indices"])
+            outputs["ptm_types"].append(ptm_type)
+            outputs["ptm_indices"].append(item["ptm_idx"])
 
-            if ptm_type not in outputs['labels']:
-                outputs['labels'][ptm_type] = []
-            outputs['labels'][ptm_type].append(item['label'])
+            if ptm_type not in outputs["labels"]:
+                outputs["labels"][ptm_type] = []
+            outputs["labels"][ptm_type].append(item["label"])
 
     # 堆叠
-    outputs['sequence_indices'] = torch.stack(outputs['sequence_indices'])
-    outputs['ptm_indices'] = torch.stack(outputs['ptm_indices'])
+    outputs["sequence_indices"] = torch.stack(outputs["sequence_indices"])
+    outputs["ptm_indices"] = torch.stack(outputs["ptm_indices"])
 
-    for ptm_type in outputs['labels']:
-        outputs['labels'][ptm_type] = torch.stack(outputs['labels'][ptm_type])
+    for ptm_type in outputs["labels"]:
+        outputs["labels"][ptm_type] = torch.stack(outputs["labels"][ptm_type])
 
     return outputs

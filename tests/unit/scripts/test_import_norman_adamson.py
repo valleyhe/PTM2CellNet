@@ -92,7 +92,12 @@ class TestReaders:
     def test_read_barcodes(self, tmp_path):
         dataset = _make_gse133344(tmp_path)
         assert imp.read_barcodes(dataset / "GSE133344_filtered_barcodes.tsv.gz") == [
-            "b1", "b2", "b3", "b4", "b5", "b6",
+            "b1",
+            "b2",
+            "b3",
+            "b4",
+            "b5",
+            "b6",
         ]
 
 
@@ -142,9 +147,7 @@ class TestDeltaExpression:
 
     def test_unassigned_cells_are_excluded(self):
         matrix = sp.csc_matrix(np.ones((2, 3), dtype=np.float32))
-        delta, sample_ids, counts, _, unassigned = imp.compute_delta_expression(
-            matrix, {}, ["x1", "x2"]
-        )
+        delta, sample_ids, counts, _, unassigned = imp.compute_delta_expression(matrix, {}, ["x1", "x2"])
         assert delta.shape == (0, 3)
         assert unassigned.sum() == 2
 
@@ -164,9 +167,7 @@ class TestImportGSE133344EndToEnd:
         # expression.npz sparse roundtrip
         with np.load(output / "GSE133344_expression.npz", allow_pickle=False) as archive:
             shape = tuple(archive["shape"])
-            rebuilt = sp.csc_matrix(
-                (archive["data"], (archive["row"], archive["col"])), shape=shape
-            )
+            rebuilt = sp.csc_matrix((archive["data"], (archive["row"], archive["col"])), shape=shape)
         assert rebuilt.shape == (6, 5)
         assert rebuilt[2, 0] == 3.0
 
@@ -229,11 +230,7 @@ class TestGSE90546FullParse:
             f"{prefix}_genes.tsv.gz": "ENSG1\tGENE1\nENSG2\tGENE2\nENSG3\tGENE3\n",
             f"{prefix}_barcodes.tsv.gz": "b1\nb2\nb3\nb4\n",
             f"{prefix}_cell_identities.csv.gz": (
-                "cell,target_gene,guide\n"
-                "b1,NT,g1\n"
-                "b2,NT,g2\n"
-                "b3,GENE1,g3\n"
-                "b4,GENE1,g4\n"
+                "cell,target_gene,guide\nb1,NT,g1\nb2,NT,g2\nb3,GENE1,g3\nb4,GENE1,g4\n"
             ),
             f"{prefix}_matrix.mtx.txt.gz": (
                 "%%MatrixMarket matrix coordinate real general\n%\n"
@@ -272,9 +269,7 @@ class TestGSE90546FullParse:
 
         with np.load(output / "GSE90546_GSM0001_10X001_expression.npz", allow_pickle=False) as archive:
             assert tuple(archive["shape"]) == (4, 3)
-            rebuilt = sp.csc_matrix(
-                (archive["data"], (archive["row"], archive["col"])), shape=tuple(archive["shape"])
-            )
+            rebuilt = sp.csc_matrix((archive["data"], (archive["row"], archive["col"])), shape=tuple(archive["shape"]))
         assert rebuilt[2, 0] == 3
         with np.load(output / "GSE90546_GSM0001_10X001_delta_expression.npz", allow_pickle=False) as archive:
             assert list(archive["sample_ids"]) == ["GENE1"]
@@ -303,9 +298,7 @@ class TestNormanGuideIdentity:
     """Norman 2019 guide_identity 列格式解析（真实数据验证中发现）。"""
 
     def test_single_gene_guide(self):
-        target, is_control = imp._parse_norman_guide_identity(
-            "ARID1A_NegCtrl0__ARID1A_NegCtrl0"
-        )
+        target, is_control = imp._parse_norman_guide_identity("ARID1A_NegCtrl0__ARID1A_NegCtrl0")
         assert target == "ARID1A"
         assert is_control is True
 
@@ -344,13 +337,10 @@ class TestMatrixOrientation:
         dataset.mkdir(parents=True)
         with _gz.open(dataset / "GSE133344_filtered_matrix.mtx.gz", "wt", encoding="utf-8") as handle:
             handle.write(
-                "%%MatrixMarket matrix coordinate real general\n%\n5 6 6\n"
-                "1 1 3\n1 2 3\n1 3 2\n1 4 2\n2 5 5\n3 6 7\n"
+                "%%MatrixMarket matrix coordinate real general\n%\n5 6 6\n1 1 3\n1 2 3\n1 3 2\n1 4 2\n2 5 5\n3 6 7\n"
             )
         with _gz.open(dataset / "GSE133344_filtered_genes.tsv.gz", "wt", encoding="utf-8") as handle:
-            handle.write(
-                "ENSG1\tG1\nENSG2\tG2\nENSG3\tG3\nENSG4\tG4\nENSG5\tG5\n"
-            )
+            handle.write("ENSG1\tG1\nENSG2\tG2\nENSG3\tG3\nENSG4\tG4\nENSG5\tG5\n")
         with _gz.open(dataset / "GSE133344_filtered_barcodes.tsv.gz", "wt", encoding="utf-8") as handle:
             handle.write("b1\nb2\nb3\nb4\nb5\nb6\n")
         with _gz.open(dataset / "GSE133344_filtered_cell_identities.csv.gz", "wt", encoding="utf-8") as handle:

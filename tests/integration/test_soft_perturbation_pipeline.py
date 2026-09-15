@@ -87,7 +87,9 @@ def test_soft_perturbation_cli_accepts_genki_source_backend(tmp_path) -> None:
     adata.var_names = ["EGFR", "TP53", "BAX"]
     adata.layers["norm"] = np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]], dtype=float)
     adata.write_h5ad(adata_path)
-    sp.save_npz(grn_dir / "pcNet.npz", sp.csr_matrix(np.array([[0.0, 0.9, 0.2], [0.9, 0.0, 0.8], [0.2, 0.8, 0.0]], dtype=float)))
+    sp.save_npz(
+        grn_dir / "pcNet.npz", sp.csr_matrix(np.array([[0.0, 0.9, 0.2], [0.9, 0.0, 0.8], [0.2, 0.8, 0.0]], dtype=float))
+    )
 
     config = {
         "integration": {

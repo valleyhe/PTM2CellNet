@@ -93,9 +93,7 @@ def main(argv: list[str] | None = None) -> int:
             or not all(isinstance(label, str) and label for label in labels)
             or len(set(labels)) != len(labels)
         ):
-            raise ValueError(
-                f"labels.cell_states 必须包含 {expected_states} 个唯一非空字符串"
-            )
+            raise ValueError(f"labels.cell_states 必须包含 {expected_states} 个唯一非空字符串")
         context = {
             "config": config,
             "data_contracts": data_module.contracts(),

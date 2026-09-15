@@ -216,13 +216,23 @@ class TestDAVFJointIntegrationStub:
         }
         mock_adapter = types.SimpleNamespace(
             load_reference_data=lambda: (call_log.append("load_ref"), ref_data)[1],
-            build_request=lambda **kw: (call_log.append(f"build:{kw.get('gene_symbol')}"), types.SimpleNamespace(gene_symbol=kw.get("gene_symbol", ""), mode=kw.get("mode", "")))[1],
-            run=lambda req: (call_log.append(f"run:{req.gene_symbol}"), types.SimpleNamespace(gene_symbol=req.gene_symbol, mode=req.mode, distance_score=1.0, ranked_genes=[], metadata={}))[1],
+            build_request=lambda **kw: (
+                call_log.append(f"build:{kw.get('gene_symbol')}"),
+                types.SimpleNamespace(gene_symbol=kw.get("gene_symbol", ""), mode=kw.get("mode", "")),
+            )[1],
+            run=lambda req: (
+                call_log.append(f"run:{req.gene_symbol}"),
+                types.SimpleNamespace(
+                    gene_symbol=req.gene_symbol, mode=req.mode, distance_score=1.0, ranked_genes=[], metadata={}
+                ),
+            )[1],
         )
         engine = PTMVirtualPerturbationEngine(adapter=mock_adapter)
         result = engine.run_ptm_perturbation(
-            protein_id="P04637", ptm_type="phosphorylation",
-            ptm_position=15, gene_symbol="TP53",
+            protein_id="P04637",
+            ptm_type="phosphorylation",
+            ptm_position=15,
+            gene_symbol="TP53",
         )
         assert result.gene_symbol == "TP53"
         assert "load_ref" in call_log
@@ -237,7 +247,12 @@ class TestDAVFJointIntegrationStub:
         built: list[str] = []
         mock_adapter = types.SimpleNamespace(
             build_request=lambda **kw: (built.append(kw.get("gene_symbol", "")), None)[1],
-            run_batch=lambda reqs: [types.SimpleNamespace(gene_symbol=f"gene_{i}", mode="soft_ko", distance_score=0.0, ranked_genes=[], metadata={}) for i in range(len(reqs))],
+            run_batch=lambda reqs: [
+                types.SimpleNamespace(
+                    gene_symbol=f"gene_{i}", mode="soft_ko", distance_score=0.0, ranked_genes=[], metadata={}
+                )
+                for i in range(len(reqs))
+            ],
         )
         engine = PTMVirtualPerturbationEngine(adapter=mock_adapter)
         perturbations = [

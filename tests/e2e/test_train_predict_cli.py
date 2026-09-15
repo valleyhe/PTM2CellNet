@@ -45,8 +45,11 @@ def _small_native_config(tmp_path: Path) -> Path:
             "max_sequence_length": 512,
             "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY",
             "ptm_types": [
-                "phosphorylation", "acetylation", "methylation",
-                "ubiquitination", "sumoylation",
+                "phosphorylation",
+                "acetylation",
+                "methylation",
+                "ubiquitination",
+                "sumoylation",
             ],
         },
         "training": {
@@ -63,7 +66,11 @@ def _small_native_config(tmp_path: Path) -> Path:
 def _run(cmd, cwd=PROJECT_ROOT):
     """运行子进程，失败时打印完整输出。"""
     result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, timeout=600,
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
     if result.returncode != 0:
         print("STDOUT:", result.stdout)
@@ -78,14 +85,22 @@ def native_artifact(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("native")
     cfg_path = _small_native_config(tmp)
     output = tmp / "output"
-    _run([
-        sys.executable, str(SCRIPTS / "train.py"),
-        "--config", str(cfg_path),
-        "--data", str(SAMPLE_DATA),
-        "--output", str(output),
-        "--epochs", "1",
-        "--batch_size", "16",
-    ])
+    _run(
+        [
+            sys.executable,
+            str(SCRIPTS / "train.py"),
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(SAMPLE_DATA),
+            "--output",
+            str(output),
+            "--epochs",
+            "1",
+            "--batch_size",
+            "16",
+        ]
+    )
     ckpt = output / "models" / "best_model.pt"
     cfg = output / "models" / "best_model.config.yaml"
     assert ckpt.exists(), "best_model.pt 未生成"
@@ -123,26 +138,30 @@ class TestNativeTrainPredictE2E:
         """训练产物 config 必须持久化 sorted-unique 标签顺序，而非 None。"""
         saved = yaml.safe_load(native_artifact["cfg"].read_text())
         cell_states = saved.get("data", {}).get("cell_states")
-        assert cell_states == EXPECTED_LABEL_ORDER, (
-            f"cell_states 未持久化或顺序错误: {cell_states}"
-        )
+        assert cell_states == EXPECTED_LABEL_ORDER, f"cell_states 未持久化或顺序错误: {cell_states}"
         # 同时保存 label_to_idx
-        assert saved.get("data", {}).get("label_to_idx") == {
-            label: i for i, label in enumerate(EXPECTED_LABEL_ORDER)
-        }
+        assert saved.get("data", {}).get("label_to_idx") == {label: i for i, label in enumerate(EXPECTED_LABEL_ORDER)}
 
     def test_predict_uses_persisted_labels_without_fallback(self, native_artifact, tmp_path):
         """推理必须使用持久化标签，且不依赖 demo fallback。"""
         out = tmp_path / "pred.csv"
-        _run([
-            sys.executable, str(SCRIPTS / "predict.py"),
-            "--model", str(native_artifact["ckpt"]),
-            "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-            "--output", str(out),
-            "--device", "cpu",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(native_artifact["ckpt"]),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ]
+        )
         assert out.exists(), "单样本推理未写出 --output"
         import pandas as pd
+
         df = pd.read_csv(out)
         # 输出列应包含每个 cell_state 的概率
         for state in EXPECTED_LABEL_ORDER:
@@ -155,12 +174,19 @@ class TestNativeTrainPredictE2E:
         bare.write_bytes(native_artifact["ckpt"].read_bytes())
         result = subprocess.run(
             [
-                sys.executable, str(SCRIPTS / "predict.py"),
-                "--model", str(bare),
-                "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-                "--device", "cpu",
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(bare),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--device",
+                "cpu",
             ],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         assert result.returncode != 0, "缺少标签映射时应失败而非静默 fallback"
         assert "data.cell_states" in result.stdout or "data.cell_states" in result.stderr
@@ -179,15 +205,23 @@ class TestNativeTrainPredictE2E:
         bare_cfg = tmp_path / "bare.config.yaml"
         bare_cfg.write_text(yaml.safe_dump(cfg_dict), encoding="utf-8")
         out = tmp_path / "pred.csv"
-        _run([
-            sys.executable, str(SCRIPTS / "predict.py"),
-            "--model", str(bare),
-            "--config", str(bare_cfg),
-            "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-            "--output", str(out),
-            "--device", "cpu",
-            "--allow-demo-fallback",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(bare),
+                "--config",
+                str(bare_cfg),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+                "--allow-demo-fallback",
+            ]
+        )
         assert out.exists()
 
 
@@ -197,17 +231,25 @@ class TestPredictPTMInput:
     def test_single_sample_ptm_sites_arg(self, native_artifact, tmp_path):
         """--ptm-sites 解析后传入模型，输出记录 ptm_count。"""
         out = tmp_path / "pred_ptm.csv"
-        ptm = json.dumps([{"position": 3, "type": "phosphorylation"},
-                          {"position": 7, "type": "acetylation"}])
-        _run([
-            sys.executable, str(SCRIPTS / "predict.py"),
-            "--model", str(native_artifact["ckpt"]),
-            "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-            "--ptm-sites", ptm,
-            "--output", str(out),
-            "--device", "cpu",
-        ])
+        ptm = json.dumps([{"position": 3, "type": "phosphorylation"}, {"position": 7, "type": "acetylation"}])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(native_artifact["ckpt"]),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--ptm-sites",
+                ptm,
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ]
+        )
         import pandas as pd
+
         df = pd.read_csv(out)
         assert int(df["ptm_count"].iloc[0]) == 2
 
@@ -222,14 +264,22 @@ class TestPredictPTMInput:
             encoding="utf-8",
         )
         out = tmp_path / "batch_pred.csv"
-        _run([
-            sys.executable, str(SCRIPTS / "predict.py"),
-            "--model", str(native_artifact["ckpt"]),
-            "--input", str(batch_csv),
-            "--output", str(out),
-            "--device", "cpu",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(native_artifact["ckpt"]),
+                "--input",
+                str(batch_csv),
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ]
+        )
         import pandas as pd
+
         df = pd.read_csv(out)
         assert int(df.loc[0, "ptm_count"]) == 1
         assert int(df.loc[1, "ptm_count"]) == 0
@@ -244,7 +294,8 @@ class TestUnifiedCheckpointContract:
 
         sd = {"encoder.weight": torch.zeros(2, 2), "head.bias": torch.zeros(2)}
         lightning_ckpt = {
-            "epoch": 1, "pytorch-lightning_version": "2.0",
+            "epoch": 1,
+            "pytorch-lightning_version": "2.0",
             "state_dict": {f"model.{k}": v for k, v in sd.items()},
         }
         out = extract_model_state_dict(lightning_ckpt)
@@ -252,11 +303,13 @@ class TestUnifiedCheckpointContract:
 
     def test_extract_model_state_dict_bare_passthrough(self):
         from src.utils.checkpoint_utils import extract_model_state_dict
+
         sd = {"encoder.weight": torch.zeros(2, 2)}
         assert extract_model_state_dict(sd) is sd
 
     def test_extract_model_state_dict_legacy(self):
         from src.utils.checkpoint_utils import extract_model_state_dict
+
         sd = {"encoder.weight": torch.zeros(2, 2)}
         out = extract_model_state_dict({"epoch": 0, "model_state_dict": sd})
         assert out is sd
@@ -266,18 +319,22 @@ class TestUnifiedCheckpointContract:
         from src.models.architectures import PTM2CellNet
         from src.utils.io import load_model
 
-        model = PTM2CellNet(encoder_type="cnn", vocab_size=21, embed_dim=16,
-                            max_seq_len=64, num_ptm_types=5, num_classes=4)
+        model = PTM2CellNet(
+            encoder_type="cnn", vocab_size=21, embed_dim=16, max_seq_len=64, num_ptm_types=5, num_classes=4
+        )
         sd = model.state_dict()
         lightning_ckpt = {
-            "epoch": 1, "global_step": 5, "pytorch-lightning_version": "2.0",
+            "epoch": 1,
+            "global_step": 5,
+            "pytorch-lightning_version": "2.0",
             "state_dict": {f"model.{k}": v for k, v in sd.items()},
         }
         ckpt = tmp_path / "lightning.ckpt"
         torch.save(lightning_ckpt, ckpt)
 
-        fresh = PTM2CellNet(encoder_type="cnn", vocab_size=21, embed_dim=16,
-                            max_seq_len=64, num_ptm_types=5, num_classes=4)
+        fresh = PTM2CellNet(
+            encoder_type="cnn", vocab_size=21, embed_dim=16, max_seq_len=64, num_ptm_types=5, num_classes=4
+        )
         load_model(fresh, str(ckpt))  # strict=True 默认
         for k in sd:
             assert torch.allclose(sd[k], fresh.state_dict()[k]), f"权重不一致: {k}"
@@ -288,23 +345,31 @@ class TestLightningE2E:
 
     def _small_lightning_config(self, tmp_path, num_classes=3):
         import yaml
+
         cell_states = [f"class_{i}" for i in range(num_classes)]
         cfg = {
             "model": {
-                "encoder_type": "cnn", "vocab_size": 21, "embed_dim": 32,
-                "num_filters": 32, "kernel_sizes": [3, 5], "max_seq_len": 512,
-                "num_ptm_types": 6, "num_classes": 4,  # deliberately wrong
-                "pool_type": "mean", "dropout": 0.1,
+                "encoder_type": "cnn",
+                "vocab_size": 21,
+                "embed_dim": 32,
+                "num_filters": 32,
+                "kernel_sizes": [3, 5],
+                "max_seq_len": 512,
+                "num_ptm_types": 6,
+                "num_classes": 4,  # deliberately wrong
+                "pool_type": "mean",
+                "dropout": 0.1,
             },
             "data": {
                 "max_sequence_length": 512,
                 "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY",
-                "ptm_types": ["phosphorylation", "acetylation", "methylation",
-                              "ubiquitination", "sumoylation"],
+                "ptm_types": ["phosphorylation", "acetylation", "methylation", "ubiquitination", "sumoylation"],
                 "cell_states": cell_states,
             },
             "training": {
-                "max_epochs": 1, "batch_size": 4, "learning_rate": 1e-3,
+                "max_epochs": 1,
+                "batch_size": 4,
+                "learning_rate": 1e-3,
                 "drop_last": False,
                 "checkpoint": {"enabled": True, "monitor": "step", "save_top_k": 1},
                 "early_stopping": {"enabled": False},
@@ -335,14 +400,27 @@ class TestLightningE2E:
         """Train with 3-class data, config model.num_classes=4 initially.
         After fix P0-1, exported config should have num_classes=3."""
         import sys, subprocess, yaml
+
         cfg_path, cell_states = self._small_lightning_config(tmp_path)
         data_csv = self._make_3class_data(tmp_path)
 
         result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "scripts/train_lightning.py"),
-             "--config", str(cfg_path), "--data", str(data_csv),
-             "--max-epochs", "1", "--batch-size", "4"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "scripts/train_lightning.py"),
+                "--config",
+                str(cfg_path),
+                "--data",
+                str(data_csv),
+                "--max-epochs",
+                "1",
+                "--batch-size",
+                "4",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
@@ -354,22 +432,33 @@ class TestLightningE2E:
         config_files = list(models_dir.glob("*.config.yaml"))
         assert config_files, f"No config file found in {models_dir}"
         saved = yaml.safe_load(config_files[0].read_text())
-        assert saved["model"]["num_classes"] == 3, (
-            f"Expected num_classes=3, got {saved['model']['num_classes']}"
-        )
+        assert saved["model"]["num_classes"] == 3, f"Expected num_classes=3, got {saved['model']['num_classes']}"
         assert saved["data"]["cell_states"] == cell_states
 
     def test_lightning_ckpt_inference(self, tmp_path):
         """Use Lightning-exported best_model.pt for CLI inference."""
         import sys, subprocess
+
         cfg_path, cell_states = self._small_lightning_config(tmp_path)
         data_csv = self._make_3class_data(tmp_path)
 
         subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "scripts/train_lightning.py"),
-             "--config", str(cfg_path), "--data", str(data_csv),
-             "--max-epochs", "1", "--batch-size", "4"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "scripts/train_lightning.py"),
+                "--config",
+                str(cfg_path),
+                "--data",
+                str(data_csv),
+                "--max-epochs",
+                "1",
+                "--batch-size",
+                "4",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
 
         models_dir = tmp_path / "models"
@@ -380,17 +469,29 @@ class TestLightningE2E:
 
         out = tmp_path / "pred.csv"
         result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "scripts/predict.py"),
-             "--model", str(ckpt),
-             "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-             "--output", str(out), "--device", "cpu"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "scripts/predict.py"),
+                "--model",
+                str(ckpt),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
         assert result.returncode == 0, f"Inference failed: {result.stderr}"
         import pandas as pd
+
         df = pd.read_csv(out)
         for state in cell_states:
             assert f"prob_{state}" in df.columns, f"Missing prob_{state}"
@@ -403,24 +504,36 @@ class TestBatchProbabilityColumns:
         """Batch prediction output must include prob_<state> columns."""
         batch_csv = tmp_path / "batch_prob.csv"
         batch_csv.write_text(
-            "id,sequence,ptm_sites\n"
-            '1,ACDEFGHIKLMNPQRSTVWY,"[]"\n'
-            '2,ACDEFGHIKLMNPQRSTVWY,"[]"\n',
+            'id,sequence,ptm_sites\n1,ACDEFGHIKLMNPQRSTVWY,"[]"\n2,ACDEFGHIKLMNPQRSTVWY,"[]"\n',
             encoding="utf-8",
         )
         import subprocess, sys
+
         out = tmp_path / "batch_prob_pred.csv"
         result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "predict.py"),
-             "--model", str(native_artifact["ckpt"]),
-             "--input", str(batch_csv), "--output", str(out), "--device", "cpu"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(native_artifact["ckpt"]),
+                "--input",
+                str(batch_csv),
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
         assert result.returncode == 0, f"Batch inference failed: {result.stderr}"
         import pandas as pd
+
         df = pd.read_csv(out)
         for state in EXPECTED_LABEL_ORDER:
             assert f"prob_{state}" in df.columns, f"Missing prob_{state} in batch output"
@@ -433,20 +546,33 @@ class TestConfigInjection:
         """When training config has max_sequence_length=64, inference preprocessing
         should use 64, not the default 1000."""
         import subprocess, sys
+
         # Override config to set max_sequence_length=64
         out = tmp_path / "cfg_pred.csv"
         result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "predict.py"),
-             "--model", str(native_artifact["ckpt"]),
-             "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-             "--output", str(out), "--device", "cpu"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(native_artifact["ckpt"]),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
         assert result.returncode == 0, f"Inference failed: {result.stderr}"
         import pandas as pd
+
         df = pd.read_csv(out)
         assert len(df) == 1
         # Verify at least one probability column exists
@@ -467,18 +593,24 @@ class TestAPIPredict:
 
         client = TestClient(create_app())
         # Initialize
-        r_init = client.post("/api/v1/initialize", json={
-            "checkpoint_path": str(native_artifact["ckpt"]),
-            "cell_states": EXPECTED_LABEL_ORDER,
-        })
+        r_init = client.post(
+            "/api/v1/initialize",
+            json={
+                "checkpoint_path": str(native_artifact["ckpt"]),
+                "cell_states": EXPECTED_LABEL_ORDER,
+            },
+        )
         assert r_init.status_code == 200, r_init.text
         assert STATE.model is not None
 
         # Predict
-        r_pred = client.post("/api/v1/predict", json={
-            "sequence": "ACDEFGHIKLMNPQRSTVWY",
-            "ptm_sites": [],
-        })
+        r_pred = client.post(
+            "/api/v1/predict",
+            json={
+                "sequence": "ACDEFGHIKLMNPQRSTVWY",
+                "ptm_sites": [],
+            },
+        )
         assert r_pred.status_code == 200, r_pred.text
         body = r_pred.json()
         assert "predicted_cell_state" in body
@@ -495,20 +627,27 @@ class TestLightningE2E:
         cell_states = [f"class_{i}" for i in range(num_classes)]
         cfg = {
             "model": {
-                "encoder_type": "cnn", "vocab_size": 21, "embed_dim": 32,
-                "num_filters": 32, "kernel_sizes": [3, 5], "max_seq_len": 512,
-                "num_ptm_types": 6, "num_classes": 4,
-                "pool_type": "mean", "dropout": 0.1,
+                "encoder_type": "cnn",
+                "vocab_size": 21,
+                "embed_dim": 32,
+                "num_filters": 32,
+                "kernel_sizes": [3, 5],
+                "max_seq_len": 512,
+                "num_ptm_types": 6,
+                "num_classes": 4,
+                "pool_type": "mean",
+                "dropout": 0.1,
             },
             "data": {
                 "max_sequence_length": 512,
                 "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY",
-                "ptm_types": ["phosphorylation", "acetylation", "methylation",
-                              "ubiquitination", "sumoylation"],
+                "ptm_types": ["phosphorylation", "acetylation", "methylation", "ubiquitination", "sumoylation"],
                 "cell_states": cell_states,
             },
             "training": {
-                "max_epochs": 1, "batch_size": 4, "learning_rate": 1e-3,
+                "max_epochs": 1,
+                "batch_size": 4,
+                "learning_rate": 1e-3,
                 "drop_last": False,
                 "checkpoint": {"enabled": True, "monitor": "step", "save_top_k": 1},
                 "early_stopping": {"enabled": False},
@@ -546,10 +685,22 @@ class TestLightningE2E:
         cfg_path, cell_states = self._small_lightning_config(tmp_path)
         data_csv = self._make_3class_data(tmp_path)
         result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "train_lightning.py"),
-             "--config", str(cfg_path), "--data", str(data_csv),
-             "--max-epochs", "1", "--batch-size", "4"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(SCRIPTS / "train_lightning.py"),
+                "--config",
+                str(cfg_path),
+                "--data",
+                str(data_csv),
+                "--max-epochs",
+                "1",
+                "--batch-size",
+                "4",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
@@ -559,9 +710,7 @@ class TestLightningE2E:
         config_files = list(models_dir.glob("*.config.yaml"))
         assert config_files, f"No config file found in {models_dir}"
         saved = yaml.safe_load(config_files[0].read_text())
-        assert saved["model"]["num_classes"] == 3, (
-            f"Expected num_classes=3, got {saved['model']['num_classes']}"
-        )
+        assert saved["model"]["num_classes"] == 3, f"Expected num_classes=3, got {saved['model']['num_classes']}"
         assert saved["data"]["cell_states"] == cell_states
 
     def test_lightning_ckpt_inference(self, tmp_path):
@@ -571,10 +720,22 @@ class TestLightningE2E:
         cfg_path, cell_states = self._small_lightning_config(tmp_path)
         data_csv = self._make_3class_data(tmp_path)
         subprocess.run(
-            [sys.executable, str(SCRIPTS / "train_lightning.py"),
-             "--config", str(cfg_path), "--data", str(data_csv),
-             "--max-epochs", "1", "--batch-size", "4"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(SCRIPTS / "train_lightning.py"),
+                "--config",
+                str(cfg_path),
+                "--data",
+                str(data_csv),
+                "--max-epochs",
+                "1",
+                "--batch-size",
+                "4",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         models_dir = tmp_path / "models"
         ckpt = models_dir / "best_model.pt"
@@ -583,11 +744,22 @@ class TestLightningE2E:
         assert ckpt and ckpt.exists(), f"No best_model.pt found in {models_dir}"
         out = tmp_path / "pred.csv"
         result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "predict.py"),
-             "--model", str(ckpt),
-             "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-             "--output", str(out), "--device", "cpu"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(ckpt),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
@@ -609,17 +781,27 @@ class TestBatchProbabilityColumns:
 
         batch_csv = tmp_path / "batch_prob.csv"
         batch_csv.write_text(
-            "id,sequence,ptm_sites\n"
-            '1,ACDEFGHIKLMNPQRSTVWY,"[]"\n'
-            '2,ACDEFGHIKLMNPQRSTVWY,"[]"\n',
+            'id,sequence,ptm_sites\n1,ACDEFGHIKLMNPQRSTVWY,"[]"\n2,ACDEFGHIKLMNPQRSTVWY,"[]"\n',
             encoding="utf-8",
         )
         out = tmp_path / "batch_prob_pred.csv"
         result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "predict.py"),
-             "--model", str(native_artifact["ckpt"]),
-             "--input", str(batch_csv), "--output", str(out), "--device", "cpu"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(native_artifact["ckpt"]),
+                "--input",
+                str(batch_csv),
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode != 0:
             print("STDOUT:", result.stdout)
@@ -641,17 +823,23 @@ class TestAPIPredict:
         from src.api.routes.state import STATE
 
         client = TestClient(create_app())
-        r_init = client.post("/api/v1/initialize", json={
-            "checkpoint_path": str(native_artifact["ckpt"]),
-            "cell_states": EXPECTED_LABEL_ORDER,
-        })
+        r_init = client.post(
+            "/api/v1/initialize",
+            json={
+                "checkpoint_path": str(native_artifact["ckpt"]),
+                "cell_states": EXPECTED_LABEL_ORDER,
+            },
+        )
         assert r_init.status_code == 200, r_init.text
         assert STATE.model is not None
 
-        r_pred = client.post("/api/v1/predict", json={
-            "sequence": "ACDEFGHIKLMNPQRSTVWY",
-            "ptm_sites": [],
-        })
+        r_pred = client.post(
+            "/api/v1/predict",
+            json={
+                "sequence": "ACDEFGHIKLMNPQRSTVWY",
+                "ptm_sites": [],
+            },
+        )
         assert r_pred.status_code == 200, r_pred.text
         body = r_pred.json()
         assert "predicted_cell_state" in body

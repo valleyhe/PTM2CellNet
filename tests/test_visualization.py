@@ -196,9 +196,7 @@ class TestPlotTrainingCurves:
 
 class TestPlotFeatureImportance:
     def test_default_top_n(self, tmp_path):
-        importances = np.array(
-            [0.3, 0.2, 0.15, 0.1, 0.08, 0.07, 0.05, 0.03, 0.01, 0.01]
-        )
+        importances = np.array([0.3, 0.2, 0.15, 0.1, 0.08, 0.07, 0.05, 0.03, 0.01, 0.01])
         feature_names = [f"feat_{i}" for i in range(10)]
         save_path = str(tmp_path / "feature_importance.png")
 
@@ -213,9 +211,7 @@ class TestPlotFeatureImportance:
         feature_names = [f"feat_{i}" for i in range(5)]
         save_path = str(tmp_path / "feature_topn.png")
 
-        result = plot_feature_importance(
-            importances, feature_names, save_path, top_n=3
-        )
+        result = plot_feature_importance(importances, feature_names, save_path, top_n=3)
 
         assert result is None
         assert os.path.exists(save_path)
@@ -245,9 +241,7 @@ class TestPlotAttentionHeatmap:
         xlabels = ["A", "B", "C"]
         ylabels = ["1", "2", "3"]
 
-        result = plot_attention_heatmap(
-            attention, save_path, xticklabels=xlabels, yticklabels=ylabels
-        )
+        result = plot_attention_heatmap(attention, save_path, xticklabels=xlabels, yticklabels=ylabels)
 
         assert result is None
         assert os.path.exists(save_path)

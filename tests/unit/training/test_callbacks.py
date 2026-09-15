@@ -140,9 +140,7 @@ class TestModelCheckpoint:
     def test_save_last(self, tmp_path):
         """配置save_last=True时保存_last.pt"""
         filepath = str(tmp_path / "model.pt")
-        checkpoint = ModelCheckpoint(
-            filepath, monitor="val_loss", save_last=True, verbose=0
-        )
+        checkpoint = ModelCheckpoint(filepath, monitor="val_loss", save_last=True, verbose=0)
         trainer = MockTrainer()
 
         checkpoint.on_epoch_end(trainer, 0, {"val_loss": 0.5})
@@ -151,9 +149,7 @@ class TestModelCheckpoint:
     def test_different_monitor(self, tmp_path):
         """监控不同指标(val_acc)"""
         filepath = str(tmp_path / "best.pt")
-        checkpoint = ModelCheckpoint(
-            filepath, monitor="val_acc", mode="max", verbose=0
-        )
+        checkpoint = ModelCheckpoint(filepath, monitor="val_acc", mode="max", verbose=0)
         trainer = MockTrainer()
 
         checkpoint.on_epoch_end(trainer, epoch=0, logs={"val_acc": 0.8})
@@ -209,9 +205,7 @@ class TestModelCheckpoint:
         import logging
 
         filepath = str(tmp_path / "model.pt")
-        checkpoint = ModelCheckpoint(
-            filepath, monitor="val_loss", save_last=True, verbose=1
-        )
+        checkpoint = ModelCheckpoint(filepath, monitor="val_loss", save_last=True, verbose=1)
         trainer = MockTrainer()
 
         with caplog.at_level(logging.INFO, logger="src.training.callbacks"):
@@ -257,9 +251,7 @@ class TestEarlyStopping:
 
     def test_min_delta(self):
         """改善小于min_delta不算改善"""
-        early_stop = EarlyStopping(
-            monitor="val_loss", mode="min", patience=2, min_delta=0.1, verbose=0
-        )
+        early_stop = EarlyStopping(monitor="val_loss", mode="min", patience=2, min_delta=0.1, verbose=0)
         trainer = MockTrainer()
 
         early_stop.on_epoch_end(trainer, epoch=0, logs={"val_loss": 0.5})
@@ -354,9 +346,7 @@ class TestTensorBoardCallback:
         }
         callback.on_epoch_end(MockTrainer(), epoch=0, logs=logs)
 
-        written_keys = {
-            call.args[0] for call in callback._writer.add_scalar.call_args_list
-        }
+        written_keys = {call.args[0] for call in callback._writer.add_scalar.call_args_list}
         assert "train_acc" in written_keys
         assert "val_acc" in written_keys
         assert "train_loss" in written_keys
@@ -371,9 +361,7 @@ class TestTensorBoardCallback:
         logs = {"train_loss": 0.5, "train_acc": 0.8}
         callback.on_epoch_end(MockTrainer(), epoch=0, logs=logs)
 
-        written_keys = {
-            call.args[0] for call in callback._writer.add_scalar.call_args_list
-        }
+        written_keys = {call.args[0] for call in callback._writer.add_scalar.call_args_list}
         assert "train_acc" in written_keys
         assert "val_acc" not in written_keys  # 守卫: 缺失键被跳过
 
@@ -407,9 +395,7 @@ class TestCallbackIntegration:
     def test_training_loop_simulation(self, tmp_path):
         """模拟完整训练循环"""
         filepath = str(tmp_path / "best.pt")
-        checkpoint = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min", save_last=True, verbose=0
-        )
+        checkpoint = ModelCheckpoint(filepath, monitor="val_loss", mode="min", save_last=True, verbose=0)
         early_stop = EarlyStopping(monitor="val_loss", mode="min", patience=3, verbose=0)
         trainer = MockTrainer()
 
@@ -548,8 +534,12 @@ class TestModelCheckpointTopK:
     def test_top_k_keeps_best_and_removes_worst(self, tmp_path):
         filepath = str(tmp_path / "model.pt")
         ckpt = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=False, save_top_k=2, verbose=0,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=False,
+            save_top_k=2,
+            verbose=0,
         )
         trainer = MockTrainer()
         for epoch, loss in enumerate([0.5, 0.3, 0.7, 0.4]):
@@ -561,8 +551,12 @@ class TestModelCheckpointTopK:
     def test_top_k_max_mode_keeps_highest(self, tmp_path):
         filepath = str(tmp_path / "model.pt")
         ckpt = ModelCheckpoint(
-            filepath, monitor="val_acc", mode="max",
-            save_best_only=False, save_top_k=1, verbose=0,
+            filepath,
+            monitor="val_acc",
+            mode="max",
+            save_best_only=False,
+            save_top_k=1,
+            verbose=0,
         )
         trainer = MockTrainer()
         for epoch, acc in enumerate([0.5, 0.9, 0.7]):
@@ -573,8 +567,12 @@ class TestModelCheckpointTopK:
     def test_top_k_zero_keeps_all(self, tmp_path):
         filepath = str(tmp_path / "model.pt")
         ckpt = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=False, save_top_k=0, verbose=0,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=False,
+            save_top_k=0,
+            verbose=0,
         )
         trainer = MockTrainer()
         for epoch in range(3):
@@ -586,8 +584,12 @@ class TestModelCheckpointTopK:
 
         filepath = str(tmp_path / "model.pt")
         ckpt = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=False, save_top_k=1, verbose=1,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=False,
+            save_top_k=1,
+            verbose=1,
         )
         trainer = MockTrainer()
         with caplog.at_level(logging.INFO, logger="src.training.callbacks"):
@@ -747,8 +749,11 @@ class TestCallbackStateDict:
         """ModelCheckpoint 状态可保存并恢复（best/top-k/未改善计数）"""
         filepath = str(tmp_path / "model.pt")
         source = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=True, verbose=0,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=True,
+            verbose=0,
         )
         trainer = MockTrainer()
         for epoch, loss in enumerate([0.5, 0.3, 0.7]):
@@ -757,8 +762,11 @@ class TestCallbackStateDict:
         assert source.epochs_since_improvement == 1
 
         target = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=True, verbose=0,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=True,
+            verbose=0,
         )
         target.load_state_dict(source.state_dict())
         assert target.best_value == 0.3
@@ -768,8 +776,12 @@ class TestCallbackStateDict:
         """top-k 模式恢复 top_k_checkpoints 列表"""
         filepath = str(tmp_path / "model.pt")
         source = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=False, save_top_k=2, verbose=0,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=False,
+            save_top_k=2,
+            verbose=0,
         )
         trainer = MockTrainer()
         for epoch, loss in enumerate([0.5, 0.3, 0.7]):
@@ -777,8 +789,12 @@ class TestCallbackStateDict:
         assert len(source._top_k_checkpoints) == 2
 
         target = ModelCheckpoint(
-            filepath, monitor="val_loss", mode="min",
-            save_best_only=False, save_top_k=2, verbose=0,
+            filepath,
+            monitor="val_loss",
+            mode="min",
+            save_best_only=False,
+            save_top_k=2,
+            verbose=0,
         )
         target.load_state_dict(source.state_dict())
         assert target._top_k_checkpoints == source._top_k_checkpoints
@@ -896,9 +912,7 @@ class TestCallbackStateDict:
         trainer.global_step = 3
         trainer.callbacks = [callback]
         callback.on_epoch_end(trainer, epoch=0, logs={"val_loss": 0.25})
-        last = torch.load(
-            tmp_path / "best_last.pt", map_location="cpu", weights_only=False
-        )
+        last = torch.load(tmp_path / "best_last.pt", map_location="cpu", weights_only=False)
         assert last["global_step"] == 3
         assert last["callback_states"]["ModelCheckpoint"]["best_value"] == 0.25
 

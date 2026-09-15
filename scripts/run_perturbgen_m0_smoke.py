@@ -180,26 +180,19 @@ def stage_prep() -> dict:
     gene_pos = np.asarray(gene_col.todense()).ravel() > 0
 
     ref_all = obs.index[(obs == REF_CONDITION) & gene_pos]
-    assert len(ref_all) >= N_REF_CELLS, (
-        f"only {len(ref_all)} {REF_CONDITION} cells express {PERTURB_GENE}"
-    )
+    assert len(ref_all) >= N_REF_CELLS, f"only {len(ref_all)} {REF_CONDITION} cells express {PERTURB_GENE}"
     ref_idx = ref_all[:N_REF_CELLS].tolist()
     tgt_idx = obs.index[obs == TGT_CONDITION][:N_TGT_CELLS].tolist()
     assert len(tgt_idx) == N_TGT_CELLS, f"only {len(tgt_idx)} {TGT_CONDITION} cells"
     subset = adata[ref_idx + tgt_idx].copy()
 
     lat_cells = N_REF_CELLS  # every selected reference cell expresses the gene
-    assert lat_cells >= GENES_MIN_CELLS, (
-        f"{PERTURB_GENE} expressed in only {lat_cells} cells"
-    )
+    assert lat_cells >= GENES_MIN_CELLS, f"{PERTURB_GENE} expressed in only {lat_cells} cells"
 
     subset.write_h5ad(out_h5ad)
     # gene list consumed by GF_tokenisation --genes_to_include_path; the
     # lower_bound_filter column marks rows eligible for forced inclusion.
-    genes_csv.write_text(
-        "gene_name,lower_bound_filter\n"
-        f"{PERTURB_GENE},included\n"
-    )
+    genes_csv.write_text(f"gene_name,lower_bound_filter\n{PERTURB_GENE},included\n")
 
     return {
         "source_h5ad": str(SOURCE_H5AD.relative_to(PROJECT_ROOT)),
@@ -262,9 +255,7 @@ def stage_tokenise() -> dict:
         str(GENES_MIN_CELLS),
     ]
     start = time.perf_counter()
-    proc = subprocess.run(
-        argv, cwd=REPO_ROOT, env=OFFLINE_ENV, capture_output=True, text=True
-    )
+    proc = subprocess.run(argv, cwd=REPO_ROOT, env=OFFLINE_ENV, capture_output=True, text=True)
     elapsed = time.perf_counter() - start
     if proc.returncode != 0:
         print(proc.stdout[-4000:])
@@ -291,8 +282,7 @@ def stage_tokenise() -> dict:
     import pickle
 
     with open(
-        T_PROJECT_ROOT
-        / f"tokenized_data/{DATASET_NAME}/token_id_to_genename_{suffix}.pkl",
+        T_PROJECT_ROOT / f"tokenized_data/{DATASET_NAME}/token_id_to_genename_{suffix}.pkl",
         "rb",
     ) as f:
         rowid_to_gene = pickle.load(f)
@@ -369,12 +359,8 @@ def compute_seq_stats() -> dict:
 
     troot = T_PROJECT_ROOT / "tokenized_data" / DATASET_NAME
     suffix = f"{N_HVG}_hvg"
-    src = load_from_disk(
-        str(troot / f"dataset_{suffix}_src" / f"{REF_CONDITION}.dataset")
-    )
-    tgt = load_from_disk(
-        str(troot / f"dataset_{suffix}_tgt" / f"1_{TGT_CONDITION}.dataset")
-    )
+    src = load_from_disk(str(troot / f"dataset_{suffix}_src" / f"{REF_CONDITION}.dataset"))
+    tgt = load_from_disk(str(troot / f"dataset_{suffix}_tgt" / f"1_{TGT_CONDITION}.dataset"))
     max_id = 0
     max_len = 0
     for dataset in (src, tgt):
@@ -441,11 +427,7 @@ def stage_convert() -> dict:
     import anndata as sc_ad
 
     trainer_cfg["n_genes"] = sc_ad.read_h5ad(
-        T_PROJECT_ROOT
-        / "tokenized_data"
-        / DATASET_NAME
-        / f"h5ad_pairing_{N_HVG}_hvg_tgt"
-        / f"1_{TGT_CONDITION}.h5ad",
+        T_PROJECT_ROOT / "tokenized_data" / DATASET_NAME / f"h5ad_pairing_{N_HVG}_hvg_tgt" / f"1_{TGT_CONDITION}.h5ad",
         backed="r",
     ).shape[1]
 
@@ -498,9 +480,7 @@ def stage_perturb() -> dict:
     config["trainer"]["tgt_vocab_size"] = stats["base_tgt_vocab_size"]
     config["trainer"]["max_seq_length"] = stats["base_max_seq_length"]
     config["datamodule"]["max_len"] = stats["max_len"]
-    config["model"]["ckpt_masking_path"] = str(
-        EVIDENCE_DIR / "perturber_encoder_real_decoder_seed42.ckpt"
-    )
+    config["model"]["ckpt_masking_path"] = str(EVIDENCE_DIR / "perturber_encoder_real_decoder_seed42.ckpt")
     if output_dir.exists():
         shutil.rmtree(output_dir)
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
@@ -615,11 +595,7 @@ def stage_profile() -> dict:
     torch.cuda.reset_peak_memory_stats()
     with torch.no_grad():
         for batch in loader:
-            batch = {
-                k: v.cuda() if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-                if v is not None
-            }
+            batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items() if v is not None}
             t0 = time.perf_counter()
             _ = module.forward(batch, perturbation=True)
             torch.cuda.synchronize()

@@ -24,7 +24,7 @@ import requests
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-UNIPROT_CACHE_DIR = Path('data/uniprot_cache')
+UNIPROT_CACHE_DIR = Path("data/uniprot_cache")
 
 
 def parse_ptm_site(site_str):
@@ -39,22 +39,35 @@ def parse_ptm_site(site_str):
     # e.g., "A1CF-Ser482" -> ("A1CF", "S", 482)
 
     aa_map = {
-        'Ser': 'S', 'Thr': 'T', 'Tyr': 'Y',
-        'Lys': 'K', 'Arg': 'R', 'His': 'H',
-        'Asp': 'D', 'Glu': 'E', 'Asn': 'N',
-        'Gln': 'Q', 'Cys': 'C', 'Gly': 'G',
-        'Pro': 'P', 'Ala': 'A', 'Val': 'V',
-        'Ile': 'I', 'Leu': 'L', 'Met': 'M',
-        'Phe': 'F', 'Trp': 'W'
+        "Ser": "S",
+        "Thr": "T",
+        "Tyr": "Y",
+        "Lys": "K",
+        "Arg": "R",
+        "His": "H",
+        "Asp": "D",
+        "Glu": "E",
+        "Asn": "N",
+        "Gln": "Q",
+        "Cys": "C",
+        "Gly": "G",
+        "Pro": "P",
+        "Ala": "A",
+        "Val": "V",
+        "Ile": "I",
+        "Leu": "L",
+        "Met": "M",
+        "Phe": "F",
+        "Trp": "W",
     }
 
     # Match pattern: Protein-AAA###
-    match = re.match(r'([A-Z0-9]+)-([A-Za-z]+)(\d+)', site_str)
+    match = re.match(r"([A-Z0-9]+)-([A-Za-z]+)(\d+)", site_str)
     if match:
         protein = match.group(1)
         aa_code = match.group(2)
         position = int(match.group(3))
-        aa = aa_map.get(aa_code, 'X')
+        aa = aa_map.get(aa_code, "X")
         return protein, aa, position
 
     return None, None, None
@@ -62,7 +75,7 @@ def parse_ptm_site(site_str):
 
 def _sanitize_protein_name(protein_name):
     """将蛋白名称转换为安全文件名。"""
-    return re.sub(r'[^A-Za-z0-9_.-]', '_', str(protein_name))
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(protein_name))
 
 
 def get_cached_sequence(protein_name):
@@ -76,9 +89,9 @@ def get_cached_sequence(protein_name):
         return None
 
     try:
-        with cache_file.open('r', encoding='utf-8') as f:
+        with cache_file.open("r", encoding="utf-8") as f:
             payload = json.load(f)
-        sequence = payload.get('sequence')
+        sequence = payload.get("sequence")
         if isinstance(sequence, str) and sequence:
             return sequence
     except (OSError, json.JSONDecodeError) as exc:
@@ -99,13 +112,10 @@ def save_cached_sequence(protein_name, sequence):
     UNIPROT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache_file = UNIPROT_CACHE_DIR / f"{_sanitize_protein_name(protein_name)}.json"
 
-    payload = {
-        'protein_name': protein_name,
-        'sequence': sequence
-    }
+    payload = {"protein_name": protein_name, "sequence": sequence}
 
     try:
-        with cache_file.open('w', encoding='utf-8') as f:
+        with cache_file.open("w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
     except OSError as exc:
         print(f"Warning: failed to write cache for {protein_name}: {exc}")
@@ -128,13 +138,13 @@ def fetch_uniprot_sequence(protein_name):
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         payload = response.json()
-        results = payload.get('results', [])
+        results = payload.get("results", [])
         if not results:
             return None
 
-        sequence_field = results[0].get('sequence', {})
+        sequence_field = results[0].get("sequence", {})
         if isinstance(sequence_field, dict):
-            sequence = sequence_field.get('value')
+            sequence = sequence_field.get("value")
         else:
             sequence = sequence_field
 
@@ -185,16 +195,18 @@ def load_cptac_data(filepath):
         # Using median as threshold
         label = 1 if avg_intensity > 0 else 0
 
-        records.append({
-            'id': f"PMADS_{idx}",
-            'protein': protein,
-            'sequence': f"{aa}",  # Placeholder - will need actual sequence
-            'ptm_position': position,
-            'ptm_type': 'Phosphorylation' if aa in ['S', 'T', 'Y'] else 'Acetylation' if aa == 'K' else 'Other',
-            'ptm_aa': aa,
-            'intensity': avg_intensity,
-            'label': label
-        })
+        records.append(
+            {
+                "id": f"PMADS_{idx}",
+                "protein": protein,
+                "sequence": f"{aa}",  # Placeholder - will need actual sequence
+                "ptm_position": position,
+                "ptm_type": "Phosphorylation" if aa in ["S", "T", "Y"] else "Acetylation" if aa == "K" else "Other",
+                "ptm_aa": aa,
+                "intensity": avg_intensity,
+                "label": label,
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -207,10 +219,28 @@ def load_ptmd_data(filepath):
     """
     print(f"Loading PTMD data from {filepath}...")
 
-    df = pd.read_csv(filepath, sep='\t', header=None, encoding='latin-1',
-                     names=['uniprot', 'blank1', 'ptm', 'blank2', 'disease',
-                            'blank3', 'regulation', 'blank4', 'pmid', 'blank5',
-                            'target', 'reference', 'evidence', 'ptm_type'])
+    df = pd.read_csv(
+        filepath,
+        sep="\t",
+        header=None,
+        encoding="latin-1",
+        names=[
+            "uniprot",
+            "blank1",
+            "ptm",
+            "blank2",
+            "disease",
+            "blank3",
+            "regulation",
+            "blank4",
+            "pmid",
+            "blank5",
+            "target",
+            "reference",
+            "evidence",
+            "ptm_type",
+        ],
+    )
 
     records = []
     for idx in range(len(df)):
@@ -218,37 +248,39 @@ def load_ptmd_data(filepath):
         if idx % 1000 == 0:
             print(f"  Processed {idx}/{len(df)} records...")
 
-        ptm_desc = str(row['ptm'])
+        ptm_desc = str(row["ptm"])
         # Parse "Protein-Site" format
-        if '-' in ptm_desc:
-            parts = ptm_desc.rsplit('-', 1)
+        if "-" in ptm_desc:
+            parts = ptm_desc.rsplit("-", 1)
             if len(parts) == 2:
                 protein, site = parts
                 # Extract amino acid and position
-                match = re.match(r'([A-Za-z]+)(\d+)', site)
+                match = re.match(r"([A-Za-z]+)(\d+)", site)
                 if match:
                     aa_code = match.group(1)
                     position = int(match.group(2))
 
-                    aa_map = {'Ser': 'S', 'Thr': 'T', 'Tyr': 'Y', 'Lys': 'K'}
-                    aa = aa_map.get(aa_code, 'X')
+                    aa_map = {"Ser": "S", "Thr": "T", "Tyr": "Y", "Lys": "K"}
+                    aa = aa_map.get(aa_code, "X")
 
                     # Regulation: U (Up) or D (Down) as label
-                    regulation = str(row['regulation']).strip()
-                    label = 1 if regulation == 'U' else 0 if regulation == 'D' else -1
+                    regulation = str(row["regulation"]).strip()
+                    label = 1 if regulation == "U" else 0 if regulation == "D" else -1
 
                     if label != -1:
-                        records.append({
-                            'id': f"PTMD_{idx}",
-                            'protein': protein,
-                            'sequence': f"{aa}",
-                            'ptm_position': position,
-                            'ptm_type': row['ptm_type'] if pd.notna(row['ptm_type']) else 'Unknown',
-                            'ptm_aa': aa,
-                            'disease': row['disease'],
-                            'regulation': regulation,
-                            'label': label
-                        })
+                        records.append(
+                            {
+                                "id": f"PTMD_{idx}",
+                                "protein": protein,
+                                "sequence": f"{aa}",
+                                "ptm_position": position,
+                                "ptm_type": row["ptm_type"] if pd.notna(row["ptm_type"]) else "Unknown",
+                                "ptm_aa": aa,
+                                "disease": row["disease"],
+                                "regulation": regulation,
+                                "label": label,
+                            }
+                        )
 
     return pd.DataFrame(records)
 
@@ -294,14 +326,14 @@ def generate_protein_sequence(protein_name, ptm_position, ptm_aa, ptm_positions,
         pos = center_idx + (current_pos - median_pos)
         if 0 <= pos < seq_length:
             sequence[pos] = ptm_aa
-        return ''.join(sequence)
+        return "".join(sequence)
 
     # Use median-centered 500aa window from full sequence
     seq_len = len(full_sequence)
     if seq_len >= seq_length:
         # Position is 1-based; center the median position at window center.
         start = max(0, min(seq_len - seq_length, median_pos - center_idx - 1))
-        window = list(full_sequence[start:start + seq_length])
+        window = list(full_sequence[start : start + seq_length])
     else:
         # Short proteins: place sequence into a 500aa padded window, still median-centered.
         window = list(random.choices(amino_acids, k=seq_length))
@@ -316,32 +348,28 @@ def generate_protein_sequence(protein_name, ptm_position, ptm_aa, ptm_positions,
     if 0 <= ptm_idx < seq_length:
         window[ptm_idx] = ptm_aa
 
-    return ''.join(window)
+    return "".join(window)
 
 
 def create_ptm_sites(ptm_position, ptm_aa, ptm_type):
     """
     创建PTM位点JSON格式
     """
-    ptm_sites = [{
-        "position": int(ptm_position),
-        "type": ptm_type,
-        "amino_acid": ptm_aa
-    }]
+    ptm_sites = [{"position": int(ptm_position), "type": ptm_type, "amino_acid": ptm_aa}]
 
     return json.dumps(ptm_sites)
 
 
-def process_and_merge_data(output_path='data/processed/pmads_combined.csv'):
+def process_and_merge_data(output_path="data/processed/pmads_combined.csv"):
     """
     处理所有PMADS数据并合并
     """
-    ptmdb_dir = Path('data/ptmdb')
+    ptmdb_dir = Path("data/ptmdb")
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Load CPTAC data
-    cptac_df = load_cptac_data(ptmdb_dir / 'CPTAC_PTM_intensity.csv')
+    cptac_df = load_cptac_data(ptmdb_dir / "CPTAC_PTM_intensity.csv")
     print(f"\nCPTAC data loaded: {len(cptac_df)} records")
 
     # Load PTMD data (skip for now due to parsing issues)
@@ -352,73 +380,64 @@ def process_and_merge_data(output_path='data/processed/pmads_combined.csv'):
     print("\nCombining datasets...")
 
     # Add source column
-    cptac_df['source'] = 'CPTAC'
+    cptac_df["source"] = "CPTAC"
 
     # Use only CPTAC data for now
     combined_df = cptac_df.copy()
 
     # Collect PTM positions per protein for consistent window centering
     protein_to_positions = (
-        combined_df.groupby('protein')['ptm_position']
-        .apply(lambda s: [int(p) for p in s if pd.notna(p)])
-        .to_dict()
+        combined_df.groupby("protein")["ptm_position"].apply(lambda s: [int(p) for p in s if pd.notna(p)]).to_dict()
     )
 
     # Generate sequences and PTM sites
     print("\nGenerating protein sequences and PTM annotations...")
-    combined_df['sequence'] = combined_df.apply(
+    combined_df["sequence"] = combined_df.apply(
         lambda row: generate_protein_sequence(
-            row['protein'],
-            row['ptm_position'],
-            row['ptm_aa'],
-            protein_to_positions.get(row['protein'], [])
-        ), axis=1
+            row["protein"], row["ptm_position"], row["ptm_aa"], protein_to_positions.get(row["protein"], [])
+        ),
+        axis=1,
     )
 
-    combined_df['ptm_sites'] = combined_df.apply(
-        lambda row: create_ptm_sites(
-            row['ptm_position'], row['ptm_aa'], row['ptm_type']
-        ), axis=1
+    combined_df["ptm_sites"] = combined_df.apply(
+        lambda row: create_ptm_sites(row["ptm_position"], row["ptm_aa"], row["ptm_type"]), axis=1
     )
 
     # Map labels to cell states
     # 1 -> "Activated", 0 -> "Quiescent"
-    label_map = {1: 'Activated', 0: 'Quiescent'}
-    combined_df['cell_state'] = combined_df['label'].map(label_map)
+    label_map = {1: "Activated", 0: "Quiescent"}
+    combined_df["cell_state"] = combined_df["label"].map(label_map)
 
     # Select and rename columns to match existing format
-    final_df = combined_df[[
-        'id', 'sequence', 'ptm_sites', 'cell_state', 'protein',
-        'ptm_position', 'ptm_type', 'source'
-    ]].copy()
+    final_df = combined_df[
+        ["id", "sequence", "ptm_sites", "cell_state", "protein", "ptm_position", "ptm_type", "source"]
+    ].copy()
 
     # Save
     print(f"\nSaving combined data to {output_file}...")
     final_df.to_csv(output_file, index=False)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Data Processing Complete!")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Total records: {len(final_df)}")
     print(f"CPTAC records: {len(cptac_df)}")
     print(f"PTMD records: {len(ptmd_df)}")
     print(f"\nLabel distribution:")
-    print(final_df['cell_state'].value_counts())
+    print(final_df["cell_state"].value_counts())
     print(f"\nPTM type distribution:")
-    print(final_df['ptm_type'].value_counts().head(10))
+    print(final_df["ptm_type"].value_counts().head(10))
 
     return final_df
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Process PMADS dataset')
-    parser.add_argument('--output', type=str,
-                        default='data/processed/pmads_combined.csv',
-                        help='Output file path')
+    parser = argparse.ArgumentParser(description="Process PMADS dataset")
+    parser.add_argument("--output", type=str, default="data/processed/pmads_combined.csv", help="Output file path")
     args = parser.parse_args()
 
     process_and_merge_data(args.output)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

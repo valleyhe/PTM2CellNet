@@ -10,6 +10,7 @@ from typing import Any, List, Optional, cast
 
 try:
     import anndata as ad
+
     ANNDATA_AVAILABLE = True
 except ImportError:
     ad = None
@@ -42,6 +43,7 @@ class _ReferenceData(TypedDict, total=False):
     loaded_at: float
     adata_file: Optional[str]
     grn_file_dir: Optional[str]
+
 
 logger = logging.getLogger(__name__)
 
@@ -184,9 +186,7 @@ class ReferenceDataLoader:
             parts.append(f"missing or unreadable reference files: {missing_files}")
         if not parts:
             parts.append("unknown")
-        raise RuntimeError(
-            f"Backend {backend['backend']} is not ready; " + "; ".join(parts)
-        )
+        raise RuntimeError(f"Backend {backend['backend']} is not ready; " + "; ".join(parts))
 
     def _reference_files_signature(self) -> str:
         """Build a fingerprint of the reference input files + backend.
@@ -261,15 +261,12 @@ class ReferenceDataLoader:
 
         if not ANNDATA_AVAILABLE:
             raise ImportError(
-                "anndata is required for genki_source backend. "
-                "Install with: pip install -r requirements-analysis.txt"
+                "anndata is required for genki_source backend. Install with: pip install -r requirements-analysis.txt"
             )
         try:
             adata = ad.read_h5ad(self.adata_file)
         except (OSError, ValueError, KeyError) as exc:  # pragma: no cover - depends on file content
-            raise ValueError(
-                f"adata_file {self.adata_file} is not a valid .h5ad file: {exc}"
-            ) from exc
+            raise ValueError(f"adata_file {self.adata_file} is not a valid .h5ad file: {exc}") from exc
         # Sanity-check the AnnData before consuming it.
         if not hasattr(adata, "var_names") or adata.var_names is None:
             raise ValueError(f"adata_file {self.adata_file} has no var_names")
@@ -288,15 +285,11 @@ class ReferenceDataLoader:
         try:
             network = sp.load_npz(net_path)
         except (OSError, ValueError) as exc:  # pragma: no cover - depends on file content
-            raise ValueError(
-                f"GRN file {net_path} is not a valid scipy sparse npz: {exc}"
-            ) from exc
+            raise ValueError(f"GRN file {net_path} is not a valid scipy sparse npz: {exc}") from exc
         if not sp.issparse(network):
             network = sp.csr_matrix(network)
         if network.ndim != 2:
-            raise ValueError(
-                f"GRN file {net_path} is not a 2D matrix (ndim={network.ndim})"
-            )
+            raise ValueError(f"GRN file {net_path} is not a 2D matrix (ndim={network.ndim})")
         counts = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X, dtype=float)
 
         self._cache_signature = self._reference_files_signature()

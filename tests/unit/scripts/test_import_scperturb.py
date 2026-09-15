@@ -37,7 +37,9 @@ def _make_study(path: Path, *, n_cells: int = 4, n_genes: int = 5, perturbation_
 def raw_root(tmp_path: Path) -> Path:
     root = tmp_path / "scperturb"
     _make_study(root / "StudyA.h5ad", n_cells=4, n_genes=5, perturbation_values=["NT", "GENE1", "NT", "GENE2"])
-    _make_study(root / "StudyB.h5ad", n_cells=6, n_genes=8, perturbation_values=["ctrl", "T1", "T2", "ctrl", "T1", "T3"])
+    _make_study(
+        root / "StudyB.h5ad", n_cells=6, n_genes=8, perturbation_values=["ctrl", "T1", "T2", "ctrl", "T1", "T3"]
+    )
     return root
 
 

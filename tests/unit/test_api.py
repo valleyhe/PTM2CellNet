@@ -24,6 +24,7 @@ from src.api.routes.state import reset_state
 
 class SimpleModel(nn.Module):
     """简单的测试模型"""
+
     def __init__(self, num_classes=4):
         super().__init__()
         self.embedding = nn.Embedding(21, 64)  # 0=padding, 1-20=amino acids
@@ -84,8 +85,7 @@ class TestSchemas:
     def test_prediction_request(self):
         """测试预测请求模型"""
         request = PredictionRequest(
-            sequence="ACDEFGHIKLMNPQRSTVWY",
-            ptm_sites=[PTMSite(position=5, type="phosphorylation")]
+            sequence="ACDEFGHIKLMNPQRSTVWY", ptm_sites=[PTMSite(position=5, type="phosphorylation")]
         )
         assert request.sequence == "ACDEFGHIKLMNPQRSTVWY"
         assert len(request.ptm_sites) == 1
@@ -133,9 +133,7 @@ class TestAPI:
         """测试单样本预测"""
         request_data = {
             "sequence": "ACDEFGHIKLMNPQRSTVWY",
-            "ptm_sites": [
-                {"position": 5, "type": "phosphorylation", "amino_acid": "F"}
-            ]
+            "ptm_sites": [{"position": 5, "type": "phosphorylation", "amino_acid": "F"}],
         }
         response = client.post("/api/v1/predict", json=request_data)
         assert response.status_code == 200
@@ -147,10 +145,7 @@ class TestAPI:
 
     def test_predict_invalid_sequence(self, client):
         """测试无效序列预测"""
-        request_data = {
-            "sequence": "ACXDEFGHIKL",
-            "ptm_sites": []
-        }
+        request_data = {"sequence": "ACXDEFGHIKL", "ptm_sites": []}
         response = client.post("/api/v1/predict", json=request_data)
         assert response.status_code == 400
 
@@ -158,14 +153,8 @@ class TestAPI:
         """测试批量预测"""
         request_data = {
             "samples": [
-                {
-                    "sequence": "ACDEFGHIKL",
-                    "ptm_sites": []
-                },
-                {
-                    "sequence": "LMNPQRSTVWY",
-                    "ptm_sites": [{"position": 3, "type": "acetylation"}]
-                }
+                {"sequence": "ACDEFGHIKL", "ptm_sites": []},
+                {"sequence": "LMNPQRSTVWY", "ptm_sites": [{"position": 3, "type": "acetylation"}]},
             ]
         }
         response = client.post("/api/v1/batch_predict", json=request_data)
@@ -182,11 +171,7 @@ class TestVariantSchemas:
     def test_ptm_effect_schema(self):
         """Test PTMEffect schema validation."""
         effect = PTMEffect(
-            ptm_type="Phosphorylation",
-            wildtype_prob=0.8,
-            mutant_prob=0.3,
-            delta_prob=-0.5,
-            effect="loss"
+            ptm_type="Phosphorylation", wildtype_prob=0.8, mutant_prob=0.3, delta_prob=-0.5, effect="loss"
         )
         assert effect.ptm_type == "Phosphorylation"
         assert effect.wildtype_prob == 0.8
@@ -202,16 +187,13 @@ class TestVariantSchemas:
                 wildtype_prob=1.5,  # Invalid: > 1.0
                 mutant_prob=0.3,
                 delta_prob=-0.5,
-                effect="loss"
+                effect="loss",
             )
 
     def test_pathway_impact_schema(self):
         """Test PathwayImpact schema."""
         impact = PathwayImpact(
-            pathway_name="MAPK/ERK",
-            activity_change=0.5,
-            confidence="high",
-            key_genes=["BRAF", "MAPK1"]
+            pathway_name="MAPK/ERK", activity_change=0.5, confidence="high", key_genes=["BRAF", "MAPK1"]
         )
         assert impact.pathway_name == "MAPK/ERK"
         assert impact.activity_change == 0.5
@@ -221,12 +203,7 @@ class TestVariantSchemas:
     def test_variant_info_schema(self):
         """Test VariantInfo schema."""
         variant = VariantInfo(
-            hgvs="BRAF:p.V600E",
-            gene_symbol="BRAF",
-            uniprot_id="P15056",
-            position=600,
-            ref_aa="V",
-            alt_aa="E"
+            hgvs="BRAF:p.V600E", gene_symbol="BRAF", uniprot_id="P15056", position=600, ref_aa="V", alt_aa="E"
         )
         assert variant.hgvs == "BRAF:p.V600E"
         assert variant.position == 600
@@ -240,16 +217,13 @@ class TestVariantSchemas:
                 hgvs="BRAF:p.V600E",
                 position=0,  # Invalid: < 1
                 ref_aa="V",
-                alt_aa="E"
+                alt_aa="E",
             )
 
     def test_variant_prediction_request_schema(self):
         """Test VariantPredictionRequest schema."""
         request = VariantPredictionRequest(
-            hgvs="BRAF:p.V600E",
-            sequence="MNT...",
-            uniprot_id="P15056",
-            include_pathways=True
+            hgvs="BRAF:p.V600E", sequence="MNT...", uniprot_id="P15056", include_pathways=True
         )
         assert request.hgvs == "BRAF:p.V600E"
         assert request.sequence == "MNT..."
@@ -269,10 +243,7 @@ class TestVariantAPI:
 
     def test_predict_variant_not_initialized(self, client):
         """Test variant prediction when workflow not initialized."""
-        request_data = {
-            "hgvs": "BRAF:p.V600E",
-            "sequence": "MNT..."
-        }
+        request_data = {"hgvs": "BRAF:p.V600E", "sequence": "MNT..."}
         response = client.post("/api/v1/predict/variant", json=request_data)
         assert response.status_code == 503
         assert "not initialized" in response.json()["detail"].lower()
@@ -297,20 +268,20 @@ class TestVariantAPI:
         mock_workflow = Mock()
         mock_workflow.predict_from_hgvs.return_value = VariantEffectResult(
             variant={
-                'hgvs': 'BRAF:p.V600E',
-                'gene_symbol': 'BRAF',
-                'accession': 'P15056',
-                'position': 600,
-                'ref_aa': 'V',
-                'alt_aa': 'E',
+                "hgvs": "BRAF:p.V600E",
+                "gene_symbol": "BRAF",
+                "accession": "P15056",
+                "position": 600,
+                "ref_aa": "V",
+                "alt_aa": "E",
             },
-            sequence_info={'length': 766, 'validated': True},
+            sequence_info={"length": 766, "validated": True},
             ptm_effects={
-                'Phosphorylation': {
-                    'wildtype_prob': 0.8,
-                    'mutant_prob': 0.2,
-                    'delta_prob': -0.6,
-                    'effect': 'loss',
+                "Phosphorylation": {
+                    "wildtype_prob": 0.8,
+                    "mutant_prob": 0.2,
+                    "delta_prob": -0.6,
+                    "effect": "loss",
                 }
             },
             pathway_impacts={
@@ -319,7 +290,7 @@ class TestVariantAPI:
             },
         )
 
-        with patch('src.api.routes.state.STATE.variant_workflow', mock_workflow):
+        with patch("src.api.routes.state.STATE.variant_workflow", mock_workflow):
             request_data = {
                 "hgvs": "BRAF:p.V600E",
                 "sequence": "M" * 599 + "V" + "A" * 166,

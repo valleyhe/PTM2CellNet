@@ -1,4 +1,5 @@
 """Analysis modules for variant parsing, gene mapping, and pathway analysis."""
+
 import logging
 
 from src.utils.lazy_import import LazyImport
@@ -12,13 +13,9 @@ _logger = logging.getLogger(__name__)
 # Use ``<symbol>.is_available()`` to probe without raising.
 
 # pathway_integration — depends on sspa (optional) and networkx
-PathwayDatabaseIntegration: LazyImport = LazyImport(
-    f"{__name__}.pathway_integration", "PathwayDatabaseIntegration"
-)
+PathwayDatabaseIntegration: LazyImport = LazyImport(f"{__name__}.pathway_integration", "PathwayDatabaseIntegration")
 load_kegg_pathways: LazyImport = LazyImport(f"{__name__}.pathway_integration", "load_kegg_pathways")
-load_reactome_pathways: LazyImport = LazyImport(
-    f"{__name__}.pathway_integration", "load_reactome_pathways"
-)
+load_reactome_pathways: LazyImport = LazyImport(f"{__name__}.pathway_integration", "load_reactome_pathways")
 
 # gene_mapper — depends on UniProtMapper
 GeneMapper: LazyImport = LazyImport(f"{__name__}.gene_mapper", "GeneMapper")

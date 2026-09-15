@@ -7,6 +7,7 @@
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
@@ -18,7 +19,7 @@ from typing import Dict, List, Optional
 import argparse
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +29,7 @@ class ModelEnsemble:
     def __init__(
         self,
         model_configs: List[Dict],
-        device: str = 'cpu',
+        device: str = "cpu",
     ):
         """
         初始化集成器
@@ -48,15 +49,15 @@ class ModelEnsemble:
     def _load_models(self):
         """加载所有模型"""
         for config in self.model_configs:
-            model_path = config['path']
-            model_type = config.get('type', 'cnn_multitask')
-            weight = config.get('weight', 1.0)
+            model_path = config["path"]
+            model_type = config.get("type", "cnn_multitask")
+            weight = config.get("weight", 1.0)
 
             logger.info(f"加载模型: {model_path} (类型: {model_type}, 权重: {weight})")
 
-            if model_type == 'cnn_multitask':
+            if model_type == "cnn_multitask":
                 model = self._load_cnn_model(model_path)
-            elif model_type.startswith('esm2'):
+            elif model_type.startswith("esm2"):
                 model = self._load_esm2_model(model_path, model_type)
             else:
                 logger.warning(f"未知模型类型: {model_type}")
@@ -86,10 +87,10 @@ class ModelEnsemble:
         """加载ESM-2模型"""
         import esm
 
-        if 't12' in model_type:
-            esm_name = 'esm2_t12_35M_UR50D'
+        if "t12" in model_type:
+            esm_name = "esm2_t12_35M_UR50D"
         else:
-            esm_name = 'esm2_t6_8M_UR50D'
+            esm_name = "esm2_t6_8M_UR50D"
 
         esm_model, alphabet = esm.pretrained.load_model_and_alphabet(esm_name)
 
@@ -150,7 +151,7 @@ class ModelEnsemble:
     def predict_voting(
         self,
         sequences: List[str],
-        ptm_type: str = 'Phosphorylation',
+        ptm_type: str = "Phosphorylation",
         threshold: float = 0.5,
     ) -> np.ndarray:
         """
@@ -169,10 +170,10 @@ class ModelEnsemble:
         with torch.no_grad():
             for model, weight in zip(self.models, self.weights, strict=False):
                 # 根据模型类型进行预测
-                if hasattr(model, 'forward'):
+                if hasattr(model, "forward"):
                     try:
                         output = model(sequences, ptm_type)
-                        probs = output['probs'][:, 1].cpu().numpy()
+                        probs = output["probs"][:, 1].cpu().numpy()
                         all_probs.append(probs * weight)
                     except Exception as e:
                         logger.warning(f"模型预测失败: {e}")
@@ -187,7 +188,7 @@ class ModelEnsemble:
     def predict_averaging(
         self,
         sequences: List[str],
-        ptm_type: str = 'Phosphorylation',
+        ptm_type: str = "Phosphorylation",
     ) -> np.ndarray:
         """
         平均法集成预测
@@ -204,7 +205,7 @@ class ModelEnsemble:
     def predict_stacking(
         self,
         sequences: List[str],
-        ptm_type: str = 'Phosphorylation',
+        ptm_type: str = "Phosphorylation",
         meta_weights: Optional[List[float]] = None,
     ) -> np.ndarray:
         """
@@ -231,7 +232,7 @@ class ModelEnsemble:
 def evaluate_ensemble(
     ensemble: ModelEnsemble,
     test_data: pd.DataFrame,
-    ptm_type: str = 'Phosphorylation',
+    ptm_type: str = "Phosphorylation",
 ) -> Dict:
     """
     评估集成模型
@@ -246,8 +247,8 @@ def evaluate_ensemble(
     """
     from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score
 
-    sequences = test_data['sequence_window'].tolist()
-    labels = test_data['label'].values
+    sequences = test_data["sequence_window"].tolist()
+    labels = test_data["label"].values
 
     # 预测
     probs = ensemble.predict_averaging(sequences, ptm_type)
@@ -255,11 +256,11 @@ def evaluate_ensemble(
 
     # 计算指标
     metrics = {
-        'auroc': roc_auc_score(labels, probs) if len(set(labels)) > 1 else 0.5,
-        'accuracy': accuracy_score(labels, preds),
-        'f1': f1_score(labels, preds),
-        'precision': precision_score(labels, preds, zero_division=0),
-        'recall': recall_score(labels, preds, zero_division=0),
+        "auroc": roc_auc_score(labels, probs) if len(set(labels)) > 1 else 0.5,
+        "accuracy": accuracy_score(labels, preds),
+        "f1": f1_score(labels, preds),
+        "precision": precision_score(labels, preds, zero_division=0),
+        "recall": recall_score(labels, preds, zero_division=0),
     }
 
     return metrics
@@ -268,7 +269,7 @@ def evaluate_ensemble(
 def compare_models(
     model_configs: List[Dict],
     test_data: pd.DataFrame,
-    ptm_type: str = 'Phosphorylation',
+    ptm_type: str = "Phosphorylation",
 ) -> pd.DataFrame:
     """
     比较单个模型与集成模型的性能
@@ -284,8 +285,8 @@ def compare_models(
     from sklearn.metrics import roc_auc_score
 
     results = []
-    sequences = test_data['sequence_window'].tolist()
-    labels = test_data['label'].values
+    sequences = test_data["sequence_window"].tolist()
+    labels = test_data["label"].values
 
     # 单模型评估
     for config in model_configs:
@@ -293,62 +294,59 @@ def compare_models(
         probs = ensemble.predict_averaging(sequences, ptm_type)
         auroc = roc_auc_score(labels, probs) if len(set(labels)) > 1 else 0.5
 
-        results.append({
-            'model': config['path'],
-            'type': config.get('type', 'unknown'),
-            'auroc': auroc,
-            'method': 'single',
-        })
+        results.append(
+            {
+                "model": config["path"],
+                "type": config.get("type", "unknown"),
+                "auroc": auroc,
+                "method": "single",
+            }
+        )
 
     # 集成评估
     ensemble = ModelEnsemble(model_configs)
     probs = ensemble.predict_averaging(sequences, ptm_type)
     auroc = roc_auc_score(labels, probs) if len(set(labels)) > 1 else 0.5
 
-    results.append({
-        'model': 'ensemble',
-        'type': 'ensemble',
-        'auroc': auroc,
-        'method': 'averaging',
-    })
+    results.append(
+        {
+            "model": "ensemble",
+            "type": "ensemble",
+            "auroc": auroc,
+            "method": "averaging",
+        }
+    )
 
     return pd.DataFrame(results)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='模型集成预测')
+    parser = argparse.ArgumentParser(description="模型集成预测")
 
-    parser.add_argument('--models', nargs='+', required=True,
-                        help='模型路径列表')
-    parser.add_argument('--types', nargs='+',
-                        help='模型类型列表')
-    parser.add_argument('--weights', nargs='+', type=float,
-                        help='模型权重列表')
-    parser.add_argument('--test-data', required=True,
-                        help='测试数据文件')
-    parser.add_argument('--ptm-type', default='Phosphorylation',
-                        help='PTM类型')
-    parser.add_argument('--output', default='ensemble_results.csv',
-                        help='输出文件')
-    parser.add_argument('--device', default='cpu',
-                        help='计算设备')
+    parser.add_argument("--models", nargs="+", required=True, help="模型路径列表")
+    parser.add_argument("--types", nargs="+", help="模型类型列表")
+    parser.add_argument("--weights", nargs="+", type=float, help="模型权重列表")
+    parser.add_argument("--test-data", required=True, help="测试数据文件")
+    parser.add_argument("--ptm-type", default="Phosphorylation", help="PTM类型")
+    parser.add_argument("--output", default="ensemble_results.csv", help="输出文件")
+    parser.add_argument("--device", default="cpu", help="计算设备")
 
     args = parser.parse_args()
 
     # 构建模型配置
     model_configs = []
     for i, model_path in enumerate(args.models):
-        config = {'path': model_path}
+        config = {"path": model_path}
 
         if args.types and i < len(args.types):
-            config['type'] = args.types[i]
+            config["type"] = args.types[i]
         else:
-            config['type'] = 'cnn_multitask'
+            config["type"] = "cnn_multitask"
 
         if args.weights and i < len(args.weights):
-            config['weight'] = args.weights[i]
+            config["weight"] = args.weights[i]
         else:
-            config['weight'] = 1.0
+            config["weight"] = 1.0
 
         model_configs.append(config)
 
@@ -380,5 +378,5 @@ def main():
     logger.info(f"\n结果已保存至: {args.output}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

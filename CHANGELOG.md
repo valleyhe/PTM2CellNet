@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Versioning note
+- Package metadata (`setup.py` / `src/__version__` / API `version` fields, all `1.0.0`) intentionally trails this changelog (`2.1.0` released 2026-08-24): they will be unified at the next real release rather than bumped just to match (analysis 2026-09-14 §6.2 TD-14-01).
+
 ### Added
+- 2026-09-15 批次 A：新增 AD donor-level DEG 聚合与 CLI（`src/analysis/ad_deg_table.py`、`scripts/build_ad_deg_table.py`），产出 aggregate 八列 + donor-level 长表，复用 donor log2 normalization/Welch/BH；manifest 显式记录 normal reference、effect scale、output contracts；新增 A 核心/CLI/双消费者测试
+- PTM-activity → AD intersection mainline, contract layer of `docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` §6.2 (2026-09-14): `src/analysis/ptm_research_config.py` (stage-0 frozen research design, seven-field semantic-context template), `src/analysis/ptm_activity.py` (§4.1 input contract + §5.1 preprocessing + §4.2 activity-table parsing), `src/analysis/signed_network.py` (§4.3 edge contract + signed simple-path propagation with decay/coverage/degree normalization), `src/analysis/ptm_gene_score.py` (§4.4 score table + §5.4 per-cell-type Ensembl intersection with membership/evidence tiers), `src/integration/perturbgen/downstream_target_evaluation.py` (target-set sidecar + per-target delta concordance), and the four stage CLIs `run_ptm_activity.py` / `build_ptm_global_gene_scores.py` / `build_ptm_ad_intersections.py` / `build_celltype_candidate_specs.py` (E2E-compatible candidate specs with real per-cell-type context binding and hard token verification); guide at `docs/guides/ptm_activity_pipeline.md` (synthetic contract pass only — real PTM assets remain external inputs, 方案 §10)
+- M6 between_donor frozen assets for GSE174367 (EX cell type, `outputs/perturbgen/frozen/20260914_gse174367_ex/`): frozen manifest (sha256-bound, train 12 / held-out 6 stratified seed=2 split with sex balance), 90-run acceptance plan, 5×99 matched-null selections, and provenance; `_validate_frozen_cohort_asset` PASS on the real cohort (2026-09-14, round 8; data-contract freeze, not a biology PASS)
+- Real-assets drift guard `tests/real_assets/test_real_frozen_cohort.py`: reloads the frozen manifest (sha256 re-verified) and replays the between_donor asset validation behind `PTM2CELLNET_RUN_REAL_ASSET_TESTS=1`
+- GPU execution runbook for the six-stage + matched-null path in `docs/guides/perturbgen_bridge.md` (frozen-manifest-bound donor lists, Python-API null batch, candidate-spec inputs)
+- Frozen-cohort pairing propagation (F-10): `FrozenCohortManifest.pairing` (default `within_donor`), `run_frozen_acceptance.py --freeze --cohort-pairing`, pairing-aware donor/state coverage in `_validate_frozen_cohort_asset`, and an E2E hard check that `--perturbgen-cohort-pairing` matches the frozen manifest (2026-09-14)
+- Statistical lineage pairing (F-11): eval input `cohort_pairing` field + `statistical_evidence.pairing`, verified against the frozen manifest by `verify_eval_input_against_manifest`
+- Held-out state coverage guard (F-12): `build_scperturb_latent_pairs --state-obs-column/--require-state-coverage` fails when the held-out donor pool covers fewer than two states and records the observed coverage in `pair_manifest.json`
+- `--deg-donor-column/--deg-gene-column/--deg-effect-column/--deg-fdr-column` on the E2E CLI (F-16); statistical-argument validation extracted and run before the six-stage execution (TD-14-02)
+- Synthetic unit tests for `standardize_gse174367_ad_cohort.py` (donor evidence, per-sample Diagnosis uniqueness, PAR_Y collapse, barcode alignment) and the audit verdict logic (F-13/F-15/TD-14-06)
+
+### Changed
+- 2026-09-15 批次 B：`scripts/run_davf_perturbgen_e2e.py` 显式接入 `--downstream-target-sidecar`；对 gated candidate 的 `result.h5ad` 以 `pred_counts` 为 baseline、`X` 为 perturbed 计算 donor-level delta，写入 payload/lineage；`matches_predicted` 与 `matches_observed` 分开记录，source 三方 gate 行为不变，下游 lineage 已接线
+- 2026-09-15 批次 C：`PropagationConfig.max_paths_per_seed` 增加正整数校验；超限 hard fail 且不截断，写入 per-seed diagnostics/manifest
+- Repository-wide documentation sync to the PTM-activity mainline guide (2026-09-14): README research-path/module tables, `.planning/{task_plan,STATE,ROADMAP,PROJECT,REQUIREMENTS,progress,findings}` (task plan rewritten to the mainline execution order; new P-01..P-06 mainline requirement rows), `docs/index.rst` toctree, E2E/bridge guide cross-references to `build_celltype_candidate_specs.py`, the 2026-08-21 proposal upstream note, `TEST_COVERAGE.md` stale-cohort wording plus a repaired `task_plan.md` link, and CURRENT_STATUS doc entries/boundaries
+- `null_selection._token_values` now skips only the exact formal special tokens (`<cls>`, `<eos>`, `<mask>`, `<pad>`) in embedding vocabularies; unknown/invalid gene keys still hard-fail, and ranked genes keep original vocabulary positions (round 8, exposed by the first real `embedding_asset_20260822/vocabulary.json` consumption)
+- `audit_ad_cohort_gate0.py` dual-pairing wording, per-cohort `gate0_status`, and derived verdict — rerun on real data yields `GATE0_UNLOCKED_FOR_BETWEEN_DONOR_GSE174367_ONLY` instead of the stale blanket BLOCKED (F-14, dead `_first_matrix_group` removed, empty-glob now raises, TD-14-04)
+- `standardize_gse174367_ad_cohort.py` per-sample cardinality check now includes `Diagnosis` (F-13) and exits 0/2/1 for PASS/PARTIAL/NO_CELL_TYPE_PASSED (TD-14-05)
+- JSON serialization converged into `reports.to_plain_object` (replaces four near-duplicate implementations, TD-14-03)
+- `evaluate_perturbgen_dual_path.py` is now a thin shell over `replay_evaluation.py` (single implementation)
 - Gate-0 cohort pairing semantics: `within_donor` (default, ≥3 donors shared across states) and `between_donor` (case-control, disjoint donor groups with ≥3 donors each); E2E flag `--perturbgen-cohort-pairing` (2026-09-14)
 - AD case-control cohort tooling: `scripts/audit_ad_cohort_gate0.py` (read-only Gate-0 audit of data/AD GEO cohorts) and `scripts/standardize_gse174367_ad_cohort.py` (donor-evidence-validated standardization; 7/7 cell-type between_donor preflight PASS)
 - E2E statistical assembly: `--assemble-statistical-evidence` with `--deg-table`/`--null-distribution-manifest` chains unperturbed quality → formal eval input → empirical-p/BH-FDR → dual-path AND into report lineage; core extracted to `src/integration/perturbgen/replay_evaluation.py` (2026-09-13)
@@ -15,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Donor-row binding for DAVF pair generation: `build_scperturb_latent_pairs --donor-obs-column/--train-donors/--held-out-donors` writes `target_donors` and `dataset.donor_rows` (`ptm2cellnet.donor_split/v1`) (2026-09-13)
 - `SemanticContext` seven-field contract on candidates/invocations (context, intervention, baseline, objective, cohort, sources, reference axis) with fail-fast validation (2026-09-13)
 
-### Changed
-- `evaluate_perturbgen_dual_path.py` is now a thin shell over `replay_evaluation.py` (single implementation)
-- Formal Gate-0 acceptance wording now covers both pairing modes (≥3 shared donors within_donor; ≥3 per disjoint group between_donor)
+### Verification (2026-09-15)
+- 相关定向测试 **81 passed、8 warnings**；ruff check、目标文件 format check、mypy src（172 files、0 errors）、requirements consistency、compileall、git diff --check 均通过；全量非 slow/gpu 为 **2780 passed / 22 skipped**，另有 1 个已知既有 real DAVF checkpoint failure；全仓 format check 仍有 **325 个既有待格式化文件**；真实冻结资产测试 **1 passed**，GPU probe 为 Tesla P40 / CUDA 11.8 / torch CUDA available
+- 当前无冻结 `ptm_research_config`，且 KSTAR/PhosR/activity benchmark 等外部资产缺失，不能执行真实 AD CLI/D1 六阶段；不宣称 biology PASS
 
 ## [2.1.0] - 2026-08-24
 

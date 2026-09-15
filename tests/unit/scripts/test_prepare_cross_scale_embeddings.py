@@ -35,6 +35,7 @@ def _write_records(path: Path, records) -> None:
 # Input parsing
 # ---------------------------------------------------------------------------
 
+
 class TestReadSequenceRecords:
     def test_parses_tab_separated(self, tmp_path) -> None:
         f = tmp_path / "in.tsv"
@@ -91,6 +92,7 @@ class TestGeneRequests:
 # ---------------------------------------------------------------------------
 # Encoding + persistence
 # ---------------------------------------------------------------------------
+
 
 class TestPrecompute:
     def test_batch_size_is_used_by_backbone(self, tmp_path) -> None:
@@ -238,6 +240,7 @@ class TestPrecompute:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 class TestCli:
     def test_cli_end_to_end(self, tmp_path) -> None:
         input_path = tmp_path / "in.tsv"
@@ -272,10 +275,14 @@ class TestCli:
         out = tmp_path / "out"
         code = main(
             [
-                "--input", str(input_path),
-                "--output", str(out),
-                "--backbones", "esm2",
-                "--model-dir", str(tmp_path / "no-models"),
+                "--input",
+                str(input_path),
+                "--output",
+                str(out),
+                "--backbones",
+                "esm2",
+                "--model-dir",
+                str(tmp_path / "no-models"),
             ]
         )
         assert code == 2

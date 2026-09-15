@@ -30,6 +30,7 @@ from src.api.schemas import PTMSite
 # Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def davf_config_dict():
     """Default DAVF config with nonexistent checkpoint for fast tests."""
@@ -45,6 +46,7 @@ def davf_config_dict():
 # =============================================================================
 # TestDAVFPipelineIntegration (D-01)
 # =============================================================================
+
 
 class TestDAVFPipelineIntegration:
     """Tests for end-to-end DAVF pipeline integration."""
@@ -167,6 +169,7 @@ class TestDAVFPipelineIntegration:
 # TestDAVFGracefulDegradation (D-02)
 # =============================================================================
 
+
 class TestDAVFGracefulDegradation:
     """Tests for graceful degradation when resources unavailable."""
 
@@ -233,6 +236,7 @@ class TestDAVFGracefulDegradation:
 # TestDAVFGradientFlow (D-03)
 # =============================================================================
 
+
 class TestDAVFGradientFlow:
     """Tests for gradient flow when DAVF is frozen."""
 
@@ -253,9 +257,7 @@ class TestDAVFGradientFlow:
 
         # Verify DeltaProjection params are trainable (requires_grad=True)
         for name, param in model.davf_module.delta_projection.named_parameters():
-            assert param.requires_grad is True, (
-                f"DeltaProjection param {name} should be trainable"
-            )
+            assert param.requires_grad is True, f"DeltaProjection param {name} should be trainable"
 
     def test_gradient_flows_through_predictor(self):
         """Gradient flows through Predictor when DAVF frozen."""
@@ -313,6 +315,7 @@ class TestDAVFGradientFlow:
 # =============================================================================
 # TestDAVFRegressionSuite (D-04)
 # =============================================================================
+
 
 class TestDAVFRegressionSuite:
     """

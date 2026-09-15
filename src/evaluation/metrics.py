@@ -214,7 +214,7 @@ def calculate_mcc(y_true: Array, y_pred: Array) -> float:
     """
     # Check for single-class edge case (Pitfall 4 per RESEARCH.md)
     if len(set(y_true)) < 2 or len(set(y_pred)) < 2:
-        return float('nan')
+        return float("nan")
 
     return float(matthews_corrcoef(y_true, y_pred))
 
@@ -309,13 +309,13 @@ def calculate_per_ptm_type_metrics(
 
         # Calculate metrics
         metrics = {
-            'auc_roc': calculate_auc_roc(y_true_ptm, y_score_ptm),
-            'auc_pr': calculate_auc_pr(y_true_ptm, y_score_ptm),
-            'mcc': calculate_mcc(y_true_ptm, y_pred_ptm),
-            'f1': calculate_f1_score(y_true_ptm, y_pred_ptm),
-            'precision': calculate_precision(y_true_ptm, y_pred_ptm),
-            'recall': calculate_recall(y_true_ptm, y_pred_ptm),
-            'support': len(y_true_ptm),
+            "auc_roc": calculate_auc_roc(y_true_ptm, y_score_ptm),
+            "auc_pr": calculate_auc_pr(y_true_ptm, y_score_ptm),
+            "mcc": calculate_mcc(y_true_ptm, y_pred_ptm),
+            "f1": calculate_f1_score(y_true_ptm, y_pred_ptm),
+            "precision": calculate_precision(y_true_ptm, y_pred_ptm),
+            "recall": calculate_recall(y_true_ptm, y_pred_ptm),
+            "support": len(y_true_ptm),
         }
 
         results[ptm_type] = metrics
@@ -367,7 +367,7 @@ def calculate_ndcg(
     # Compute DCG
     positions = np.arange(1, len(ranked_relevance) + 1, dtype=np.float64)
     discounts = np.log2(positions + 1)  # log2(i+1) where i is 1-based
-    gains = (2.0 ** ranked_relevance) - 1.0
+    gains = (2.0**ranked_relevance) - 1.0
     dcg = np.sum(gains / discounts)
 
     # Compute IDCG (ideal ordering: sort relevance descending)
@@ -375,7 +375,7 @@ def calculate_ndcg(
     if k is not None:
         ideal_relevance = ideal_relevance[:k]
 
-    ideal_gains = (2.0 ** ideal_relevance) - 1.0
+    ideal_gains = (2.0**ideal_relevance) - 1.0
     ideal_positions = np.arange(1, len(ideal_relevance) + 1, dtype=np.float64)
     ideal_discounts = np.log2(ideal_positions + 1)
     idcg = np.sum(ideal_gains / ideal_discounts)

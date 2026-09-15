@@ -8,6 +8,7 @@ Homology-aware数据划分脚本
 import os
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
@@ -18,14 +19,14 @@ import logging
 import argparse
 from collections import defaultdict
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def check_cdhit():
     """检查CD-HIT是否可用"""
     try:
-        result = subprocess.run(['cd-hit', '-h'], capture_output=True, text=True)
+        result = subprocess.run(["cd-hit", "-h"], capture_output=True, text=True)
         return True
     except FileNotFoundError:
         return False
@@ -44,14 +45,21 @@ def run_cdhit(sequences_file: str, output_file: str, identity: float = 0.3) -> d
         cluster_to_proteins: 聚类ID到蛋白质ID列表的映射
     """
     cmd = [
-        'cd-hit',
-        '-i', sequences_file,
-        '-o', output_file,
-        '-c', str(identity),
-        '-n', '5',  # word size for 30% identity
-        '-M', '4000',  # memory limit
-        '-T', '4',  # threads
-        '-d', '0',  # full sequence name in output
+        "cd-hit",
+        "-i",
+        sequences_file,
+        "-o",
+        output_file,
+        "-c",
+        str(identity),
+        "-n",
+        "5",  # word size for 30% identity
+        "-M",
+        "4000",  # memory limit
+        "-T",
+        "4",  # threads
+        "-d",
+        "0",  # full sequence name in output
     ]
 
     logger.info(f"运行CD-HIT: {' '.join(cmd)}")
@@ -65,18 +73,18 @@ def run_cdhit(sequences_file: str, output_file: str, identity: float = 0.3) -> d
     cluster_to_proteins = {}
     current_cluster = None
 
-    with open(output_file + '.clstr', 'r') as f:
+    with open(output_file + ".clstr", "r") as f:
         for line in f:
             line = line.strip()
-            if line.startswith('>Cluster'):
+            if line.startswith(">Cluster"):
                 current_cluster = int(line.split()[1])
                 cluster_to_proteins[current_cluster] = []
             else:
                 # 提取蛋白质ID
                 # 格式: 0	321aa, >sp|P12345|... or >P12345...
-                parts = line.split('>')
+                parts = line.split(">")
                 if len(parts) > 1:
-                    protein_id = parts[1].split('...')[0].split('|')[0] if '|' in parts[1] else parts[1].split('...')[0]
+                    protein_id = parts[1].split("...")[0].split("|")[0] if "|" in parts[1] else parts[1].split("...")[0]
                     protein_id = protein_id.strip()
                     cluster_to_proteins[current_cluster].append(protein_id)
 
@@ -101,8 +109,8 @@ def run_mmseqs_cluster(sequences_file: str, output_dir: str, identity: float = 0
         raise ImportError("请安装mmseqs2: conda install -c conda-forge -c bioconda mmseqs2") from None
 
     os.makedirs(output_dir, exist_ok=True)
-    db_path = os.path.join(output_dir, 'db')
-    cluster_path = os.path.join(output_dir, 'cluster')
+    db_path = os.path.join(output_dir, "db")
+    cluster_path = os.path.join(output_dir, "cluster")
 
     # 创建数据库
     mmseqs.createdb(sequences_file, db_path)
@@ -112,11 +120,11 @@ def run_mmseqs_cluster(sequences_file: str, output_dir: str, identity: float = 0
 
     # 解析结果
     cluster_to_proteins = defaultdict(list)
-    with open(cluster_path + '_cluster.tsv', 'r') as f:
+    with open(cluster_path + "_cluster.tsv", "r") as f:
         for line in f:
-            rep, member = line.strip().split('\t')
-            cluster_id = rep.split('|')[0] if '|' in rep else rep
-            protein_id = member.split('|')[0] if '|' in member else member
+            rep, member = line.strip().split("\t")
+            cluster_id = rep.split("|")[0] if "|" in rep else rep
+            protein_id = member.split("|")[0] if "|" in member else member
             cluster_to_proteins[cluster_id].append(protein_id)
 
     return dict(cluster_to_proteins)
@@ -137,7 +145,7 @@ def simple_homology_split(df: pd.DataFrame, identity_threshold: float = 0.3) -> 
     logger.info("使用简化版同源划分（基于Uniprot ID前缀分组）")
 
     # 按蛋白质ID分组
-    proteins = df['uniprot_id'].unique()
+    proteins = df["uniprot_id"].unique()
     n_proteins = len(proteins)
 
     # 简单随机划分蛋白质
@@ -150,13 +158,13 @@ def simple_homology_split(df: pd.DataFrame, identity_threshold: float = 0.3) -> 
     protein_to_split = {}
     for i, prot in enumerate(proteins):
         if i < n_train:
-            protein_to_split[prot] = 'train'
+            protein_to_split[prot] = "train"
         elif i < n_train + n_val:
-            protein_to_split[prot] = 'val'
+            protein_to_split[prot] = "val"
         else:
-            protein_to_split[prot] = 'test'
+            protein_to_split[prot] = "test"
 
-    df['split'] = df['uniprot_id'].map(protein_to_split)
+    df["split"] = df["uniprot_id"].map(protein_to_split)
 
     return df
 
@@ -165,7 +173,7 @@ def create_homology_aware_split(
     data_path: str,
     output_path: str,
     identity: float = 0.3,
-    ptm_type: str = 'Phosphorylation',
+    ptm_type: str = "Phosphorylation",
     use_cdhit: bool = True,
 ):
     """
@@ -180,7 +188,7 @@ def create_homology_aware_split(
     """
     logger.info(f"加载数据: {data_path}")
     df = pd.read_csv(data_path)
-    df = df[df['ptm_type'] == ptm_type].copy()
+    df = df[df["ptm_type"] == ptm_type].copy()
 
     logger.info(f"总样本数: {len(df)}, 蛋白质数: {df['uniprot_id'].nunique()}")
 
@@ -188,17 +196,17 @@ def create_homology_aware_split(
         # 使用CD-HIT进行聚类
         with tempfile.TemporaryDirectory() as tmpdir:
             # 创建FASTA文件
-            fasta_file = os.path.join(tmpdir, 'sequences.fasta')
+            fasta_file = os.path.join(tmpdir, "sequences.fasta")
 
             # 获取每个蛋白质的唯一序列（使用窗口序列作为近似）
-            protein_sequences = df.groupby('uniprot_id')['sequence_window'].first().reset_index()
+            protein_sequences = df.groupby("uniprot_id")["sequence_window"].first().reset_index()
 
-            with open(fasta_file, 'w') as f:
+            with open(fasta_file, "w") as f:
                 for _, row in protein_sequences.iterrows():
                     f.write(f">{row['uniprot_id']}\n{row['sequence_window']}\n")
 
             # 运行CD-HIT
-            cluster_file = os.path.join(tmpdir, 'clusters')
+            cluster_file = os.path.join(tmpdir, "clusters")
             cluster_to_proteins = run_cdhit(fasta_file, cluster_file, identity)
 
             logger.info(f"聚类数: {len(cluster_to_proteins)}")
@@ -215,11 +223,11 @@ def create_homology_aware_split(
             cluster_to_split = {}
             for i, cid in enumerate(cluster_ids):
                 if i < n_train:
-                    cluster_to_split[cid] = 'train'
+                    cluster_to_split[cid] = "train"
                 elif i < n_train + n_val:
-                    cluster_to_split[cid] = 'val'
+                    cluster_to_split[cid] = "val"
                 else:
-                    cluster_to_split[cid] = 'test'
+                    cluster_to_split[cid] = "test"
 
             # 映射蛋白质到split
             protein_to_split = {}
@@ -229,7 +237,7 @@ def create_homology_aware_split(
                     protein_to_split[prot] = split
 
             # 处理未聚类的蛋白质
-            all_proteins = set(df['uniprot_id'].unique())
+            all_proteins = set(df["uniprot_id"].unique())
             clustered_proteins = set(protein_to_split.keys())
             unclustered = all_proteins - clustered_proteins
 
@@ -243,29 +251,29 @@ def create_homology_aware_split(
 
             for i, prot in enumerate(unclustered_list):
                 if i < n_uncl_train:
-                    protein_to_split[prot] = 'train'
+                    protein_to_split[prot] = "train"
                 elif i < n_uncl_train + n_uncl_val:
-                    protein_to_split[prot] = 'val'
+                    protein_to_split[prot] = "val"
                 else:
-                    protein_to_split[prot] = 'test'
+                    protein_to_split[prot] = "test"
 
             # 应用划分
-            df['split'] = df['uniprot_id'].map(protein_to_split)
+            df["split"] = df["uniprot_id"].map(protein_to_split)
     else:
         # 使用简化版划分
         df = simple_homology_split(df, identity)
 
     # 统计划分结果
-    split_counts = df['split'].value_counts()
+    split_counts = df["split"].value_counts()
     logger.info(f"划分统计:")
     for split, count in split_counts.items():
-        pos_count = (df[df['split'] == split]['label'] == 1).sum()
+        pos_count = (df[df["split"] == split]["label"] == 1).sum()
         logger.info(f"  {split}: {count} 样本, {pos_count} 正例")
 
     # 验证无跨split同源
-    train_proteins = set(df[df['split'] == 'train']['uniprot_id'])
-    val_proteins = set(df[df['split'] == 'val']['uniprot_id'])
-    test_proteins = set(df[df['split'] == 'test']['uniprot_id'])
+    train_proteins = set(df[df["split"] == "train"]["uniprot_id"])
+    val_proteins = set(df[df["split"] == "val"]["uniprot_id"])
+    test_proteins = set(df[df["split"] == "test"]["uniprot_id"])
 
     train_val_overlap = train_proteins & val_proteins
     train_test_overlap = train_proteins & test_proteins
@@ -289,17 +297,12 @@ def create_homology_aware_split(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Homology-aware数据划分')
-    parser.add_argument('--input', default='data/processed/ptm_train_phosphorylation.csv',
-                        help='输入数据路径')
-    parser.add_argument('--output', default='data/processed/phosphorylation_homology_split.csv',
-                        help='输出数据路径')
-    parser.add_argument('--identity', type=float, default=0.3,
-                        help='同源阈值 (default: 0.3 = 30%% identity)')
-    parser.add_argument('--ptm-type', default='Phosphorylation',
-                        help='PTM类型')
-    parser.add_argument('--no-cdhit', action='store_true',
-                        help='不使用CD-HIT，使用简化划分')
+    parser = argparse.ArgumentParser(description="Homology-aware数据划分")
+    parser.add_argument("--input", default="data/processed/ptm_train_phosphorylation.csv", help="输入数据路径")
+    parser.add_argument("--output", default="data/processed/phosphorylation_homology_split.csv", help="输出数据路径")
+    parser.add_argument("--identity", type=float, default=0.3, help="同源阈值 (default: 0.3 = 30%% identity)")
+    parser.add_argument("--ptm-type", default="Phosphorylation", help="PTM类型")
+    parser.add_argument("--no-cdhit", action="store_true", help="不使用CD-HIT，使用简化划分")
     args = parser.parse_args()
 
     create_homology_aware_split(
@@ -311,5 +314,5 @@ def main():
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

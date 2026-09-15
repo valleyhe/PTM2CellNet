@@ -3,6 +3,7 @@
 功能概述: 提供数据验证、统计信息收集和缓存功能
 设计思路: 确保数据质量，提高数据加载性能
 """
+
 import hashlib
 import hmac
 import json
@@ -26,6 +27,7 @@ st_torch: Any = None
 _HAS_SAFETENSORS = False
 try:
     import safetensors.torch as st_torch  # noqa: F811
+
     _HAS_SAFETENSORS = True
 except ImportError:
     pass
@@ -127,6 +129,7 @@ class DataValidator:
 
         if valid_ptm_types is not None:
             from src.data.aa_constants import normalize_ptm_type
+
             normalized = normalize_ptm_type(ptm_type)
             if normalized not in valid_ptm_types:
                 return False, f"不支持的PTM类型: '{ptm_type}' (标准化后: '{normalized}')"
@@ -134,9 +137,7 @@ class DataValidator:
         return True, ""
 
     def validate_ptm_sites(
-        self,
-        ptm_sites: List[PTMSiteDict],
-        seq_length: Optional[int] = None
+        self, ptm_sites: List[PTMSiteDict], seq_length: Optional[int] = None
     ) -> Tuple[List[PTMSiteDict], List[str]]:
         """
         验证PTM位点列表
@@ -161,9 +162,7 @@ class DataValidator:
         return valid_sites, errors
 
     def validate_dataframe(
-        self,
-        df: pd.DataFrame,
-        required_columns: Optional[List[str]] = None
+        self, df: pd.DataFrame, required_columns: Optional[List[str]] = None
     ) -> Tuple[bool, List[str]]:
         """
         验证DataFrame格式
@@ -252,9 +251,7 @@ class DatasetCache:
     def _get_cache_key(self, df: pd.DataFrame, config: Union[CacheConfig, Dict[str, Any]]) -> str:
         """生成缓存key"""
         # 基于数据内容和配置的哈希
-        data_hash = hashlib.md5(
-            pd.util.hash_pandas_object(df).to_numpy().tobytes()
-        ).hexdigest()[:16]
+        data_hash = hashlib.md5(pd.util.hash_pandas_object(df).to_numpy().tobytes()).hexdigest()[:16]
 
         config_str = json.dumps(config, sort_keys=True)
         config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
@@ -263,9 +260,7 @@ class DatasetCache:
 
     def _compute_data_checksum(self, df: pd.DataFrame) -> str:
         """计算源数据的校验和，用于检测缓存与源数据不一致或数据损坏"""
-        return hashlib.sha256(
-            pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()
-        ).hexdigest()
+        return hashlib.sha256(pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()).hexdigest()
 
     def _get_cache_path(self, cache_key: str) -> Path:
         """获取缓存文件路径（pickle 格式，向后兼容）"""
@@ -323,6 +318,7 @@ class DatasetCache:
                 meta_tensor = metadata_and_tensors.pop("__cache_metadata__", None)
                 if meta_tensor is not None:
                     import json as _json
+
                     meta = _json.loads(meta_tensor.numpy().tobytes().decode("utf-8"))
                 else:
                     meta = {}
@@ -330,7 +326,9 @@ class DatasetCache:
                 if meta.get("cache_version") != self.CACHE_VERSION:
                     logger.info(
                         "safetensors 缓存版本不匹配（当前=%d, 缓存=%d）— 将重新计算。路径: %s",
-                        self.CACHE_VERSION, meta.get("cache_version"), st_path.name,
+                        self.CACHE_VERSION,
+                        meta.get("cache_version"),
+                        st_path.name,
                     )
                     return self._load_pickle(cache_key, df)
 
@@ -368,7 +366,9 @@ class DatasetCache:
             except (OSError, ValueError, RuntimeError) as e:
                 logger.warning(
                     "safetensors 缓存加载失败: %s: %s — 尝试 pickle 回退。路径: %s",
-                    type(e).__name__, e, st_path.name,
+                    type(e).__name__,
+                    e,
+                    st_path.name,
                 )
                 # Fall through to pickle path
 
@@ -390,7 +390,7 @@ class DatasetCache:
                     file_data = f.read()
                     with open(sig_path) as sf:
                         expected_mac = sf.read().strip()
-                    actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                    actual_mac = hmac.new(b"ptm2cellnet-cache-key", file_data, hashlib.sha256).hexdigest()
                     if not hmac.compare_digest(actual_mac, expected_mac):
                         raise ValueError(f"Cache integrity check failed for {cache_path}")
                     cached = safe_pickle_load(BytesIO(file_data))
@@ -399,13 +399,16 @@ class DatasetCache:
         except (pickle.UnpicklingError, EOFError, ValueError) as e:
             logger.warning(
                 "缓存反序列化失败（文件可能已损坏）: %s — 将重新计算。路径: %s",
-                e, cache_path.name,
+                e,
+                cache_path.name,
             )
             return None
         except (OSError, RuntimeError) as e:
             logger.warning(
                 "缓存加载出现意外错误: %s: %s — 将重新计算。路径: %s",
-                type(e).__name__, e, cache_path.name,
+                type(e).__name__,
+                e,
+                cache_path.name,
             )
             return None
 
@@ -421,7 +424,9 @@ class DatasetCache:
         if cached["cache_version"] != self.CACHE_VERSION:
             logger.info(
                 "缓存版本不匹配（当前=%d, 缓存=%d）— 将重新计算。路径: %s",
-                self.CACHE_VERSION, cached["cache_version"], cache_path.name,
+                self.CACHE_VERSION,
+                cached["cache_version"],
+                cache_path.name,
             )
             return None
 
@@ -464,13 +469,14 @@ class DatasetCache:
 
                 # Pack metadata as a JSON byte tensor
                 import json as _json
-                meta_bytes = _json.dumps({
-                    "cache_version": self.CACHE_VERSION,
-                    "data_checksum": self._compute_data_checksum(df),
-                }).encode("utf-8")
-                flat_tensors["__cache_metadata__"] = torch.frombuffer(
-                    bytearray(meta_bytes), dtype=torch.uint8
-                )
+
+                meta_bytes = _json.dumps(
+                    {
+                        "cache_version": self.CACHE_VERSION,
+                        "data_checksum": self._compute_data_checksum(df),
+                    }
+                ).encode("utf-8")
+                flat_tensors["__cache_metadata__"] = torch.frombuffer(bytearray(meta_bytes), dtype=torch.uint8)
 
                 st_path = self._get_safetensors_cache_path(cache_key)
                 st_torch.save_file(flat_tensors, str(st_path))
@@ -478,7 +484,8 @@ class DatasetCache:
                 return
             except (OSError, ValueError, RuntimeError) as e:
                 logger.warning(
-                    "safetensors 缓存保存失败: %s — 回退到 pickle", e,
+                    "safetensors 缓存保存失败: %s — 回退到 pickle",
+                    e,
                 )
                 # Fall through to pickle
 
@@ -499,7 +506,7 @@ class DatasetCache:
             try:
                 with open(cache_path, "rb") as f:
                     file_data = f.read()
-                mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                mac = hmac.new(b"ptm2cellnet-cache-key", file_data, hashlib.sha256).hexdigest()
                 sig_path = Path(f"{cache_path}.hmac")
                 with open(sig_path, "w") as sig_f:
                     sig_f.write(mac)
@@ -558,14 +565,14 @@ def collate_sequences(batch: List[Dict[str, torch.Tensor]], pad_value: int = 0) 
             max_len = max(v.shape[0] for v in values)
             padded = torch.full((len(values), max_len), pad_value, dtype=values[0].dtype)
             for i, v in enumerate(values):
-                padded[i, :v.shape[0]] = v
+                padded[i, : v.shape[0]] = v
             result[key] = padded
         elif values[0].dim() == 2:
             # 2D tensor
             max_len = max(v.shape[0] for v in values)
             padded = torch.full((len(values), max_len, values[0].shape[1]), pad_value, dtype=values[0].dtype)
             for i, v in enumerate(values):
-                padded[i, :v.shape[0], :] = v
+                padded[i, : v.shape[0], :] = v
             result[key] = padded
         else:
             result[key] = torch.stack(values)
@@ -597,8 +604,8 @@ def validate_and_report(df: pd.DataFrame, dataset_name: str = "数据集") -> bo
         logger.info("  - 样本数: %d", len(df))
         logger.info("  - 列名: %s", list(df.columns))
         if "sequence" in df.columns:
-            seq_min = df['sequence'].apply(len).min()
-            seq_max = df['sequence'].apply(len).max()
+            seq_min = df["sequence"].apply(len).min()
+            seq_max = df["sequence"].apply(len).max()
             logger.info("  - 序列长度范围: %d - %d", seq_min, seq_max)
     else:
         logger.info("✗ 发现 %d 个错误:", len(errors))

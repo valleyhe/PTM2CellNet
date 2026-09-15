@@ -43,7 +43,7 @@ class _FakeResponse:
 
     def iter_content(self, chunk_size: int = 8192):
         for index in range(0, len(self.payload), chunk_size):
-            yield self.payload[index:index + chunk_size]
+            yield self.payload[index : index + chunk_size]
 
 
 def test_load_from_phosphositeplus_local_gzip(tmp_path) -> None:
@@ -90,8 +90,7 @@ def test_load_from_phosphositeplus_local_gzip(tmp_path) -> None:
 def test_load_from_phosphositeplus_download_url(tmp_path, monkeypatch) -> None:
     loader = DataLoader({"paths": {"data_raw": str(tmp_path)}})
     content = StringIO(
-        "PROTEIN\tACC_ID\tGENE\tMOD_RSD\tSITE_GRP_ID\tORGANISM\n"
-        "MAPK1\tP28482\tMAPK1\tT185-p\t2001\thuman\n"
+        "PROTEIN\tACC_ID\tGENE\tMOD_RSD\tSITE_GRP_ID\tORGANISM\nMAPK1\tP28482\tMAPK1\tT185-p\t2001\thuman\n"
     )
     payload = gzip.compress(content.getvalue().encode("utf-8"))
 
@@ -103,9 +102,7 @@ def test_load_from_phosphositeplus_download_url(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr("src.data.loaders.base.requests.get", fake_get)
 
-    df = loader.load_from_phosphositeplus(
-        "https://www.phosphosite.org/downloads/Phosphorylation_site_dataset.gz"
-    )
+    df = loader.load_from_phosphositeplus("https://www.phosphosite.org/downloads/Phosphorylation_site_dataset.gz")
 
     assert list(df.columns) == PHOSPHOSITEPLUS_COLUMNS
     assert df.loc[0, "protein_accession"] == "P28482"
@@ -123,9 +120,7 @@ def test_load_from_phosphositeplus_network_failure_returns_empty(monkeypatch) ->
 
     monkeypatch.setattr("src.data.loaders.base.requests.get", fake_get)
 
-    df = loader.load_from_phosphositeplus(
-        "https://www.phosphosite.org/downloads/Phosphorylation_site_dataset.gz"
-    )
+    df = loader.load_from_phosphositeplus("https://www.phosphosite.org/downloads/Phosphorylation_site_dataset.gz")
 
     assert list(df.columns) == PHOSPHOSITEPLUS_COLUMNS
     assert df.empty
@@ -133,11 +128,7 @@ def test_load_from_phosphositeplus_network_failure_returns_empty(monkeypatch) ->
 
 def test_load_from_dbptm_parses_delimited_file(tmp_path) -> None:
     loader = DataLoader()
-    content = StringIO(
-        "UniProtKB Accession\tPosition\tResidue\n"
-        "P31749\t473\tS\n"
-        "Q9Y243\t321\tT\n"
-    )
+    content = StringIO("UniProtKB Accession\tPosition\tResidue\nP31749\t473\tS\nQ9Y243\t321\tT\n")
     file_path = tmp_path / "dbptm.tsv"
     file_path.write_text(content.getvalue(), encoding="utf-8")
 
@@ -164,11 +155,7 @@ def test_load_from_dbptm_parses_delimited_file(tmp_path) -> None:
 
 def test_load_from_cplm_parses_tab_delimited_download(tmp_path) -> None:
     loader = DataLoader()
-    content = StringIO(
-        "UniProt Accession\tPosition\tAmino Acid\n"
-        "P11142\t138\tC\n"
-        "Q96HC4\t42\tC\n"
-    )
+    content = StringIO("UniProt Accession\tPosition\tAmino Acid\nP11142\t138\tC\nQ96HC4\t42\tC\n")
     file_path = tmp_path / "cplm.tsv"
     file_path.write_text(content.getvalue(), encoding="utf-8")
 

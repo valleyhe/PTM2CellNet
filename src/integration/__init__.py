@@ -130,6 +130,7 @@ def __getattr__(name: str) -> Any:
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
         import importlib
+
         try:
             module = importlib.import_module(module_path, __package__)
             return getattr(module, attr_name)

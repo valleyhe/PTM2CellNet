@@ -123,9 +123,7 @@ def _resolve_null_symbol(
         mapped = str(ensembl_to_symbol[null_id]).strip()
         if mapped:
             return mapped
-    raise NullGenerationError(
-        f"null {null_id} needs gene_symbol on the selection entry or ensembl_to_symbol mapping"
-    )
+    raise NullGenerationError(f"null {null_id} needs gene_symbol on the selection entry or ensembl_to_symbol mapping")
 
 
 def _stage_output_record(manifest: Mapping[str, Any], *, result_h5ad: Path) -> dict[str, Any]:
@@ -220,9 +218,7 @@ def plan_matched_null_stages(
         _apply_path(path_config, expected_path)  # type: ignore[arg-type]
         _apply_mode_and_seed(path_config, expected_mode, expected_seed)  # type: ignore[arg-type]
         perturb_plan = next(
-            plan
-            for plan in build_stage_plans(path_config, project_root=project_root)
-            if plan.name == "perturb"
+            plan for plan in build_stage_plans(path_config, project_root=project_root) if plan.name == "perturb"
         )
         plans.append(perturb_plan)
 

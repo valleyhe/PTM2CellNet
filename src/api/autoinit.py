@@ -33,16 +33,19 @@ logger = setup_logger(__name__)
 
 class _DataSection(TypedDict, total=False):
     """Nested 'data' section of a training config YAML."""
+
     cell_states: List[str]
 
 
 class _ModelSection(TypedDict, total=False):
     """Nested 'model' section of a training config YAML."""
+
     num_classes: int
 
 
 class _TrainingConfig(TypedDict, total=False):
     """Config dict loaded from a training YAML file."""
+
     data: _DataSection
     model: _ModelSection
     model_kind: str
@@ -52,6 +55,7 @@ class _TrainingConfig(TypedDict, total=False):
 
 class _ArtifactManifest(TypedDict, total=False):
     """Manifest dict loaded from a sibling artifact_manifest.json."""
+
     cell_states: List[str]
     model_kind: str
     model_card: str
@@ -113,9 +117,13 @@ def _infer_logits_dim(state_dict: dict[str, torch.Tensor]) -> Optional[int]:
     # Heuristic names ordered by specificity. The final linear layer of the
     # predictor head carries the per-class logits dim as its ``weight.shape[0]``.
     head_patterns = (
-        "predictor.head.weight", "predictor.classifier.weight",
-        "predictor.output.weight", "predictor.linear.weight",
-        "classifier.weight", "head.weight", "output.weight",
+        "predictor.head.weight",
+        "predictor.classifier.weight",
+        "predictor.output.weight",
+        "predictor.linear.weight",
+        "classifier.weight",
+        "head.weight",
+        "output.weight",
     )
     for name in head_patterns:
         tensor = state_dict.get(name)
@@ -205,8 +213,7 @@ def _try_auto_initialize() -> None:
     deprecated_checkpoint = os.environ.get("MODEL_PATH")
     if not checkpoint_path and deprecated_checkpoint:
         logger.warning(
-            "MODEL_PATH is deprecated; use PTM2CELLNET_CHECKPOINT. "
-            "Falling back to MODEL_PATH=%s for this startup.",
+            "MODEL_PATH is deprecated; use PTM2CELLNET_CHECKPOINT. Falling back to MODEL_PATH=%s for this startup.",
             deprecated_checkpoint,
         )
         checkpoint_path = deprecated_checkpoint
@@ -241,13 +248,14 @@ def _try_auto_initialize() -> None:
         logger.error(
             "自动初始化中止：未设置 PTM2CELLNET_CONFIG 且 checkpoint %s 同目录无 "
             "%s。请设置 PTM2CELLNET_CONFIG 指向训练该 checkpoint 时的 config。",
-            checkpoint_path, sibling_config_path(checkpoint_path),
+            checkpoint_path,
+            sibling_config_path(checkpoint_path),
         )
         return
     if not Path(config_path).exists():
         logger.error(
-            "自动初始化中止：PTM2CELLNET_CONFIG=%s 不存在。请指向训练该 checkpoint "
-            "时的 config 文件。", config_path,
+            "自动初始化中止：PTM2CELLNET_CONFIG=%s 不存在。请指向训练该 checkpoint 时的 config 文件。",
+            config_path,
         )
         return
 
@@ -259,9 +267,7 @@ def _try_auto_initialize() -> None:
         # P0-1: resolve labels from the artifact first; refuse to load when no
         # authoritative source exists, instead of silently using a hard-coded
         # default that would produce semantically-wrong predictions.
-        cell_states, label_source = _resolve_autoinit_cell_states(
-            config, manifest, env_cell_states
-        )
+        cell_states, label_source = _resolve_autoinit_cell_states(config, manifest, env_cell_states)
         if not cell_states:
             logger.error(
                 "自动初始化中止：无法从 config/manifest/env 解析 cell_states "
@@ -313,7 +319,9 @@ def _try_auto_initialize() -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(
             "自动初始化标签来源: %s, cell_states=%s (num_classes=%d)",
-            label_source, cell_states, len(cell_states),
+            label_source,
+            cell_states,
+            len(cell_states),
         )
         initialize_model(model, cell_states, model_device=device, config=cast(dict[str, Any], config))
         record_model_provenance(checkpoint_path, config_path, cast(dict[str, Any], config))

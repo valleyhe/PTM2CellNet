@@ -15,7 +15,9 @@ def _ensure_project_root() -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="运行两阶段筛选/解释流程")
-    parser.add_argument("--config", type=str, default="configs/integration/two_stage_explanation.yaml", help="配置文件路径")
+    parser.add_argument(
+        "--config", type=str, default="configs/integration/two_stage_explanation.yaml", help="配置文件路径"
+    )
     parser.add_argument("--input", type=str, required=True, help="输入 CSV 路径")
     parser.add_argument("--output", type=str, default="outputs/results/two_stage", help="输出目录")
     parser.add_argument("--model", type=str, default=None, help="模型权重路径，可选")

@@ -50,8 +50,7 @@ def test_davf_e2e_real_subprocess_run(tmp_path):
 
     if not ckpt or not csv:
         pytest.skip(
-            "PTM2CELLNET_DAVF_CHECKPOINT and PTM2CELLNET_DAVF_CSV must both be set "
-            "for the DAVF E2E real-asset test."
+            "PTM2CELLNET_DAVF_CHECKPOINT and PTM2CELLNET_DAVF_CSV must both be set for the DAVF E2E real-asset test."
         )
 
     script = _repo_root() / "scripts" / "finetune_davf_e2e.py"
@@ -59,12 +58,15 @@ def test_davf_e2e_real_subprocess_run(tmp_path):
 
     output_dir = tmp_path / "davf_real_out"
     cmd = [
-            sys.executable,
-            str(script),
-            "--checkpoint", ckpt,
-            "--data", csv,
-            "--output", str(output_dir),
-        ] + (extra.split() if extra else [])
+        sys.executable,
+        str(script),
+        "--checkpoint",
+        ckpt,
+        "--data",
+        csv,
+        "--output",
+        str(output_dir),
+    ] + (extra.split() if extra else [])
 
     start = time.time()
     outcome = "pass"
@@ -86,9 +88,7 @@ def test_davf_e2e_real_subprocess_run(tmp_path):
         if returncode != 0:
             outcome = "fail"
             err = f"subprocess exited {returncode}"
-            pytest.fail(
-                f"DAVF E2E subprocess exited {returncode}.\nstderr tail:\n{tail_stderr}"
-            )
+            pytest.fail(f"DAVF E2E subprocess exited {returncode}.\nstderr tail:\n{tail_stderr}")
     except subprocess.TimeoutExpired as exc_:
         outcome = "fail"
         err = f"timeout after {exc_.timeout}s"

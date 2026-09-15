@@ -40,7 +40,7 @@ class ConditionalVelocityField(nn.Module):
             nn.Linear(config.x_encoder_hidden, config.x_encoder_hidden),
             nn.LayerNorm(config.x_encoder_hidden),
             nn.GELU(),
-            nn.Dropout(config.dropout)
+            nn.Dropout(config.dropout),
         )
 
         # time_encoder: sinusoidal encoding of t
@@ -57,7 +57,7 @@ class ConditionalVelocityField(nn.Module):
                 nn.LayerNorm(config.x_encoder_hidden),
                 nn.GELU(),
                 nn.Linear(config.x_encoder_hidden, config.x_encoder_hidden),
-                nn.GELU()
+                nn.GELU(),
             )
         elif config.condition_projection_depth == 2:
             self.condition_projection = nn.Sequential(
@@ -65,13 +65,11 @@ class ConditionalVelocityField(nn.Module):
                 nn.LayerNorm(config.x_encoder_hidden),
                 nn.GELU(),
                 nn.Linear(config.x_encoder_hidden, config.x_encoder_hidden),
-                nn.GELU()
+                nn.GELU(),
             )
         else:
             self.condition_projection = nn.Sequential(
-                nn.Linear(condition_dim, config.x_encoder_hidden),
-                nn.LayerNorm(config.x_encoder_hidden),
-                nn.GELU()
+                nn.Linear(condition_dim, config.x_encoder_hidden), nn.LayerNorm(config.x_encoder_hidden), nn.GELU()
             )
 
         # 残差连接 (v2.0)
@@ -87,12 +85,14 @@ class ConditionalVelocityField(nn.Module):
         in_dim = total_input_dim
         for i in range(config.num_velocity_layers):
             hidden_dim = config.velocity_hidden if i < config.num_velocity_layers - 1 else config.x_encoder_hidden
-            velocity_layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim) if i < config.num_velocity_layers - 1 else nn.Identity(),
-                nn.GELU() if i < config.num_velocity_layers - 1 else nn.Identity(),
-                nn.Dropout(config.dropout) if i < config.num_velocity_layers - 1 else nn.Identity()
-            ])
+            velocity_layers.extend(
+                [
+                    nn.Linear(in_dim, hidden_dim),
+                    nn.LayerNorm(hidden_dim) if i < config.num_velocity_layers - 1 else nn.Identity(),
+                    nn.GELU() if i < config.num_velocity_layers - 1 else nn.Identity(),
+                    nn.Dropout(config.dropout) if i < config.num_velocity_layers - 1 else nn.Identity(),
+                ]
+            )
             in_dim = hidden_dim
 
         # Final layer to gene dimension
@@ -102,10 +102,7 @@ class ConditionalVelocityField(nn.Module):
 
         # Hybrid injection path (D19-01~05)
         if config.condition_injection not in ("hybrid", "concat"):
-            raise ValueError(
-                "condition_injection must be 'hybrid' or 'concat', "
-                f"got {config.condition_injection}"
-            )
+            raise ValueError(f"condition_injection must be 'hybrid' or 'concat', got {config.condition_injection}")
         self.condition_injection = config.condition_injection
 
         if config.condition_injection == "hybrid":
@@ -121,15 +118,10 @@ class ConditionalVelocityField(nn.Module):
                 modulation_dim=config.modulation_dim,
                 num_kv=config.num_kv_heads,
                 num_heads=num_mod_heads,
-                dropout=config.dropout
+                dropout=config.dropout,
             )
 
-    def forward(
-        self,
-        x_t: torch.Tensor,
-        t: torch.Tensor,
-        condition: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x_t: torch.Tensor, t: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         """
         Predict velocity at time t given current state and condition.
 

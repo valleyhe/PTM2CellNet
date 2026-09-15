@@ -2,6 +2,7 @@
 ESM端到端集成测试
 验证 tokenize -> dataset -> datamodule -> model.forward 的完整数据流
 """
+
 import os
 import json
 
@@ -90,17 +91,21 @@ def test_esm_pipeline_with_multiple_ptm_type_combinations(esm2_encoder):
     from src.models.architectures import PTM2CellNet
 
     config = {"data": {"ptm_types": ["phosphorylation", "acetylation", "methylation"]}}
-    df = pd.DataFrame([
-        {
-            "sequence": "ACDEFGHIKLMN",
-            "ptm_sites": json.dumps([
-                {"position": 2, "type": "phosphorylation"},
-                {"position": 5, "type": "acetylation"},
-                {"position": 9, "type": "methylation"},
-            ]),
-            "cell_state": "Activated",
-        }
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "sequence": "ACDEFGHIKLMN",
+                "ptm_sites": json.dumps(
+                    [
+                        {"position": 2, "type": "phosphorylation"},
+                        {"position": 5, "type": "acetylation"},
+                        {"position": 9, "type": "methylation"},
+                    ]
+                ),
+                "cell_state": "Activated",
+            }
+        ]
+    )
 
     dataset = ESMTokenizedDataset(
         df=df,

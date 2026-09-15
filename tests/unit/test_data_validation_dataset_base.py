@@ -75,10 +75,12 @@ class TestDataValidator:
 
     def test_validate_dataframe_ptm_json_decode_error(self):
         validator = DataValidator()
-        df = pd.DataFrame({
-            "sequence": ["ACDEFG"],
-            "ptm_sites": ["not-valid-json"],
-        })
+        df = pd.DataFrame(
+            {
+                "sequence": ["ACDEFG"],
+                "ptm_sites": ["not-valid-json"],
+            }
+        )
         is_valid, errors = validator.validate_dataframe(df)
         assert is_valid is False
         assert "JSON解析失败" in errors[0]
@@ -92,7 +94,7 @@ class TestDatasetCache:
             cache = DatasetCache(cache_dir=tmpdir)
             df = pd.DataFrame({"a": [1, 2]})
             config = {"key": "value"}
-            data = [ {"x": 1}, {"x": 2} ]
+            data = [{"x": 1}, {"x": 2}]
             cache.save(df, config, data)
             loaded = cache.load(df, config)
             assert loaded == data

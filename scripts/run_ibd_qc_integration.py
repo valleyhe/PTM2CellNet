@@ -97,9 +97,7 @@ def _run_integration(args):
 
     qc_path = args.output_dir / f"ibd_{args.scope}_qc.h5ad"
     if not qc_path.exists():
-        raise FileNotFoundError(
-            f"QC object not found: {qc_path}; run --stage qc before --stage integrate"
-        )
+        raise FileNotFoundError(f"QC object not found: {qc_path}; run --stage qc before --stage integrate")
     qc_adata = ad.read_h5ad(qc_path)
     integrated, model = integrate_scvi(
         qc_adata,

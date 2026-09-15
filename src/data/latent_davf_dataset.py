@@ -151,9 +151,7 @@ def _load_and_validate_metadata(
         if expected_intervention_type not in {"KO", "KD", "OE"}:
             raise ValueError("expected_intervention_type must be KO, KD or OE")
         if not isinstance(dataset, dict):
-            raise LatentDAVFDataError(
-                "formal DAVF training data must declare dataset.intervention_type"
-            )
+            raise LatentDAVFDataError("formal DAVF training data must declare dataset.intervention_type")
         if dataset.get("intervention_type") != expected_intervention_type:
             raise LatentDAVFDataError(
                 "latent-pair intervention type does not match the requested DAVF training direction"

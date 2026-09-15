@@ -302,9 +302,7 @@ class TestProfileActivation:
         snapshot = tmp_path / "snap.csv"
         snapshot.write_text("sequence\nACDE\n", encoding="utf-8")
         real_hash = hashlib.sha256(snapshot.read_bytes()).hexdigest()
-        manifest = self._profile_manifest(
-            files=[{"path": snapshot.name, "required": False, "sha256": real_hash}]
-        )
+        manifest = self._profile_manifest(files=[{"path": snapshot.name, "required": False, "sha256": real_hash}])
         report = validate_manifest(
             manifest,
             root_dir=tmp_path,
@@ -319,9 +317,7 @@ class TestProfileActivation:
         """profile required dataset 哈希漂移时必须失败"""
         snapshot = tmp_path / "snap.csv"
         snapshot.write_text("sequence\nACDE\n", encoding="utf-8")
-        manifest = self._profile_manifest(
-            files=[{"path": snapshot.name, "required": False, "sha256": "1" * 64}]
-        )
+        manifest = self._profile_manifest(files=[{"path": snapshot.name, "required": False, "sha256": "1" * 64}])
         report = validate_manifest(
             manifest,
             root_dir=tmp_path,
@@ -357,9 +353,7 @@ class TestProfileActivation:
         """项目 manifest 必须声明文档阶段 A 的三个研究 profile"""
         manifest = load_manifest(MANIFEST)
         profiles = manifest.get("profiles", {})
-        assert {"standard_training", "cross_scale_training", "cross_scale_inference"}.issubset(
-            profiles.keys()
-        )
+        assert {"standard_training", "cross_scale_training", "cross_scale_inference"}.issubset(profiles.keys())
         assert "pmads" in profiles["standard_training"]["required_datasets"]
 
     def test_profile_unset_keeps_legacy_behavior(self):

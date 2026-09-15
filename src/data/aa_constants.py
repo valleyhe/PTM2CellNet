@@ -12,8 +12,28 @@
 from typing import Dict, Set
 
 # 20种标准氨基酸字母表（不可变tuple）
-AMINO_ACIDS: tuple = ("A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
-                       "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y")
+AMINO_ACIDS: tuple = (
+    "A",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "V",
+    "W",
+    "Y",
+)
 
 # 标准氨基酸字符串（用于需要str的场景，如set()或遍历）
 AMINO_ACIDS_STR: str = "ACDEFGHIKLMNPQRSTVWY"
@@ -89,6 +109,7 @@ PTM_TYPE_ALIASES: Dict[str, str] = {
 # All canonical PTM type names (lowercase, no prefix)
 ALL_PTM_TYPES: Set[str] = set(PTM_TYPE_ALIASES.values())
 
+
 def normalize_ptm_type(ptm_type: str) -> str:
     """Normalize a PTM type string to its canonical lowercase form.
 
@@ -105,19 +126,20 @@ def normalize_ptm_type(ptm_type: str) -> str:
     if normalized in PTM_TYPE_ALIASES:
         return PTM_TYPE_ALIASES[normalized]
     # Try removing common prefixes (N-, S-, O-)
-    if len(normalized) > 2 and normalized[1] == '-':
+    if len(normalized) > 2 and normalized[1] == "-":
         stripped = normalized[2:]
         if stripped in PTM_TYPE_ALIASES:
             return PTM_TYPE_ALIASES[stripped]
     # Try replacing hyphens with nothing
-    no_hyphen = normalized.replace('-', '')
+    no_hyphen = normalized.replace("-", "")
     if no_hyphen in PTM_TYPE_ALIASES:
         return PTM_TYPE_ALIASES[no_hyphen]
     # Try replacing spaces with nothing
-    no_space = normalized.replace(' ', '')
+    no_space = normalized.replace(" ", "")
     if no_space in PTM_TYPE_ALIASES:
         return PTM_TYPE_ALIASES[no_space]
     return normalized
+
 
 # 非标准氨基酸字符映射表
 # U (selenocysteine) → C (cysteine, 生化性质最接近)
@@ -127,7 +149,12 @@ def normalize_ptm_type(ptm_type: str) -> str:
 # Z (glx: glutamic acid/glutamine) → E (glutamic acid)
 # O (pyrrolysine) → K (lysine)
 NON_STANDARD_AA_MAP: dict = {
-    'U': 'C', 'X': 'A', 'J': 'L', 'B': 'D', 'Z': 'E', 'O': 'K',
+    "U": "C",
+    "X": "A",
+    "J": "L",
+    "B": "D",
+    "Z": "E",
+    "O": "K",
 }
 
 

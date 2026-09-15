@@ -337,12 +337,15 @@ def test_multiplm_loader_uses_t5_encoder_for_ankh_and_prott5(monkeypatch):
     monkeypatch.setattr(
         transformers.AutoConfig,
         "from_pretrained",
-        staticmethod(lambda model_name, **kwargs: SimpleNamespace(
-            model_type="t5",
-            architectures=["T5ForConditionalGeneration"],
-            d_model=12,
-        )),
+        staticmethod(
+            lambda model_name, **kwargs: SimpleNamespace(
+                model_type="t5",
+                architectures=["T5ForConditionalGeneration"],
+                d_model=12,
+            )
+        ),
     )
+
     class _FakeT5EncoderFactory:
         from_pretrained = staticmethod(fake_t5_model_from_pretrained)
 

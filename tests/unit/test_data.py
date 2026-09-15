@@ -98,10 +98,12 @@ class TestDataPreprocessor:
         # max_sequence_length=5 但所有序列都更长 -> clean_sequences 全部删除
         config = {"data": {"max_sequence_length": 5, "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY"}}
         preprocessor = DataPreprocessor(config)
-        df = pd.DataFrame([
-            {"sequence": "ACDEFGHIKLMNPQRSTVWY", "cell_state": "a"},
-            {"sequence": "MKTVTASSFTWMKTVTASSFTW", "cell_state": "b"},
-        ])
+        df = pd.DataFrame(
+            [
+                {"sequence": "ACDEFGHIKLMNPQRSTVWY", "cell_state": "a"},
+                {"sequence": "MKTVTASSFTWMKTVTASSFTW", "cell_state": "b"},
+            ]
+        )
         with pytest.raises(EmptyDatasetError) as exc_info:
             preprocessor.preprocess_pipeline(df)
         msg = str(exc_info.value)
@@ -115,10 +117,12 @@ class TestDataPreprocessor:
 
         config = {"data": {"max_sequence_length": 3, "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY"}}
         preprocessor = DataPreprocessor(config)
-        df = pd.DataFrame([
-            {"sequence": "ACDEFG", "cell_state": "a"},
-            {"sequence": "GHIJKL", "cell_state": "b"},  # 含非标准 J->L 后仍超长
-        ])
+        df = pd.DataFrame(
+            [
+                {"sequence": "ACDEFG", "cell_state": "a"},
+                {"sequence": "GHIJKL", "cell_state": "b"},  # 含非标准 J->L 后仍超长
+            ]
+        )
         with pytest.raises(EmptyDatasetError) as exc_info:
             preprocessor.preprocess_pipeline(df)
         # 原始样本数应在错误信息中可追溯
@@ -147,10 +151,12 @@ class TestDataPreprocessor:
     def test_validate_data_quality_detects_single_class(self):
         """只有单一类别无法训练，是 hard failure。"""
         preprocessor = DataPreprocessor()
-        df = pd.DataFrame([
-            {"sequence": "ACDEFGHIK", "cell_state": "proliferation"},
-            {"sequence": "KMNPQRSTV", "cell_state": "proliferation"},
-        ])
+        df = pd.DataFrame(
+            [
+                {"sequence": "ACDEFGHIK", "cell_state": "proliferation"},
+                {"sequence": "KMNPQRSTV", "cell_state": "proliferation"},
+            ]
+        )
         report = preprocessor.validate_data_quality(df)
         assert report["ok"] is False
         assert any("类别" in f for f in report["hard_failures"])
@@ -168,17 +174,27 @@ class TestDataPreprocessor:
     def test_validate_data_quality_counts_invalid_ptm_sites(self):
         """越界 / 非法 PTM 位点应计入 invalid_ptm_site_count。"""
         preprocessor = DataPreprocessor()
-        df = pd.DataFrame([
-            {"sequence": "ACDE", "cell_state": "a",
-             "ptm_sites": json.dumps([{"position": 99, "type": "phosphorylation"}])},
-            {"sequence": "ACDE", "cell_state": "b",
-             "ptm_sites": json.dumps([{"position": 2, "type": "phosphorylation"}])},
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": "ACDE",
+                    "cell_state": "a",
+                    "ptm_sites": json.dumps([{"position": 99, "type": "phosphorylation"}]),
+                },
+                {
+                    "sequence": "ACDE",
+                    "cell_state": "b",
+                    "ptm_sites": json.dumps([{"position": 2, "type": "phosphorylation"}]),
+                },
+            ]
+        )
         report = preprocessor.validate_data_quality(df)
         assert report["invalid_ptm_site_count"] >= 1
         assert any("PTM" in w for w in report["warnings"])
 
-    def test_validate_data_quality_strict_raises(self, ):
+    def test_validate_data_quality_strict_raises(
+        self,
+    ):
         """strict=True 时 hard failure 抛 DataQualityError。"""
         from src.data.preprocess import DataQualityError
 

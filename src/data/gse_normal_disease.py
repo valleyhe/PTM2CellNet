@@ -329,9 +329,7 @@ def _read_annotation(path: str | Path) -> pd.DataFrame:
         duplicate_rows = annotation.loc[duplicate_mask]
         annotation_counts = duplicate_rows.groupby(["sample", "cell_id"], sort=False)["annotation"].nunique()
         ambiguous_keys = {
-            (str(sample), str(cell_id))
-            for (sample, cell_id), count in annotation_counts.items()
-            if int(count) > 1
+            (str(sample), str(cell_id)) for (sample, cell_id), count in annotation_counts.items() if int(count) > 1
         }
         if ambiguous_keys:
             for sample, cell_id in sorted(ambiguous_keys):
@@ -433,9 +431,7 @@ def prepare_gse_normal_disease(
         sample_annotation = annotation[annotation["sample"] == _normalise_sample_label(sample.sample)]
         if sample_annotation.empty:
             raise GSENormalDiseaseError(f"GSE annotation has no cells for sample {sample.sample}")
-        loaded_samples.append(
-            _read_sample(sample, selected_barcodes=tuple(sample_annotation["cell_id"]))
-        )
+        loaded_samples.append(_read_sample(sample, selected_barcodes=tuple(sample_annotation["cell_id"])))
     loaded = tuple(loaded_samples)
     selected_gene_ids = _select_genes(loaded, candidate_gene_ids=candidate_gene_ids, n_genes=n_genes)
     selected_set = set(selected_gene_ids)
@@ -640,9 +636,7 @@ def summarize_normal_disease_directions(
         raise GSENormalDiseaseError(f"requested cell types are absent from GSE AnnData: {unknown}")
 
     var_symbols = (
-        tuple(str(value) for value in adata.var["gene_symbol"])
-        if "gene_symbol" in adata.var.columns
-        else gene_names
+        tuple(str(value) for value in adata.var["gene_symbol"]) if "gene_symbol" in adata.var.columns else gene_names
     )
     rows: list[pd.DataFrame] = []
     skipped: dict[str, str] = {}
@@ -656,7 +650,9 @@ def summarize_normal_disease_directions(
         donor_means: dict[tuple[str, str], np.ndarray] = {}
         for state, donors in ((normal_state, normal_donors), (disease_state, disease_donors)):
             for donor in donors:
-                indices = np.flatnonzero(cell_mask & obs["state"].eq(state).to_numpy() & obs["donor"].eq(donor).to_numpy())
+                indices = np.flatnonzero(
+                    cell_mask & obs["state"].eq(state).to_numpy() & obs["donor"].eq(donor).to_numpy()
+                )
                 if len(indices) == 0:
                     raise GSENormalDiseaseError(f"donor {donor!r} has no cells for cell type {cell_type!r}")
                 donor_means[(state, donor)] = _donor_log2_means(counts, indices)

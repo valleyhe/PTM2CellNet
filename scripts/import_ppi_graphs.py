@@ -138,9 +138,7 @@ def parse_bioplex(path: Path, max_rows: Optional[int] = None) -> List[Dict[str, 
             cells = [cell.strip() for cell in line.split("\t")]
             if line_no == 1:
                 if cells[:2] != ["source", "target"]:
-                    raise ImportError_(
-                        f"BioPlex 列头不符合契约（期望 source/target）: {path}:1 -> {cells[:2]!r}"
-                    )
+                    raise ImportError_(f"BioPlex 列头不符合契约（期望 source/target）: {path}:1 -> {cells[:2]!r}")
                 continue
             if len(cells) < 2 or not cells[0] or not cells[1]:
                 raise ImportError_(f"BioPlex 行列数不足或符号为空: {path}:{line_no}")
@@ -208,15 +206,10 @@ def load_regnetwork_core(core_path: Optional[Path]) -> Tuple[Dict[Tuple[str, str
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
             if len(cells) < 6 or not cells[4]:
-                raise ImportError_(
-                    f"human.core.txt 行格式错误（期望 6 列）: {core_path}:{line_no}"
-                )
+                raise ImportError_(f"human.core.txt 行格式错误（期望 6 列）: {core_path}:{line_no}")
             regulator_type = cells[4]
             if regulator_type not in REGNETWORK_REGULATOR_TO_EDGE_PREFIX:
-                raise ImportError_(
-                    f"human.core.txt 未知 regulator_type {regulator_type!r}: "
-                    f"{core_path}:{line_no}"
-                )
+                raise ImportError_(f"human.core.txt 未知 regulator_type {regulator_type!r}: {core_path}:{line_no}")
             if not cells[1] or not cells[3]:
                 n_keyless += 1
                 continue
@@ -268,9 +261,7 @@ def parse_regnetwork(
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
             if len(cells) < 4:
-                raise ImportError_(
-                    f"human.source 行列数不足（期望 4，实际 {len(cells)}）: {source_path}:{line_no}"
-                )
+                raise ImportError_(f"human.source 行列数不足（期望 4，实际 {len(cells)}）: {source_path}:{line_no}")
             tf_symbol, tf_entrez, target_symbol, target_entrez = cells[:4]
             # 符号缺失（空或 '-'）时用 human.node 的 Entrez->symbol 回填
             if not tf_symbol or tf_symbol == "-":
@@ -323,9 +314,7 @@ def load_ensp_mapping(path: Optional[Path]) -> Dict[str, str]:
                 continue
             cells = [cell.strip() for cell in line.split("\t")]
             if len(cells) < 2 or not cells[0] or not cells[1]:
-                raise ImportError_(
-                    f"ENSP 映射行格式错误（期望 string_protein_id<TAB>gene_symbol）: {p}:{line_no}"
-                )
+                raise ImportError_(f"ENSP 映射行格式错误（期望 string_protein_id<TAB>gene_symbol）: {p}:{line_no}")
             protein_id, symbol = cells[0], cells[1]
             mapping[protein_id] = symbol
             if "." in protein_id:
@@ -348,9 +337,7 @@ def parse_string(
     """
     if not path.is_file():
         raise ImportError_(f"缺少 STRING 输入文件: {path}")
-    edge_type = (
-        "ppi:string_physical" if "physical" in path.name else "ppi:string_combined"
-    )
+    edge_type = "ppi:string_physical" if "physical" in path.name else "ppi:string_combined"
     edges: List[Dict[str, str]] = []
     n_below = 0
     unmapped: set = set()
@@ -362,9 +349,7 @@ def parse_string(
             cells = line.split()
             if line_no == 1:
                 if cells[:3] != ["protein1", "protein2", "combined_score"]:
-                    raise ImportError_(
-                        f"STRING 列头不符合契约: {path}:1 -> {cells[:3]!r}"
-                    )
+                    raise ImportError_(f"STRING 列头不符合契约: {path}:1 -> {cells[:3]!r}")
                 continue
             if len(cells) < 3:
                 raise ImportError_(f"STRING 行列数不足: {path}:{line_no}")
@@ -426,9 +411,7 @@ def write_import_manifest(
         "schema_version": MANIFEST_SCHEMA,
         "source": {
             "name": source_name,
-            "files": [
-                {"file": str(path), "sha256": _sha256_file(path)} for path in source_files
-            ],
+            "files": [{"file": str(path), "sha256": _sha256_file(path)} for path in source_files],
         },
         "summary": dict(summary),
         "parameters": dict(parameters),
@@ -443,9 +426,7 @@ def write_import_manifest(
         },
     }
     manifest_path = output_dir / "import_manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return manifest_path
 
 
@@ -537,9 +518,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         edge_type_counts: Dict[str, int] = {}
         for edge in edges:
             edge_type_counts[edge["edge_type"]] = edge_type_counts.get(edge["edge_type"], 0) + 1
-        summary["edge_type_counts"] = dict(
-            sorted(edge_type_counts.items(), key=lambda item: -item[1])
-        )
+        summary["edge_type_counts"] = dict(sorted(edge_type_counts.items(), key=lambda item: -item[1]))
         manifest = write_import_manifest(
             output_dir,
             source_name=args.source,

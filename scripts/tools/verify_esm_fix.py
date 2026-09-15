@@ -3,6 +3,7 @@
 ESM2 Tokenizer修复全面验证脚本
 验证所有修改是否正确生效
 """
+
 import os
 import sys
 
@@ -22,6 +23,7 @@ print("=" * 60)
 # Check 1: ESM2Encoder.tokenizer exists
 print("\n[1/6] 验证 ESM2Encoder.tokenizer 存在...")
 from src.models.pretrained_encoders import ESM2Encoder
+
 encoder = ESM2Encoder(model_size="8M", freeze=True)
 assert hasattr(encoder, "tokenizer"), "❌ ESM2Encoder 缺少 tokenizer 属性"
 assert encoder.tokenizer is not None, "❌ tokenizer 为 None"
@@ -38,11 +40,14 @@ print(f"✅ tokenize() 输出正确: input_ids shape={result['input_ids'].shape}
 # Check 3: ESMTokenizedDataset works
 print("\n[3/6] 验证 ESMTokenizedDataset...")
 from src.data.datasets import ESMTokenizedDataset
-test_df = pd.DataFrame({
-    "sequence": ["ACDEFGHIKL"],
-    "ptm_sites": ['[{"position": 3, "type": "Phosphorylation"}]'],
-    "cell_state": ["Activated"]
-})
+
+test_df = pd.DataFrame(
+    {
+        "sequence": ["ACDEFGHIKL"],
+        "ptm_sites": ['[{"position": 3, "type": "Phosphorylation"}]'],
+        "cell_state": ["Activated"],
+    }
+)
 dataset = ESMTokenizedDataset(df=test_df, tokenizer=encoder.tokenizer, config={})
 sample = dataset[0]
 assert "input_ids" in sample, "❌ ESMTokenizedDataset 输出缺少 input_ids"
@@ -54,13 +59,8 @@ print(f"✅ ESMTokenizedDataset 工作正常，PTM 位置对齐正确")
 # Check 4: PTMDataModule accepts tokenizer
 print("\n[4/6] 验证 PTMDataModule 接受 tokenizer 参数...")
 from src.data.lightning_datamodule import PTMDataModule
-data_module = PTMDataModule(
-    train_df=test_df,
-    val_df=test_df,
-    test_df=test_df,
-    config={},
-    tokenizer=encoder.tokenizer
-)
+
+data_module = PTMDataModule(train_df=test_df, val_df=test_df, test_df=test_df, config={}, tokenizer=encoder.tokenizer)
 data_module.setup("fit")
 assert data_module.train_dataset is not None, "❌ train_dataset 未初始化"
 assert isinstance(data_module.train_dataset, ESMTokenizedDataset), "❌ 未使用 ESMTokenizedDataset"
@@ -69,6 +69,7 @@ print("✅ PTMDataModule 正确使用 ESMTokenizedDataset")
 # Check 5: PTM2CellNet.forward() handles input_ids
 print("\n[5/6] 验证 PTM2CellNet.forward() 处理 input_ids...")
 from src.models.architectures import PTM2CellNet
+
 model = PTM2CellNet(encoder_type="esm2_8M", num_classes=2, freeze_encoder=True)
 model.eval()
 batch = {

@@ -8,14 +8,22 @@ import numpy as np
 
 from src.utils.config import Config
 from src.utils.io import (
-    save_pickle, load_pickle, save_json, load_json,
-    save_dataframe, load_dataframe,
-    save_numpy, load_numpy
+    save_pickle,
+    load_pickle,
+    save_json,
+    load_json,
+    save_dataframe,
+    load_dataframe,
+    save_numpy,
+    load_numpy,
 )
 from src.utils.helpers import (
-    validate_sequence, validate_ptm_site, clean_sequence,
-    get_amino_acid_counts, calculate_sequence_length_stats,
-    validate_cell_state_label
+    validate_sequence,
+    validate_ptm_site,
+    clean_sequence,
+    get_amino_acid_counts,
+    calculate_sequence_length_stats,
+    validate_cell_state_label,
 )
 
 
@@ -35,9 +43,7 @@ class TestConfig:
         安全默认不变）；default.yaml 显式设为 4，保证开箱训练不静默单进程。
         """
         config = Config.from_yaml("configs/default.yaml")
-        assert config.get("data.num_workers") == 4, (
-            "data.num_workers must be explicit in configs/default.yaml (N09)"
-        )
+        assert config.get("data.num_workers") == 4, "data.num_workers must be explicit in configs/default.yaml (N09)"
         assert config.get("data.persistent_workers") is False
 
     def test_get_and_set(self):
@@ -146,6 +152,7 @@ class TestIO:
     def test_save_and_load_dataframe(self):
         """测试DataFrame保存和加载"""
         import pandas as pd
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as f:
             temp_path = f.name
 

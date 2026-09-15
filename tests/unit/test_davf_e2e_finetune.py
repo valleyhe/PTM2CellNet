@@ -112,6 +112,7 @@ class TestDAVFE2EScript:
     def test_production_script_importable(self):
         """Verify that scripts/finetune_davf_e2e.py can be parsed (syntax + AST)."""
         import ast
+
         script_path = Path(__file__).resolve().parents[2] / "scripts" / "finetune_davf_e2e.py"
         assert script_path.exists(), f"{script_path} does not exist"
         source = script_path.read_text(encoding="utf-8")
@@ -121,8 +122,15 @@ class TestDAVFE2EScript:
         assert any(c.name == "TaskHead" for c in classes), "Missing TaskHead class"
         functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
         func_names = {f.name for f in functions}
-        for expected in ("parse_args", "load_data", "create_dataloaders",
-                         "build_model", "train_epoch", "evaluate", "main"):
+        for expected in (
+            "parse_args",
+            "load_data",
+            "create_dataloaders",
+            "build_model",
+            "train_epoch",
+            "evaluate",
+            "main",
+        ):
             assert expected in func_names, f"Missing expected function: {expected}"
         assert "embedding_asset_path" in source
         assert "build_perturbgen_direction_mapper" in source

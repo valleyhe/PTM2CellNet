@@ -58,16 +58,18 @@ class TestClassificationMetrics:
         """多分类测试数据"""
         y_true = np.array([0, 1, 2, 0, 1, 2, 1, 0])
         y_pred = np.array([0, 1, 2, 0, 0, 2, 1, 0])
-        y_score = np.array([
-            [0.8, 0.1, 0.1],
-            [0.1, 0.8, 0.1],
-            [0.1, 0.2, 0.7],
-            [0.7, 0.2, 0.1],
-            [0.3, 0.5, 0.2],
-            [0.1, 0.1, 0.8],
-            [0.2, 0.7, 0.1],
-            [0.6, 0.3, 0.1],
-        ])
+        y_score = np.array(
+            [
+                [0.8, 0.1, 0.1],
+                [0.1, 0.8, 0.1],
+                [0.1, 0.2, 0.7],
+                [0.7, 0.2, 0.1],
+                [0.3, 0.5, 0.2],
+                [0.1, 0.1, 0.8],
+                [0.2, 0.7, 0.1],
+                [0.6, 0.3, 0.1],
+            ]
+        )
         return y_true, y_pred, y_score
 
     def test_calculate_accuracy(self, binary_data):
@@ -146,9 +148,7 @@ class TestClassificationMetrics:
         """多分类AUC-PR"""
         y_true, _, y_score = multiclass_data
         auc_pr = calculate_auc_pr(y_true, y_score)
-        expected = average_precision_score(
-            np.eye(3)[y_true], y_score, average="macro"
-        )
+        expected = average_precision_score(np.eye(3)[y_true], y_score, average="macro")
         assert isinstance(auc_pr, float)
         assert auc_pr == pytest.approx(expected, abs=1e-6)
 
@@ -293,9 +293,7 @@ class TestPerPTMTypeMetrics:
 
         y_score = np.concatenate([y_score_phos, y_score_ubiq, y_score_acet])
         y_pred = (y_score > 0.5).astype(int)
-        ptm_types = (
-            ["Phosphorylation"] * 5 + ["Ubiquitination"] * 5 + ["Acetylation"] * 5
-        )
+        ptm_types = ["Phosphorylation"] * 5 + ["Ubiquitination"] * 5 + ["Acetylation"] * 5
 
         results = calculate_per_ptm_type_metrics(y_true, y_pred, y_score, ptm_types)
 

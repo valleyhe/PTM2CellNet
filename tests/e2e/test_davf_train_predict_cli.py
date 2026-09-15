@@ -22,14 +22,16 @@ SCRIPTS = PROJECT_ROOT / "scripts"
 def _run(cmd, cwd=PROJECT_ROOT):
     """运行子进程，失败时打印完整输出。"""
     result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, timeout=600,
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
     if result.returncode != 0:
         print("STDOUT:", result.stdout)
         print("STDERR:", result.stderr)
-    assert result.returncode == 0, (
-        f"命令失败 (exit {result.returncode}): {' '.join(cmd)}"
-    )
+    assert result.returncode == 0, f"命令失败 (exit {result.returncode}): {' '.join(cmd)}"
     return result
 
 
@@ -95,12 +97,14 @@ def _make_davf_train_csv(tmp_path: Path, num_rows: int = 8) -> Path:
             ptm = '[{"position":3,"type":"phosphorylation","amino_acid":"S"}]'
         else:
             ptm = "[]"
-        rows.append({
-            "id": i,
-            "sequence": sequences[i],
-            "ptm_sites": ptm,
-            "cell_state": cell_states[i % len(cell_states)],
-        })
+        rows.append(
+            {
+                "id": i,
+                "sequence": sequences[i],
+                "ptm_sites": ptm,
+                "cell_state": cell_states[i % len(cell_states)],
+            }
+        )
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["id", "sequence", "ptm_sites", "cell_state"])
         writer.writeheader()
@@ -123,16 +127,26 @@ class TestDAVFTrainPredictE2E:
         # 使用不存在的 checkpoint 路径（DAVFInferenceModule 优雅降级）
         fake_checkpoint = tmp / "nonexistent_checkpoint.pt"
 
-        _run([
-            sys.executable, str(SCRIPTS / "finetune_davf.py"),
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--checkpoint", str(fake_checkpoint),
-            "--output", str(output_dir),
-            "--stage1-epochs", "1",
-            "--stage2-epochs", "1",
-            "--batch-size", "4",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "finetune_davf.py"),
+                "--config",
+                str(cfg_path),
+                "--data",
+                str(data_path),
+                "--checkpoint",
+                str(fake_checkpoint),
+                "--output",
+                str(output_dir),
+                "--stage1-epochs",
+                "1",
+                "--stage2-epochs",
+                "1",
+                "--batch-size",
+                "4",
+            ]
+        )
 
         final_ckpt = output_dir / "final_model.pt"
         assert final_ckpt.exists(), f"final_model.pt 未生成于 {output_dir}"
@@ -151,16 +165,26 @@ class TestDAVFTrainPredictE2E:
     def test_davf_model_predict_single(self, davf_artifact, tmp_path):
         """predict.py 可加载 DAVF 产出的 final_model.pt 并推理。"""
         out = tmp_path / "pred.csv"
-        _run([
-            sys.executable, str(SCRIPTS / "predict.py"),
-            "--model", str(davf_artifact["ckpt"]),
-            "--config", str(davf_artifact["cfg"]),
-            "--sequence", "ACDEFGHIKLMNPQRSTVWY",
-            "--ptm-sites", '[{"position":3,"type":"phosphorylation","gene_symbol":"BRAF"}]',
-            "--output", str(out),
-            "--device", "cpu",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(davf_artifact["ckpt"]),
+                "--config",
+                str(davf_artifact["cfg"]),
+                "--sequence",
+                "ACDEFGHIKLMNPQRSTVWY",
+                "--ptm-sites",
+                '[{"position":3,"type":"phosphorylation","gene_symbol":"BRAF"}]',
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ]
+        )
         import pandas as pd
+
         df = pd.read_csv(out)
         assert len(df) == 1
         assert "ptm_count" in df.columns
@@ -179,15 +203,24 @@ class TestDAVFTrainPredictE2E:
             encoding="utf-8",
         )
         out = tmp_path / "batch_pred.csv"
-        _run([
-            sys.executable, str(SCRIPTS / "predict.py"),
-            "--model", str(davf_artifact["ckpt"]),
-            "--config", str(davf_artifact["cfg"]),
-            "--input", str(batch_csv),
-            "--output", str(out),
-            "--device", "cpu",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "predict.py"),
+                "--model",
+                str(davf_artifact["ckpt"]),
+                "--config",
+                str(davf_artifact["cfg"]),
+                "--input",
+                str(batch_csv),
+                "--output",
+                str(out),
+                "--device",
+                "cpu",
+            ]
+        )
         import pandas as pd
+
         df = pd.read_csv(out)
         assert len(df) == 2
         assert int(df["ptm_count"].iloc[0]) == 1

@@ -219,9 +219,7 @@ class SignificanceAnalyzer:
             null_distribution_summary).
         """
         observed_pairs = [
-            (gene_name, float(combined_shift[idx]))
-            for idx, gene_name in enumerate(gene_names)
-            if idx != gene_index
+            (gene_name, float(combined_shift[idx])) for idx, gene_name in enumerate(gene_names) if idx != gene_index
         ]
         gene_scores = {gene_name: score for gene_name, score in observed_pairs}
         gene_indices = {gene_name: idx for idx, gene_name in enumerate(gene_names) if idx != gene_index}
@@ -267,21 +265,11 @@ class SignificanceAnalyzer:
         empirical = np.maximum(empirical, 1.0 / float(null_scores.shape[0]))
         adjusted = self._benjamini_hochberg(empirical)
         bagging_hits_array, bagging_frequencies_array = self._compute_bagging_statistics(null_scores)
-        empirical_pvalues = {
-            gene_name: float(empirical[idx])
-            for idx, (gene_name, _) in enumerate(observed_pairs)
-        }
-        adjusted_pvalues = {
-            gene_name: float(adjusted[idx])
-            for idx, (gene_name, _) in enumerate(observed_pairs)
-        }
-        bagging_hits = {
-            gene_name: int(bagging_hits_array[idx])
-            for idx, (gene_name, _) in enumerate(observed_pairs)
-        }
+        empirical_pvalues = {gene_name: float(empirical[idx]) for idx, (gene_name, _) in enumerate(observed_pairs)}
+        adjusted_pvalues = {gene_name: float(adjusted[idx]) for idx, (gene_name, _) in enumerate(observed_pairs)}
+        bagging_hits = {gene_name: int(bagging_hits_array[idx]) for idx, (gene_name, _) in enumerate(observed_pairs)}
         bagging_frequencies = {
-            gene_name: float(bagging_frequencies_array[idx])
-            for idx, (gene_name, _) in enumerate(observed_pairs)
+            gene_name: float(bagging_frequencies_array[idx]) for idx, (gene_name, _) in enumerate(observed_pairs)
         }
         summary = {
             "n_permutations": int(null_scores.shape[0]),
@@ -373,16 +361,12 @@ class SignificanceAnalyzer:
             # large (>5k gene) networks.
             P = self.null_permutations
             # Counts: zero out the pseudo-target column for each permutation.
-            perturbed_counts_batch = np.broadcast_to(
-                baseline_counts_dense, (P, *baseline_counts_dense.shape)
-            ).copy()
+            perturbed_counts_batch = np.broadcast_to(baseline_counts_dense, (P, *baseline_counts_dense.shape)).copy()
             row_idx = np.arange(P)
             perturbed_counts_batch[row_idx, :, pseudo_targets] = 0.0
 
             # Network: zero out the pseudo-target row and column per layer.
-            perturbed_network_batch = np.broadcast_to(
-                baseline_network_dense, (P, n_genes, n_genes)
-            ).copy()
+            perturbed_network_batch = np.broadcast_to(baseline_network_dense, (P, n_genes, n_genes)).copy()
             perturbed_network_batch[row_idx, :, pseudo_targets] = 0.0
             perturbed_network_batch[row_idx, pseudo_targets, :] = 0.0
 
@@ -407,16 +391,12 @@ class SignificanceAnalyzer:
         decay = max(0.0, 1.0 - request.magnitude)
 
         # Counts: scale the pseudo-target column per permutation layer.
-        perturbed_counts_batch = np.broadcast_to(
-            baseline_counts_dense, (P, *baseline_counts_dense.shape)
-        ).copy()
+        perturbed_counts_batch = np.broadcast_to(baseline_counts_dense, (P, *baseline_counts_dense.shape)).copy()
         row_idx = np.arange(P)
         perturbed_counts_batch[row_idx, :, pseudo_targets] *= decay
 
         # Network: scale the pseudo-target row and column per layer.
-        perturbed_network_batch = np.broadcast_to(
-            baseline_network_dense, (P, n_genes, n_genes)
-        ).copy()
+        perturbed_network_batch = np.broadcast_to(baseline_network_dense, (P, n_genes, n_genes)).copy()
         perturbed_network_batch[row_idx, :, pseudo_targets] *= decay
         perturbed_network_batch[row_idx, pseudo_targets, :] *= decay
 

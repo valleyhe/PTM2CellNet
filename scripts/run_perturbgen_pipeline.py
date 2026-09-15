@@ -50,19 +50,12 @@ def _apply_path(config: dict[str, Any], path: str | None) -> None:
 
 def _serialize_result(value: Any) -> Any:
     if hasattr(value, "__dict__"):
-        return {
-            key: str(item) if isinstance(item, Path) else item
-            for key, item in value.__dict__.items()
-        }
+        return {key: str(item) if isinstance(item, Path) else item for key, item in value.__dict__.items()}
     return value
 
 
 def _dataclass_kwargs(dataclass_type: type[Any], payload: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        item.name: payload[item.name]
-        for item in fields(dataclass_type)
-        if item.name in payload
-    }
+    return {item.name: payload[item.name] for item in fields(dataclass_type) if item.name in payload}
 
 
 def _validated_report_invocation(
@@ -77,12 +70,8 @@ def _validated_report_invocation(
     if not isinstance(nested_candidate_payload, Mapping) or not isinstance(nested_evidence_payload, Mapping):
         raise ValueError("E2E gate invocation must contain candidate and davf_evidence mappings")
     try:
-        candidate = CandidateEvidence(
-            **_dataclass_kwargs(CandidateEvidence, nested_candidate_payload)
-        )
-        davf_evidence = DAVFDirectionEvidence(
-            **_dataclass_kwargs(DAVFDirectionEvidence, nested_evidence_payload)
-        )
+        candidate = CandidateEvidence(**_dataclass_kwargs(CandidateEvidence, nested_candidate_payload))
+        davf_evidence = DAVFDirectionEvidence(**_dataclass_kwargs(DAVFDirectionEvidence, nested_evidence_payload))
         invocation = PerturbGenInvocation(
             intervention_type=invocation_payload["intervention_type"],
             gene_symbol=invocation_payload["gene_symbol"],
@@ -98,9 +87,7 @@ def _validated_report_invocation(
             seed=invocation_payload["seed"],
             is_sensitivity=invocation_payload.get("is_sensitivity", False),
         )
-        outer_candidate = CandidateEvidence(
-            **_dataclass_kwargs(CandidateEvidence, outer_candidate_payload)
-        )
+        outer_candidate = CandidateEvidence(**_dataclass_kwargs(CandidateEvidence, outer_candidate_payload))
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"E2E gate invocation violates PerturbGenInvocation contract: {exc}") from exc
 
@@ -111,9 +98,7 @@ def _validated_report_invocation(
         if not isinstance(outer_evidence_payload, Mapping):
             raise ValueError("E2E gate outer davf_evidence must be a mapping")
         try:
-            outer_evidence = DAVFDirectionEvidence(
-                **_dataclass_kwargs(DAVFDirectionEvidence, outer_evidence_payload)
-            )
+            outer_evidence = DAVFDirectionEvidence(**_dataclass_kwargs(DAVFDirectionEvidence, outer_evidence_payload))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"E2E gate outer DAVF evidence violates its contract: {exc}") from exc
         if outer_evidence != invocation.davf_evidence:
@@ -213,9 +198,7 @@ def _validate_invocation_binding(
     expected: Mapping[str, Any],
 ) -> None:
     if invocation.gene_symbol != expected["gene_symbol"]:
-        raise ValueError(
-            f"E2E gate gene does not match config: {invocation.gene_symbol} != {expected['gene_symbol']}"
-        )
+        raise ValueError(f"E2E gate gene does not match config: {invocation.gene_symbol} != {expected['gene_symbol']}")
     if invocation.perturbation_mode != expected["perturbation_mode"]:
         raise ValueError(
             "E2E gate perturbation mode does not match config: "
@@ -223,19 +206,13 @@ def _validate_invocation_binding(
         )
     expected_ensembl_id = expected.get("ensembl_id")
     if expected_ensembl_id is not None and invocation.ensembl_id != expected_ensembl_id:
-        raise ValueError(
-            "E2E gate Ensembl ID does not match config: "
-            f"{invocation.ensembl_id} != {expected_ensembl_id}"
-        )
+        raise ValueError(f"E2E gate Ensembl ID does not match config: {invocation.ensembl_id} != {expected_ensembl_id}")
     expected_route = expected.get("intervention_type")
     if expected_route is not None and invocation.intervention_type != expected_route:
-        raise ValueError(
-            f"E2E gate route does not match config: {invocation.intervention_type} != {expected_route}"
-        )
+        raise ValueError(f"E2E gate route does not match config: {invocation.intervention_type} != {expected_route}")
     if invocation.seed != expected["seed"]:
         raise ValueError(
-            f"E2E gate seed does not match config pipeline.random_seed: "
-            f"{invocation.seed} != {expected['seed']}"
+            f"E2E gate seed does not match config pipeline.random_seed: {invocation.seed} != {expected['seed']}"
         )
     expected_paths = set(expected["paths"])
     actual_paths = set(invocation.paths)
@@ -272,9 +249,8 @@ def _validate_e2e_gate_report(
     candidates = payload.get("candidates")
     if isinstance(candidates, list):
         records.extend(item for item in candidates if isinstance(item, Mapping))
-    elif (
-        all(key in payload for key in ("candidate", "preparation", "invocation"))
-        and isinstance(payload.get("preparation"), Mapping)
+    elif all(key in payload for key in ("candidate", "preparation", "invocation")) and isinstance(
+        payload.get("preparation"), Mapping
     ):
         records.append(payload)
     elif isinstance(payload.get("preparation"), Mapping):
@@ -299,8 +275,7 @@ def _validate_e2e_gate_report(
             return
     if binding_errors:
         raise ValueError(
-            "E2E gate report has no candidate bound to the current PerturbGen config: "
-            + binding_errors[0]
+            "E2E gate report has no candidate bound to the current PerturbGen config: " + binding_errors[0]
         )
     raise ValueError(
         "E2E gate report must contain a candidate/preparation/invocation record "
@@ -308,15 +283,10 @@ def _validate_e2e_gate_report(
     )
 
 
-def _build_selected_plans(
-    config: dict[str, Any], selected: set[str], path: str | None
-):
+def _build_selected_plans(config: dict[str, Any], selected: set[str], path: str | None):
     if path != "both":
         _apply_path(config, path)
-        return tuple(
-            plan for plan in build_stage_plans(config, project_root=PROJECT_ROOT)
-            if plan.name in selected
-        )
+        return tuple(plan for plan in build_stage_plans(config, project_root=PROJECT_ROOT) if plan.name in selected)
 
     base_plans = build_stage_plans(config, project_root=PROJECT_ROOT)
     path_plans = []

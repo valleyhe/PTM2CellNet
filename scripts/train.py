@@ -159,12 +159,15 @@ def main():
     batch_size = config.get("training.batch_size", 32)
     num_workers = args.num_workers if args.num_workers is not None else config.get("data.num_workers", 0)
     datamodule = PTMPlainDataModule(
-        train_df, val_df, test_df,
+        train_df,
+        val_df,
+        test_df,
         config=config.to_dict(),
         batch_size=batch_size,
         num_workers=num_workers,
     )
     from src.data.labels import derive_label_mapping
+
     cell_states, label_to_idx = derive_label_mapping(train_df)
     config.set("data.cell_states", cell_states)
     config.set("data.label_to_idx", label_to_idx)
@@ -183,9 +186,7 @@ def main():
     sample_weights = class_weights[train_labels]
 
     sampler = WeightedRandomSampler(
-        weights=torch.tensor(sample_weights, dtype=torch.float32),
-        num_samples=len(train_labels),
-        replacement=True
+        weights=torch.tensor(sample_weights, dtype=torch.float32), num_samples=len(train_labels), replacement=True
     )
     logger.info("使用WeightedRandomSampler平衡批次: 类别分布 %s", class_counts.tolist())
 
@@ -194,6 +195,7 @@ def main():
     # which is incompatible with a sampler). num_workers is read from config/CLI
     # so multi-core hosts can parallelise data loading.
     from torch.utils.data import DataLoader
+
     pin_memory = config.get("data.pin_memory", False)
     persistent_workers = config.get("data.persistent_workers", False) and num_workers > 0
     train_loader = DataLoader(
@@ -215,10 +217,7 @@ def main():
     # 避免在此处先 load_model 加载一次权重、随后又被权威加载覆盖的冗余调用。
     if args.resume:
         if not os.path.exists(args.resume):
-            raise SystemExit(
-                f"--resume 指定的 checkpoint 不存在: {args.resume}。"
-                f"请确认路径正确且与当前 config 匹配。"
-            )
+            raise SystemExit(f"--resume 指定的 checkpoint 不存在: {args.resume}。请确认路径正确且与当前 config 匹配。")
         logger.info("检测到 --resume，将在训练器初始化后从 checkpoint 恢复: %s", args.resume)
 
     logger.info("步骤 5: 配置训练器")
@@ -429,16 +428,12 @@ def main():
         last_checkpoint_path = os.path.join(args.output, "models", "checkpoint_best_last.pt")
         if os.path.isfile(last_checkpoint_path):
             logger.warning(
-                "checkpoint_best.pt 不存在（resume 后指标未改善），"
-                "改用 checkpoint_best_last.pt 导出推理 artifact: %s",
+                "checkpoint_best.pt 不存在（resume 后指标未改善），改用 checkpoint_best_last.pt 导出推理 artifact: %s",
                 last_checkpoint_path,
             )
             best_checkpoint_path = last_checkpoint_path
         else:
-            raise SystemExit(
-                f"训练未生成最佳 checkpoint: {best_checkpoint_path}。"
-                "无法安全导出 best_model.pt。"
-            )
+            raise SystemExit(f"训练未生成最佳 checkpoint: {best_checkpoint_path}。无法安全导出 best_model.pt。")
     best_checkpoint = safe_torch_load(
         best_checkpoint_path,
         map_location=trainer.device,
@@ -447,9 +442,7 @@ def main():
     )
     best_state_dict = best_checkpoint.get("model_state_dict")
     if not isinstance(best_state_dict, dict):
-        raise SystemExit(
-            f"最佳 checkpoint 缺少有效 model_state_dict: {best_checkpoint_path}"
-        )
+        raise SystemExit(f"最佳 checkpoint 缺少有效 model_state_dict: {best_checkpoint_path}")
     model.load_state_dict(best_state_dict, strict=True)
     logger.info("已恢复最佳 checkpoint 权重用于推理 artifact: %s", best_checkpoint_path)
 
@@ -461,6 +454,7 @@ def main():
     test_metrics = evaluator.evaluate(datamodule.test_dataloader())
 
     metrics_path = os.path.join(args.output, "results", "test_metrics.json")
+
     # Sanitize NaN values for valid JSON output
     def _sanitize_nans(obj):
         if isinstance(obj, float) and (obj != obj or obj == float("inf") or obj == float("-inf")):
@@ -470,6 +464,7 @@ def main():
         if isinstance(obj, list):
             return [_sanitize_nans(v) for v in obj]
         return obj
+
     with open(metrics_path, "w") as f:
         json.dump(_sanitize_nans(test_metrics), f, indent=2)
     logger.info("测试指标已保存: %s", metrics_path)
@@ -518,14 +513,14 @@ def main():
         # 显式覆盖 release gate 判定。
         deployable=False if contract_violated else None,
         intended_use=(
-            "Engineering pipeline validation only." if is_demo_data
+            "Engineering pipeline validation only."
+            if is_demo_data
             else "Cell-state prediction. Validate on held-out biological data."
         ),
     )
     if is_demo_data:
         logger.warning(
-            "⚠️ 该模型在合成/示例数据上训练，将标记为 model_kind=demo。"
-            "产物仅用于工程链路验证，不可用于真实生物学预测。"
+            "⚠️ 该模型在合成/示例数据上训练，将标记为 model_kind=demo。产物仅用于工程链路验证，不可用于真实生物学预测。"
         )
     logger.info("artifact manifest 已导出")
 

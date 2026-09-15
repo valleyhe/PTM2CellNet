@@ -92,9 +92,15 @@ class Trainer:
         self.best_val_loss = float("inf")
 
         # 生产训练特性
-        self.grad_clip_norm = grad_clip_norm if grad_clip_norm is not None else self.training_config.get("grad_clip_norm", None)
+        self.grad_clip_norm = (
+            grad_clip_norm if grad_clip_norm is not None else self.training_config.get("grad_clip_norm", None)
+        )
         self.use_amp = use_amp or self.training_config.get("use_amp", False)
-        self.gradient_accumulation_steps = gradient_accumulation_steps if gradient_accumulation_steps > 1 else self.training_config.get("gradient_accumulation_steps", 1)
+        self.gradient_accumulation_steps = (
+            gradient_accumulation_steps
+            if gradient_accumulation_steps > 1
+            else self.training_config.get("gradient_accumulation_steps", 1)
+        )
         self.warmup_steps = warmup_steps if warmup_steps > 0 else self.training_config.get("warmup_steps", 0)
 
         # AMP scaler (uses the modern torch.amp API when available; see

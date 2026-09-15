@@ -195,10 +195,7 @@ class PDCClient:
             raise PDCAPIError(f"PDC returned no file for file_id={file_id!r}")
         url = file_data.get("downloadUrl") or file_data.get("file_location")
         if not url:
-            raise PDCAPIError(
-                f"PDC file {file_id!r} has no downloadUrl/file_location; "
-                f"payload was {file_data!r}"
-            )
+            raise PDCAPIError(f"PDC file {file_id!r} has no downloadUrl/file_location; payload was {file_data!r}")
         return str(url)
 
     def download_file(
@@ -261,10 +258,7 @@ class PDCClient:
             raise PDCAPIError(f"PDC request transport failed: {exc}") from exc
 
         if response.status_code != 200:
-            raise PDCAPIError(
-                f"PDC request returned HTTP {response.status_code}: "
-                f"{response.text[:200]}"
-            )
+            raise PDCAPIError(f"PDC request returned HTTP {response.status_code}: {response.text[:200]}")
 
         try:
             payload = response.json()
@@ -272,9 +266,7 @@ class PDCClient:
             raise PDCAPIError(f"PDC response is not valid JSON: {exc}") from exc
 
         if "errors" in payload and payload["errors"]:
-            messages = "; ".join(
-                str(err.get("message", err)) for err in payload["errors"]
-            )
+            messages = "; ".join(str(err.get("message", err)) for err in payload["errors"])
             raise PDCAPIError(f"PDC GraphQL errors: {messages}")
 
         if "data" not in payload:
@@ -317,14 +309,10 @@ class PDCClient:
         """
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
-            raise PDCAPIError(
-                f"Refusing PDC download with scheme {parsed.scheme!r}; "
-                "only http/https are allowed."
-            )
+            raise PDCAPIError(f"Refusing PDC download with scheme {parsed.scheme!r}; only http/https are allowed.")
         if parsed.scheme == "http":
             logger.warning(
-                "PDC file %s is being downloaded over plaintext HTTP; "
-                "configure the source for HTTPS if possible.",
+                "PDC file %s is being downloaded over plaintext HTTP; configure the source for HTTPS if possible.",
                 file_id,
             )
 
@@ -333,13 +321,9 @@ class PDCClient:
         if allowlist_env is not None:
             # Operator-provided list. Empty string = allow any host.
             if allowlist_env.strip():
-                allowed_hosts = {
-                    h.strip().lower() for h in allowlist_env.split(",") if h.strip()
-                }
+                allowed_hosts = {h.strip().lower() for h in allowlist_env.split(",") if h.strip()}
                 if host not in allowed_hosts:
-                    raise PDCAPIError(
-                        f"PDC download host {host!r} not in operator allowlist."
-                    )
+                    raise PDCAPIError(f"PDC download host {host!r} not in operator allowlist.")
         else:
             # Default allowlist for PDC: the canonical PDC data host only.
             if host != PDC_DATA_HOST:
@@ -376,10 +360,7 @@ class PDCClient:
             raise PDCAPIError(f"PDC file download transport failed: {exc}") from exc
 
         if response.status_code != 200:
-            raise PDCAPIError(
-                f"PDC file download returned HTTP {response.status_code}: "
-                f"{response.text[:200]}"
-            )
+            raise PDCAPIError(f"PDC file download returned HTTP {response.status_code}: {response.text[:200]}")
 
         # Pre-check Content-Length to fail fast on obviously oversized files.
         headers = getattr(response, "headers", None) or {}
@@ -418,8 +399,7 @@ class PDCClient:
                             handle.close()
                             _safe_unlink(handle.name)
                             raise PDCAPIError(
-                                f"PDC file {file_id} exceeded {max_bytes} bytes "
-                                "during streaming; aborted."
+                                f"PDC file {file_id} exceeded {max_bytes} bytes during streaming; aborted."
                             )
                         handle.write(chunk)
                 else:
@@ -428,8 +408,7 @@ class PDCClient:
                         handle.close()
                         _safe_unlink(handle.name)
                         raise PDCAPIError(
-                            f"PDC file {file_id} body {len(content)} bytes exceeds "
-                            f"cap {max_bytes} bytes."
+                            f"PDC file {file_id} body {len(content)} bytes exceeds cap {max_bytes} bytes."
                         )
                     handle.write(content)
                     bytes_written = len(content)
@@ -440,9 +419,7 @@ class PDCClient:
             raise
 
         os.replace(tmp_name, final_path)
-        logger.info(
-            "PDC file %s downloaded to %s (%d bytes)", file_id, final_path, bytes_written
-        )
+        logger.info("PDC file %s downloaded to %s (%d bytes)", file_id, final_path, bytes_written)
         return final_path
 
 

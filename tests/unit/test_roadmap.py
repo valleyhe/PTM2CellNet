@@ -59,6 +59,7 @@ class TestDeferredRegistry:
 class TestRoadmapHelpers:
     def test_esm3_encoder_falls_back_to_esm2(self, monkeypatch, caplog):
         """When ESM3Encoder is unavailable, esm3_encoder falls back to ESM2Encoder."""
+
         class FakeESM2Encoder:
             def __init__(self, *args, **kwargs):
                 self.args = args
@@ -79,6 +80,7 @@ class TestRoadmapHelpers:
 
     def test_esm3_encoder_uses_esm3_when_available(self, monkeypatch):
         """When ESM3Encoder is available, esm3_encoder returns an ESM3Encoder instance."""
+
         class FakeESM3Encoder:
             def __init__(self, *args, **kwargs):
                 self.args = args

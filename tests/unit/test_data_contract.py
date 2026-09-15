@@ -27,6 +27,7 @@ from src.training.artifacts import evaluate_release_gate
 # Data contract
 # ---------------------------------------------------------------------------
 
+
 def _good_rows():
     return [
         {"sequence": "ACDEFGHIK", "ptm_sites": '[{"position":1,"type":"phosphorylation"}]', "cell_state": "a"},
@@ -101,13 +102,15 @@ class TestValidateDataContract:
         """P2-1: 数据含全部推荐列时，即使 require_recommended=True 也通过。"""
         rows = _good_rows()
         for r in rows:
-            r.update({
-                "protein_accession": "P12345",
-                "gene_symbol": "TP53",
-                "source_db": "epsd+cplm+dbptm",
-                "evidence_level": "database",
-                "split_group": "train",
-            })
+            r.update(
+                {
+                    "protein_accession": "P12345",
+                    "gene_symbol": "TP53",
+                    "source_db": "epsd+cplm+dbptm",
+                    "evidence_level": "database",
+                    "split_group": "train",
+                }
+            )
         df = pd.DataFrame(rows)
         report = validate_data_contract(df, require_recommended=True)
         assert report["ok"] is True
@@ -117,6 +120,7 @@ class TestValidateDataContract:
 # ---------------------------------------------------------------------------
 # Dataset profile
 # ---------------------------------------------------------------------------
+
 
 class TestProfileDataset:
     def test_profile_includes_label_distribution_and_length(self):
@@ -128,21 +132,39 @@ class TestProfileDataset:
         assert profile["sequence_length"]["min"] == 9
 
     def test_profile_flags_homology_leakage(self):
-        df = pd.DataFrame([
-            {"sequence": "AAAA", "ptm_sites": "[]", "cell_state": "a",
-             "protein_accession": "P00001", "split_group": "train"},
-            {"sequence": "CCCC", "ptm_sites": "[]", "cell_state": "b",
-             "protein_accession": "P00001", "split_group": "test"},
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": "AAAA",
+                    "ptm_sites": "[]",
+                    "cell_state": "a",
+                    "protein_accession": "P00001",
+                    "split_group": "train",
+                },
+                {
+                    "sequence": "CCCC",
+                    "ptm_sites": "[]",
+                    "cell_state": "b",
+                    "protein_accession": "P00001",
+                    "split_group": "test",
+                },
+            ]
+        )
         profile = profile_dataset(df)
         assert profile["homology_leakage_accessions"] == 1
         assert "homology_leakage_warning" in profile
 
     def test_ptm_type_distribution_counted(self):
-        df = pd.DataFrame([
-            {"sequence": "AAA", "ptm_sites": '[{"position":1,"type":"phosphorylation"}]', "cell_state": "a"},
-            {"sequence": "AAA", "ptm_sites": '[{"position":1,"type":"phosphorylation"},{"position":2,"type":"acetylation"}]', "cell_state": "b"},
-        ])
+        df = pd.DataFrame(
+            [
+                {"sequence": "AAA", "ptm_sites": '[{"position":1,"type":"phosphorylation"}]', "cell_state": "a"},
+                {
+                    "sequence": "AAA",
+                    "ptm_sites": '[{"position":1,"type":"phosphorylation"},{"position":2,"type":"acetylation"}]',
+                    "cell_state": "b",
+                },
+            ]
+        )
         profile = profile_dataset(df)
         assert profile["ptm_type_distribution"]["phosphorylation"] == 2
         assert profile["ptm_type_distribution"]["acetylation"] == 1
@@ -151,6 +173,7 @@ class TestProfileDataset:
 # ---------------------------------------------------------------------------
 # Release gate
 # ---------------------------------------------------------------------------
+
 
 class TestEvaluateReleaseGate:
     def test_all_metrics_meet_thresholds(self):

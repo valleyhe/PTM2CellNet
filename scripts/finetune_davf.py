@@ -72,30 +72,30 @@ logger = setup_logger(__name__)
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="DAVF 端到端微调脚本 (V22-01)")
-    parser.add_argument("--config", type=str, default="configs/default.yaml",
-                        help="配置文件路径（首次运行推荐使用 configs/smoke/ 下的配置）")
-    parser.add_argument("--data", type=str, required=True,
-                        help="训练数据 CSV 路径")
-    parser.add_argument("--checkpoint", type=str,
-                        default="checkpoints/latent_davf_ibd_norman/best_model.pt",
-                        help="预训练 LatentDAVF checkpoint 路径")
-    parser.add_argument("--output", type=str, default="outputs/davf_finetune",
-                        help="输出目录")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/default.yaml",
+        help="配置文件路径（首次运行推荐使用 configs/smoke/ 下的配置）",
+    )
+    parser.add_argument("--data", type=str, required=True, help="训练数据 CSV 路径")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="checkpoints/latent_davf_ibd_norman/best_model.pt",
+        help="预训练 LatentDAVF checkpoint 路径",
+    )
+    parser.add_argument("--output", type=str, default="outputs/davf_finetune", help="输出目录")
     # Two-stage schedule
-    parser.add_argument("--stage1-epochs", type=int, default=5,
-                        help="阶段1（DAVF冻结）训练轮数")
-    parser.add_argument("--stage2-epochs", type=int, default=15,
-                        help="阶段2（DAVF解冻）训练轮数")
-    parser.add_argument("--stage1-lr", type=float, default=1e-3,
-                        help="阶段1学习率（仅头部可训练）")
-    parser.add_argument("--stage2-lr", type=float, default=1e-5,
-                        help="阶段2学习率（全模型可训练）")
-    parser.add_argument("--batch-size", type=int, default=64,
-                        help="批次大小")
-    parser.add_argument("--freeze-davf-stage1", action="store_true", default=True,
-                        help="阶段1冻结DAVF（默认True，遵循D-15）")
-    parser.add_argument("--weight-decay", type=float, default=1e-4,
-                        help="权重衰减")
+    parser.add_argument("--stage1-epochs", type=int, default=5, help="阶段1（DAVF冻结）训练轮数")
+    parser.add_argument("--stage2-epochs", type=int, default=15, help="阶段2（DAVF解冻）训练轮数")
+    parser.add_argument("--stage1-lr", type=float, default=1e-3, help="阶段1学习率（仅头部可训练）")
+    parser.add_argument("--stage2-lr", type=float, default=1e-5, help="阶段2学习率（全模型可训练）")
+    parser.add_argument("--batch-size", type=int, default=64, help="批次大小")
+    parser.add_argument(
+        "--freeze-davf-stage1", action="store_true", default=True, help="阶段1冻结DAVF（默认True，遵循D-15）"
+    )
+    parser.add_argument("--weight-decay", type=float, default=1e-4, help="权重衰减")
     return parser.parse_args()
 
 
@@ -111,7 +111,9 @@ def load_data(data_path: str, config: Config):
     )
     logger.info(
         "数据划分: train=%d, val=%d, test=%d",
-        len(train_df), len(val_df), len(test_df),
+        len(train_df),
+        len(val_df),
+        len(test_df),
     )
     return train_df, val_df, test_df
 
@@ -129,7 +131,9 @@ def create_dataloaders(train_df, val_df, test_df, config: Config, batch_size: in
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=4)
     logger.info(
         "DataLoader: train=%d, val=%d, test=%d batches",
-        len(train_loader), len(val_loader), len(test_loader),
+        len(train_loader),
+        len(val_loader),
+        len(test_loader),
     )
     return train_loader, val_loader, test_loader
 
@@ -233,8 +237,13 @@ def train_stage(
 
         logger.info(
             "[%s] epoch %d/%d  train_loss=%.4f  val_loss=%.4f  val_acc=%.4f  (%.1fs)",
-            stage_name, epoch, epochs, train_loss, val_loss,
-            val_metrics.get("accuracy", 0.0), time.time() - t0,
+            stage_name,
+            epoch,
+            epochs,
+            train_loss,
+            val_loss,
+            val_metrics.get("accuracy", 0.0),
+            time.time() - t0,
         )
 
         if val_loss < best_val_loss:
@@ -333,9 +342,7 @@ def main():
 
     # 1. Data
     train_df, val_df, test_df = load_data(args.data, config)
-    train_loader, val_loader, test_loader = create_dataloaders(
-        train_df, val_df, test_df, config, args.batch_size
-    )
+    train_loader, val_loader, test_loader = create_dataloaders(train_df, val_df, test_df, config, args.batch_size)
     num_classes = int(config.get("model.num_classes", len(set(train_df["cell_state"]))))
     logger.info("类别数: %d", num_classes)
 
@@ -343,9 +350,7 @@ def main():
     model = build_model(config, args.checkpoint, num_classes).to(device)
     davf_module = _find_davf_module(model)
     if davf_module is None:
-        logger.warning(
-            "未在模型中找到 DAVFInferenceModule；将仅对 PTM2CellNet 主干进行训练。"
-        )
+        logger.warning("未在模型中找到 DAVFInferenceModule；将仅对 PTM2CellNet 主干进行训练。")
     else:
         logger.info("已挂载 DAVFInferenceModule (checkpoint=%s)", args.checkpoint)
 
@@ -355,9 +360,13 @@ def main():
     if args.stage1_epochs > 0 and davf_module is not None and args.freeze_davf_stage1:
         davf_module.freeze_davf()
         stage1 = train_stage(
-            model, train_loader, val_loader,
-            epochs=args.stage1_epochs, lr=args.stage1_lr,
-            weight_decay=args.weight_decay, device=device,
+            model,
+            train_loader,
+            val_loader,
+            epochs=args.stage1_epochs,
+            lr=args.stage1_lr,
+            weight_decay=args.weight_decay,
+            device=device,
             stage_name="Stage1 (DAVF frozen)",
             output_dir=args.output,
         )
@@ -368,9 +377,13 @@ def main():
         davf_module.unfreeze_davf()
         logger.info("已解冻 DAVF 参数以进行端到端微调 (D-16)")
         stage2 = train_stage(
-            model, train_loader, val_loader,
-            epochs=args.stage2_epochs, lr=args.stage2_lr,
-            weight_decay=args.weight_decay, device=device,
+            model,
+            train_loader,
+            val_loader,
+            epochs=args.stage2_epochs,
+            lr=args.stage2_lr,
+            weight_decay=args.weight_decay,
+            device=device,
             stage_name="Stage2 (DAVF unfrozen)",
             output_dir=args.output,
         )

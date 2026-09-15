@@ -37,7 +37,9 @@ pytestmark = pytest.mark.skipif(
 
 # Canonical short proteins used for the forward-pass shape check. Using
 # well-known sequences makes the recorded evidence reproducible.
-_INSULIN_A = "MALWMRLLPLLALLALWGPDPAAAFVNQHLCGSHLVEALYLVCGERGFFYTPKTRREAEDLQVGQVELGGGPGAGSLQPLALEGSLQKRGIVEQCCTSICSLYQLENYCN"
+_INSULIN_A = (
+    "MALWMRLLPLLALLALWGPDPAAAFVNQHLCGSHLVEALYLVCGERGFFYTPKTRREAEDLQVGQVELGGGPGAGSLQPLALEGSLQKRGIVEQCCTSICSLYQLENYCN"
+)
 _UBIQUITIN = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
 
 
@@ -127,20 +129,22 @@ def test_esm3_real_cache_hit_on_second_load():
     try:
         # First load primes the cache.
         ESM3Encoder(
-            model_size="small", freeze=True, cache_dir=cache_dir,
+            model_size="small",
+            freeze=True,
+            cache_dir=cache_dir,
             checkpoint_path=checkpoint,
         )
         # Second load should be cheap (cache hit).
         t0 = time.time()
         ESM3Encoder(
-            model_size="small", freeze=True, cache_dir=cache_dir,
+            model_size="small",
+            freeze=True,
+            cache_dir=cache_dir,
             checkpoint_path=checkpoint,
         )
         second_load_s = time.time() - t0
         # Loose bound: a 2.7GB download takes minutes; a cache hit is seconds.
-        assert second_load_s < 60.0, (
-            f"second ESM-3 load took {second_load_s:.1f}s — cache may not be working"
-        )
+        assert second_load_s < 60.0, f"second ESM-3 load took {second_load_s:.1f}s — cache may not be working"
     except Exception as exc_:  # pragma: no cover
         outcome = "fail"
         err = f"{type(exc_).__name__}: {exc_}"

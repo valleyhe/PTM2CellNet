@@ -185,12 +185,15 @@ def _endpoint_losses(
         t=t_zero,
         attention_mask=batch["attention_mask"],
     )
-    direction_loss = 1.0 - F.cosine_similarity(
-        outputs["v_t"],
-        outputs["u_t"],
-        dim=1,
-        eps=1e-8,
-    ).mean()
+    direction_loss = (
+        1.0
+        - F.cosine_similarity(
+            outputs["v_t"],
+            outputs["u_t"],
+            dim=1,
+            eps=1e-8,
+        ).mean()
+    )
     return outputs["loss"], direction_loss
 
 
@@ -225,11 +228,7 @@ def _run_epoch(
             optimizer.zero_grad(set_to_none=True)
             flow_loss = _flow_matching_loss(model, batch)
             endpoint_loss, direction_loss = _endpoint_losses(model, batch)
-            loss = (
-                flow_loss
-                + endpoint_loss_weight * endpoint_loss
-                + direction_loss_weight * direction_loss
-            )
+            loss = flow_loss + endpoint_loss_weight * endpoint_loss + direction_loss_weight * direction_loss
             loss.backward()
             if max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -254,11 +253,7 @@ def _run_epoch(
                 )
                 flow_loss = flow_outputs["loss"]
                 endpoint_loss, direction_loss = _endpoint_losses(model, batch)
-                loss = (
-                    flow_loss
-                    + endpoint_loss_weight * endpoint_loss
-                    + direction_loss_weight * direction_loss
-                )
+                loss = flow_loss + endpoint_loss_weight * endpoint_loss + direction_loss_weight * direction_loss
         count = int(batch["z_0"].shape[0])
         total_flow_loss += float(flow_loss.detach().cpu()) * count
         total_endpoint_loss += float(endpoint_loss.detach().cpu()) * count
@@ -319,8 +314,10 @@ def _validate_donor_split_metadata(dataset: Any, split_name: str, donor_split: A
     train_donors = set(donor_split.train_donors)
     for row_index, row in enumerate(donor_rows):
         row_donors = [row] if isinstance(row, str) else row
-        if not isinstance(row_donors, list) or not row_donors or not all(
-            isinstance(donor, str) and donor for donor in row_donors
+        if (
+            not isinstance(row_donors, list)
+            or not row_donors
+            or not all(isinstance(donor, str) and donor for donor in row_donors)
         ):
             raise ValueError(f"{split_name} NPZ metadata.dataset.donor_rows[{row_index}] is invalid")
         invalid = sorted(set(row_donors) - train_donors)

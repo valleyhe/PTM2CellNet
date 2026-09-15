@@ -80,6 +80,7 @@ class TestSafeTorchLoad:
         monkeypatch.setattr(torch, "load", fake_torch_load)
 
         import logging
+
         with caplog.at_level(logging.WARNING, logger="src.utils.io"):
             loaded = io_module.safe_torch_load(
                 str(checkpoint_path),

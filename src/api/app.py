@@ -49,6 +49,7 @@ def _build_lifespan():
     exit. Anything more elaborate belongs in dedicated middleware so it
     stays testable in isolation.
     """
+
     @asynccontextmanager
     async def _lifespan(app: FastAPI):  # noqa: ARG001 - FastAPI contract
         logger.info("PTM2CellNet API 启动")
@@ -123,8 +124,7 @@ def create_app(
         )
     else:
         logger.info(
-            "API-key authentication disabled (PTM2CELLNET_API_KEY unset). "
-            "Set it to protect prediction endpoints."
+            "API-key authentication disabled (PTM2CELLNET_API_KEY unset). Set it to protect prediction endpoints."
         )
 
     # Strict model assets mode — propagates PTM2CELLNET_STRICT_MODEL_ASSETS
@@ -151,8 +151,7 @@ def create_app(
                 "http://127.0.0.1:8080",
             ]
             logger.info(
-                "CORS: development mode — allowing localhost origins. "
-                "Set PTM2CELLNET_CORS_ORIGINS to override."
+                "CORS: development mode — allowing localhost origins. Set PTM2CELLNET_CORS_ORIGINS to override."
             )
         else:
             # Production or unspecified environment: deny all cross-origin by default.

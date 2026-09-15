@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # float32 参数每个占 4 字节。
 BYTES_PER_PARAM = 4
 # 1 MB 的字节数，用于将字节换算为兆字节。
-BYTES_PER_MB = 1024 ** 2
+BYTES_PER_MB = 1024**2
 # 为优化器状态与中间激活预留的内存比例（可用内存的 50%）。
 MEMORY_RESERVE_RATIO = 0.5
 # 无法从模型探测 hidden_dim 时的保守默认值。
@@ -30,6 +30,7 @@ MAX_BATCH_SIZE_CAP = 512
 # ---------------------------------------------------------------------------
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
+
 
 class _ModuleParamStats(TypedDict):
     """Per-module parameter statistics."""
@@ -81,10 +82,23 @@ def validate_model_config(config: Dict[str, Union[str, int, float, bool, List[An
 
     # 编码器类型检查
     valid_encoders = [
-        "cnn", "transformer", "lstm", "gru", "mamba",
-        "esm2", "esm2_8m", "esm2_35m", "esm2_70m", "esm2_150m", "esm2_650m", "esm2_3b",
-        "esm3", "esm3_small", "esm3_sm_open",
-        "protbert", "prott5"
+        "cnn",
+        "transformer",
+        "lstm",
+        "gru",
+        "mamba",
+        "esm2",
+        "esm2_8m",
+        "esm2_35m",
+        "esm2_70m",
+        "esm2_150m",
+        "esm2_650m",
+        "esm2_3b",
+        "esm3",
+        "esm3_small",
+        "esm3_sm_open",
+        "protbert",
+        "prott5",
     ]
     encoder_type = model_cfg.get("encoder_type", "").lower()
     if encoder_type and encoder_type not in valid_encoders:
@@ -139,7 +153,7 @@ def count_parameters(model: nn.Module, trainable_only: bool = False) -> Paramete
         module_params[name] = {
             "total": module_count,
             "trainable": module_trainable,
-            "percentage": module_count / total_params * 100 if total_params > 0 else 0.0
+            "percentage": module_count / total_params * 100 if total_params > 0 else 0.0,
         }
 
     return {
@@ -148,7 +162,7 @@ def count_parameters(model: nn.Module, trainable_only: bool = False) -> Paramete
         "trainable_params": sum(p.numel() for p in model.parameters() if p.requires_grad),
         "trainable_params_m": sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6,
         "frozen_params": total_params - sum(p.numel() for p in model.parameters() if p.requires_grad),
-        "modules": module_params
+        "modules": module_params,
     }
 
 
@@ -176,7 +190,7 @@ def get_model_memory_usage(
     # 估算激活内存（简化计算）
     # 每层大约需要 batch_size * seq_len * hidden_dim * BYTES_PER_PARAM bytes
     hidden_dim = DEFAULT_HIDDEN_DIM
-    if hasattr(model, 'embed_dim'):
+    if hasattr(model, "embed_dim"):
         embed_dim = model.embed_dim
         # 确保是整数（如果是tensor，取item()）
         if isinstance(embed_dim, torch.Tensor):
@@ -192,7 +206,7 @@ def get_model_memory_usage(
         "params_memory_mb": param_memory_mb,
         "activation_memory_mb": activation_memory_mb,
         "total_memory_mb": param_memory_mb + activation_memory_mb,
-        "recommended_batch_size": estimate_max_batch_size(model, seq_len, config=config)
+        "recommended_batch_size": estimate_max_batch_size(model, seq_len, config=config),
     }
 
 
@@ -263,9 +277,12 @@ def _infer_activation_depth(
     return int(hidden_dim), 10
 
 
-def estimate_max_batch_size(model: nn.Module, seq_len: int = 1000,
-                            available_memory_gb: float = DEFAULT_AVAILABLE_MEMORY_GB,
-                            config: Optional[Dict[str, Union[str, int, float]]] = None) -> int:
+def estimate_max_batch_size(
+    model: nn.Module,
+    seq_len: int = 1000,
+    available_memory_gb: float = DEFAULT_AVAILABLE_MEMORY_GB,
+    config: Optional[Dict[str, Union[str, int, float]]] = None,
+) -> int:
     """
     估算最大批次大小
 
@@ -312,25 +329,24 @@ def print_model_summary(model: nn.Module, detailed: bool = False) -> None:
     logger.info("=" * 60)
     logger.info("模型摘要")
     logger.info("=" * 60)
-    logger.info("总参数量: %.2fM (%s)", stats['total_params_m'], f"{stats['total_params']:,}")
-    logger.info("可训练参数: %.2fM (%s)", stats['trainable_params_m'], f"{stats['trainable_params']:,}")
+    logger.info("总参数量: %.2fM (%s)", stats["total_params_m"], f"{stats['total_params']:,}")
+    logger.info("可训练参数: %.2fM (%s)", stats["trainable_params_m"], f"{stats['trainable_params']:,}")
     logger.info("冻结参数: %s", f"{stats['frozen_params']:,}")
 
     if detailed:
         logger.info("各模块参数量:")
-        for name, module_stats in stats['modules'].items():
-            logger.info("  %s: %.2fM (%.1f%%)", name, module_stats['total'] / 1e6, module_stats['percentage'])
+        for name, module_stats in stats["modules"].items():
+            logger.info("  %s: %.2fM (%.1f%%)", name, module_stats["total"] / 1e6, module_stats["percentage"])
 
     memory = get_model_memory_usage(model)
     logger.info("内存估算:")
-    logger.info("  参数内存: %.2f MB", memory['params_memory_mb'])
-    logger.info("  激活内存: %.2f MB", memory['activation_memory_mb'])
-    logger.info("  推荐批次大小: %d", memory['recommended_batch_size'])
+    logger.info("  参数内存: %.2f MB", memory["params_memory_mb"])
+    logger.info("  激活内存: %.2f MB", memory["activation_memory_mb"])
+    logger.info("  推荐批次大小: %d", memory["recommended_batch_size"])
     logger.info("=" * 60)
 
 
-def compare_models(model1: nn.Module, model2: nn.Module,
-                   names: Tuple[str, str] = ("Model1", "Model2")) -> None:
+def compare_models(model1: nn.Module, model2: nn.Module, names: Tuple[str, str] = ("Model1", "Model2")) -> None:
     """
     比较两个模型的参数量和内存使用
 
@@ -348,7 +364,7 @@ def compare_models(model1: nn.Module, model2: nn.Module,
     logger.info("=" * 60)
     logger.info("%-30s %-15s %-15s", "指标", names[0], names[1])
     logger.info("-" * 60)
-    logger.info("%-30s %-15.2f %-15.2f", "总参数量 (M)", stats1['total_params_m'], stats2['total_params_m'])
-    logger.info("%-30s %-15.2f %-15.2f", "可训练参数 (M)", stats1['trainable_params_m'], stats2['trainable_params_m'])
+    logger.info("%-30s %-15.2f %-15.2f", "总参数量 (M)", stats1["total_params_m"], stats2["total_params_m"])
+    logger.info("%-30s %-15.2f %-15.2f", "可训练参数 (M)", stats1["trainable_params_m"], stats2["trainable_params_m"])
     logger.info("%-30s %-15s %-15s", "冻结参数", f"{stats1['frozen_params']:,}", f"{stats2['frozen_params']:,}")
     logger.info("=" * 60)

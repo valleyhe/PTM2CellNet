@@ -164,8 +164,7 @@ def _run_tool(name: str, sequence: str, uniprot_id: Optional[str]) -> Dict[str, 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Enrich a protein with external tool outputs "
-        "(AlphaFold / BLAST / ClustalW / PSIPRED).",
+        description="Enrich a protein with external tool outputs (AlphaFold / BLAST / ClustalW / PSIPRED).",
     )
     grp = p.add_mutually_exclusive_group()
     grp.add_argument("--uniprot-id", help="UniProt accession to fetch a sequence for.")

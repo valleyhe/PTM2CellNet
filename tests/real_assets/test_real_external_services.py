@@ -81,9 +81,7 @@ def test_kegg_real_pathway_load_does_not_fall_back():
         result = mapper.get_pathways() if hasattr(mapper, "get_pathways") else None
         # If the mapper exposes a source attribute, assert it is not the
         # fallback constant.
-        source = getattr(mapper, "_last_pathway_source", None) or getattr(
-            mapper, "pathway_source", None
-        )
+        source = getattr(mapper, "_last_pathway_source", None) or getattr(mapper, "pathway_source", None)
         if source is not None:
             assert source.lower() not in {"fallback", "builtin", "offline"}, (
                 f"KEGG fetch fell back to {source!r} despite network being available"

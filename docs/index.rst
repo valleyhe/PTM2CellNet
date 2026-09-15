@@ -25,6 +25,8 @@ perturbations at single-cell resolution.
    :maxdepth: 2
    :caption: DAVF and PerturbGen Research
 
+   PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案
+   guides/ptm_activity_pipeline
    DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21
    guides/davf_perturbgen_e2e
    guides/perturbgen_bridge

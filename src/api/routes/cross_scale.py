@@ -93,9 +93,19 @@ def reset_cross_scale_state() -> None:
     tooling can deterministically clear the cross-scale model slot.
     """
     fresh = _CrossScaleState()
-    for field_name in ("model", "manifest", "labels", "device", "artifact_path",
-                       "manifest_digest", "model_info", "max_batch_size",
-                       "default_graph", "graph_ref", "initialization_failed"):
+    for field_name in (
+        "model",
+        "manifest",
+        "labels",
+        "device",
+        "artifact_path",
+        "manifest_digest",
+        "model_info",
+        "max_batch_size",
+        "default_graph",
+        "graph_ref",
+        "initialization_failed",
+    ):
         setattr(CROSS_SCALE_STATE, field_name, getattr(fresh, field_name))
 
 
@@ -154,9 +164,7 @@ def _load_default_graph(graph_ref: str, model: CrossScalePTM2CellNet) -> Dict[st
         )
     num_genes = model.cross_scale_config.num_cell_genes
     cell_edges = graphs["cell_edge_index"]
-    if cell_edges.numel() and (
-        int(cell_edges.max().item()) >= num_genes or int(cell_edges.min().item()) < 0
-    ):
+    if cell_edges.numel() and (int(cell_edges.max().item()) >= num_genes or int(cell_edges.min().item()) < 0):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"graph_ref cell_edge_index 节点越界（模型 num_cell_genes={num_genes}）",
@@ -263,9 +271,7 @@ async def cross_scale_initialize(
             device=device,
             allow_last_checkpoint_fallback=not request.strict_assets,
         )
-        default_graph = (
-            _load_default_graph(request.graph_ref, model) if request.graph_ref else None
-        )
+        default_graph = _load_default_graph(request.graph_ref, model) if request.graph_ref else None
         return model, manifest, _manifest_digest(artifact_dir), default_graph
 
     try:
@@ -313,7 +319,10 @@ async def cross_scale_initialize(
     )
     logger.info(
         "cross-scale 模型已加载: artifact=%s device=%s labels=%s digest=%s",
-        artifact_dir, device, CROSS_SCALE_STATE.labels, digest[:12],
+        artifact_dir,
+        device,
+        CROSS_SCALE_STATE.labels,
+        digest[:12],
     )
     return CrossScaleInitializeResponse(
         status="success",
@@ -352,9 +361,7 @@ class CrossScalePredictRequest(BaseModel):
 
     @property
     def effective_sample_id(self) -> str:
-        return self.sample_id or (
-            f"seq:{len(self.sequence)}" if self.sequence else f"emb:{self.sample_index}"
-        )
+        return self.sample_id or (f"seq:{len(self.sequence)}" if self.sequence else f"emb:{self.sample_index}")
 
 
 class CrossScalePrediction(BaseModel):
@@ -377,9 +384,7 @@ class CrossScalePredictResponse(CrossScalePrediction):
 class CrossScaleBatchPredictRequest(BaseModel):
     samples: List[CrossScalePredictRequest] = Field(..., min_length=1, max_length=_MAX_BATCH_SAMPLES)
     batch_size: int = Field(8, ge=1, le=64)
-    fail_fast: bool = Field(
-        False, description="True 时首个失败样本立即中止并返回 400；False 时逐样本收集 errors"
-    )
+    fail_fast: bool = Field(False, description="True 时首个失败样本立即中止并返回 400；False 时逐样本收集 errors")
 
 
 class CrossScaleBatchError(BaseModel):
@@ -401,9 +406,7 @@ class CrossScaleBatchPredictResponse(BaseModel):
     provenance: Dict[str, Any]
 
 
-def _fallback_flags(
-    model: CrossScalePTM2CellNet, *, graph_supplied: bool, sequence_mode: bool
-) -> Dict[str, bool]:
+def _fallback_flags(model: CrossScalePTM2CellNet, *, graph_supplied: bool, sequence_mode: bool) -> Dict[str, bool]:
     """显式报告本次推理依赖的工程 fallback（契约：禁止隐式随机 fallback）。
 
     ``plm_fallback_used`` 仅在原始序列路径下有意义：embedding 路径消费的
@@ -416,9 +419,7 @@ def _fallback_flags(
     }
 
 
-def _ptm_tensors(
-    ptm_sites: List[PTMSite], num_ptm_types: int
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def _ptm_tensors(ptm_sites: List[PTMSite], num_ptm_types: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """把 API PTM 位点映射为模型期望的 1-based 类型/位置张量。"""
     type_ids: List[int] = []
     positions: List[int] = []
@@ -546,9 +547,7 @@ def _ensure_signal_gene_map(
     return {"signal_map_uniform": True}
 
 
-def _load_embedding_inputs(
-    embedding_ref: str, sample_index: int, model: CrossScalePTM2CellNet
-) -> Dict[str, Any]:
+def _load_embedding_inputs(embedding_ref: str, sample_index: int, model: CrossScalePTM2CellNet) -> Dict[str, Any]:
     """从 embedding NPZ 提取单样本输入（含自带图数组）并校验 backbone 契约。"""
     path = _validate_path_within_allowed(Path(embedding_ref))
     if not path.is_file():
@@ -595,16 +594,14 @@ def _load_embedding_inputs(
             if expected_dim is not None and array.shape[-1] != expected_dim:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"{key} 最后一维 {array.shape[-1]} 与模型 backbone dim {expected_dim} 不一致"
-                    ),
+                    detail=(f"{key} 最后一维 {array.shape[-1]} 与模型 backbone dim {expected_dim} 不一致"),
                 )
-            inputs[key] = torch.from_numpy(array[sample_index: sample_index + 1].copy()).float()
+            inputs[key] = torch.from_numpy(array[sample_index : sample_index + 1].copy()).float()
             mask_key = f"{name}_attention_mask"
             if mask_key in payload:
                 mask = np.asarray(payload[mask_key])
                 if mask.ndim == 2 and sample_index < mask.shape[0]:
-                    attention = torch.from_numpy(mask[sample_index: sample_index + 1].copy()).float()
+                    attention = torch.from_numpy(mask[sample_index : sample_index + 1].copy()).float()
         if attention is not None:
             inputs["protein_attention_mask"] = attention
         # 跨尺度 NPZ（区别于 embedding cache）可自带图结构，单样本优先使用。
@@ -637,8 +634,7 @@ def _build_prediction(
         cell_state=CROSS_SCALE_STATE.labels[index],
         confidence=float(probabilities[index]),
         probabilities={
-            CROSS_SCALE_STATE.labels[i]: float(probabilities[i])
-            for i in range(len(CROSS_SCALE_STATE.labels))
+            CROSS_SCALE_STATE.labels[i]: float(probabilities[i]) for i in range(len(CROSS_SCALE_STATE.labels))
         },
         cell_state_logits=[float(value) for value in logits.tolist()],
         delta_expression=(
@@ -771,12 +767,10 @@ async def cross_scale_batch_predict(
 
     # 纯序列组批路径：chunk 级失败（如序列编码契约违规）影响整个 chunk。
     for start in range(0, len(plain_positions), batch_size):
-        chunk_positions = plain_positions[start: start + batch_size]
+        chunk_positions = plain_positions[start : start + batch_size]
         chunk = [request.samples[position] for position in chunk_positions]
         try:
-            chunk_predictions = await run_in_threadpool(
-                _predict_plain_sequence_chunk_sync, chunk
-            )
+            chunk_predictions = await run_in_threadpool(_predict_plain_sequence_chunk_sync, chunk)
         except CrossScaleContractError as exc:
             detail = f"跨尺度推理契约违规: {exc}"
         except HTTPException as exc:
@@ -792,11 +786,7 @@ async def cross_scale_batch_predict(
             )
         for position in chunk_positions:
             sample = request.samples[position]
-            errors.append(
-                CrossScaleBatchError(
-                    index=position, sample_id=sample.effective_sample_id, detail=detail
-                )
-            )
+            errors.append(CrossScaleBatchError(index=position, sample_id=sample.effective_sample_id, detail=detail))
 
     # 其余样本（embedding 引用 / 带 PTM / 输入非法）逐个推理并隔离失败。
     for position in other_positions:
@@ -810,9 +800,7 @@ async def cross_scale_batch_predict(
                     detail=f"样本 {position} ({sample.effective_sample_id}): {exc.detail}",
                 ) from exc
             errors.append(
-                CrossScaleBatchError(
-                    index=position, sample_id=sample.effective_sample_id, detail=str(exc.detail)
-                )
+                CrossScaleBatchError(index=position, sample_id=sample.effective_sample_id, detail=str(exc.detail))
             )
 
     predictions = [results[position] for position in sorted(results)]

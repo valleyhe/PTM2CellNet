@@ -77,9 +77,7 @@ class TestSparseScoring:
 
     def test_edge_index_to_adjacency_sparse(self) -> None:
         edge_index = np.array([[0, 1], [1, 0]])
-        adjacency = GraphUtilities._edge_index_to_adjacency(
-            edge_index, num_nodes=2, sparse=True
-        )
+        adjacency = GraphUtilities._edge_index_to_adjacency(edge_index, num_nodes=2, sparse=True)
         assert sp.issparse(adjacency)
         dense = adjacency.toarray()
         assert np.array_equal(dense, np.array([[0.0, 1.0], [1.0, 0.0]]))
@@ -87,9 +85,7 @@ class TestSparseScoring:
     def test_edge_index_to_adjacency_large_graph_returns_sparse(self) -> None:
         # Above SPARSE_THRESHOLD the dense default switches to sparse.
         edge_index = np.array([[0, 1], [1, 0]])
-        adjacency = GraphUtilities._edge_index_to_adjacency(
-            edge_index, num_nodes=GraphUtilities.SPARSE_THRESHOLD + 1
-        )
+        adjacency = GraphUtilities._edge_index_to_adjacency(edge_index, num_nodes=GraphUtilities.SPARSE_THRESHOLD + 1)
         assert sp.issparse(adjacency)
 
 

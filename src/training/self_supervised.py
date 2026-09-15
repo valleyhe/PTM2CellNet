@@ -58,9 +58,7 @@ class MaskedPTMPrediction(nn.Module):
         else:
             valid_positions = ptm_mask.to(dtype=torch.bool)
 
-        sampled = valid_positions & (
-            torch.rand(ptm_types.shape, device=ptm_types.device) < self.mask_probability
-        )
+        sampled = valid_positions & (torch.rand(ptm_types.shape, device=ptm_types.device) < self.mask_probability)
         if valid_positions.any() and not sampled.any():
             sampled = sampled.clone()
             first_valid = valid_positions.nonzero(as_tuple=False)[0]
@@ -260,31 +258,33 @@ def _split_train_val(
         return dataloader, None
 
     if not (hasattr(dataloader, "dataset") and hasattr(dataloader, "batch_size")):
-        logger.warning(
-            "validation_split > 0 but dataloader is not a DataLoader; skipping split"
-        )
+        logger.warning("validation_split > 0 but dataloader is not a DataLoader; skipping split")
         return dataloader, None
 
     dataset = dataloader.dataset
     val_size = int(len(dataset) * validation_split)
     train_size = len(dataset) - val_size
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        dataset, [train_size, val_size]
-    )
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
     bs = dataloader.batch_size
     cf = getattr(dataloader, "collate_fn", None)
     ss = getattr(dataloader, "sampler", None)
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=bs, shuffle=(ss is None),
+        train_dataset,
+        batch_size=bs,
+        shuffle=(ss is None),
         collate_fn=cf,
     )
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=bs, shuffle=False,
+        val_dataset,
+        batch_size=bs,
+        shuffle=False,
         collate_fn=cf,
     )
     logger.info(
         "Split dataset: %d train, %d validation (%.1f%%)",
-        train_size, val_size, validation_split * 100,
+        train_size,
+        val_size,
+        validation_split * 100,
     )
     return train_loader, val_loader
 
@@ -301,13 +301,9 @@ def _build_lr_schedulers(
     cosine_scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
     plateau_scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None = None
     if lr_scheduler == "cosine":
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=epochs
-        )
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     elif lr_scheduler == "plateau":
-        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=3
-        )
+        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
     return cosine_scheduler, plateau_scheduler
 
 
@@ -343,18 +339,17 @@ def _restore_checkpoint(
             history = [float(v) for v in restored_history]
         logger.info(
             "Resumed %s from epoch %d (best_val_loss=%.6f)",
-            resume_from, start_epoch, best_val_loss,
+            resume_from,
+            start_epoch,
+            best_val_loss,
         )
     else:
         # 旧格式：裸 state_dict（仅权重）
         if not isinstance(state, dict):
-            raise ValueError(
-                f"Unrecognized checkpoint format for masked pretraining: {resume_from}"
-            )
+            raise ValueError(f"Unrecognized checkpoint format for masked pretraining: {resume_from}")
         model.load_state_dict(state)
         logger.warning(
-            "Legacy checkpoint %s contains only model weights; "
-            "optimizer/scheduler/epoch state not restored",
+            "Legacy checkpoint %s contains only model weights; optimizer/scheduler/epoch state not restored",
             resume_from,
         )
     return start_epoch, best_val_loss, epochs_since_improvement, history
@@ -458,7 +453,10 @@ def _train_one_epoch(
         if (batch_idx + 1) % log_interval == 0:
             logger.info(
                 "Epoch %d/%d, Batch %d, Loss: %.4f",
-                epoch + 1, epochs, batch_idx + 1, loss.item(),
+                epoch + 1,
+                epochs,
+                batch_idx + 1,
+                loss.item(),
             )
 
     return total_loss / max(steps, 1)
@@ -478,19 +476,19 @@ def _save_best_checkpoint(
 ) -> None:
     """Save the best-model checkpoint with full resume state."""
     ckpt_path = os.path.join(checkpoint_dir, "best_model.pt")
-    torch.save({
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "scheduler": (
-            cosine_scheduler.state_dict()
-            if cosine_scheduler is not None else None
-        ),
-        "epoch": epoch,
-        "best_val_loss": best_val_loss,
-        "epochs_since_improvement": epochs_since_improvement,
-        "config": training_config,
-        "history": history,
-    }, ckpt_path)
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": (cosine_scheduler.state_dict() if cosine_scheduler is not None else None),
+            "epoch": epoch,
+            "best_val_loss": best_val_loss,
+            "epochs_since_improvement": epochs_since_improvement,
+            "config": training_config,
+            "history": history,
+        },
+        ckpt_path,
+    )
     logger.info("Saved best model to %s", ckpt_path)
 
 
@@ -572,8 +570,8 @@ def pretrain_masked_ptm(
     history: List[float] = []
 
     if resume_from is not None:
-        start_epoch, best_val_loss, epochs_since_improvement, history = (
-            _restore_checkpoint(model, optimizer, cosine_scheduler, resume_from, device)
+        start_epoch, best_val_loss, epochs_since_improvement, history = _restore_checkpoint(
+            model, optimizer, cosine_scheduler, resume_from, device
         )
     else:
         start_epoch = 0
@@ -582,10 +580,18 @@ def pretrain_masked_ptm(
         if early_stop:
             break
         epoch_loss = _train_one_epoch(
-            model, train_loader, optimizer, device,
-            epoch=epoch, epochs=epochs, use_amp=use_amp, scaler=scaler,
-            grad_clip_norm=grad_clip_norm, warmup_steps=warmup_steps,
-            initial_lr=initial_lr, log_interval=log_interval,
+            model,
+            train_loader,
+            optimizer,
+            device,
+            epoch=epoch,
+            epochs=epochs,
+            use_amp=use_amp,
+            scaler=scaler,
+            grad_clip_norm=grad_clip_norm,
+            warmup_steps=warmup_steps,
+            initial_lr=initial_lr,
+            log_interval=log_interval,
         )
         history.append(epoch_loss)
         logger.info("Epoch %d/%d training loss: %.4f", epoch + 1, epochs, epoch_loss)
@@ -607,8 +613,12 @@ def pretrain_masked_ptm(
                 best_val_loss = val_loss
                 if checkpoint_dir is not None:
                     _save_best_checkpoint(
-                        model, optimizer, cosine_scheduler, checkpoint_dir,
-                        epoch=epoch, best_val_loss=best_val_loss,
+                        model,
+                        optimizer,
+                        cosine_scheduler,
+                        checkpoint_dir,
+                        epoch=epoch,
+                        best_val_loss=best_val_loss,
                         epochs_since_improvement=epochs_since_improvement,
                         history=history,
                         training_config={
@@ -630,9 +640,7 @@ def pretrain_masked_ptm(
                     epochs_since_improvement = 0
                 else:
                     epochs_since_improvement += 1
-                    logger.info(
-                        "早停等待中: %d/%d", epochs_since_improvement, patience
-                    )
+                    logger.info("早停等待中: %d/%d", epochs_since_improvement, patience)
                     if epochs_since_improvement >= patience:
                         logger.info("早停触发于 epoch %d", epoch + 1)
                         early_stop = True
@@ -685,7 +693,7 @@ def pretrain_combined(
     model.to(device)
 
     num_ptm_types = model.num_ptm_types
-    embed_dim = model.classifier.out_features if hasattr(model, 'classifier') else 128
+    embed_dim = model.classifier.out_features if hasattr(model, "classifier") else 128
 
     contrastive_module = PTMContrastiveLearning(
         embed_dim=embed_dim,
@@ -722,25 +730,22 @@ def pretrain_combined(
                 restored_history = state.get("history")
                 if isinstance(restored_history, list):
                     history = [
-                        {k: float(v) for k, v in entry.items()}
-                        for entry in restored_history
-                        if isinstance(entry, dict)
+                        {k: float(v) for k, v in entry.items()} for entry in restored_history if isinstance(entry, dict)
                     ]
                 logger.info(
                     "Resumed %s from epoch %d (best_loss=%.6f)",
-                    resume_from, start_epoch, best_loss,
+                    resume_from,
+                    start_epoch,
+                    best_loss,
                 )
             else:
                 # 旧格式：三模块裸权重（2026-08 前产物）
                 logger.warning(
-                    "Legacy checkpoint %s contains only module weights; "
-                    "optimizer/epoch state not restored",
+                    "Legacy checkpoint %s contains only module weights; optimizer/epoch state not restored",
                     resume_from,
                 )
         else:
-            raise ValueError(
-                f"Unrecognized checkpoint format for combined pretraining: {resume_from}"
-            )
+            raise ValueError(f"Unrecognized checkpoint format for combined pretraining: {resume_from}")
 
     for epoch in range(start_epoch, epochs):
         model.train()
@@ -790,7 +795,9 @@ def pretrain_combined(
                 if anchor.shape[-1] != contrastive_module.projector[0].in_features:
                     # Project to matching dim
                     min_dim = min(anchor.shape[-1], contrastive_module.projector[0].in_features)
-                    anchor_proj = torch.zeros(anchor.shape[0], contrastive_module.projector[0].in_features, device=device)
+                    anchor_proj = torch.zeros(
+                        anchor.shape[0], contrastive_module.projector[0].in_features, device=device
+                    )
                     positive_proj = torch.zeros_like(anchor_proj)
                     anchor_proj[:, :min_dim] = anchor[:, :min_dim]
                     positive_proj[:, :min_dim] = positive[:, :min_dim]
@@ -808,9 +815,7 @@ def pretrain_combined(
 
             # Combined loss
             total_loss = (
-                masked_weight * masked_loss
-                + contrastive_weight * contrastive_loss
-                + denoising_weight * denoising_loss
+                masked_weight * masked_loss + contrastive_weight * contrastive_loss + denoising_weight * denoising_loss
             )
 
             total_loss.backward()
@@ -825,8 +830,13 @@ def pretrain_combined(
             if (batch_idx + 1) % log_interval == 0:
                 logger.info(
                     "Epoch %d/%d, Batch %d, Loss: %.4f (masked=%.4f, cl=%.4f, denoise=%.4f)",
-                    epoch + 1, epochs, batch_idx + 1, total_loss.item(),
-                    masked_loss.item(), contrastive_loss.item(), denoising_loss.item(),
+                    epoch + 1,
+                    epochs,
+                    batch_idx + 1,
+                    total_loss.item(),
+                    masked_loss.item(),
+                    contrastive_loss.item(),
+                    denoising_loss.item(),
                 )
 
         for key in epoch_losses:
@@ -835,32 +845,38 @@ def pretrain_combined(
 
         logger.info(
             "Epoch %d/%d — total: %.4f (masked=%.4f, contrastive=%.4f, denoising=%.4f)",
-            epoch + 1, epochs,
-            epoch_losses["total"], epoch_losses["masked"],
-            epoch_losses["contrastive"], epoch_losses["denoising"],
+            epoch + 1,
+            epochs,
+            epoch_losses["total"],
+            epoch_losses["masked"],
+            epoch_losses["contrastive"],
+            epoch_losses["denoising"],
         )
 
         # Save best model
         if checkpoint_dir is not None and epoch_losses["total"] < best_loss:
             best_loss = epoch_losses["total"]
             ckpt_path = os.path.join(checkpoint_dir, "best_combined_model.pt")
-            torch.save({
-                "masked_model": model.state_dict(),
-                "contrastive_module": contrastive_module.state_dict(),
-                "denoising_module": denoising_module.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch,
-                "best_loss": best_loss,
-                "config": {
-                    "epochs": epochs,
-                    "contrastive_weight": contrastive_weight,
-                    "denoising_weight": denoising_weight,
-                    "masked_weight": masked_weight,
-                    "use_amp": use_amp,
-                    "log_interval": log_interval,
+            torch.save(
+                {
+                    "masked_model": model.state_dict(),
+                    "contrastive_module": contrastive_module.state_dict(),
+                    "denoising_module": denoising_module.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "epoch": epoch,
+                    "best_loss": best_loss,
+                    "config": {
+                        "epochs": epochs,
+                        "contrastive_weight": contrastive_weight,
+                        "denoising_weight": denoising_weight,
+                        "masked_weight": masked_weight,
+                        "use_amp": use_amp,
+                        "log_interval": log_interval,
+                    },
+                    "history": history,
                 },
-                "history": history,
-            }, ckpt_path)
+                ckpt_path,
+            )
             logger.info("Saved best combined model to %s", ckpt_path)
 
     return history

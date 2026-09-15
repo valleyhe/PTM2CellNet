@@ -1,4 +1,3 @@
-
 from src.data.schemas import PTMSite, PTMRecord, validate_protein_data
 
 
@@ -33,9 +32,7 @@ def test_ptm_record_to_dict_round_trip():
 
 
 def test_ptm_record_from_dict_with_none_confidence():
-    record = PTMRecord.from_dict(
-        {"protein_accession": "P12345", "position": 7, "ptm_type": "methylation"}
-    )
+    record = PTMRecord.from_dict({"protein_accession": "P12345", "position": 7, "ptm_type": "methylation"})
     assert record.confidence is None
     assert record.amino_acid is None
     assert record.source is None

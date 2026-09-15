@@ -110,11 +110,7 @@ def aggregate_candidate_empirical_pvalues(
             indexed[key] = item["empirical_pvalue"]
 
     primary_seeds = sorted(
-        {
-            seed
-            for path, mode, seed in indexed
-            if path == "source_intervention" and mode == primary_mode
-        }
+        {seed for path, mode, seed in indexed if path == "source_intervention" and mode == primary_mode}
     )
     if len(primary_seeds) < expected_seed_count:
         raise EmpiricalPvalueError(
@@ -123,9 +119,7 @@ def aggregate_candidate_empirical_pvalues(
         )
     seeds = tuple(primary_seeds[:expected_seed_count])
     required_keys = tuple(
-        (path, primary_mode, seed)
-        for path in ("source_intervention", "within_state")
-        for seed in seeds
+        (path, primary_mode, seed) for path in ("source_intervention", "within_state") for seed in seeds
     )
     missing = [key for key in required_keys if key not in indexed]
     if missing:

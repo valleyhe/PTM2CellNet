@@ -195,16 +195,19 @@ def test_real_davf_e2e_cli_writes_direction_manifest(tmp_path):
     )
     output_path = tmp_path / "ko_report.json"
 
-    assert main(
-        [
-            "--davf-config",
-            str(config_path),
-            "--candidate-spec",
-            str(spec_path),
-            "--output",
-            str(output_path),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "--davf-config",
+                str(config_path),
+                "--candidate-spec",
+                str(spec_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "davf_perturbgen_e2e/v1"
     assert payload["candidates"][0]["status"] == "pass"
@@ -285,16 +288,19 @@ def test_real_formal_candidate_config_drives_cli(
     )
     output_path = tmp_path / f"{route.lower()}_formal_report.json"
 
-    assert main(
-        [
-            "--davf-config",
-            str(config_path),
-            "--candidate-spec",
-            str(spec_path),
-            "--output",
-            str(output_path),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "--davf-config",
+                str(config_path),
+                "--candidate-spec",
+                str(spec_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     candidate = payload["candidates"][0]
     assert candidate["status"] == "pass"

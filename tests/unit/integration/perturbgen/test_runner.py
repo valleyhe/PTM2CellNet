@@ -353,9 +353,7 @@ def test_runner_rejects_incomplete_embedding_asset(tmp_path):
     (asset / "manifest.json").write_text("{}", encoding="utf-8")
     runner = PerturbGenRunner(gpu_lock_file=tmp_path / "gpu.lock")
     with pytest.raises(PerturbGenStageError, match="invalid PerturbGen embedding asset"):
-        runner._validate_outputs(
-            (OutputCheck(asset, "perturbgen_embedding_asset"),)
-        )
+        runner._validate_outputs((OutputCheck(asset, "perturbgen_embedding_asset"),))
 
 
 def test_runner_timeout_is_propagated(tmp_path):

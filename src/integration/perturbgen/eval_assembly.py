@@ -21,6 +21,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .null_selection import load_null_distribution_manifest
+from .contracts import VALID_COHORT_PAIRINGS
 
 E2E_SCHEMA_VERSION = "davf_perturbgen_e2e/v1"
 EVAL_INPUT_SCHEMA_VERSION = "perturbgen_dual_path_eval/v1"
@@ -93,6 +94,8 @@ def _tokenise_stage_manifest_for_perturb(
     output_root: Path,
     perturb_manifest: Mapping[str, Any],
     perturb_manifest_path: Path,
+    *,
+    prepare_root: Path,
 ) -> str:
     """Bind a perturb run to the one tokenise manifest that supplied its inputs."""
 
@@ -113,7 +116,7 @@ def _tokenise_stage_manifest_for_perturb(
         for config_key, artifact_name in _PERTURB_TO_TOKENISE_ARTIFACTS.items()
     }
     matches: list[Path] = []
-    for candidate_manifest_path in sorted(output_root.rglob("stage_manifest.json")):
+    for candidate_manifest_path in sorted(prepare_root.rglob("stage_manifest.json")):
         if candidate_manifest_path.resolve() == perturb_manifest_path.resolve():
             continue
         try:
@@ -156,16 +159,22 @@ def resolve_run_artifacts(
     gene_symbol: str,
     *,
     paths: Sequence[str] = _VALID_PATHS,
+    prepare_root: str | Path,
 ) -> dict[str, list[RunArtifact]]:
     """Bind every successful perturb artifact under ``output_root`` to its manifest.
 
     Perturb stages live in per-path directories (optionally further split by
     mode/seed); each successful ``stage_manifest.json`` whose stage name is a
     dual-path kind contributes one artifact, so multi-seed and sensitivity
-    runs are all discovered.
+    runs are all discovered. ``prepare_root`` is the required route-shared
+    root containing the tokenise manifest; a candidate output root is never
+    used as a substitute.
     """
 
     root = Path(output_root).expanduser().resolve(strict=True)
+    if not isinstance(prepare_root, (str, Path)) or not str(prepare_root).strip():
+        raise EvalAssemblyError("prepare_root is required for shared tokenise lineage")
+    prepare_root_path = Path(prepare_root).expanduser().resolve(strict=True)
     allowed_paths = tuple(paths)
     for path_kind in allowed_paths:
         if path_kind not in _VALID_PATHS:
@@ -204,6 +213,7 @@ def resolve_run_artifacts(
             root,
             manifest,
             manifest_path,
+            prepare_root=prepare_root_path,
         )
         sha256 = _result_h5ad_sha256(
             manifest,
@@ -350,6 +360,7 @@ def build_eval_input_payload(
     candidate_unperturbed_quality: Mapping[str, Mapping[str, Any]] | None = None,
     run_id: str | None = None,
     donor_obs_column: str = "donor",
+    cohort_pairing: str | None = None,
     var_gene_column: str = "__index__",
     deg_donor_column: str = "donor",
     deg_gene_column: str = "gene_symbol",
@@ -367,13 +378,17 @@ def build_eval_input_payload(
     ``candidate_unperturbed_quality`` maps each candidate's canonical Ensembl
     ID to its own ``extract_unperturbed_quality_from_h5ad`` payload; it is the
     per-candidate form of ``unperturbed_quality`` and both may not be given at
-    once.  Formal evaluation requires one of them.
+    once.  Formal evaluation requires one of them.  ``cohort_pairing`` records
+    the donor/state design (from the Gate-0 data spec) into the eval-input
+    lineage so formal reports can prove which design the statistics used.
     """
 
     if null_distribution_path is None and null_distribution_manifest_path is None:
         raise EvalAssemblyError("null_distribution_path or null_distribution_manifest_path must be supplied")
     if null_distribution_path is not None and null_distribution_manifest_path is not None:
         raise EvalAssemblyError("provide only one null distribution source")
+    if cohort_pairing is not None and str(cohort_pairing).strip() not in VALID_COHORT_PAIRINGS:
+        raise EvalAssemblyError(f"cohort_pairing must be one of {VALID_COHORT_PAIRINGS}")
     if unperturbed_quality is not None and candidate_unperturbed_quality is not None:
         raise EvalAssemblyError("provide either unperturbed_quality or candidate_unperturbed_quality, not both")
     if candidate_unperturbed_quality is not None:
@@ -441,7 +456,14 @@ def build_eval_input_payload(
         output_root = run.get("output_root")
         if not gene_symbol or not ensembl_id or not output_root:
             raise EvalAssemblyError("each perturbgen run needs gene_symbol, ensembl_id and output_root")
-        artifacts = resolve_run_artifacts(output_root, gene_symbol)
+        prepare_root = run.get("prepare_root")
+        if not isinstance(prepare_root, (str, Path)) or not str(prepare_root).strip():
+            raise EvalAssemblyError(f"PerturbGen run for {ensembl_id} must declare prepare_root")
+        artifacts = resolve_run_artifacts(
+            output_root,
+            gene_symbol,
+            prepare_root=prepare_root,
+        )
         # Recover the observed direction recorded by the passing direction gate.
         invocation = _passing_invocation(e2e_report, ensembl_id)
         observed_direction = invocation.get("candidate", {}).get("observed_direction")
@@ -559,14 +581,23 @@ def build_eval_input_payload(
 
     if not candidates:
         raise EvalAssemblyError("no evaluable perturbgen runs found in the E2E report")
-    return {
+    eval_root: dict[str, Any] = {
         "schema_version": EVAL_INPUT_SCHEMA_VERSION,
         "run_id": run_id or f"e2e-{len(candidates)}-candidates",
         "evaluation_mode": mode,
         "evidence_class": evidence_class,
         "pvalue_source": pvalue_kind,
+        "contract": {
+            "schema_version": EVAL_INPUT_SCHEMA_VERSION,
+            "evaluation_mode": mode,
+            "evidence_class": evidence_class,
+            "pvalue_source": pvalue_kind,
+        },
         "candidates": candidates,
     }
+    if cohort_pairing is not None:
+        eval_root["cohort_pairing"] = str(cohort_pairing).strip()
+    return eval_root
 
 
 def write_eval_input(payload: Mapping[str, Any], path: str | Path) -> Path:

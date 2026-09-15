@@ -91,7 +91,9 @@ class HomologyAwareSplitter:
                 "无法向量化，大规模序列集合下性能会显著下降。"
                 "建议切换到 kmer 模式以启用向量化相似性计算；"
                 "若确需保留 %s 模式，将尝试并行化（需安装 joblib）。",
-                n, self.approximate_threshold, self.similarity_method,
+                n,
+                self.approximate_threshold,
+                self.similarity_method,
                 self.similarity_method,
             )
             if self.approximate:
@@ -169,11 +171,7 @@ class HomologyAwareSplitter:
             # 回退：每个序列一个聚类
             best_labels = np.arange(len(sequences))
 
-        logger.info(
-            "序列聚类完成: %d 条序列分成 %d 个聚类",
-            len(sequences),
-            len(set(best_labels))
-        )
+        logger.info("序列聚类完成: %d 条序列分成 %d 个聚类", len(sequences), len(set(best_labels)))
 
         return best_labels
 
@@ -294,9 +292,12 @@ class HomologyAwareSplitter:
 
         logger.info(
             "基于聚类的分割完成: train=%d (聚类数=%d), val=%d (聚类数=%d), test=%d (聚类数=%d)",
-            len(train_df), len(train_clusters),
-            len(val_df), len(val_clusters),
-            len(test_df), len(test_clusters)
+            len(train_df),
+            len(train_clusters),
+            len(val_df),
+            len(val_clusters),
+            len(test_df),
+            len(test_clusters),
         )
 
         return train_df, val_df, test_df
@@ -359,7 +360,7 @@ class HomologyAwareSplitter:
             "train_test_violations": 0,
             "val_test_violations": 0,
             "max_similarity": 0.0,
-            "details": []
+            "details": [],
         }
 
         train_seqs = train_df[sequence_col].tolist() if len(train_df) > 0 else []
@@ -370,7 +371,9 @@ class HomologyAwareSplitter:
         # 该方法对 kmer 模式预计算 k-mer 集合后只做集合运算，避免重复计算。
         if train_seqs and val_seqs:
             max_sim, violations, details = max_cross_similarity(
-                train_seqs, val_seqs, "Train-Val",
+                train_seqs,
+                val_seqs,
+                "Train-Val",
                 method=self.similarity_method,
                 identity_threshold=self.identity_threshold,
                 kmer_size=self.kmer_size,
@@ -381,7 +384,9 @@ class HomologyAwareSplitter:
 
         if train_seqs and test_seqs:
             max_sim, violations, details = max_cross_similarity(
-                train_seqs, test_seqs, "Train-Test",
+                train_seqs,
+                test_seqs,
+                "Train-Test",
                 method=self.similarity_method,
                 identity_threshold=self.identity_threshold,
                 kmer_size=self.kmer_size,
@@ -392,7 +397,9 @@ class HomologyAwareSplitter:
 
         if val_seqs and test_seqs:
             max_sim, violations, details = max_cross_similarity(
-                val_seqs, test_seqs, "Val-Test",
+                val_seqs,
+                test_seqs,
+                "Val-Test",
                 method=self.similarity_method,
                 identity_threshold=self.identity_threshold,
                 kmer_size=self.kmer_size,
@@ -402,21 +409,15 @@ class HomologyAwareSplitter:
             results["details"].extend(details)
 
         total_violations = (
-            results["train_val_violations"] +
-            results["train_test_violations"] +
-            results["val_test_violations"]
+            results["train_val_violations"] + results["train_test_violations"] + results["val_test_violations"]
         )
 
         if total_violations > 0:
             results["passed"] = False
-            logger.warning(
-                "检测到 %d 个序列相似性违规 (阈值=%.2f)",
-                total_violations, self.identity_threshold
-            )
+            logger.warning("检测到 %d 个序列相似性违规 (阈值=%.2f)", total_violations, self.identity_threshold)
         else:
             logger.info(
-                "无泄漏验证通过: 最大相似性=%.3f (阈值=%.2f)",
-                results["max_similarity"], self.identity_threshold
+                "无泄漏验证通过: 最大相似性=%.3f (阈值=%.2f)", results["max_similarity"], self.identity_threshold
             )
 
         return results

@@ -61,7 +61,7 @@ async def health_check():
     response_model=LiveResponse,
     summary="存活探针（liveness）",
     description=(
-        "进程存活探针。只要 FastAPI 进程在运行就返回 200 `{\"status\": \"alive\"}`，"
+        '进程存活探针。只要 FastAPI 进程在运行就返回 200 `{"status": "alive"}`，'
         "与模型是否加载无关。\n\n"
         "**用途**：Kubernetes `livenessProbe` / 负载均衡存活判断。"
         "失败（非 200）意味着进程需要被重启。"
@@ -84,7 +84,7 @@ async def live_check():
     summary="就绪探针（readiness）",
     description=(
         "服务就绪探针。模型未加载（未调用 `/initialize`）时返回 **HTTP 503**，"
-        "模型加载后返回 200 `{\"status\": \"ready\", \"model_loaded\": true}`。\n\n"
+        '模型加载后返回 200 `{"status": "ready", "model_loaded": true}`。\n\n'
         "**用途**：Kubernetes `readinessProbe`、Docker `HEALTHCHECK`、"
         "负载均衡流量接入判断。**不要用 `/health` 替代本端点**做流量判断。"
     ),
@@ -112,11 +112,7 @@ async def ready_check():
     if sec_report is not None and sec_report.degraded:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "生产安全配置降级: " + "; ".join(sec_report.reasons)
-                if sec_report.reasons
-                else "生产安全配置降级"
-            ),
+            detail=("生产安全配置降级: " + "; ".join(sec_report.reasons) if sec_report.reasons else "生产安全配置降级"),
         )
 
     if STATE.model is None:
@@ -183,21 +179,15 @@ async def get_model_info():
         embed_dim=getattr(STATE.model, "embed_dim", 256),
         num_classes=len(STATE.cell_states),
         cell_states=STATE.cell_states,
-        supported_ptm_types=list(STATE.ptm_type_to_idx.keys())
-        if STATE.ptm_type_to_idx
-        else DEFAULT_PTM_TYPES,
+        supported_ptm_types=list(STATE.ptm_type_to_idx.keys()) if STATE.ptm_type_to_idx else DEFAULT_PTM_TYPES,
         variant_workflow_loaded=STATE.variant_workflow is not None,
         pathway_mapper_loaded=STATE.pathway_mapper is not None,
         model_kind=STATE.model_kind,
         is_demo_model=STATE.is_demo_model,
         # SEC-03: 只返回文件名，避免向客户端泄露服务器绝对路径。
         # 仍返回文件名以便运维/前端识别当前加载的 checkpoint/config 来源。
-        checkpoint_path=os.path.basename(STATE.checkpoint_path)
-        if STATE.checkpoint_path
-        else None,
-        config_path=os.path.basename(STATE.config_path)
-        if STATE.config_path
-        else None,
+        checkpoint_path=os.path.basename(STATE.checkpoint_path) if STATE.checkpoint_path else None,
+        config_path=os.path.basename(STATE.config_path) if STATE.config_path else None,
     )
 
 

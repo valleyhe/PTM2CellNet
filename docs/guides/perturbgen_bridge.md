@@ -112,14 +112,132 @@ M4 重训/M6/Gate-E 仍按方案 §7.3 挂起，不得跳过。训练输入 sche
 至少 3 个可评估 donor（配对语义见上）、canonical Ensembl、scVI gene order、冻结
 embedding 与 manifest；smoke、synthetic 和 bridge 通过都不算生物学 PASS。
 
-**AD 队列状态（2026-09-14，L-2026-0914-01）**：data/AD 四个 GEO 队列审计结论为
-`GATE0_BLOCKED_SEMANTICS_AND_LABELS`（`outputs/perturbgen/spike/20260914_ad_cohort_audit/evidence.json`）；
+**AD 队列状态（2026-09-14，L-2026-0914-01；同日 F-14 修复后重审）**：审计脚本已
+改为双 pairing 口径，重跑 verdict 为
+`GATE0_UNLOCKED_FOR_BETWEEN_DONOR_GSE174367_ONLY`
+（`outputs/perturbgen/spike/20260914_ad_cohort_audit/evidence.json`）；
 Gate-0 新增 `between_donor` 配对后，GSE174367 已标准化为
 `data/AD/standardized/GSE174367_ad_cohort.h5ad` 并以 between_donor preflight
 7/7 细胞类型 PASS
 （`outputs/perturbgen/spike/20260914_gse174367_gate0/evidence.json`）。
 GSE157827/GSE188545/GSE147528 仍缺 donor/cell 注释或 cell calling，未合并。
 该 preflight 是数据契约验收，不是生物学 PASS。
+
+**M6 冻结状态（2026-09-14，第八轮，L-2026-0914-03）**：GSE174367 已完成
+between_donor M6 数据契约冻结（EX 细胞类型，目录
+`outputs/perturbgen/frozen/20260914_gse174367_ex/`）：
+
+| 资产 | 内容 | 校验 |
+|---|---|---|
+| `manifest.json` | `ptm2cellnet.frozen-cohort/v1`，pairing=between_donor，EX，sha256 绑定 cohort h5ad | `load_frozen_manifest` 加载即重验 sha256 |
+| donor split | train 12（Control 4 + AD 8）/ held-out 6（Control 3 + AD 3，两组各 ≥3），分层 seed=2 抽样且四组均两性平衡，并集覆盖全部 18 donor | `_validate_frozen_cohort_asset` 真实数据 PASS（6,369 cells，无 issue） |
+| `candidates.csv` | APP/PSEN1/BACE1/MAPT/APOE（KO，AD 三通路外部假设）；ENSG 从 cohort var 查证，token index 在 embedding asset 词表全部有效 | `provenance.json` 记录双重查证 |
+| `acceptance_plan.json` | 5 候选 × 2 path × 3 seed × 3 mode = 90 runs 矩阵 | `donor_leakage: clear` |
+| `null_selection/*.json` | 每候选 99 个表达特征匹配 null（EX 子集 mean/detection + embedding token_rank；fc 显式标记 `unavailable/default`，DEG 表就绪后可重生成启用 fc 特征） | `perturbgen_null_selection/v1` |
+| `tests/real_assets/test_real_frozen_cohort.py` | 冻结契约漂移守护（加载重验 + 资产校验 + between_donor 不相交断言） | gate 开启时真实跑 18.25s PASS |
+
+**GPU 执行 runbook（脱离沙箱，按序执行）**：
+
+```bash
+# 0. 前置校验（CPU，~18s）：确认冻结契约与资产未漂移
+PTM2CELLNET_RUN_REAL_ASSET_TESTS=1 pytest tests/real_assets/test_real_frozen_cohort.py -v
+
+# 1. 准备 candidate_spec（研究输入，不可自动生成）：每候选需真实文献 PTM site
+#    锚点（position>=1 + ptm_type，契约必填）、外部方向假设 proposed_direction、
+#    donor-level disease−normal DEG 证据（observed_log2fc/fdr/direction）与
+#    semantic_context 七字段；context_h5ad 指向标准化 cohort，context_cell_index
+#    必须落在 EX。DEG 表列名与 E2E --deg-*-column 参数一致。
+#    上游 PTM activity → AD 交集主线可用
+#    scripts/build_celltype_candidate_specs.py 从交集产物批量生成该 spec
+#    （同一 candidate-spec/v1 契约），见 docs/guides/ptm_activity_pipeline.md §6；
+#    source_proposals 表中的位点锚点与方向假设仍属研究输入，不自动发明。
+
+# 2. 先只执行六阶段（GPU；此时不要传 --assemble-statistical-evidence、
+#    --deg-table 或 --null-distribution-manifest；train/held-out 列表与冻结
+#    manifest 逐字一致，bind_frozen_donor_split 会硬校验）
+python scripts/run_davf_perturbgen_e2e.py \
+  --davf-config configs/davf_ko.yaml \
+  --candidate-spec <candidate_spec.json> \
+  --perturbgen-config configs/integration/perturbgen.yaml \
+  --output outputs/davf_perturbgen/gse174367_ex/e2e_report.json \
+  --run-perturbgen \
+  --perturbgen-cohort-pairing between_donor \
+  --seeds 0,1,2 \
+  --sensitivity-modes pad,delete \
+  --frozen-cohort-manifest outputs/perturbgen/frozen/20260914_gse174367_ex/manifest.json \
+  --train-donors "Sample-52,Sample-58,Sample-66,Sample-82,Sample-17,Sample-27,Sample-33,Sample-43,Sample-45,Sample-46,Sample-47,Sample-50" \
+  --held-out-donors "Sample-100,Sample-90,Sample-96,Sample-19,Sample-22,Sample-37"
+
+# 3. 在第 2 步通过后，先完成真实 matched-null 批跑（GPU；CLI 只提供 --dry-run
+#    计划，执行走 Python API）。下面是一个 candidate × path × mode × seed 组合的
+#    接口骨架；研究代码必须重复覆盖全部 5 × 2 × 3 × 3 组合，并在外部真实数据
+#    绑定完成后写出实际的 null distribution manifest。不得用这个骨架或 synthetic
+#    rescue 分数代替真实输出。
+python - <<'EOF'
+from src.integration.perturbgen.null_generation import run_matched_null_stages
+
+def study_rescue_extractor(request, stage_result):
+    raise NotImplementedError(
+        "Bind the registered real perturb result h5ad and donor-level DEG table "
+        "to NullStageRecord in study code before running matched-null stages"
+    )
+
+result = run_matched_null_stages(
+    selection_manifest="outputs/perturbgen/frozen/20260914_gse174367_ex/null_selection/APP.json",
+    base_config="configs/integration/perturbgen.yaml",
+    e2e_gate_report="outputs/davf_perturbgen/gse174367_ex/e2e_report.json",
+    path="source_intervention", mode="mask", seed=0,
+    output_root="outputs/perturbgen/nulls/APP",
+    rescue_extractor=study_rescue_extractor,
+    output_path="outputs/perturbgen/nulls/APP/source_intervention_mask_seed0.json",
+)
+EOF
+
+# 4. 全部 matched-null 真实结果和实际 <null-index.json> 就绪后，用同一套 E2E
+#    参数加 --resume 复用已完成的六阶段，只组装统计；不要删除或改换 output root。
+python scripts/run_davf_perturbgen_e2e.py \
+  --davf-config configs/davf_ko.yaml \
+  --candidate-spec <candidate_spec.json> \
+  --perturbgen-config configs/integration/perturbgen.yaml \
+  --output outputs/davf_perturbgen/gse174367_ex/e2e_report.json \
+  --run-perturbgen \
+  --resume \
+  --perturbgen-cohort-pairing between_donor \
+  --seeds 0,1,2 \
+  --sensitivity-modes pad,delete \
+  --frozen-cohort-manifest outputs/perturbgen/frozen/20260914_gse174367_ex/manifest.json \
+  --train-donors "Sample-52,Sample-58,Sample-66,Sample-82,Sample-17,Sample-27,Sample-33,Sample-43,Sample-45,Sample-46,Sample-47,Sample-50" \
+  --held-out-donors "Sample-100,Sample-90,Sample-96,Sample-19,Sample-22,Sample-37" \
+  --assemble-statistical-evidence \
+  --deg-table <deg.csv> \
+  --null-distribution-manifest <null-index.json>
+
+# 5. 对第 4 步实际组装出的统计产物做独立冻结验收复算。
+#    eval_input/report_manifest 从 E2E 报告读取，避免猜测统计目录或文件名。
+E2E_REPORT=outputs/davf_perturbgen/gse174367_ex/e2e_report.json
+FROZEN_MANIFEST=outputs/perturbgen/frozen/20260914_gse174367_ex/manifest.json
+VERIFY_OUTPUT=outputs/davf_perturbgen/gse174367_ex/frozen_verify.json
+EVAL_INPUT="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["statistical_evidence"]["eval_input"])' "$E2E_REPORT")"
+REPORT_MANIFEST="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["statistical_evidence"]["report_manifest"])' "$E2E_REPORT")"
+python scripts/run_frozen_acceptance.py \
+  --verify \
+  --manifest "$FROZEN_MANIFEST" \
+  --eval-input "$EVAL_INPUT" \
+  --report-manifest "$REPORT_MANIFEST" \
+  --output "$VERIFY_OUTPUT"
+```
+
+第 2 步的 `--perturbgen-config`、`--seeds 0,1,2`、`--sensitivity-modes pad,delete`
+与冻结矩阵一致：5 候选 × 2 path × 3 seed ×（`mask` 主模式 + `pad`/`delete`
+敏感性模式）= 90 runs。第 2 步只产生 gate/E2E stage 报告，不组装统计；第 3 步
+完成真实 null 后，第 4 步以 `--resume` 复用既有 stage manifest，并首次传入
+`--assemble-statistical-evidence --deg-table --null-distribution-manifest`。由于
+`_resolve_statistical_evidence_inputs` 和 loader 要求 null manifest 已存在，不能把
+统计参数放在第 2 步。第 5 步的 `--verify` 只在第 4 步报告的
+`statistical_evidence.status=assembled` 且已写出 `eval_input`/`report_manifest` 后
+执行；缺失或篡改资产、计划覆盖不足、replay 不重现或独立 h5ad 未重算均返回非零，
+不能写成冻结验收 PASS。正式 verdict 仍只表示计算效用/方向筛选，不构成治疗或临床
+因果结论。
 
 ## 4. 六阶段 pipeline（工作流 A）
 

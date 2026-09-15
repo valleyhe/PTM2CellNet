@@ -106,15 +106,13 @@ class PTMSitePredictor(nn.Module):
         elif self.encoder_type == "esm2":
             try:
                 from .pretrained_encoders import ESM2Encoder
+
                 self.encoder = ESM2Encoder(model_size="8M")
                 # ESM2Encoder output dim varies; project to hidden_dim
-                esm_dim = getattr(self.encoder, 'embed_dim', 320)
+                esm_dim = getattr(self.encoder, "embed_dim", 320)
                 self.esm_proj = nn.Linear(esm_dim, hidden_dim)
             except ImportError:
-                logger.warning(
-                    "ESM2 encoder not available (transformers not installed). "
-                    "Falling back to CNN encoder."
-                )
+                logger.warning("ESM2 encoder not available (transformers not installed). Falling back to CNN encoder.")
                 self.encoder = PooledCNNEncoder(
                     embed_dim=embed_dim,
                     hidden_dim=hidden_dim,
@@ -152,12 +150,12 @@ class PTMSitePredictor(nn.Module):
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, mean=0, std=0.02)
         elif isinstance(module, nn.Conv1d):
-            nn.init.kaiming_normal_(module.weight, nonlinearity='relu')
+            nn.init.kaiming_normal_(module.weight, nonlinearity="relu")
         elif isinstance(module, nn.LSTM):
             for name, param in module.named_parameters():
-                if 'weight' in name:
+                if "weight" in name:
                     nn.init.orthogonal_(param)
-                elif 'bias' in name:
+                elif "bias" in name:
                     nn.init.zeros_(param)
 
     def forward(
@@ -182,7 +180,7 @@ class PTMSitePredictor(nn.Module):
         # 编码
         encoded = self.encoder(x)  # (batch, hidden_dim)
 
-        if hasattr(self, 'esm_proj'):
+        if hasattr(self, "esm_proj"):
             encoded = self.esm_proj(encoded)
 
         # 分类
@@ -199,13 +197,14 @@ class PTMSitePredictor(nn.Module):
         probs = F.softmax(logits, dim=-1)
 
         return {
-            'logits': logits,
-            'probs': probs,
+            "logits": logits,
+            "probs": probs,
         }
 
 
 # Pooled encoder aliases for backward compatibility.
 # The canonical definitions live in src.models.encoders as Pooled* variants.
+
 
 def create_model(config: Dict[str, Any]) -> PTMSitePredictor:
     """
@@ -218,13 +217,13 @@ def create_model(config: Dict[str, Any]) -> PTMSitePredictor:
         PTMSitePredictor模型实例
     """
     return PTMSitePredictor(
-        vocab_size=config.get('vocab_size', 21),
-        embed_dim=config.get('embed_dim', 64),
-        hidden_dim=config.get('hidden_dim', 128),
-        num_layers=config.get('num_layers', 2),
-        num_heads=config.get('num_heads', 4),
-        dropout=config.get('dropout', 0.1),
-        encoder_type=config.get('encoder_type', 'cnn'),
-        window_size=config.get('window_size', 31),
-        num_classes=config.get('num_classes', 2),
+        vocab_size=config.get("vocab_size", 21),
+        embed_dim=config.get("embed_dim", 64),
+        hidden_dim=config.get("hidden_dim", 128),
+        num_layers=config.get("num_layers", 2),
+        num_heads=config.get("num_heads", 4),
+        dropout=config.get("dropout", 0.1),
+        encoder_type=config.get("encoder_type", "cnn"),
+        window_size=config.get("window_size", 31),
+        num_classes=config.get("num_classes", 2),
     )

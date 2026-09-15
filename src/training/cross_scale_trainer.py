@@ -113,9 +113,12 @@ class CrossScaleTrainer:
             inputs = _move(raw_batch["inputs"], self.device)
             targets = _move(raw_batch["targets"], self.device)
             batch_size = int(targets["cell_state"].shape[0])
-            with torch.set_grad_enabled(training), torch.autocast(
-                device_type=self.device.type,
-                enabled=self.mixed_precision,
+            with (
+                torch.set_grad_enabled(training),
+                torch.autocast(
+                    device_type=self.device.type,
+                    enabled=self.mixed_precision,
+                ),
             ):
                 outputs = self.model(inputs)
                 loss = self.model.compute_loss(outputs, targets)
@@ -175,7 +178,10 @@ class CrossScaleTrainer:
             payload = torch.load(checkpoint_path, map_location=self.device, weights_only=True)
         except (OSError, RuntimeError, ValueError) as exc:
             raise CrossScaleTrainingError(f"无法安全加载 checkpoint {checkpoint_path}: {exc}") from exc
-        if not isinstance(payload, Mapping) or payload.get("checkpoint_schema_version") != "ptm2cellnet.cross-scale.checkpoint.v1":
+        if (
+            not isinstance(payload, Mapping)
+            or payload.get("checkpoint_schema_version") != "ptm2cellnet.cross-scale.checkpoint.v1"
+        ):
             raise CrossScaleTrainingError("checkpoint schema 不受支持")
         self.model.load_state_dict(payload["model_state_dict"])
         self.optimizer.load_state_dict(payload["optimizer_state_dict"])

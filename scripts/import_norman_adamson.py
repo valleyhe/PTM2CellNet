@@ -108,7 +108,11 @@ class ImportError_(RuntimeError):
 
 
 def _open_maybe_gzip(path: Path):
-    return gzip.open(path, "rt", encoding="utf-8", errors="replace") if path.suffix == ".gz" else open(path, "rt", encoding="utf-8", errors="replace")
+    return (
+        gzip.open(path, "rt", encoding="utf-8", errors="replace")
+        if path.suffix == ".gz"
+        else open(path, "rt", encoding="utf-8", errors="replace")
+    )
 
 
 def read_tsv(path: Path, *, max_rows: Optional[int] = None) -> List[List[str]]:
@@ -224,7 +228,9 @@ def parse_identities(rows: List[List[str]]) -> Dict[str, Dict[str, str]]:
         if not barcode:
             continue
         target = row[target_idx].strip() if target_idx is not None and len(row) > target_idx else ""
-        perturbation = row[perturbation_idx].strip() if perturbation_idx is not None and len(row) > perturbation_idx else ""
+        perturbation = (
+            row[perturbation_idx].strip() if perturbation_idx is not None and len(row) > perturbation_idx else ""
+        )
         guide = row[guide_idx].strip() if guide_idx is not None and len(row) > guide_idx else ""
         annotation: Dict[str, str] = {
             "target": target,
@@ -314,10 +320,14 @@ def compute_delta_expression(
         control_mean = group_means[control_idx[0]]
         control_label = "control"
 
-    delta = np.stack(
-        [group_means[i] - control_mean for i in range(len(sample_ids)) if sample_ids[i] != control_label],
-        axis=0,
-    ).astype(np.float32) if any(sample_ids[i] != control_label for i in range(len(sample_ids))) else np.empty((0, matrix.shape[1]), dtype=np.float32)
+    delta = (
+        np.stack(
+            [group_means[i] - control_mean for i in range(len(sample_ids)) if sample_ids[i] != control_label],
+            axis=0,
+        ).astype(np.float32)
+        if any(sample_ids[i] != control_label for i in range(len(sample_ids)))
+        else np.empty((0, matrix.shape[1]), dtype=np.float32)
+    )
     non_control_ids = [sample_ids[i] for i in range(len(sample_ids)) if sample_ids[i] != control_label]
     non_control_counts = [cell_counts[i] for i in range(len(sample_ids)) if sample_ids[i] != control_label]
     return delta, non_control_ids, np.asarray(non_control_counts, dtype=np.int64), control_mean, ~assigned
@@ -465,9 +475,7 @@ def _orient_10x_matrix(
     if matrix.shape == (len(symbols), len(barcodes)):
         matrix = matrix.T.tocsc()
     if matrix.shape != (len(barcodes), len(symbols)):
-        raise ImportError_(
-            f"矩阵 shape={matrix.shape} 与 cells={len(barcodes)}, genes={len(symbols)} 不匹配"
-        )
+        raise ImportError_(f"矩阵 shape={matrix.shape} 与 cells={len(barcodes)}, genes={len(symbols)} 不匹配")
     return matrix
 
 
@@ -497,9 +505,7 @@ def parse_gse90546(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
                 try:
                     _, symbols = _rows_to_genes(_tar_text_rows(archive, members["genes"]), prefix)
                     barcodes = _rows_to_barcodes(_tar_text_rows(archive, members["barcodes"]), prefix)
-                    matrix = _orient_10x_matrix(
-                        _tar_matrix(archive, members["matrix"]), symbols, barcodes
-                    )
+                    matrix = _orient_10x_matrix(_tar_matrix(archive, members["matrix"]), symbols, barcodes)
                     annotations = parse_identities(_tar_text_rows(archive, members["identities"]))
                     delta, sample_ids, cell_counts, control_mean, unassigned = compute_delta_expression(
                         matrix, annotations, barcodes
@@ -648,30 +654,23 @@ def import_gse133344(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
     if matrix.shape[0] == len(symbols) and matrix.shape[1] == len(barcodes):
         matrix = matrix.T.tocsc()
     if matrix.shape[1] != len(symbols):
-        raise ImportError_(
-            f"矩阵基因数 {matrix.shape[1]} 与基因表 {len(symbols)} 不一致"
-        )
+        raise ImportError_(f"矩阵基因数 {matrix.shape[1]} 与基因表 {len(symbols)} 不一致")
     if matrix.shape[0] != len(barcodes):
-        raise ImportError_(
-            f"矩阵细胞数 {matrix.shape[0]} 与 barcodes {len(barcodes)} 不一致"
-        )
+        raise ImportError_(f"矩阵细胞数 {matrix.shape[0]} 与 barcodes {len(barcodes)} 不一致")
 
     identity_rows = read_tsv(identities_path)
     annotations = parse_identities(identity_rows)
     summary["identity_annotation_cells"] = len(annotations)
 
-    delta, sample_ids, cell_counts, control_mean, unassigned = compute_delta_expression(
-        matrix, annotations, barcodes
-    )
+    delta, sample_ids, cell_counts, control_mean, unassigned = compute_delta_expression(matrix, annotations, barcodes)
     summary.update(
         {
             "cells": int(matrix.shape[0]),
             "genes": int(matrix.shape[1]),
             "n_perturbations": len(sample_ids),
             "n_nonzero": int(matrix.nnz),
-            "controls_present": any(label == "control" for label in sample_ids) or "control" in [
-                perturbation_id_from_annotation(a) for a in annotations.values()
-            ],
+            "controls_present": any(label == "control" for label in sample_ids)
+            or "control" in [perturbation_id_from_annotation(a) for a in annotations.values()],
             "unassigned_cells": int(unassigned.sum()),
             "delta_shape": list(delta.shape),
         }
@@ -699,7 +698,12 @@ def import_gse133344(geo_root: Path, output_dir: Path) -> Dict[str, Any]:
     # (Norman 2019 uses "GENE1_GENE2") are split and matched against the table.
     requested_genes = _requested_genes_from_labels(sample_ids, symbols)
     (output_dir / "sequence_requests.json").write_text(
-        json.dumps({"dataset": GSE133344, "genes": requested_genes, "n_genes": len(requested_genes)}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(
+            {"dataset": GSE133344, "genes": requested_genes, "n_genes": len(requested_genes)},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     return summary
@@ -772,7 +776,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args=args,
         sha256=sha256,
     )
-    print(json.dumps({"ok": True, "manifest": str(manifest), "gse133344": gse133344_summary, "gse90546": gse90546_report}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {"ok": True, "manifest": str(manifest), "gse133344": gse133344_summary, "gse90546": gse90546_report},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

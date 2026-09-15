@@ -16,6 +16,7 @@ from typing_extensions import TypedDict
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
 
+
 class PerturbationParams(TypedDict, total=False):
     """Shape of a single perturbation dict in ``run_batch_ptm_perturbations``."""
 
@@ -115,13 +116,9 @@ class PTMPerturbationPipelineConfig:
 
     def __post_init__(self) -> None:
         if self.significance_alpha <= 0 or self.significance_alpha >= 1:
-            raise ValueError(
-                f"significance_alpha must be in (0, 1), got {self.significance_alpha}"
-            )
+            raise ValueError(f"significance_alpha must be in (0, 1), got {self.significance_alpha}")
         if self.null_permutations < 1:
-            raise ValueError(
-                f"null_permutations must be >= 1, got {self.null_permutations}"
-            )
+            raise ValueError(f"null_permutations must be >= 1, got {self.null_permutations}")
 
 
 class PTMVirtualPerturbationEngine:
@@ -201,7 +198,9 @@ class PTMVirtualPerturbationEngine:
         baseline_network = np.array(ref_data.get("network", np.eye(len(gene_names))), dtype=float)
 
         perturbed_counts, perturbed_network = apply_soft_perturbation(
-            baseline_counts, baseline_network, profile,
+            baseline_counts,
+            baseline_network,
+            profile,
         )
 
         request = self._adapter.build_request(

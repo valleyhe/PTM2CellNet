@@ -179,10 +179,12 @@ def test_two_stage_cli_accepts_genki_source_backend(tmp_path) -> None:
     adata.var_names = ["EGFR", "TP53", "BAX"]
     adata.layers["norm"] = np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]], dtype=float)
     adata.write_h5ad(adata_path)
-    sp.save_npz(grn_dir / "pcNet.npz", sp.csr_matrix(np.array([[0.0, 0.9, 0.2], [0.9, 0.0, 0.8], [0.2, 0.8, 0.0]], dtype=float)))
+    sp.save_npz(
+        grn_dir / "pcNet.npz", sp.csr_matrix(np.array([[0.0, 0.9, 0.2], [0.9, 0.0, 0.8], [0.2, 0.8, 0.0]], dtype=float))
+    )
     mapping_file.write_text("protein_id,gene_symbol\nP04637,TP53\n", encoding="utf-8")
     input_file.write_text(
-        'sample_id,protein_id,sequence,ptm_sites\n'
+        "sample_id,protein_id,sequence,ptm_sites\n"
         'S1,P04637,ACDEFG,"[{""position"": 2, ""type"": ""phosphorylation""}]"\n',
         encoding="utf-8",
     )

@@ -2,6 +2,7 @@
 PTM2CellNet模型边界测试
 测试ESM2路径和分类输出的边界情况
 """
+
 import os
 import pytest
 import torch
@@ -12,6 +13,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 @pytest.fixture(scope="module")
 def esm2_encoder():
     from src.models.pretrained_encoders import ESM2Encoder
+
     return ESM2Encoder(model_size="8M", freeze=True)
 
 
@@ -126,11 +128,7 @@ class TestRegressionPredictor:
         batch_size = 4
         input_dim = 256
 
-        predictor = RegressionPredictor(
-            input_dim=input_dim,
-            output_dim=1,
-            hidden_dims=[512, 256]
-        )
+        predictor = RegressionPredictor(input_dim=input_dim, output_dim=1, hidden_dims=[512, 256])
         predictor.eval()
 
         features = torch.randn(batch_size, input_dim)
@@ -156,11 +154,7 @@ class TestRegressionPredictor:
         input_dim = 256
         output_dim = 3  # 3个回归目标
 
-        predictor = RegressionPredictor(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            hidden_dims=[512, 256]
-        )
+        predictor = RegressionPredictor(input_dim=input_dim, output_dim=output_dim, hidden_dims=[512, 256])
         predictor.eval()
 
         features = torch.randn(batch_size, input_dim)
@@ -325,7 +319,7 @@ class TestPTM2CellNetOutputConsistency:
         ptm_mask = torch.ones(1, L)
         # <cls>和<eos>位置设为0（不是PTM）
         ptm_mask[0, 0] = 0
-        ptm_mask[0, L-1] = 0
+        ptm_mask[0, L - 1] = 0
 
         batch = {
             "input_ids": encoded["input_ids"],

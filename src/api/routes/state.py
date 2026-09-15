@@ -169,7 +169,9 @@ def initialize_pathway_mapper() -> None:
         STATE.pathway_mapper = None
 
 
-def _read_model_kind(config: Optional[Dict[str, Union[str, int, float, bool, List[Any], Dict[str, Any]]]]) -> Optional[str]:
+def _read_model_kind(
+    config: Optional[Dict[str, Union[str, int, float, bool, List[Any], Dict[str, Any]]]],
+) -> Optional[str]:
     """Resolve ``model_kind`` from a config dict (P1-3).
 
     Looks for an explicit ``model.model_kind`` / ``model_card.model_kind`` field.

@@ -55,9 +55,8 @@ class GraphUtilities:
     ) -> np.ndarray:
         count_shift = np.asarray(np.abs(perturbed_counts.mean(axis=0) - baseline_counts.mean(axis=0)))
         edge_shift = np.asarray(
-            np.abs(perturbed_network - baseline_network).sum(axis=0) + np.abs(
-                perturbed_network - baseline_network
-            ).sum(axis=1)
+            np.abs(perturbed_network - baseline_network).sum(axis=0)
+            + np.abs(perturbed_network - baseline_network).sum(axis=1)
         )
         return np.asarray(count_shift + edge_shift)
 
@@ -113,11 +112,15 @@ class GraphUtilities:
         """
         if sp.issparse(baseline_network) or sp.issparse(perturbed_network):
             # Coerce both networks to sparse so the sparse path can subtract.
-            base_sp = baseline_network if sp.issparse(baseline_network) else sp.csr_matrix(
-                np.asarray(baseline_network, dtype=float)
+            base_sp = (
+                baseline_network
+                if sp.issparse(baseline_network)
+                else sp.csr_matrix(np.asarray(baseline_network, dtype=float))
             )
-            pert_sp = perturbed_network if sp.issparse(perturbed_network) else sp.csr_matrix(
-                np.asarray(perturbed_network, dtype=float)
+            pert_sp = (
+                perturbed_network
+                if sp.issparse(perturbed_network)
+                else sp.csr_matrix(np.asarray(perturbed_network, dtype=float))
             )
             return GraphUtilities._score_from_sparse_matrices(
                 baseline_counts=baseline_counts,

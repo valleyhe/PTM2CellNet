@@ -193,3 +193,53 @@ def test_load_null_distribution_manifest_supports_single_index_and_old_payloads(
     assert load_null_distribution_manifest(old_list)["values"] == [0.1] * 99
     with pytest.raises(ValueError, match="unbound"):
         load_null_distribution_manifest(old_list, candidate_ensembl_id=TARGET)
+
+
+def test_token_vocabulary_special_tokens_are_skipped_not_rejected() -> None:
+    """Real embedding vocabularies ship <cls>/<pad>/... alongside ENSG keys.
+
+    Special tokens carry no gene rank, so selection must ignore them instead
+    of failing; ranked genes (including versioned ENSG) keep their ranks.
+    """
+
+    cohort, null_ids = _synthetic_cohort()
+    vocabulary = {
+        "<cls>": 0,
+        "<eos>": 1,
+        "<mask>": 2,
+        "<pad>": 3,
+        TARGET: 13453,
+        f"{CANDIDATES[0]}.1": 9618,
+        f"{CANDIDATES[1]}.2": 11423,
+        null_ids[0]: 8218,
+    }
+    manifest = select_matched_nulls(
+        cohort,
+        TARGET,
+        CANDIDATES,
+        token_vocabulary=vocabulary,
+    )
+    assert manifest["feature_sources"]["token_rank"] == "token_vocabulary:mapping"
+    assert manifest["target"]["features"]["token_rank"] == 13453.0
+    features_by_gene = {item["ensembl_id"]: item["match_features"] for item in manifest["selected_nulls"]}
+    assert features_by_gene[null_ids[0]]["token_rank"] == 8218.0
+    assert features_by_gene[null_ids[1]]["token_rank"] == 0.0  # absent from vocabulary -> default
+
+    sequence_manifest = select_matched_nulls(
+        cohort,
+        TARGET,
+        CANDIDATES,
+        token_vocabulary=["<cls>", TARGET, null_ids[0]],
+    )
+    sequence_features = {item["ensembl_id"]: item["match_features"] for item in sequence_manifest["selected_nulls"]}
+    assert sequence_manifest["feature_sources"]["token_rank"] == "token_vocabulary:sequence; unknown/default=0.0"
+    assert sequence_features[null_ids[0]]["token_rank"] == 3.0  # <cls> keeps its slot, genes rank by original position
+    assert sequence_features[null_ids[1]]["token_rank"] == 0.0
+
+
+@pytest.mark.parametrize("vocabulary", [{"<unk>": 4}, ["<unk>"]])
+def test_token_vocabulary_rejects_unknown_special_tokens(vocabulary) -> None:
+    cohort, _ = _synthetic_cohort()
+
+    with pytest.raises(ValueError, match="invalid Ensembl gene id"):
+        select_matched_nulls(cohort, TARGET, CANDIDATES, token_vocabulary=vocabulary)

@@ -28,9 +28,7 @@ class TestDeriveLabelMapping:
 
     def test_key_ptm_related_states_map_to_consecutive_indices(self):
         # 关键细胞状态 / PTM 生物学语境下的典型标签
-        df = pd.DataFrame(
-            {"cell_state": ["phosphorylation", "ubiquitination", "acetylation"]}
-        )
+        df = pd.DataFrame({"cell_state": ["phosphorylation", "ubiquitination", "acetylation"]})
 
         cell_states, label_to_idx = derive_label_mapping(df)
 

@@ -1,4 +1,5 @@
 """评估模块 - 评估指标、评估器和结果可视化"""
+
 import logging
 
 from src.utils.lazy_import import LazyImport
@@ -31,9 +32,7 @@ from .metrics import (
 # whose import failed re-raises the original ImportError.
 _Evaluator: LazyImport = LazyImport(f"{__name__}.evaluators", "Evaluator")
 _LeaveOnePTMOutScorer: LazyImport = LazyImport(f"{__name__}.explainers", "LeaveOnePTMOutScorer")
-_TwoStageExplanationPipeline: LazyImport = LazyImport(
-    f"{__name__}.explainers", "TwoStageExplanationPipeline"
-)
+_TwoStageExplanationPipeline: LazyImport = LazyImport(f"{__name__}.explainers", "TwoStageExplanationPipeline")
 _aggregate_by_protein: LazyImport = LazyImport(f"{__name__}.explainers", "aggregate_by_protein")
 _plot_roc_curve: LazyImport = LazyImport(f"{__name__}.visualization", "plot_roc_curve")
 _plot_pr_curve: LazyImport = LazyImport(f"{__name__}.visualization", "plot_pr_curve")

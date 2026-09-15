@@ -8,11 +8,13 @@ PTM位点预测训练脚本
 import sys
 from pathlib import Path
 
+
 # 确保项目根目录在sys.path中
 def _ensure_project_root():
     project_root = Path(__file__).parent.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+
 
 _ensure_project_root()
 
@@ -187,15 +189,15 @@ def main():
     # 创建模型
     print("\n创建模型...")
     model_config = {
-        'vocab_size': 21,
-        'embed_dim': args.embed_dim,
-        'hidden_dim': args.hidden_dim,
-        'num_layers': args.num_layers,
-        'num_heads': 4,
-        'dropout': args.dropout,
-        'encoder_type': args.encoder,
-        'window_size': 31,
-        'num_classes': 2,
+        "vocab_size": 21,
+        "embed_dim": args.embed_dim,
+        "hidden_dim": args.hidden_dim,
+        "num_layers": args.num_layers,
+        "num_heads": 4,
+        "dropout": args.dropout,
+        "encoder_type": args.encoder,
+        "window_size": 31,
+        "num_classes": 2,
     }
     model = create_model(model_config)
 
@@ -207,22 +209,22 @@ def main():
 
     # Lightning模块
     training_config = {
-        'learning_rate': args.learning_rate,
-        'weight_decay': args.weight_decay,
-        'max_epochs': args.max_epochs,
-        'optimizer': 'adamw',
-        'scheduler': 'cosine',
+        "learning_rate": args.learning_rate,
+        "weight_decay": args.weight_decay,
+        "max_epochs": args.max_epochs,
+        "optimizer": "adamw",
+        "scheduler": "cosine",
     }
     lightning_model = PTMSiteLightning(model, {**model_config, **training_config})
 
     # 回调
     callbacks = [
-        LearningRateMonitor(logging_interval='step'),
+        LearningRateMonitor(logging_interval="step"),
         ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=f"ptm-{args.encoder}-{{epoch:02d}}-{{val_auroc:.4f}}",
-            monitor='val_auroc',
-            mode='max',
+            monitor="val_auroc",
+            mode="max",
             save_top_k=3,
             save_last=True,
         ),
@@ -236,7 +238,7 @@ def main():
 
     # Trainer
     trainer = L.Trainer(
-        accelerator='gpu' if args.gpus > 0 else 'cpu',
+        accelerator="gpu" if args.gpus > 0 else "cpu",
         devices=args.gpus if args.gpus > 0 else 1,
         precision=args.precision,
         max_epochs=args.max_epochs,

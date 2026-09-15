@@ -38,6 +38,7 @@ try:
         MulticlassAveragePrecision,
         MulticlassF1Score,
     )
+
     TORCHMETRICS_AVAILABLE = True
 except ImportError:
     TORCHMETRICS_AVAILABLE = False
@@ -134,10 +135,7 @@ class PTM2CellNetLightning(L.LightningModule):
                 else:
                     logger.warning("不支持的class_weights类型: %s", type(self.class_weights))
 
-            logger.info(
-                f"使用Focal Loss: gamma={gamma}, "
-                f"alpha={alpha.tolist() if alpha is not None else None}"
-            )
+            logger.info(f"使用Focal Loss: gamma={gamma}, alpha={alpha.tolist() if alpha is not None else None}")
             return FocalLoss(alpha=alpha, gamma=gamma, reduction="mean")
 
         else:  # cross_entropy
@@ -240,9 +238,7 @@ class PTM2CellNetLightning(L.LightningModule):
         """
         return cast(Dict[str, torch.Tensor], self.model(batch))
 
-    def training_step(
-        self, batch: Dict[str, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """
         训练步骤
 
@@ -288,9 +284,7 @@ class PTM2CellNetLightning(L.LightningModule):
 
         return cast(torch.Tensor, loss)
 
-    def validation_step(
-        self, batch: Dict[str, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """
         验证步骤
 
@@ -364,9 +358,7 @@ class PTM2CellNetLightning(L.LightningModule):
             self.log(name, value, prog_bar=True, on_epoch=True)
             metric.reset()
 
-    def test_step(
-        self, batch: Dict[str, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """
         测试步骤
 
@@ -478,9 +470,7 @@ class PTM2CellNetLightning(L.LightningModule):
                 nesterov=nesterov,
             )
         else:
-            logger.warning(
-                f"未知的优化器类型: {self.optimizer_name}，使用默认AdamW"
-            )
+            logger.warning(f"未知的优化器类型: {self.optimizer_name}，使用默认AdamW")
             optimizer = torch.optim.AdamW(
                 self.parameters(),
                 lr=self.learning_rate,
@@ -513,9 +503,7 @@ class PTM2CellNetLightning(L.LightningModule):
                 pass
         return L.Trainer(**trainer_kwargs)
 
-    def _create_scheduler(
-        self, optimizer: Optimizer
-    ) -> Optional[LRSchedulerClass]:
+    def _create_scheduler(self, optimizer: Optimizer) -> Optional[LRSchedulerClass]:
         """
         创建学习率调度器
 
@@ -548,9 +536,7 @@ class PTM2CellNetLightning(L.LightningModule):
                 gamma=0.1,
             )
         else:
-            logger.warning(
-                f"未知的调度器类型: {self.scheduler_name}，不使用调度器"
-            )
+            logger.warning(f"未知的调度器类型: {self.scheduler_name}，不使用调度器")
             return None
 
         logger.info("创建学习率调度器: %s", self.scheduler_name)

@@ -16,9 +16,7 @@ from src.models.plm_assets import (
 def _asset(root: Path, name: str, *, complete: bool = True) -> Path:
     path = root / name
     path.mkdir()
-    (path / "config.json").write_text(
-        json.dumps({"model_type": "esm", "hidden_size": 8}), encoding="utf-8"
-    )
+    (path / "config.json").write_text(json.dumps({"model_type": "esm", "hidden_size": 8}), encoding="utf-8")
     (path / "tokenizer.json").write_text("{}", encoding="utf-8")
     weight_name = "model.safetensors" if complete else "model.safetensors.part"
     (path / weight_name).write_bytes(b"weights")

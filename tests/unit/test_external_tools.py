@@ -24,6 +24,7 @@ from src.models.external_tools import clustalw as _clustalw
 # AlphaFoldClient tests
 # ---------------------------------------------------------------------------
 
+
 class TestAlphaFoldClient:
     """Tests for AlphaFoldClient with mocked requests."""
 
@@ -77,11 +78,13 @@ class TestAlphaFoldClient:
         # Mock the prediction API response
         pred_resp = MagicMock()
         pred_resp.ok = True
-        pred_resp.json.return_value = [{
-            "pdbUrl": "https://example.com/pdb",
-            "confidence": 90.0,
-            "predictedAlignedError": [],
-        }]
+        pred_resp.json.return_value = [
+            {
+                "pdbUrl": "https://example.com/pdb",
+                "confidence": 90.0,
+                "predictedAlignedError": [],
+            }
+        ]
         # Mock the PDB download response
         pdb_resp = MagicMock()
         pdb_resp.ok = True
@@ -129,6 +132,7 @@ class TestAlphaFoldClient:
 # ---------------------------------------------------------------------------
 # BLASTClient tests
 # ---------------------------------------------------------------------------
+
 
 class TestBLASTClient:
     """Tests for BLASTClient with mocked BioPython."""
@@ -196,6 +200,7 @@ class TestBLASTClient:
 # ClustalWClient tests
 # ---------------------------------------------------------------------------
 
+
 class TestClustalWClient:
     """Tests for ClustalWClient with built-in fallback alignment."""
 
@@ -250,8 +255,7 @@ class TestClustalWClient:
 
     def test_check_available_with_biopython(self):
         """check_available returns True when BioPython Align is available."""
-        with patch.object(_clustalw, "BIO_ALIGN_AVAILABLE", True), \
-             patch.object(_clustalw, "shutil") as mock_shutil:
+        with patch.object(_clustalw, "BIO_ALIGN_AVAILABLE", True), patch.object(_clustalw, "shutil") as mock_shutil:
             mock_shutil.which.return_value = None  # no external clustalw
             client = ClustalWClient()
             assert client.check_available() is True
@@ -260,6 +264,7 @@ class TestClustalWClient:
 # ---------------------------------------------------------------------------
 # ChouFasmanClient tests
 # ---------------------------------------------------------------------------
+
 
 class TestChouFasmanClient:
     """Tests for ChouFasmanClient (Chou-Fasman built-in predictor)."""
@@ -322,6 +327,7 @@ class TestChouFasmanClient:
 # Needleman-Wunsch helper tests
 # ---------------------------------------------------------------------------
 
+
 class TestNeedlemanWunsch:
     """Tests for the built-in Needleman-Wunsch alignment."""
 
@@ -352,6 +358,7 @@ class TestNeedlemanWunsch:
 # ---------------------------------------------------------------------------
 # PSIPREDClient alias tests (src/models/external_tools/psipred.py, N06)
 # ---------------------------------------------------------------------------
+
 
 class TestPSIPREDClientAlias:
     """PSIPREDClient is a deprecated alias for ChouFasmanClient.

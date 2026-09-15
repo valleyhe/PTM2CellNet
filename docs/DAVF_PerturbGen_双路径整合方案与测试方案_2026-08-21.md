@@ -7,6 +7,7 @@
 > **决策依据**：`lessons.md` L-2026-0821-01、L-2026-0821-02、L-2026-0901-01、L-2026-0902-01～03及 2026-09-13 复审条目
 > **代码基线**：当前工作区 + PerturbGen `ref/Perturbgen-src` commit `a9a9375`
 > **替代版本**：本版完整替代 v1.1；本次复审保留严格 AND、独立环境和 Gate-E 门控，并修正方向语义、来源独立性、工作流职责和公共准备边界
+> **上游注记（2026-09-14）**：候选输入上游新增 PTM activity → AD 交集主线（`docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` v1.0 + `docs/guides/ptm_activity_pipeline.md`，契约层已落地）。本方案的 candidate-spec 契约、六阶段与 Gate 验收口径不变；主线阶段 5 CLI 产出的 `candidate-spec/v1` 直接被同一 E2E 入口消费。
 
 ---
 

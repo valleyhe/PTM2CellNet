@@ -57,10 +57,17 @@ class TestExtendedPTMRegistry:
         # Originally only 6; V22-05 added many more (≥10).
         assert len(PTM_DIRECTION_MAP) >= 10
         for required in [
-            "phosphorylation", "ubiquitination", "acetylation", "methylation",
-            "sumoylation", "neddylation",
+            "phosphorylation",
+            "ubiquitination",
+            "acetylation",
+            "methylation",
+            "sumoylation",
+            "neddylation",
             # V22-05 additions
-            "succinylation", "glycosylation", "palmitoylation", "lactylation",
+            "succinylation",
+            "glycosylation",
+            "palmitoylation",
+            "lactylation",
         ]:
             assert required in PTM_DIRECTION_MAP, f"missing {required}"
 
@@ -130,8 +137,7 @@ class TestPathwayContextOverrides:
     def test_methylation_is_repressive_in_chromatin_context(self, ptm_mapper):
         """V22-03: methylation → KD in chromatin/DNA-damage contexts."""
         ptm_sites = [PTMSite(position=1, type="methylation")]
-        for ctx in ["Chromatin remodeling", "Histone code", "DNA Damage response",
-                    "gene regulation", "transcription"]:
+        for ctx in ["Chromatin remodeling", "Histone code", "DNA Damage response", "gene regulation", "transcription"]:
             result = ptm_mapper.map_ptms(ptm_sites, ["TP53"], pathway_context=ctx)
             assert result.directions[0, 0].item() == DIRECTION_KD, f"ctx={ctx}"
 
@@ -159,14 +165,13 @@ class TestPathwayContextOverrides:
     def test_map_batch_accepts_per_sample_contexts(self, ptm_mapper):
         """V22-03: map_batch propagates per-sample pathway contexts."""
         batch_ptm_sites = [
-            [PTMSite(position=1, type="methylation")],   # repressive ctx
-            [PTMSite(position=1, type="methylation")],   # signaling ctx
+            [PTMSite(position=1, type="methylation")],  # repressive ctx
+            [PTMSite(position=1, type="methylation")],  # signaling ctx
         ]
         batch_gene_names = [["TP53"], ["TP53"]]
         contexts = ["Chromatin remodeling", "MAPK signaling"]
 
-        result = ptm_mapper.map_batch(batch_ptm_sites, batch_gene_names,
-                                      pathway_contexts=contexts)
+        result = ptm_mapper.map_batch(batch_ptm_sites, batch_gene_names, pathway_contexts=contexts)
         assert result.directions[0, 0].item() == DIRECTION_KD  # sample 0
         assert result.directions[1, 0].item() == DIRECTION_OE  # sample 1
 

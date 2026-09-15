@@ -78,11 +78,16 @@ def trained_artifact(tmp_path_factory):
         [
             sys.executable,
             "scripts/train_cross_scale.py",
-            "--config", str(config_path),
-            "--train-data", str(tmp_path / "train.npz"),
-            "--val-data", str(tmp_path / "val.npz"),
-            "--test-data", str(tmp_path / "test.npz"),
-            "--output", str(artifact),
+            "--config",
+            str(config_path),
+            "--train-data",
+            str(tmp_path / "train.npz"),
+            "--val-data",
+            str(tmp_path / "val.npz"),
+            "--test-data",
+            str(tmp_path / "test.npz"),
+            "--output",
+            str(artifact),
         ],
         cwd=PROJECT_ROOT,
         text=True,
@@ -123,10 +128,14 @@ def test_embedding_prediction_matches_offline_cli(api_client, trained_artifact):
         [
             sys.executable,
             "scripts/predict_cross_scale.py",
-            "--artifact", str(_artifact),
-            "--data", str(inference),
-            "--output", str(output),
-            "--batch-size", "2",
+            "--artifact",
+            str(_artifact),
+            "--data",
+            str(inference),
+            "--output",
+            str(output),
+            "--batch-size",
+            "2",
         ],
         cwd=PROJECT_ROOT,
         text=True,
@@ -177,9 +186,7 @@ def test_sequence_and_batch_paths(api_client):
     assert body["summary"] == {"total": 2, "succeeded": 2, "failed": 0}
     assert [p["sample_id"] for p in body["predictions"]] == ["s0", "s1"]
     # 组批与单样本路径结果一致（同序列、同图、确定性推理）
-    assert body["predictions"][0]["probabilities"] == pytest.approx(
-        single.json()["probabilities"], abs=1e-6
-    )
+    assert body["predictions"][0]["probabilities"] == pytest.approx(single.json()["probabilities"], abs=1e-6)
 
 
 def test_api_key_gate_guarded_subpath(monkeypatch, trained_artifact):

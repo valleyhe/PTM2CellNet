@@ -56,18 +56,23 @@ class _DataLoaderProtocol(Protocol):
     def _normalize_column_name(column_name: str) -> str: ...
 
     @staticmethod
-    def _extract_amino_acid_and_position(value: Union[str, float, int, None]) -> Tuple[Optional[str], Optional[int]]: ...
+    def _extract_amino_acid_and_position(
+        value: Union[str, float, int, None],
+    ) -> Tuple[Optional[str], Optional[int]]: ...
+
 
 # Default production download allowlist: official bioinformatics data sources.
 # These are the hosts that the project's data loaders are known to fetch from.
 # Operators can extend this via PTM2CELLNET_DOWNLOAD_ALLOWLIST.
-_DEFAULT_DOWNLOAD_ALLOWLIST = frozenset({
-    "www.uniprot.org",
-    "rest.uniprot.org",
-    "alphafold.ebi.ac.uk",
-    "ftp.ebi.ac.uk",
-    "www.phosphosite.org",
-})
+_DEFAULT_DOWNLOAD_ALLOWLIST = frozenset(
+    {
+        "www.uniprot.org",
+        "rest.uniprot.org",
+        "alphafold.ebi.ac.uk",
+        "ftp.ebi.ac.uk",
+        "www.phosphosite.org",
+    }
+)
 
 
 class DataLoaderBase:
@@ -85,9 +90,7 @@ class DataLoaderBase:
         """
         self.config = config or {}
         self.data_raw_dir = self.config.get("paths", {}).get("data_raw", "data/raw")
-        self.valid_amino_acids = set(
-            self.config.get("data", {}).get("valid_amino_acids", "ACDEFGHIKLMNPQRSTVWY")
-        )
+        self.valid_amino_acids = set(self.config.get("data", {}).get("valid_amino_acids", "ACDEFGHIKLMNPQRSTVWY"))
         # strict 模式下，PTM 数据库下载/解析失败抛出 RuntimeError 而非静默返回空
         # DataFrame，避免下游在不知情时用空数据训练。
         self.strict_load = bool(self.config.get("data", {}).get("strict_load", False))
@@ -141,9 +144,7 @@ class DataLoaderBase:
 
     def _get_matching_column(self, df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
         """Find the first matching column using normalized names."""
-        normalized_map = {
-            self._normalize_column_name(column_name): column_name for column_name in df.columns
-        }
+        normalized_map = {self._normalize_column_name(column_name): column_name for column_name in df.columns}
         for candidate in candidates:
             matched = normalized_map.get(self._normalize_column_name(candidate))
             if matched is not None:
@@ -176,14 +177,10 @@ class DataLoaderBase:
         # enforces this, but we re-check here so the guard is local to the
         # network call site and survives refactors of _is_url.
         if parsed.scheme not in {"http", "https"}:
-            raise ValueError(
-                f"Refusing to download URL with scheme {parsed.scheme!r}; "
-                "only http/https are allowed."
-            )
+            raise ValueError(f"Refusing to download URL with scheme {parsed.scheme!r}; only http/https are allowed.")
         if parsed.scheme == "http":
             logger.warning(
-                "Downloading over plaintext HTTP (host=%s). Configure the "
-                "source to use HTTPS if possible.",
+                "Downloading over plaintext HTTP (host=%s). Configure the source to use HTTPS if possible.",
                 parsed.netloc,
             )
 
@@ -199,8 +196,7 @@ class DataLoaderBase:
                 allowed_hosts = {h.strip().lower() for h in allowlist_env.split(",") if h.strip()}
                 if parsed.netloc.split(":")[0].lower() not in allowed_hosts:
                     raise ValueError(
-                        f"Download host {parsed.netloc!r} is not in the "
-                        "PTM2CELLNET_DOWNLOAD_ALLOWLIST allowlist."
+                        f"Download host {parsed.netloc!r} is not in the PTM2CELLNET_DOWNLOAD_ALLOWLIST allowlist."
                     )
         else:
             # No env var set: use default production allowlist
@@ -273,8 +269,7 @@ class DataLoaderBase:
                         except OSError:
                             pass
                         raise ValueError(
-                            f"Download exceeded {max_bytes} bytes (cap via "
-                            "PTM2CELLNET_MAX_DOWNLOAD_BYTES); aborting."
+                            f"Download exceeded {max_bytes} bytes (cap via PTM2CELLNET_MAX_DOWNLOAD_BYTES); aborting."
                         )
                     handle.write(chunk)
             else:
@@ -286,8 +281,7 @@ class DataLoaderBase:
                     except OSError:
                         pass
                     raise ValueError(
-                        f"Download exceeded {max_bytes} bytes (cap via "
-                        "PTM2CELLNET_MAX_DOWNLOAD_BYTES); aborting."
+                        f"Download exceeded {max_bytes} bytes (cap via PTM2CELLNET_MAX_DOWNLOAD_BYTES); aborting."
                     )
                 handle.write(content)
             return handle.name
@@ -310,9 +304,7 @@ class DataLoaderBase:
     @staticmethod
     def _empty_ptm_df() -> pd.DataFrame:
         """Return an empty DataFrame for generic PTM database contracts."""
-        return pd.DataFrame(
-            columns=["protein_accession", "position", "ptm_type", "amino_acid", "source"]
-        )
+        return pd.DataFrame(columns=["protein_accession", "position", "ptm_type", "amino_acid", "source"])
 
     def _read_tabular_file(self, file_path: str, sep: Optional[str] = None) -> pd.DataFrame:
         """Read a delimited text file with optional separator inference."""
@@ -358,10 +350,7 @@ class DataLoaderBase:
         positions: "pd.Series"
         if position_col is not None:
             positions = (
-                df[position_col]
-                .astype(str)
-                .str.extract(r"(\d+)", expand=False)
-                .pipe(pd.to_numeric, errors="coerce")
+                df[position_col].astype(str).str.extract(r"(\d+)", expand=False).pipe(pd.to_numeric, errors="coerce")
             )
         elif mod_rsd_col is not None:
             positions = df[mod_rsd_col].apply(lambda value: self._extract_amino_acid_and_position(value)[1])
@@ -369,13 +358,9 @@ class DataLoaderBase:
             raise ValueError("缺少位点位置列")
 
         if amino_acid_col is not None:
-            amino_acids = (
-                df[amino_acid_col].astype(str).str.extract(r"([A-Za-z])", expand=False).str.upper()
-            )
+            amino_acids = df[amino_acid_col].astype(str).str.extract(r"([A-Za-z])", expand=False).str.upper()
         elif mod_rsd_col is not None:
-            amino_acids = df[mod_rsd_col].apply(
-                lambda value: self._extract_amino_acid_and_position(value)[0]
-            )
+            amino_acids = df[mod_rsd_col].apply(lambda value: self._extract_amino_acid_and_position(value)[0])
         else:
             raise ValueError("缺少氨基酸列")
 

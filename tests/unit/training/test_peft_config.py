@@ -164,12 +164,8 @@ class TestApplyLoRA:
             task_type=TaskType.FEATURE_EXTRACTION,
         )
         result = apply_lora_to_encoder(simple_encoder, config)
-        base_params_frozen = all(
-            not p.requires_grad for n, p in result.named_parameters() if "lora_" not in n
-        )
-        lora_params_trainable = any(
-            p.requires_grad for n, p in result.named_parameters() if "lora_" in n
-        )
+        base_params_frozen = all(not p.requires_grad for n, p in result.named_parameters() if "lora_" not in n)
+        lora_params_trainable = any(p.requires_grad for n, p in result.named_parameters() if "lora_" in n)
         assert base_params_frozen
         assert lora_params_trainable
 

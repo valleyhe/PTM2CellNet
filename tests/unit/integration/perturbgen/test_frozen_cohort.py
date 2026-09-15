@@ -116,7 +116,7 @@ def _write_result_h5ad(path: Path) -> None:
 
 def _write_synthetic_run_assets(tmp_path: Path, cohort_h5ad: Path) -> tuple[Path, Path, Path]:
     run_root = tmp_path / "perturbgen" / "KO" / ENSEMBL
-    tokenise_dir = run_root / "tokenise"
+    tokenise_dir = run_root.parent / "_prepare" / "tokenise"
     artifact_dir = tokenise_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     src_dataset = artifact_dir / "src.dataset"
@@ -270,6 +270,7 @@ def _e2e_report(tmp_path: Path, run_root: Path) -> dict:
                 "gene_symbol": GENE,
                 "ensembl_id": ENSEMBL,
                 "output_root": str(run_root),
+                "prepare_root": str(run_root.parent / "_prepare"),
                 "stages": [],
             }
         ],
@@ -352,9 +353,7 @@ class TestBuildFrozenManifest:
             "NOC2L,ENSG00000188976,KD,mask\n",
             encoding="utf-8",
         )
-        manifest = build_frozen_manifest(
-            **_manifest_kwargs(tmp_path, candidates_csv=candidates, modes=("mask",))
-        )
+        manifest = build_frozen_manifest(**_manifest_kwargs(tmp_path, candidates_csv=candidates, modes=("mask",)))
 
         assert [candidate.modes for candidate in manifest.candidates] == [
             ("mask", "pad", "delete"),
@@ -364,8 +363,7 @@ class TestBuildFrozenManifest:
     def test_kd_csv_with_pad_mode_is_rejected(self, tmp_path):
         candidates = tmp_path / "invalid-kd-candidates.csv"
         candidates.write_text(
-            "gene_symbol,ensembl_id,intervention_type,modes\n"
-            'NOC2L,ENSG00000188976,KD,"mask,pad"\n',
+            'gene_symbol,ensembl_id,intervention_type,modes\nNOC2L,ENSG00000188976,KD,"mask,pad"\n',
             encoding="utf-8",
         )
 
@@ -475,7 +473,9 @@ class TestReplayVerdicts:
         _, manifest_path, eval_input, _, _ = _build_real_eval_input(tmp_path)
         report_path, report = _run_real_evaluator(tmp_path, eval_input)
         manifest = load_frozen_manifest(manifest_path)
-        result = replay_verdicts(report, manifest=manifest)
+        result = replay_verdicts(
+            report, manifest=manifest, eval_input=json.loads(eval_input.read_text(encoding="utf-8"))
+        )
         assert result["reproduced"] is True
         assert result["mismatches"] == []
         assert result["independent_h5ad_recomputed"] is True
@@ -508,7 +508,9 @@ class TestReplayVerdicts:
         report_path, report = _run_real_evaluator(tmp_path, eval_input)
         manifest = load_frozen_manifest(manifest_path)
         report["candidates"][0]["verdict"] = "fail"
-        result = replay_verdicts(report, manifest=manifest)
+        result = replay_verdicts(
+            report, manifest=manifest, eval_input=json.loads(eval_input.read_text(encoding="utf-8"))
+        )
         assert result["reproduced"] is False
         assert any("published 'fail'" in mismatch for mismatch in result["mismatches"])
 
@@ -533,6 +535,99 @@ class TestReplayVerdicts:
             )
             == 1
         )
+
+    def test_formal_replay_recomputes_pvalue_and_binds_input_lineage(self, tmp_path):
+        _, manifest_path, engineering_input_path, _, engineering_input = _build_real_eval_input(tmp_path)
+        formal_input = dict(engineering_input)
+        formal_input.update(
+            {
+                "evaluation_mode": "formal",
+                "evidence_class": "empirical_null",
+                "pvalue_source": "empirical_pending_extraction",
+                "contract": {
+                    "schema_version": "perturbgen_dual_path_eval/v1",
+                    "evaluation_mode": "formal",
+                    "evidence_class": "empirical_null",
+                    "pvalue_source": "empirical_pending_extraction",
+                },
+            }
+        )
+        for candidate in formal_input["candidates"]:
+            candidate.pop("candidate_pvalue", None)
+            candidate["pvalue_source"] = "empirical_pending_extraction"
+            candidate["unperturbed_quality"] = {
+                "source": "extract_unperturbed_quality_from_h5ad",
+                "status": "pass",
+            }
+        formal_input_path = tmp_path / "formal-eval-input.json"
+        formal_input_path.write_text(json.dumps(formal_input), encoding="utf-8")
+        report_path, report = _run_real_evaluator(tmp_path, formal_input_path)
+        manifest = load_frozen_manifest(manifest_path)
+        formal_input["input_json"] = str(formal_input_path.resolve())
+        formal_input["input_sha256"] = _sha256(formal_input_path)
+
+        verification = verify_eval_input_against_manifest(manifest, formal_input)
+        assert verification["contract_eligible"] is True
+        result = replay_verdicts(report, manifest=manifest, eval_input=formal_input)
+        assert result["reproduced"] is True
+        replayed_pvalue = result["candidates"][0]["replayed_candidate_pvalue"]
+        replayed_verdict = result["candidates"][0]["replayed_verdict"]
+        assert replayed_pvalue == result["candidates"][0]["replayed_q_value"]
+
+        missing_mode_input = dict(formal_input)
+        missing_mode_input.pop("evaluation_mode")
+        missing_mode = replay_verdicts(report, manifest=manifest, eval_input=missing_mode_input)
+        assert missing_mode["reproduced"] is False
+
+        report["candidates"][0]["candidate_pvalue"] = 1.0
+        tampered = replay_verdicts(report, manifest=manifest, eval_input=formal_input)
+        assert tampered["reproduced"] is False
+        assert tampered["candidates"][0]["replayed_candidate_pvalue"] == replayed_pvalue
+        assert tampered["candidates"][0]["replayed_verdict"] == replayed_verdict
+        assert any("candidate_pvalue" in mismatch for mismatch in tampered["mismatches"])
+
+        report.pop("contract")
+        missing_declaration = replay_verdicts(report, manifest=manifest, eval_input=formal_input)
+        assert missing_declaration["reproduced"] is False
+        assert any("contract declaration" in mismatch for mismatch in missing_declaration["mismatches"])
+
+        del formal_input["input_sha256"]
+        invalid_input_lineage = verify_eval_input_against_manifest(manifest, formal_input)
+        assert invalid_input_lineage["contract_eligible"] is False
+        assert any("input_sha256" in issue for issue in invalid_input_lineage["eval_input_issues"])
+
+    def test_formal_frozen_verify_rejects_missing_contract_fields(self, tmp_path):
+        _, manifest_path, engineering_input_path, _, engineering_input = _build_real_eval_input(tmp_path)
+        manifest = load_frozen_manifest(manifest_path)
+        formal_input = dict(engineering_input)
+        formal_input.update(
+            {
+                "evaluation_mode": "formal",
+                "evidence_class": "empirical_null",
+                "pvalue_source": "empirical_path_results",
+                "contract": {
+                    "schema_version": "perturbgen_dual_path_eval/v1",
+                    "evaluation_mode": "formal",
+                    "evidence_class": "empirical_null",
+                    "pvalue_source": "empirical_path_results",
+                },
+                "input_json": str(engineering_input_path.resolve()),
+                "input_sha256": _sha256(engineering_input_path),
+            }
+        )
+
+        for field_name in ("evaluation_mode", "evidence_class", "pvalue_source", "contract", "input_sha256"):
+            missing = dict(formal_input)
+            missing.pop(field_name)
+            verification = verify_eval_input_against_manifest(manifest, missing, require_formal=True)
+            assert verification["contract_eligible"] is False
+            assert verification["eval_input_issues"]
+
+        invalid_source = dict(formal_input)
+        invalid_source["candidates"] = [dict(formal_input["candidates"][0], pvalue_source="uniform")]
+        verification = verify_eval_input_against_manifest(manifest, invalid_source, require_formal=True)
+        assert verification["contract_eligible"] is False
+        assert any("pvalue_source" in issue for issue in verification["eval_input_issues"])
 
 
 class TestCli:
@@ -581,3 +676,137 @@ class TestCli:
         assert plan["n_runs"] == 18
         audit = json.loads(audit_path.read_text(encoding="utf-8"))
         assert audit["donor_leakage"] == "clear"
+
+
+def _between_donor_cohort_h5ad(tmp_path: Path) -> Path:
+    """Case-control cohort: five normal + five disease donors, fully disjoint."""
+    ad = pytest.importorskip("anndata")
+    path = tmp_path / "cohort_between.h5ad"
+    normal_donors = [f"n{index}" for index in range(1, 6)]
+    disease_donors = [f"x{index}" for index in range(1, 6)]
+    counts = np.asarray([[10, 5, 2]] * 5 + [[12, 4, 3]] * 5, dtype=np.int64)
+    obs = pd.DataFrame(
+        {
+            "cell_type": ["K562"] * 10,
+            "state": ["normal"] * 5 + ["disease"] * 5,
+            "donor": normal_donors + disease_donors,
+        },
+        index=[f"cell_{index}" for index in range(10)],
+    )
+    var = pd.DataFrame(
+        {
+            "ensembl_id": [ENSEMBL, "ENSG00000000001", "ENSG00000000002"],
+            "gene_symbol": [GENE, "UP_A", "DOWN_A"],
+        },
+        index=[GENE, "UP_A", "DOWN_A"],
+    )
+    adata = ad.AnnData(X=counts, obs=obs, var=var)
+    adata.layers["counts"] = counts.copy()
+    adata.write_h5ad(path)
+    return path
+
+
+class TestBetweenDonorPairing:
+    def _between_manifest(self, tmp_path):
+        return build_frozen_manifest(
+            **_manifest_kwargs(
+                tmp_path,
+                cohort_h5ad=_between_donor_cohort_h5ad(tmp_path),
+                train_donors=("n1", "n2"),
+                held_out_donors=("n3", "n4", "n5", "x1", "x2", "x3", "x4", "x5"),
+                pairing="between_donor",
+            )
+        )
+
+    def test_manifest_freezes_pairing_through_payload_and_plan(self, tmp_path):
+        manifest = self._between_manifest(tmp_path)
+        assert manifest.pairing == "between_donor"
+        payload = manifest.to_payload()
+        assert payload["pairing"] == "between_donor"
+        assert build_acceptance_plan(manifest)["pairing"] == "between_donor"
+        path = tmp_path / "between-manifest.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        assert load_frozen_manifest(path).pairing == "between_donor"
+
+    def test_invalid_pairing_is_rejected(self, tmp_path):
+        with pytest.raises(FrozenCohortError, match="pairing must be one of"):
+            build_frozen_manifest(**_manifest_kwargs(tmp_path, pairing="cross_donor"))
+
+    def test_between_donor_cohort_passes_frozen_asset_validation(self, tmp_path):
+        from src.integration.perturbgen.frozen_cohort import _validate_frozen_cohort_asset
+
+        ok, details, issues = _validate_frozen_cohort_asset(self._between_manifest(tmp_path))
+        assert ok, issues
+        assert details["pairing"] == "between_donor"
+
+    def test_within_donor_semantics_still_rejects_case_control_cohort(self, tmp_path):
+        from src.integration.perturbgen.frozen_cohort import _validate_frozen_cohort_asset
+
+        manifest = build_frozen_manifest(
+            **_manifest_kwargs(
+                tmp_path,
+                cohort_h5ad=_between_donor_cohort_h5ad(tmp_path),
+                train_donors=("n1", "n2"),
+                held_out_donors=("n3", "n4", "n5", "x1", "x2", "x3", "x4", "x5"),
+            )
+        )
+        ok, _, issues = _validate_frozen_cohort_asset(manifest)
+        assert not ok
+        assert any("cohort contract failed" in issue for issue in issues)
+
+    def test_between_donor_rejects_donor_observed_in_both_states(self, tmp_path):
+        from src.integration.perturbgen.frozen_cohort import _validate_frozen_cohort_asset
+
+        ad = pytest.importorskip("anndata")
+        path = tmp_path / "cohort_leaky.h5ad"
+        counts = np.asarray([[10, 5, 2]] * 4 + [[12, 4, 3]] * 4, dtype=np.int64)
+        obs = pd.DataFrame(
+            {
+                "cell_type": ["K562"] * 8,
+                "state": ["normal"] * 4 + ["disease"] * 4,
+                # n4 appears in both states: a labeling error under between_donor.
+                "donor": ["n1", "n2", "n3", "n4", "n4", "x1", "x2", "x3"],
+            },
+            index=[f"cell_{index}" for index in range(8)],
+        )
+        var = pd.DataFrame(
+            {
+                "ensembl_id": [ENSEMBL, "ENSG00000000001", "ENSG00000000002"],
+                "gene_symbol": [GENE, "UP_A", "DOWN_A"],
+            },
+            index=[GENE, "UP_A", "DOWN_A"],
+        )
+        adata = ad.AnnData(X=counts, obs=obs, var=var)
+        adata.layers["counts"] = counts.copy()
+        adata.write_h5ad(path)
+        manifest = build_frozen_manifest(
+            **_manifest_kwargs(
+                tmp_path,
+                cohort_h5ad=path,
+                train_donors=("n1", "n2"),
+                held_out_donors=("n3", "n4", "x1", "x2", "x3"),
+                pairing="between_donor",
+            )
+        )
+        ok, _, issues = _validate_frozen_cohort_asset(manifest)
+        assert not ok
+        assert any("cohort contract failed" in issue for issue in issues)
+
+    def test_declared_eval_pairing_mismatch_is_reported(self, tmp_path):
+        manifest = self._between_manifest(tmp_path)
+        verification = verify_eval_input_against_manifest(
+            manifest,
+            {
+                "schema_version": "perturbgen_dual_path_eval/v1",
+                "cohort_pairing": "within_donor",
+                "candidates": [
+                    {
+                        "candidate": {"ensembl_id": ENSEMBL, "gene_symbol": GENE, "intervention_type": "KO"},
+                        "runs": [{"path": "source_intervention", "mode": "mask", "seed": 0}],
+                    }
+                ],
+            },
+        )
+        assert verification["pairing"] == "between_donor"
+        assert any("cohort_pairing" in issue for issue in verification["cohort_issues"])
+        assert not verification["covered"]

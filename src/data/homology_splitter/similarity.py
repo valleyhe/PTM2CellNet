@@ -29,8 +29,8 @@ class SequenceSimilarityCalculator:
             return 0.0
 
         # 提取k-mer集合
-        kmers1 = set(seq1[i:i+k] for i in range(len(seq1) - k + 1))
-        kmers2 = set(seq2[i:i+k] for i in range(len(seq2) - k + 1))
+        kmers1 = set(seq1[i : i + k] for i in range(len(seq1) - k + 1))
+        kmers2 = set(seq2[i : i + k] for i in range(len(seq2) - k + 1))
 
         if not kmers1 or not kmers2:
             return 0.0
@@ -65,8 +65,8 @@ class SequenceSimilarityCalculator:
             curr = i % 2
             prev = (i - 1) % 2
             for j in range(1, n + 1):
-                if seq1[i-1] == seq2[j-1]:
-                    dp[curr][j] = dp[prev][j-1] + 1
+                if seq1[i - 1] == seq2[j - 1]:
+                    dp[curr][j] = dp[prev][j - 1] + 1
                     max_length = max(max_length, dp[curr][j])
                 else:
                     dp[curr][j] = 0

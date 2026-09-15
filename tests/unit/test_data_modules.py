@@ -181,11 +181,14 @@ def test_schema_helpers_round_trip_and_validation():
 
     assert PTMSite.from_dict(site.to_dict()) == site
     assert PTMRecord.from_dict(record.to_dict()) == record
-    assert validate_protein_data(
-        {
-            "accession": "P12345",
-            "sequence": "ACDE",
-            "ptm_sites": [site.to_dict()],
-        }
-    ) is True
+    assert (
+        validate_protein_data(
+            {
+                "accession": "P12345",
+                "sequence": "ACDE",
+                "ptm_sites": [site.to_dict()],
+            }
+        )
+        is True
+    )
     assert validate_protein_data({"accession": "", "sequence": "ACDE"}) is False

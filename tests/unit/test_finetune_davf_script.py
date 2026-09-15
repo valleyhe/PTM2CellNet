@@ -29,6 +29,7 @@ class _DummyBackbone(nn.Module):
         self.linear = nn.Linear(10, 3)
         # Embed a real DAVFInferenceModule so _find_davf_module works
         from src.models.davf_inference import DAVFInferenceConfig
+
         cfg = DAVFInferenceConfig(
             checkpoint_path="nonexistent.pt",  # graceful zero-feature fallback
             freeze=True,
@@ -47,11 +48,21 @@ class TestArgparse:
         assert args.stage2_lr == 1e-5
 
     def test_parse_args_custom_values(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", [
-            "finetune_davf.py", "--data", "d.csv",
-            "--stage1-epochs", "3", "--stage2-epochs", "7",
-            "--stage2-lr", "2e-5",
-        ])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "finetune_davf.py",
+                "--data",
+                "d.csv",
+                "--stage1-epochs",
+                "3",
+                "--stage2-epochs",
+                "7",
+                "--stage2-lr",
+                "2e-5",
+            ],
+        )
         args = finetune_davf.parse_args()
         assert args.stage1_epochs == 3
         assert args.stage2_epochs == 7

@@ -3,6 +3,7 @@
 功能概述: 提供蛋白质序列的数据增强技术
 设计思路: 支持多种增强策略，包括序列截断、随机mask等
 """
+
 import random
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -86,11 +87,11 @@ class SequenceAugmenter:
             truncated = sequence[truncate_len:]
             # 补齐长度
             result = torch.zeros_like(sequence)
-            result[:len(truncated)] = truncated
+            result[: len(truncated)] = truncated
         else:
             # 截断尾部
             result = sequence.clone()
-            result[seq_len - truncate_len:seq_len] = 0
+            result[seq_len - truncate_len : seq_len] = 0
 
         return result
 
@@ -110,7 +111,7 @@ class SequenceAugmenter:
         result = sequence.clone()
         for i in range(seq_len - 1):
             if random.random() < self.random_swap_prob:
-                result[i], result[i+1] = result[i+1].clone(), result[i].clone()
+                result[i], result[i + 1] = result[i + 1].clone(), result[i].clone()
 
         return result
 
@@ -287,7 +288,7 @@ def compute_sample_weights(labels: List[int], mode: str = "balanced") -> torch.T
         beta = 0.9999
         weights = {}
         for label, count in label_counts.items():
-            effective_num = (1.0 - beta ** count) / (1.0 - beta)
+            effective_num = (1.0 - beta**count) / (1.0 - beta)
             weights[label] = 1.0 / effective_num
     else:
         raise ValueError(f"未知的权重模式: {mode}")

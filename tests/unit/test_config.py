@@ -21,8 +21,7 @@ class TestFromYaml:
         """从合法 YAML 文件加载配置，值应被正确读入。"""
         config_file = tmp_path / "valid.yaml"
         config_file.write_text(
-            "project:\n  name: PTM2CellNet\n  version: 1.0\n"
-            "training:\n  batch_size: 32\n  epochs: 10\n",
+            "project:\n  name: PTM2CellNet\n  version: 1.0\ntraining:\n  batch_size: 32\n  epochs: 10\n",
             encoding="utf-8",
         )
 

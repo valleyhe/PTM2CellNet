@@ -97,18 +97,13 @@ class ClustalWClient:
             aln_path = os.path.join(tmp_dir, "input.aln")
             tree_path = os.path.join(tmp_dir, "input.dnd")
 
-            records = [
-                SeqRecord(Seq(seq), id=name, description="")
-                for name, seq in sequences.items()
-            ]
+            records = [SeqRecord(Seq(seq), id=name, description="") for name, seq in sequences.items()]
             SeqIO.write(records, fasta_path, "fasta")
 
             if exe == "clustalw2":
                 cline = ClustalwCommandline(exe, infile=fasta_path, outfile=aln_path)
             else:
-                cline = ClustalOmegaCommandline(
-                    exe, infile=fasta_path, outfile=aln_path
-                )
+                cline = ClustalOmegaCommandline(exe, infile=fasta_path, outfile=aln_path)
 
             stdout, stderr = cline()
 
@@ -201,9 +196,7 @@ class ClustalWClient:
         # ---- UPGMA ----
         cluster_ids = list(range(n))
         cluster_sizes: Dict[int, int] = {i: 1 for i in range(n)}
-        clusters: Dict[int, Dict[str, str]] = {
-            i: {names[i]: seqs[i]} for i in range(n)
-        }
+        clusters: Dict[int, Dict[str, str]] = {i: {names[i]: seqs[i]} for i in range(n)}
         newick_map: Dict[int, str] = {i: names[i] for i in range(n)}
         next_id = n
 
@@ -227,19 +220,16 @@ class ClustalWClient:
             clusters[new_id] = merged
 
             brlen = f"{min_d / 2:.4f}"
-            newick_map[new_id] = (
-                f"({newick_map[mi]}:{brlen},{newick_map[mj]}:{brlen})"
-            )
+            newick_map[new_id] = f"({newick_map[mi]}:{brlen},{newick_map[mj]}:{brlen})"
 
             # update distances
             dist[new_id] = {}
             for k in cluster_ids:
                 if k in (mi, mj):
                     continue
-                d = (
-                    dist[mi][k] * cluster_sizes[mi]
-                    + dist[mj][k] * cluster_sizes[mj]
-                ) / (cluster_sizes[mi] + cluster_sizes[mj])
+                d = (dist[mi][k] * cluster_sizes[mi] + dist[mj][k] * cluster_sizes[mj]) / (
+                    cluster_sizes[mi] + cluster_sizes[mj]
+                )
                 dist[new_id][k] = d
                 dist[k][new_id] = d
 
@@ -262,9 +252,7 @@ class ClustalWClient:
         )
 
     @staticmethod
-    def _merge_two_clusters(
-        aln_a: Dict[str, str], aln_b: Dict[str, str]
-    ) -> Dict[str, str]:
+    def _merge_two_clusters(aln_a: Dict[str, str], aln_b: Dict[str, str]) -> Dict[str, str]:
         """Align two clusters by aligning their representatives."""
         rep_a_name = next(iter(aln_a))
         rep_b_name = next(iter(aln_b))
@@ -278,22 +266,16 @@ class ClustalWClient:
 
         for name, seq in aln_a.items():
             raw = seq.replace("-", "")
-            merged[name] = ClustalWClient._apply_gap_pattern(
-                raw, raw_a, gapped_a, length
-            )
+            merged[name] = ClustalWClient._apply_gap_pattern(raw, raw_a, gapped_a, length)
 
         for name, seq in aln_b.items():
             raw = seq.replace("-", "")
-            merged[name] = ClustalWClient._apply_gap_pattern(
-                raw, raw_b, gapped_b, length
-            )
+            merged[name] = ClustalWClient._apply_gap_pattern(raw, raw_b, gapped_b, length)
 
         return merged
 
     @staticmethod
-    def _apply_gap_pattern(
-        raw: str, raw_ref: str, gapped_ref: str, target_len: int
-    ) -> str:
+    def _apply_gap_pattern(raw: str, raw_ref: str, gapped_ref: str, target_len: int) -> str:
         """Apply the gap pattern from *gapped_ref* to *raw*.
 
         *raw_ref* is the ungapped version of *gapped_ref*.

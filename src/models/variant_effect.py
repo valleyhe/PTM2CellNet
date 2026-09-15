@@ -23,29 +23,45 @@ class VariantPTMEffectPredictor:
 
     # 氨基酸到索引的映射
     AA_TO_IDX = {
-        'A': 0, 'C': 1, 'D': 2, 'E': 3, 'F': 4,
-        'G': 5, 'H': 6, 'I': 7, 'K': 8, 'L': 9,
-        'M': 10, 'N': 11, 'P': 12, 'Q': 13, 'R': 14,
-        'S': 15, 'T': 16, 'V': 17, 'W': 18, 'Y': 19,
-        '-': 20,  # padding
+        "A": 0,
+        "C": 1,
+        "D": 2,
+        "E": 3,
+        "F": 4,
+        "G": 5,
+        "H": 6,
+        "I": 7,
+        "K": 8,
+        "L": 9,
+        "M": 10,
+        "N": 11,
+        "P": 12,
+        "Q": 13,
+        "R": 14,
+        "S": 15,
+        "T": 16,
+        "V": 17,
+        "W": 18,
+        "Y": 19,
+        "-": 20,  # padding
     }
 
     # PTM类型到修饰残基的映射
     PTM_RESIDUE_MAP = {
-        'Phosphorylation': ['S', 'T', 'Y'],
-        'Ubiquitination': ['K'],
-        'Acetylation': ['K'],
-        'Methylation': ['K', 'R'],
-        'Sumoylation': ['K'],
-        'Succinylation': ['K'],
+        "Phosphorylation": ["S", "T", "Y"],
+        "Ubiquitination": ["K"],
+        "Acetylation": ["K"],
+        "Methylation": ["K", "R"],
+        "Sumoylation": ["K"],
+        "Succinylation": ["K"],
     }
 
     def __init__(
         self,
         model_path: str,
-        ptm_type: str = 'Phosphorylation',
+        ptm_type: str = "Phosphorylation",
         window_size: int = 15,
-        device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         """
         初始化预测器
@@ -114,10 +130,10 @@ class VariantPTMEffectPredictor:
         )
 
         # 加载状态字典（处理Lightning格式）
-        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
             state_dict: Dict[str, Any] = {}
-            for k, v in checkpoint['state_dict'].items():
-                if k.startswith('model.'):
+            for k, v in checkpoint["state_dict"].items():
+                if k.startswith("model."):
                     state_dict[k[6:]] = v
                 else:
                     state_dict[k] = v
@@ -127,6 +143,7 @@ class VariantPTMEffectPredictor:
             # (typed as ``object``). When it is not a Lightning dict we assume
             # it is already a state_dict mapping; cast to Mapping to satisfy mypy.
             from typing import Mapping as _Mapping, cast as _cast
+
             model.load_state_dict(_cast(_Mapping[str, Any], checkpoint))
 
         model.to(self.device)
@@ -167,7 +184,7 @@ class VariantPTMEffectPredictor:
         left_pad = self.window_size - (idx - start)
         right_pad = self.window_size - (end - idx - 1)
 
-        window = '-' * left_pad + window + '-' * right_pad
+        window = "-" * left_pad + window + "-" * right_pad
 
         return window, self.window_size  # 中心位置
 
@@ -197,7 +214,7 @@ class VariantPTMEffectPredictor:
         # 预测
         with torch.no_grad():
             output = self.model(indices)
-            prob = output['probs'][0, 1].item()  # 正样本概率
+            prob = output["probs"][0, 1].item()  # 正样本概率
 
         return float(prob)
 
@@ -233,7 +250,7 @@ class VariantPTMEffectPredictor:
         wildtype_prob = self.predict_site(sequence, position)
 
         # 创建突变序列
-        mutant_sequence = sequence[:position - 1] + alt_aa + sequence[position:]
+        mutant_sequence = sequence[: position - 1] + alt_aa + sequence[position:]
 
         # 预测突变型
         mutant_prob = self.predict_site(mutant_sequence, position)
@@ -242,17 +259,17 @@ class VariantPTMEffectPredictor:
         delta_prob = mutant_prob - wildtype_prob
 
         if delta_prob > 0.1:
-            effect = 'gain'
+            effect = "gain"
         elif delta_prob < -0.1:
-            effect = 'loss'
+            effect = "loss"
         else:
-            effect = 'neutral'
+            effect = "neutral"
 
         return {
-            'wildtype_prob': wildtype_prob,
-            'mutant_prob': mutant_prob,
-            'delta_prob': delta_prob,
-            'effect': effect,
+            "wildtype_prob": wildtype_prob,
+            "mutant_prob": mutant_prob,
+            "delta_prob": delta_prob,
+            "effect": effect,
         }
 
     def predict_variants_batch(
@@ -273,10 +290,10 @@ class VariantPTMEffectPredictor:
         results = []
 
         for variant in variants:
-            uniprot_id = variant['uniprot_id']
-            position = variant['position']
-            ref_aa = variant['ref_aa']
-            alt_aa = variant['alt_aa']
+            uniprot_id = variant["uniprot_id"]
+            position = variant["position"]
+            ref_aa = variant["ref_aa"]
+            alt_aa = variant["alt_aa"]
 
             if uniprot_id not in sequences:
                 logger.warning(f"未找到序列: {uniprot_id}")
@@ -285,18 +302,18 @@ class VariantPTMEffectPredictor:
             sequence = sequences[uniprot_id]
 
             try:
-                effect = self.predict_variant_effect(
-                    sequence, position, ref_aa, alt_aa
-                )
+                effect = self.predict_variant_effect(sequence, position, ref_aa, alt_aa)
 
-                results.append({
-                    'uniprot_id': uniprot_id,
-                    'position': position,
-                    'ref_aa': ref_aa,
-                    'alt_aa': alt_aa,
-                    'ptm_type': self.ptm_type,
-                    **effect
-                })
+                results.append(
+                    {
+                        "uniprot_id": uniprot_id,
+                        "position": position,
+                        "ref_aa": ref_aa,
+                        "alt_aa": alt_aa,
+                        "ptm_type": self.ptm_type,
+                        **effect,
+                    }
+                )
             except (RuntimeError, ValueError) as e:
                 logger.error(f"预测失败: {uniprot_id}:{position}, 错误: {e}")
 
@@ -329,9 +346,7 @@ def predict_ptm_effects_for_variant(
 
     for ptm_type, predictor in models.items():
         try:
-            effect = predictor.predict_variant_effect(
-                sequence, position, ref_aa, alt_aa
-            )
+            effect = predictor.predict_variant_effect(sequence, position, ref_aa, alt_aa)
             results[ptm_type] = effect
         except (RuntimeError, ValueError) as e:
             logger.error(f"PTM {ptm_type} 预测失败: {e}")

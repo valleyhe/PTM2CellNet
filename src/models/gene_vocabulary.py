@@ -185,8 +185,7 @@ class GeneVocabularyResolver:
             return self._symbol_to_ensembl[normalized]
         except KeyError as exc:
             raise KeyError(
-                f"gene symbol {gene_symbol!r} is not present in PerturbGen vocabulary; "
-                "hash fallback is disabled"
+                f"gene symbol {gene_symbol!r} is not present in PerturbGen vocabulary; hash fallback is disabled"
             ) from exc
 
     def resolve_ensembl(self, ensembl_id: str) -> str:
@@ -195,8 +194,7 @@ class GeneVocabularyResolver:
             return self._ensembl_to_symbol[normalized]
         except KeyError as exc:
             raise KeyError(
-                f"ensembl id {ensembl_id!r} is not present in PerturbGen vocabulary; "
-                "hash fallback is disabled"
+                f"ensembl id {ensembl_id!r} is not present in PerturbGen vocabulary; hash fallback is disabled"
             ) from exc
 
     def resolve_token(
@@ -218,8 +216,7 @@ class GeneVocabularyResolver:
         except KeyError as exc:
             lookup_value = gene_symbol if gene_symbol is not None else ensembl_id
             raise KeyError(
-                f"token id for {lookup_value!r} is not present in PerturbGen vocabulary; "
-                "hash fallback is disabled"
+                f"token id for {lookup_value!r} is not present in PerturbGen vocabulary; hash fallback is disabled"
             ) from exc
 
     def canonical_pair(

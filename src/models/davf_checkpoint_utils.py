@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Protocol for objects with state_dict (optimizers, schedulers, etc.)
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class _Stateful(Protocol):
     """Protocol for objects that support state_dict / load_state_dict."""
@@ -48,6 +49,7 @@ class CheckpointMetadata(TypedDict, total=False):
     All fields are optional because checkpoints may contain different
     subsets depending on the training stage.
     """
+
     model_state_dict: Dict[str, torch.Tensor]
     optimizer_state_dict: Dict[str, Any]
     scheduler_state_dict: Dict[str, Any]
@@ -212,14 +214,11 @@ def resume_training_state(
     config_hash = ""
     if config:
         try:
-            config_hash = hashlib.sha256(
-                json.dumps(config, sort_keys=True, default=str).encode("utf-8")
-            ).hexdigest()[:8]
+            config_hash = hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode("utf-8")).hexdigest()[
+                :8
+            ]
         except (TypeError, ValueError) as e:
             logger.warning("Failed to compute config hash while resuming training state: %s", e)
 
-    logger.info(
-        f"Resumed training state from epoch {epoch}. "
-        f"Config hash: {config_hash or 'N/A'}"
-    )
+    logger.info(f"Resumed training state from epoch {epoch}. Config hash: {config_hash or 'N/A'}")
     return cast(int, epoch)

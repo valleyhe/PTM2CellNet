@@ -33,6 +33,7 @@ logger = setup_logger(__name__)
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
 
+
 class DiagnoseResult(TypedDict):
     """Shape of the dict returned by ``diagnose_load_result``."""
 
@@ -72,9 +73,7 @@ def extract_model_state_dict(checkpoint: Any) -> Dict[str, torch.Tensor]:
         TypeError: 既不是 dict，也无法识别其中的 state_dict。
     """
     if not isinstance(checkpoint, dict):
-        raise TypeError(
-            f"无法识别的 checkpoint 类型 {type(checkpoint)!r}：期望 dict（state_dict）。"
-        )
+        raise TypeError(f"无法识别的 checkpoint 类型 {type(checkpoint)!r}：期望 dict（state_dict）。")
 
     # 裸 state_dict：键值为 Tensor 的字典（无外层结构）
     if not checkpoint or all(isinstance(v, torch.Tensor) for v in checkpoint.values()):
@@ -109,7 +108,7 @@ def _strip_lightning_prefix(state_dict: Dict[str, torch.Tensor]) -> Dict[str, to
         return state_dict
     keys = list(state_dict.keys())
     if all(k.startswith("model.") for k in keys):
-        return {k[len("model."):]: v for k, v in state_dict.items()}
+        return {k[len("model.") :]: v for k, v in state_dict.items()}
     return state_dict
 
 
@@ -185,13 +184,16 @@ def load_checkpoint_with_config(
         try:
             config_obj = Config.from_yaml(str(resolved_config_path))
             logger.info("已加载 checkpoint 配置: %s", resolved_config_path)
-        except (OSError, ValueError, TypeError) as exc:  # pragma: no cover - 配置解析错误属于异常路径；难以在单测中稳定复现 YAML 语法/类型错误经 Config.from_yaml 抛出的多种底层异常，故保留 no cover
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+        ) as exc:  # pragma: no cover - 配置解析错误属于异常路径；难以在单测中稳定复现 YAML 语法/类型错误经 Config.from_yaml 抛出的多种底层异常，故保留 no cover
             logger.warning("加载配置 %s 失败: %s", resolved_config_path, exc)
             config_obj = None
     else:
         logger.info(
-            "未找到 checkpoint 配置 (%s)，将使用默认 config；"
-            "若加载失败请确认 checkpoint 与 config 是否匹配",
+            "未找到 checkpoint 配置 (%s)，将使用默认 config；若加载失败请确认 checkpoint 与 config 是否匹配",
             sibling_config_path(ckpt_path),
         )
 

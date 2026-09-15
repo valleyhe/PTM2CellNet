@@ -24,6 +24,7 @@ _SharedKwargs = Dict[str, Any]  # noqa: TY102
 # TypedDict definitions for structured dict returns / caches
 # ---------------------------------------------------------------------------
 
+
 class BackendInfo(TypedDict, total=False):
     """Shape returned by ``get_backend_info`` and consumed by ``validate_runtime_ready``."""
 
@@ -91,6 +92,7 @@ ComputeSignificanceResult = tuple[
 # ---------------------------------------------------------------------------
 # Protocol definitions for dynamically-imported objects
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class _GenKIDataLoaderProtocol(Protocol):
@@ -227,7 +229,9 @@ class GenKIAdapter:
         }
         self._graph = GraphUtilities()
         self._ref_loader = ReferenceDataLoader(ref_root=ref_root, **cast(_SharedKwargs, shared_kwargs))
-        self._perturbation = PerturbationExecutor(ref_loader=self._ref_loader, graph=self._graph, **cast(_SharedKwargs, shared_kwargs))
+        self._perturbation = PerturbationExecutor(
+            ref_loader=self._ref_loader, graph=self._graph, **cast(_SharedKwargs, shared_kwargs)
+        )
         self._significance = SignificanceAnalyzer(
             ref_loader=self._ref_loader,
             perturbation_executor=self._perturbation,
@@ -278,7 +282,9 @@ class GenKIAdapter:
         """Forward to GraphUtilities._adjacency_to_edge_index."""
         return torch.from_numpy(self._graph._adjacency_to_edge_index(adjacency))
 
-    def _score_from_dense_matrices(self, baseline_counts, baseline_network, perturbed_counts, perturbed_network) -> np.ndarray:
+    def _score_from_dense_matrices(
+        self, baseline_counts, baseline_network, perturbed_counts, perturbed_network
+    ) -> np.ndarray:
         """Forward to GraphUtilities._score_from_dense_matrices."""
         return self._graph._score_from_dense_matrices(
             baseline_counts=baseline_counts,
@@ -303,15 +309,18 @@ class GenKIAdapter:
         backend: str,
     ) -> ScoreMetadata:
         """Forward to SignificanceAnalyzer._build_score_metadata."""
-        return cast(ScoreMetadata, self._significance._build_score_metadata(
-            gene_names=gene_names,
-            gene_index=gene_index,
-            request=request,
-            baseline_counts=baseline_counts,
-            baseline_network=baseline_network,
-            combined_shift=combined_shift,
-            backend=backend,
-        ))
+        return cast(
+            ScoreMetadata,
+            self._significance._build_score_metadata(
+                gene_names=gene_names,
+                gene_index=gene_index,
+                request=request,
+                baseline_counts=baseline_counts,
+                baseline_network=baseline_network,
+                combined_shift=combined_shift,
+                backend=backend,
+            ),
+        )
 
     def _compute_significance(
         self,
@@ -378,9 +387,7 @@ class GenKIAdapter:
         if backend["runtime_ready"]:
             return
         missing = ", ".join(backend["missing_dependencies"]) or "unknown"
-        raise RuntimeError(
-            f"Backend {backend['backend']} is not ready; missing or broken dependencies: {missing}"
-        )
+        raise RuntimeError(f"Backend {backend['backend']} is not ready; missing or broken dependencies: {missing}")
 
     def build_request(
         self,

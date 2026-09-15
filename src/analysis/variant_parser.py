@@ -1,4 +1,5 @@
 """HGVS variant parsing module (FEAT-01)."""
+
 import logging
 from typing import NamedTuple, Optional
 import hgvs.parser
@@ -9,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class VariantComponents(NamedTuple):
     """Parsed variant components."""
+
     gene_symbol: Optional[str]
     accession: Optional[str]
     position: int  # 1-based position from HGVS
@@ -23,11 +25,29 @@ class HGVSVariantParser:
 
     # 3-letter to 1-letter amino acid code mapping
     AA_3TO1 = {
-        'Ala': 'A', 'Arg': 'R', 'Asn': 'N', 'Asp': 'D', 'Cys': 'C',
-        'Gln': 'Q', 'Glu': 'E', 'Gly': 'G', 'His': 'H', 'Ile': 'I',
-        'Leu': 'L', 'Lys': 'K', 'Met': 'M', 'Phe': 'F', 'Pro': 'P',
-        'Ser': 'S', 'Thr': 'T', 'Trp': 'W', 'Tyr': 'Y', 'Val': 'V',
-        'Ter': '*', 'Sec': 'U', 'Pyl': 'O',
+        "Ala": "A",
+        "Arg": "R",
+        "Asn": "N",
+        "Asp": "D",
+        "Cys": "C",
+        "Gln": "Q",
+        "Glu": "E",
+        "Gly": "G",
+        "His": "H",
+        "Ile": "I",
+        "Leu": "L",
+        "Lys": "K",
+        "Met": "M",
+        "Phe": "F",
+        "Pro": "P",
+        "Ser": "S",
+        "Thr": "T",
+        "Trp": "W",
+        "Tyr": "Y",
+        "Val": "V",
+        "Ter": "*",
+        "Sec": "U",
+        "Pyl": "O",
     }
 
     def __init__(self):
@@ -78,8 +98,8 @@ class HGVSVariantParser:
 
     def _extract_gene_symbol(self, hgvs_string: str) -> Optional[str]:
         """Extract gene symbol from shorthand notation like 'BRAF:p.V600E'."""
-        if ':' in hgvs_string and not hgvs_string.startswith('NP_'):
-            parts = hgvs_string.split(':')
+        if ":" in hgvs_string and not hgvs_string.startswith("NP_"):
+            parts = hgvs_string.split(":")
             if len(parts) >= 2:
                 return parts[0]
         return None
@@ -106,8 +126,7 @@ class HGVSVariantParser:
         actual_aa = sequence[variant.position_0based]
         if actual_aa != variant.ref_aa:
             logger.warning(
-                f"Reference mismatch at position {variant.position}: "
-                f"expected {variant.ref_aa}, found {actual_aa}"
+                f"Reference mismatch at position {variant.position}: expected {variant.ref_aa}, found {actual_aa}"
             )
             return False
 

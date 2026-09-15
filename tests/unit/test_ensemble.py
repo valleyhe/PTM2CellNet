@@ -25,12 +25,8 @@ def dummy_models():
     torch.manual_seed(0)
     # Two models with distinct logits for 3 samples, 4 classes
     return [
-        _DummyModel(torch.tensor([[1.0, 0.0, 0.0, 0.0],
-                                  [0.0, 1.0, 0.0, 0.0],
-                                  [0.0, 0.0, 0.0, 1.0]])),
-        _DummyModel(torch.tensor([[1.0, 0.0, 0.0, 0.0],
-                                  [0.0, 0.0, 1.0, 0.0],
-                                  [0.0, 0.0, 0.0, 1.0]])),
+        _DummyModel(torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]])),
+        _DummyModel(torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])),
     ]
 
 
@@ -54,8 +50,7 @@ class TestEnsembleConstruction:
 
     def test_weights_length_mismatch_raises(self, dummy_models):
         with pytest.raises(ValueError, match="weights 长度"):
-            PTM2CellNetEnsemble(dummy_models, aggregation="weighted",
-                                weights=[0.5, 0.3, 0.2])
+            PTM2CellNetEnsemble(dummy_models, aggregation="weighted", weights=[0.5, 0.3, 0.2])
 
 
 class TestEnsembleForward:
@@ -69,8 +64,7 @@ class TestEnsembleForward:
         # predictions = argmax
         assert torch.equal(out["predictions"], out["logits"].argmax(dim=-1))
         # probabilities sum to 1
-        assert torch.allclose(out["probabilities"].sum(dim=-1),
-                              torch.ones(3), atol=1e-5)
+        assert torch.allclose(out["probabilities"].sum(dim=-1), torch.ones(3), atol=1e-5)
         assert len(out["individual_predictions"]) == 2
 
     def test_voting_aggregation(self, dummy_models):
@@ -83,16 +77,13 @@ class TestEnsembleForward:
         assert out["predictions"][1].item() in (1, 2)
 
     def test_weighted_aggregation(self, dummy_models):
-        ens = PTM2CellNetEnsemble(
-            dummy_models, aggregation="weighted", weights=[0.9, 0.1]
-        )
+        ens = PTM2CellNetEnsemble(dummy_models, aggregation="weighted", weights=[0.9, 0.1])
         out = ens({})
         expected = 0.9 * dummy_models[0]._logits + 0.1 * dummy_models[1]._logits
         assert torch.allclose(out["logits"], expected)
 
     def test_weights_move_with_device(self, dummy_models):
-        ens = PTM2CellNetEnsemble(dummy_models, aggregation="weighted",
-                                  weights=[0.7, 0.3])
+        ens = PTM2CellNetEnsemble(dummy_models, aggregation="weighted", weights=[0.7, 0.3])
         # _weights is a buffer -> accessible
         assert ens._weights.shape == (2,)
         assert torch.allclose(ens._weights, torch.tensor([0.7, 0.3]))

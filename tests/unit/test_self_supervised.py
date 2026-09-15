@@ -106,9 +106,7 @@ class TestMaskedPTMCheckpointResume:
         ckpt_path = os.path.join(str(tmp_path), "best_model.pt")
         before = torch.load(ckpt_path, weights_only=False)
 
-        model, _, losses = self._train_and_checkpoint(
-            tmp_path, epochs=3, resume_from=ckpt_path
-        )
+        model, _, losses = self._train_and_checkpoint(tmp_path, epochs=3, resume_from=ckpt_path)
         assert len(losses) == 3  # 恢复 history(2) + 新增(1)
 
         after = torch.load(ckpt_path, weights_only=False)
@@ -122,8 +120,14 @@ class TestMaskedPTMCheckpointResume:
         dataloader = _make_dataloader()
         ckpt_dir = str(tmp_path)
         pretrain_masked_ptm(
-            model, dataloader, optimizer, device="cpu", epochs=2,
-            validation_split=0.5, validate_every=1, checkpoint_dir=ckpt_dir,
+            model,
+            dataloader,
+            optimizer,
+            device="cpu",
+            epochs=2,
+            validation_split=0.5,
+            validate_every=1,
+            checkpoint_dir=ckpt_dir,
         )
         ckpt_path = os.path.join(ckpt_dir, "best_model.pt")
 
@@ -132,14 +136,17 @@ class TestMaskedPTMCheckpointResume:
         optimizer2 = torch.optim.Adam(model2.parameters(), lr=0.01)
         dataloader2 = _make_dataloader()
         pretrain_masked_ptm(
-            model2, dataloader2, optimizer2, device="cpu", epochs=3,
-            validation_split=0.5, validate_every=1, checkpoint_dir=ckpt_dir,
+            model2,
+            dataloader2,
+            optimizer2,
+            device="cpu",
+            epochs=3,
+            validation_split=0.5,
+            validate_every=1,
+            checkpoint_dir=ckpt_dir,
             resume_from=ckpt_path,
         )
-        assert any(
-            pg["step"] > 0 for pg in optimizer2.state.values()
-            if isinstance(pg, dict) and pg
-        )
+        assert any(pg["step"] > 0 for pg in optimizer2.state.values() if isinstance(pg, dict) and pg)
 
     def test_legacy_bare_state_dict_still_loads(self, tmp_path):
         # 旧格式：裸 state_dict（无 dict 包裹），必须兼容且从头继续
@@ -150,7 +157,11 @@ class TestMaskedPTMCheckpointResume:
         model2 = _make_model()
         optimizer = torch.optim.Adam(model2.parameters(), lr=0.01)
         losses = pretrain_masked_ptm(
-            model2, _make_dataloader(), optimizer, device="cpu", epochs=2,
+            model2,
+            _make_dataloader(),
+            optimizer,
+            device="cpu",
+            epochs=2,
             resume_from=legacy_path,
         )
         assert len(losses) == 2  # 从头训练，不报错
@@ -164,8 +175,13 @@ class TestCombinedCheckpointResume:
         model = _make_model()
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         losses = pretrain_combined(
-            model, _make_dataloader(), optimizer, device="cpu", epochs=epochs,
-            checkpoint_dir=str(tmp_path), resume_from=resume_from,
+            model,
+            _make_dataloader(),
+            optimizer,
+            device="cpu",
+            epochs=epochs,
+            checkpoint_dir=str(tmp_path),
+            resume_from=resume_from,
         )
         return model, optimizer, losses
 
@@ -174,8 +190,16 @@ class TestCombinedCheckpointResume:
         ckpt_path = os.path.join(str(tmp_path), "best_combined_model.pt")
         assert os.path.exists(ckpt_path)
         state = torch.load(ckpt_path, weights_only=False)
-        for key in ("masked_model", "contrastive_module", "denoising_module",
-                    "optimizer", "epoch", "best_loss", "config", "history"):
+        for key in (
+            "masked_model",
+            "contrastive_module",
+            "denoising_module",
+            "optimizer",
+            "epoch",
+            "best_loss",
+            "config",
+            "history",
+        ):
             assert key in state
         assert state["config"]["epochs"] == 2
         assert 0 <= state["epoch"] < 2
@@ -197,10 +221,7 @@ class TestCombinedCheckpointResume:
         ckpt_path = os.path.join(str(tmp_path), "best_combined_model.pt")
 
         _, optimizer, _ = self._run(tmp_path, epochs=3, resume_from=ckpt_path, seed=2)
-        assert any(
-            isinstance(pg, dict) and pg and pg["step"] > 0
-            for pg in optimizer.state.values()
-        )
+        assert any(isinstance(pg, dict) and pg and pg["step"] > 0 for pg in optimizer.state.values())
 
     def test_combined_legacy_weights_only_checkpoint_warns(self, tmp_path, caplog):
         # 旧格式：仅三模块权重 dict，resume 应告警并继续
@@ -217,12 +238,8 @@ class TestCombinedCheckpointResume:
         torch.save(
             {
                 "masked_model": model.state_dict(),
-                "contrastive_module": PTMContrastiveLearning(
-                    embed_dim=legacy_embed_dim
-                ).state_dict(),
-                "denoising_module": PTMDenoisingAutoEncoder(
-                    num_ptm_types=5, embed_dim=legacy_embed_dim
-                ).state_dict(),
+                "contrastive_module": PTMContrastiveLearning(embed_dim=legacy_embed_dim).state_dict(),
+                "denoising_module": PTMDenoisingAutoEncoder(num_ptm_types=5, embed_dim=legacy_embed_dim).state_dict(),
             },
             legacy_path,
         )

@@ -272,7 +272,8 @@ class CPTACDataDownloader:
             manifest = self.download_study_manifest(study_id)
             files = manifest.get("files", [])
             phospho_files = [
-                f for f in files
+                f
+                for f in files
                 if "phospho" in str(f.get("data_category", "")).lower()
                 or "phospho" in str(f.get("file_name", "")).lower()
             ]
@@ -280,7 +281,7 @@ class CPTACDataDownloader:
                 raise RuntimeError(
                     f"No phosphoproteomics files found in PDC study {study_id!r}. "
                     f"Available file categories: "
-                    f"{sorted({str(f.get('data_category','')) for f in files})}"
+                    f"{sorted({str(f.get('data_category', '')) for f in files})}"
                 )
 
             # Real download path (F-03 v17). Resolve each candidate file_id
@@ -295,13 +296,12 @@ class CPTACDataDownloader:
                 if not file_id:
                     continue
                 try:
-                    local_path = client.download_file(
-                        str(file_id), str(self.output_dir)
-                    )
+                    local_path = client.download_file(str(file_id), str(self.output_dir))
                 except PDCAPIError as exc:
                     logger.warning(
                         "PDC download failed for file_id=%s: %s (trying next)",
-                        file_id, exc,
+                        file_id,
+                        exc,
                     )
                     last_error = exc
                     continue
@@ -310,16 +310,19 @@ class CPTACDataDownloader:
                     df = _parse_phospho_tsv(local_path)
                 except Exception as exc:  # pragma: no cover - depends on file shape
                     logger.warning(
-                        "Downloaded %s but could not parse as phosphoproteomics "
-                        "matrix: %s", local_path, exc,
+                        "Downloaded %s but could not parse as phosphoproteomics matrix: %s",
+                        local_path,
+                        exc,
                     )
                     last_error = exc
                     continue
 
                 df.to_csv(cache_file)
                 logger.info(
-                    "Real PDC phosphoproteomics matrix saved to %s "
-                    "(%d sites × %d samples)", cache_file, df.shape[0], df.shape[1]
+                    "Real PDC phosphoproteomics matrix saved to %s (%d sites × %d samples)",
+                    cache_file,
+                    df.shape[0],
+                    df.shape[1],
                 )
                 return df
 
@@ -331,20 +334,16 @@ class CPTACDataDownloader:
 
         return self._mock_phospho_matrix(study_id, cache_file)
 
-    def _mock_phospho_matrix(
-        self, study_id: str, cache_file: Path, real_file_count: int = 0
-    ) -> pd.DataFrame:
+    def _mock_phospho_matrix(self, study_id: str, cache_file: Path, real_file_count: int = 0) -> pd.DataFrame:
         logger.warning(
-            "MOCK — generating synthetic phosphoproteomics matrix for %s. "
-            "NOT scientifically valid.", study_id
+            "MOCK — generating synthetic phosphoproteomics matrix for %s. NOT scientifically valid.", study_id
         )
         np.random.seed(42)
         n_sites = 10000
         n_samples = 100
         proteins = [f"P{i:05d}" for i in range(100)]
         sites = [
-            f"{np.random.choice(proteins)}_{np.random.randint(1, 500)}"
-            f"{np.random.choice(['S', 'T', 'Y'])}"
+            f"{np.random.choice(proteins)}_{np.random.randint(1, 500)}{np.random.choice(['S', 'T', 'Y'])}"
             for _ in range(n_sites)
         ]
         data = np.random.randn(n_sites, n_samples)
@@ -367,17 +366,17 @@ class CPTACDataDownloader:
         n = 5000
         proteins = [f"P{i:05d}" for i in range(100)]
         aas = list("ACDEFGHIKLMNPQRSTVWY")
-        df = pd.DataFrame({
-            "Hugo_Symbol": [f"GENE{i}" for i in range(n)],
-            "UniProt_ID": np.random.choice(proteins, n),
-            "Protein_Position": np.random.randint(1, 500, n),
-            "Reference_AA": np.random.choice(aas, n),
-            "Variant_AA": np.random.choice(aas, n),
-            "Sample_ID": [f"Sample_{np.random.randint(100)}" for _ in range(n)],
-            "Variant_Classification": np.random.choice(
-                ["Missense_Mutation", "Silent", "Nonsense_Mutation"], n
-            ),
-        })
+        df = pd.DataFrame(
+            {
+                "Hugo_Symbol": [f"GENE{i}" for i in range(n)],
+                "UniProt_ID": np.random.choice(proteins, n),
+                "Protein_Position": np.random.randint(1, 500, n),
+                "Reference_AA": np.random.choice(aas, n),
+                "Variant_AA": np.random.choice(aas, n),
+                "Sample_ID": [f"Sample_{np.random.randint(100)}" for _ in range(n)],
+                "Variant_Classification": np.random.choice(["Missense_Mutation", "Silent", "Nonsense_Mutation"], n),
+            }
+        )
         df.to_csv(cache_file, index=False)
         return df
 
@@ -402,19 +401,37 @@ def _parse_phospho_tsv(path: Path) -> pd.DataFrame:
     df = _pd.read_csv(path, sep="\t", comment="#", low_memory=False)
     if df.shape[1] < 2 or df.shape[0] == 0:
         raise ValueError(
-            f"Phospho TSV at {path} has shape {df.shape}; expected at least "
-            "(sites × samples) with a header row."
+            f"Phospho TSV at {path} has shape {df.shape}; expected at least (sites × samples) with a header row."
         )
 
     # Identify the site identifier column. Prefer an explicit "Gene_Site"
     # / "Site" / "Index" column; otherwise fall back to the first column.
     metadata_tokens = {
-        "gene", "genesymbol", "gene_symbol", "genename",
-        "protein", "accession", "uniprot", "uniprot_id", "uniprot_accession",
-        "chromosome", "chrom", "position", "pos",
-        "amino_acid", "aa", "residue", "mod_rsd", "modified_residue",
-        "peptide", "sequence", "sequence_window", "num_phospho",
-        "description", "notes", "organism",
+        "gene",
+        "genesymbol",
+        "gene_symbol",
+        "genename",
+        "protein",
+        "accession",
+        "uniprot",
+        "uniprot_id",
+        "uniprot_accession",
+        "chromosome",
+        "chrom",
+        "position",
+        "pos",
+        "amino_acid",
+        "aa",
+        "residue",
+        "mod_rsd",
+        "modified_residue",
+        "peptide",
+        "sequence",
+        "sequence_window",
+        "num_phospho",
+        "description",
+        "notes",
+        "organism",
     }
     site_col: str | None = None
     for cand in ("Gene_Site", "Site", "Index", "site_id"):
@@ -430,15 +447,9 @@ def _parse_phospho_tsv(path: Path) -> pd.DataFrame:
     if site_col is None:
         site_col = str(df.columns[0])
 
-    sample_cols = [
-        c for c in df.columns
-        if c != site_col and _normalize_token(c) not in metadata_tokens
-    ]
+    sample_cols = [c for c in df.columns if c != site_col and _normalize_token(c) not in metadata_tokens]
     if not sample_cols:
-        raise ValueError(
-            f"Phospho TSV at {path} has no sample intensity columns "
-            "(all columns look like metadata)."
-        )
+        raise ValueError(f"Phospho TSV at {path} has no sample intensity columns (all columns look like metadata).")
 
     out = df[[site_col, *sample_cols]].copy()
     out = out.set_index(site_col)
@@ -481,8 +492,9 @@ class CPTACValidator:
     validation.
     """
 
-    def __init__(self, model_dir: str, phospho_data: pd.DataFrame,
-                 mutation_data: pd.DataFrame, sequences: dict[str, str]):
+    def __init__(
+        self, model_dir: str, phospho_data: pd.DataFrame, mutation_data: pd.DataFrame, sequences: dict[str, str]
+    ):
         self.model_dir = Path(model_dir)
         self.phospho_data = phospho_data
         self.mutation_data = mutation_data
@@ -509,8 +521,7 @@ class CPTACValidator:
         ckpt = _find_best_checkpoint(self.model_dir)
         if ckpt is None:
             logger.warning(
-                "No multi-task PTM checkpoint found under %s; "
-                "predicted_effect will be 'unknown' for every mutation.",
+                "No multi-task PTM checkpoint found under %s; predicted_effect will be 'unknown' for every mutation.",
                 self.model_dir,
             )
             return
@@ -534,8 +545,9 @@ class CPTACValidator:
             logger.info("Predictor wired: %s", ckpt)
         except Exception as exc:  # pragma: no cover - depends on torch state
             logger.warning(
-                "Failed to load predictor from %s: %s. predicted_effect will "
-                "be 'unknown' for every mutation.", ckpt, exc,
+                "Failed to load predictor from %s: %s. predicted_effect will be 'unknown' for every mutation.",
+                ckpt,
+                exc,
             )
             self._predictor = None
 
@@ -556,10 +568,7 @@ class CPTACValidator:
             )
             results["scientifically_valid"] = False
         else:
-            logger.info(
-                "Predictor wired; computing WT/mut PTM-probability deltas at "
-                "each mutation site."
-            )
+            logger.info("Predictor wired; computing WT/mut PTM-probability deltas at each mutation site.")
 
         for _, mutation in self.mutation_data.head(100).iterrows():
             uniprot_id = mutation["UniProt_ID"]
@@ -593,12 +602,14 @@ class CPTACValidator:
                 position = "".join(filter(str.isdigit, position_aa))
                 aa = "".join(filter(str.isalpha, position_aa))
                 if position:
-                    sites.append({
-                        "uniprot_id": uniprot_id,
-                        "position": int(position),
-                        "aa": aa,
-                        "site_id": site_id,
-                    })
+                    sites.append(
+                        {
+                            "uniprot_id": uniprot_id,
+                            "position": int(position),
+                            "aa": aa,
+                            "site_id": site_id,
+                        }
+                    )
         sites_df = pd.DataFrame(sites)
         if sites_df.empty:
             return {"total_phospho_sites": 0, "unique_proteins": 0, "aa_distribution": {}}

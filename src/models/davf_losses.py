@@ -30,11 +30,7 @@ class DAVFLoss(nn.Module):
         self.adaptive_weights = adaptive_weights
         self._step_count: int = 0
 
-    def forward(
-        self,
-        v_t: torch.Tensor,
-        u_t: torch.Tensor
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, v_t: torch.Tensor, u_t: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Compute Flow Matching loss with magnitude supervision.
 
@@ -54,9 +50,7 @@ class DAVFLoss(nn.Module):
         mag_loss = torch.abs(pred_mag - true_mag) / (true_mag.detach() + 1e-8)
 
         # 3. Direction consistency (sign agreement)
-        sign_agreement = (v_t * u_t).sum(dim=-1) / (
-            torch.norm(v_t, dim=-1) * torch.norm(u_t, dim=-1) + 1e-8
-        )
+        sign_agreement = (v_t * u_t).sum(dim=-1) / (torch.norm(v_t, dim=-1) * torch.norm(u_t, dim=-1) + 1e-8)
         dir_loss = 1.0 - sign_agreement.mean()
 
         # Adaptive weights: reduce mse_weight as training progresses
@@ -72,12 +66,7 @@ class DAVFLoss(nn.Module):
 
         total = effective_mse_weight * mse + effective_mag_weight * mag_loss + 0.1 * dir_loss
 
-        return {
-            'mse': mse,
-            'mag': mag_loss,
-            'dir': dir_loss,
-            'total': total
-        }
+        return {"mse": mse, "mag": mag_loss, "dir": dir_loss, "total": total}
 
 
 class DirectionConsistencyLoss(nn.Module):
@@ -102,7 +91,7 @@ class DirectionConsistencyLoss(nn.Module):
         u_t: torch.Tensor,
         gene_ids: torch.Tensor,
         directions: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -116,9 +105,7 @@ class DirectionConsistencyLoss(nn.Module):
             direction_loss: scalar tensor
         """
         # Sanitize gene_ids: replace -1 padding with 0 before gather
-        safe_gene_ids = torch.where(
-            gene_ids >= 0, gene_ids, torch.zeros_like(gene_ids)
-        )
+        safe_gene_ids = torch.where(gene_ids >= 0, gene_ids, torch.zeros_like(gene_ids))
         # Extract velocity at target gene positions
         target_v = torch.gather(v_t, 1, safe_gene_ids)  # [B, K]
         target_u = torch.gather(u_t, 1, safe_gene_ids)  # [B, K]
@@ -131,9 +118,7 @@ class DirectionConsistencyLoss(nn.Module):
 
         # BCE with logits: encourage sign_agreement > 0 (correct direction)
         per_target_loss = F.binary_cross_entropy_with_logits(
-            sign_agreement,
-            torch.ones_like(sign_agreement),
-            reduction='none'
+            sign_agreement, torch.ones_like(sign_agreement), reduction="none"
         )  # [B, K]
 
         # Mask padding if attention_mask provided

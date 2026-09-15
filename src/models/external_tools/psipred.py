@@ -25,9 +25,7 @@ class ChouFasmanClient:
         """Always available (built-in predictor)."""
         return True
 
-    def predict_secondary_structure(
-        self, sequence: str
-    ) -> SecondaryStructurePrediction:
+    def predict_secondary_structure(self, sequence: str) -> SecondaryStructurePrediction:
         """Predict secondary structure using Chou-Fasman propensities.
 
         Uses a sliding window of length 7 to smooth per-residue predictions.
@@ -44,9 +42,7 @@ class ChouFasmanClient:
         seq = sequence.upper()
         n = len(seq)
         if n == 0:
-            return SecondaryStructurePrediction(
-                ss_prediction="", confidence_scores=[]
-            )
+            return SecondaryStructurePrediction(ss_prediction="", confidence_scores=[])
 
         window = 7
         half = window // 2
@@ -71,9 +67,7 @@ class ChouFasmanClient:
             best = max(range(3), key=lambda k: props[k])
             second_best = sorted_props[1] if len(sorted_props) > 1 else 0.0
 
-            confidence = min(
-                1.0, max(0.0, sorted_props[0] - second_best) / max(window, 1)
-            )
+            confidence = min(1.0, max(0.0, sorted_props[0] - second_best) / max(window, 1))
 
             ss_chars.append(labels[best])
             confs.append(round(confidence, 4))

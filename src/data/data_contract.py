@@ -51,6 +51,7 @@ VALID_AA = set("ACDEFGHIKLMNPQRSTVWY")
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
 
+
 class PTMSiteRaw(TypedDict, total=False):
     """Shape of a single parsed PTM site dict from data contract parsing."""
 
@@ -155,13 +156,13 @@ def validate_data_contract(
     missing_required = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing_required:
         hard_failures.append(
-            "缺少必需列: " + ", ".join(missing_required)
-            + "。真实数据契约要求: " + ", ".join(REQUIRED_COLUMNS) + "。"
+            "缺少必需列: " + ", ".join(missing_required) + "。真实数据契约要求: " + ", ".join(REQUIRED_COLUMNS) + "。"
         )
     missing_recommended = [c for c in RECOMMENDED_COLUMNS if c not in df.columns]
     if missing_recommended:
         msg = (
-            "缺少推荐 provenance 列: " + ", ".join(missing_recommended)
+            "缺少推荐 provenance 列: "
+            + ", ".join(missing_recommended)
             + "（影响 dataset_hash/leakage 审计与发布门禁）。"
         )
         if require_recommended:
@@ -181,10 +182,7 @@ def validate_data_contract(
                 if ch not in VALID_AA:
                     bad_chars.add(ch)
         if bad_chars:
-            warnings.append(
-                f"序列含非标准氨基酸字符: {sorted(bad_chars)}。"
-                f"标准集合为 {''.join(sorted(VALID_AA))}。"
-            )
+            warnings.append(f"序列含非标准氨基酸字符: {sorted(bad_chars)}。标准集合为 {''.join(sorted(VALID_AA))}。")
 
         # PTM site position semantics (1-based, within sequence length).
         for _idx, row in df.iterrows():
@@ -204,10 +202,7 @@ def validate_data_contract(
                 if pos_int < 1 or pos_int > seq_len:
                     invalid_ptm_rows += 1
         if invalid_ptm_rows:
-            msg = (
-                f"{invalid_ptm_rows} 个 PTM 位点的 position 超出 [1, 序列长度] "
-                f"（position 为 1-based）。"
-            )
+            msg = f"{invalid_ptm_rows} 个 PTM 位点的 position 超出 [1, 序列长度] （position 为 1-based）。"
             if require_all_rows_valid_ptm:
                 hard_failures.append(msg)
             else:
@@ -254,16 +249,13 @@ def profile_dataset(df: pd.DataFrame, label_col: str = "cell_state") -> DatasetP
         for raw in df["ptm_sites"]:
             for site in _parse_ptm_sites(raw):
                 if isinstance(site, dict) and "type" in site:
-                    type_counts[str(site["type"])] = (
-                        type_counts.get(str(site["type"]), 0) + 1
-                    )
+                    type_counts[str(site["type"])] = type_counts.get(str(site["type"]), 0) + 1
         profile["ptm_type_distribution"] = type_counts
 
     # Homology-leakage heuristic: an accession must not appear in >1 split_group.
     if "protein_accession" in df.columns and "split_group" in df.columns:
         acc_groups = (
-            df.dropna(subset=["protein_accession", "split_group"])
-            .groupby("protein_accession")["split_group"].nunique()
+            df.dropna(subset=["protein_accession", "split_group"]).groupby("protein_accession")["split_group"].nunique()
         )
         leaking = int((acc_groups > 1).sum())
         profile["homology_leakage_accessions"] = leaking

@@ -1,4 +1,5 @@
 """Gene to UniProt mapping module (FEAT-01)."""
+
 import logging
 import threading
 import time
@@ -119,9 +120,7 @@ class _RequestsUniProtMapper:
         # Fetch the mapped results, following the Link rel="next" cursor until
         # every page has been consumed (TD-NEW-01: >500 ids previously lost
         # everything past the first page without any warning).
-        next_url: Optional[str] = (
-            f"{self._ID_MAPPING_URL}/results/{job_id}?size={_RESULTS_PAGE_SIZE}"
-        )
+        next_url: Optional[str] = f"{self._ID_MAPPING_URL}/results/{job_id}?size={_RESULTS_PAGE_SIZE}"
         entries: List[Dict[str, Any]] = []
         while next_url:
             try:
@@ -143,11 +142,7 @@ class _RequestsUniProtMapper:
         for entry in entries:
             from_id = entry.get("from")
             to_obj = entry.get("to")
-            to_id = (
-                to_obj.get("primaryAccession")
-                if isinstance(to_obj, dict)
-                else to_obj
-            )
+            to_id = to_obj.get("primaryAccession") if isinstance(to_obj, dict) else to_obj
             if from_id and to_id:
                 rows.append({"From": from_id, "To": to_id})
                 mapped_from.add(from_id)
@@ -178,9 +173,7 @@ def _call_external_mapper(
 
     def run() -> None:
         try:
-            result.append(
-                mapper.get(ids=ids, from_db=from_db, to_db=to_db)
-            )
+            result.append(mapper.get(ids=ids, from_db=from_db, to_db=to_db))
         except Exception as exc:  # Re-raise the dependency's error in the caller.
             error.append(exc)
         finally:
@@ -194,10 +187,7 @@ def _call_external_mapper(
     worker.start()
 
     if not completed.wait(timeout=_EXTERNAL_MAPPER_TIMEOUT_S):
-        raise TimeoutError(
-            "UniProtMapper.get timed out after "
-            f"{_EXTERNAL_MAPPER_TIMEOUT_S:g}s"
-        )
+        raise TimeoutError(f"UniProtMapper.get timed out after {_EXTERNAL_MAPPER_TIMEOUT_S:g}s")
 
     if error:
         raise error[0]
@@ -238,8 +228,7 @@ class GeneMapper:
         """
         if str(organism).strip() != _HUMAN_TAX_ID:
             raise NotImplementedError(
-                f"organism {organism!r} is not supported: gene mapping only "
-                "resolves human (9606) UniProt accessions"
+                f"organism {organism!r} is not supported: gene mapping only resolves human (9606) UniProt accessions"
             )
         if isinstance(self._mapper, _RequestsUniProtMapper):
             return self._mapper.get(

@@ -362,8 +362,7 @@ def _validate_perturb_candidate_contract(stage_config: Mapping[str, Any]) -> Non
         explicit_dims[field_name] = value
     if len({value == "auto" for value in explicit_dims.values()}) > 1:
         raise PerturbGenConfigError(
-            "perturb trainer.tgt_vocab_size and trainer.max_seq_length must both be "
-            "positive integers or both be 'auto'"
+            "perturb trainer.tgt_vocab_size and trainer.max_seq_length must both be positive integers or both be 'auto'"
         )
     datamodule = perturb_config.get("datamodule", {})
     if isinstance(datamodule, Mapping) and "max_len" in datamodule:
@@ -413,9 +412,7 @@ def _validate_stage_dimension_consistency(stages: Mapping[str, Any]) -> None:
         if isinstance(stages.get("perturb"), Mapping)
         else {}
     )
-    if isinstance(perturb_trainer, Mapping) and isinstance(
-        perturb_trainer.get("tgt_vocab_size"), int
-    ):
+    if isinstance(perturb_trainer, Mapping) and isinstance(perturb_trainer.get("tgt_vocab_size"), int):
         declared["perturb"] = perturb_trainer["tgt_vocab_size"]
     values = set(declared.values())
     if len(values) > 1:

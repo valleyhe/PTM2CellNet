@@ -35,6 +35,7 @@ MODEL_DIR = REPO_ROOT / "outputs" / "models"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _read(path: Path) -> str:
     assert path.exists(), f"deployment manifest missing: {path}"
     return path.read_text(encoding="utf-8")
@@ -43,6 +44,7 @@ def _read(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # Canonical env-var name (P0-2)
 # ---------------------------------------------------------------------------
+
 
 class TestEnvVarContract:
     """Deployment manifests must speak PTM2CELLNET_CHECKPOINT/CONFIG."""
@@ -86,15 +88,14 @@ class TestEnvVarContract:
 
         # Reproduce the resolution logic the app uses; if it ever stops reading
         # PTM2CELLNET_CHECKPOINT first this assertion catches it.
-        checkpoint = _os.environ.get("PTM2CELLNET_CHECKPOINT") or _os.environ.get(
-            "MODEL_PATH", ""
-        )
+        checkpoint = _os.environ.get("PTM2CELLNET_CHECKPOINT") or _os.environ.get("MODEL_PATH", "")
         assert checkpoint == "/canonical/path.pt"
 
 
 # ---------------------------------------------------------------------------
 # Healthcheck contract (P0-2)
 # ---------------------------------------------------------------------------
+
 
 class TestHealthcheckContract:
     """Both manifests must probe ``/api/v1/ready`` (not /health)."""
@@ -118,9 +119,7 @@ class TestHealthcheckContract:
         health_as_probe = [
             line.strip()
             for line in content.splitlines()
-            if "curl" in line.lower()
-            and "/api/v1/health" in line
-            and "/api/v1/ready" not in line
+            if "curl" in line.lower() and "/api/v1/health" in line and "/api/v1/ready" not in line
         ]
         assert not health_as_probe, (
             f"{manifest.name} must not curl /api/v1/health as the healthcheck "
@@ -131,6 +130,7 @@ class TestHealthcheckContract:
 # ---------------------------------------------------------------------------
 # Weights / config presence (P0-2)
 # ---------------------------------------------------------------------------
+
 
 class TestModelArtifacts:
     """The artifacts the manifests COPY/mount must exist on disk."""
@@ -169,6 +169,7 @@ class TestModelArtifacts:
 # End-to-end auto-init path (no Docker needed)
 # ---------------------------------------------------------------------------
 
+
 class TestAutoInitPath:
     """``_try_auto_initialize`` loads the real demo model when pointed at it.
 
@@ -183,18 +184,12 @@ class TestAutoInitPath:
         from src.api.routes.state import STATE, reset_state
 
         reset_state()
-        monkeypatch.setenv(
-            "PTM2CELLNET_CHECKPOINT", str(MODEL_DIR / "best_model.pt")
-        )
-        monkeypatch.setenv(
-            "PTM2CELLNET_CONFIG", str(MODEL_DIR / "best_model.config.yaml")
-        )
+        monkeypatch.setenv("PTM2CELLNET_CHECKPOINT", str(MODEL_DIR / "best_model.pt"))
+        monkeypatch.setenv("PTM2CELLNET_CONFIG", str(MODEL_DIR / "best_model.config.yaml"))
 
         try:
             _try_auto_initialize()
-            assert STATE.model is not None, (
-                "auto-init did not bind a model; container /ready would stay 503"
-            )
+            assert STATE.model is not None, "auto-init did not bind a model; container /ready would stay 503"
             # /model/info semantics (P1-3): the demo model is flagged as such.
             assert STATE.is_demo_model is True
             assert STATE.model_kind == "demo"
@@ -205,6 +200,7 @@ class TestAutoInitPath:
 # ---------------------------------------------------------------------------
 # Single-worker default (TD-M08 plan B)
 # ---------------------------------------------------------------------------
+
 
 class TestSingleWorkerDefault:
     """Deployment must default to one uvicorn worker (TD-M08 plan B).
@@ -220,9 +216,7 @@ class TestSingleWorkerDefault:
         import re
 
         content = _read(DOCKERFILE)
-        match = re.search(
-            r'CMD\s*\[.*?--workers",\s*"(\d+)"', content, flags=re.S
-        )
+        match = re.search(r'CMD\s*\[.*?--workers",\s*"(\d+)"', content, flags=re.S)
         assert match is not None, "Dockerfile CMD must pass --workers to uvicorn"
         assert match.group(1) == "1", (
             "Dockerfile must default to uvicorn --workers 1 (TD-M08 plan B); "
@@ -232,6 +226,4 @@ class TestSingleWorkerDefault:
     def test_production_config_defaults_to_single_worker(self):
         cfg_path = REPO_ROOT / "configs" / "production.yaml"
         content = _read(cfg_path)
-        assert "workers: 1" in content, (
-            "configs/production.yaml must default to a single worker (TD-M08 plan B)"
-        )
+        assert "workers: 1" in content, "configs/production.yaml must default to a single worker (TD-M08 plan B)"

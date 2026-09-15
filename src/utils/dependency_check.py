@@ -148,9 +148,7 @@ def check_extras(names: Iterable[str]) -> List[DependencyStatus]:
     results: List[DependencyStatus] = []
     for name in names:
         extra, install_name = OPTIONAL_DEPENDENCIES.get(name, ("", None))
-        results.append(
-            check_dependency(name, extra=extra, install_name=install_name)
-        )
+        results.append(check_dependency(name, extra=extra, install_name=install_name))
     return results
 
 
@@ -202,11 +200,7 @@ def require_extras(
         first_err = missing[0].import_error
         if first_err is not None:
             detail = f" (first error: {type(first_err).__name__}: {first_err})"
-        msg = (
-            f"{feature} 不可用：缺少以下可选依赖。{detail}\n"
-            "请按提示安装对应 extra 后重试：\n"
-            f"{hints}"
-        )
+        msg = f"{feature} 不可用：缺少以下可选依赖。{detail}\n请按提示安装对应 extra 后重试：\n{hints}"
         raise MissingDependencyError(msg, statuses)
     return statuses
 

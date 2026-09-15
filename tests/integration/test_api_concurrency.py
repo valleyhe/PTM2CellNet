@@ -68,9 +68,7 @@ def _parallel_correct():
             warm = r0.json()
 
             start = time.monotonic()
-            responses = await asyncio.gather(
-                *[client.post("/api/v1/predict", json=_payload()) for _ in range(4)]
-            )
+            responses = await asyncio.gather(*[client.post("/api/v1/predict", json=_payload()) for _ in range(4)])
             elapsed = time.monotonic() - start
             return responses, warm, elapsed
 

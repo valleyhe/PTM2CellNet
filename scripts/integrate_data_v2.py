@@ -84,8 +84,10 @@ def _load_gene_symbol_map():
 
     idmapping_path = os.path.join(RAW_DIR, "uniprot", "human_idmapping.gz")
     if not os.path.exists(idmapping_path):
-        print("  ⚠️ 未找到本地 idmapping (data/raw/uniprot/human_idmapping.gz)，"
-              "gene_symbol 列将留空（不影响训练，但影响泄漏审计粒度）")
+        print(
+            "  ⚠️ 未找到本地 idmapping (data/raw/uniprot/human_idmapping.gz)，"
+            "gene_symbol 列将留空（不影响训练，但影响泄漏审计粒度）"
+        )
         return {}
 
     gene_map = {}
@@ -168,29 +170,29 @@ def load_local_sequences():
 
 def fetch_uniprot_batch(uniprot_ids, batch_size=500):
     """从 UniProt REST API 批量获取序列
-    
+
     使用 UniProt 的 ID mapping 端点进行批量获取
     """
     sequences = {}
     total = len(uniprot_ids)
-    
+
     print(f"  📡 从 UniProt API 获取 {total:,} 条序列...")
-    
+
     # 使用 UniProt 的 ID list 下载方式
     url_base = "https://rest.uniprot.org/uniprotkb/stream"
-    
+
     for i in range(0, total, batch_size):
-        batch = uniprot_ids[i:i+batch_size]
+        batch = uniprot_ids[i : i + batch_size]
         # 构建查询: accession:(ID1 OR ID2 OR ...)
         query_parts = " OR ".join(f"accession:{uid}" for uid in batch)
-        
+
         params = {
             "query": query_parts,
             "format": "tsv",
             "fields": "accession,sequence",
             "size": len(batch),
         }
-        
+
         try:
             url = f"{url_base}?{urllib.parse.urlencode(params)}"
             req = urllib.request.Request(url)
@@ -237,13 +239,13 @@ def fetch_uniprot_batch(uniprot_ids, batch_size=500):
                                             sequences[acc] = seq
                     except Exception:
                         pass
-        
+
         fetched = min(i + batch_size, total)
         if (i // batch_size + 1) % 20 == 0 or fetched >= total:
             pct = fetched / total * 100
             print(f"    进度: {fetched:,}/{total:,} ({pct:.0f}%), 获取 {len(sequences):,} 条")
         time.sleep(0.5)
-    
+
     print(f"  ✅ API 获取 {len(sequences):,}/{total:,} 条序列")
     return sequences
 
@@ -271,9 +273,7 @@ def load_epsd_sites():
                 except ValueError:
                     continue
                 if uid and pos > 0:
-                    sites[uid].append({
-                        "position": pos, "type": "phosphorylation", "amino_acid": aa
-                    })
+                    sites[uid].append({"position": pos, "type": "phosphorylation", "amino_acid": aa})
                     count += 1
 
     print(f"  ✅ EPSD: {count:,} 磷酸化位点 ({len(sites):,} 人类蛋白)")
@@ -295,11 +295,13 @@ def load_cplm_sites():
                 pos = int(row[2].strip())
                 ptm_type = row[3].strip()
                 if uid and pos > 0:
-                    sites[uid].append({
-                        "position": pos,
-                        "type": PTM_TYPE_MAP.get(ptm_type, ptm_type.lower()),
-                        "amino_acid": None,
-                    })
+                    sites[uid].append(
+                        {
+                            "position": pos,
+                            "type": PTM_TYPE_MAP.get(ptm_type, ptm_type.lower()),
+                            "amino_acid": None,
+                        }
+                    )
                     count += 1
 
     print(f"  ✅ CPLM: {count:,} 赖氨酸修饰位点 ({len(sites):,} 人类蛋白)")
@@ -346,15 +348,16 @@ def load_dbptm_human_sites(ptm_type_name):
                     continue
 
             if uid and pos > 0:
-                sites[uid].append({
-                    "position": pos,
-                    "type": PTM_TYPE_MAP.get(raw_ptm_type, raw_ptm_type.lower()),
-                    "amino_acid": None,
-                })
+                sites[uid].append(
+                    {
+                        "position": pos,
+                        "type": PTM_TYPE_MAP.get(raw_ptm_type, raw_ptm_type.lower()),
+                        "amino_acid": None,
+                    }
+                )
                 count += 1
 
-    print(f"  ✅ dbPTM {ptm_type_name}: {count:,} 位点 ({len(sites):,} 人类蛋白, "
-          f"跳过{skipped_non_human:,}非人类)")
+    print(f"  ✅ dbPTM {ptm_type_name}: {count:,} 位点 ({len(sites):,} 人类蛋白, 跳过{skipped_non_human:,}非人类)")
     return sites
 
 
@@ -370,10 +373,7 @@ def merge_sites(all_sites_dicts):
         for uid, sites in sites_dict.items():
             for site in sites:
                 pos, ptm_type = site["position"], site["type"]
-                found = any(
-                    s["position"] == pos and s["type"] == ptm_type
-                    for s in merged[uid]
-                )
+                found = any(s["position"] == pos and s["type"] == ptm_type for s in merged[uid])
                 if found:
                     dedup += 1
                 else:
@@ -398,7 +398,7 @@ def build_dataset(sequences, ptm_sites, max_seq_len=1000, gene_symbol_map=None):
 
     for uid, sites in ptm_sites.items():
         seq = sequences.get(uid)
-        
+
         # 如果直接找不到, 尝试解析异构体ID (e.g., Q9Y483-3 → Q9Y483)
         if not seq and "-" in uid:
             canonical_id = uid.split("-")[0]
@@ -427,19 +427,21 @@ def build_dataset(sequences, ptm_sites, max_seq_len=1000, gene_symbol_map=None):
         sites = sorted(sites, key=lambda x: x["position"])
         ptm_json = json.dumps(sites, ensure_ascii=False)
 
-        records.append({
-            "id": f"PTM_{uid}",
-            "sequence": seq,
-            "ptm_sites": ptm_json,
-            "uniprot_id": uid,
-            "protein_accession": uid,
-            "gene_symbol": gene_map.get(uid, ""),
-            "source_db": "epsd+cplm+dbptm",
-            "evidence_level": "database",
-            "seq_length": seq_len,
-            "num_ptm_sites": len(sites),
-            "cell_state": "unknown",
-        })
+        records.append(
+            {
+                "id": f"PTM_{uid}",
+                "sequence": seq,
+                "ptm_sites": ptm_json,
+                "uniprot_id": uid,
+                "protein_accession": uid,
+                "gene_symbol": gene_map.get(uid, ""),
+                "source_db": "epsd+cplm+dbptm",
+                "evidence_level": "database",
+                "seq_length": seq_len,
+                "num_ptm_sites": len(sites),
+                "cell_state": "unknown",
+            }
+        )
 
     print(f"\n  数据集: {len(records):,} 条记录")
     print(f"    跳过(无序列): {no_seq:,}")
@@ -454,7 +456,7 @@ def build_dataset(sequences, ptm_sites, max_seq_len=1000, gene_symbol_map=None):
 def integrate_labels(integrated_df, gene_symbol_map=None):
     """
     尝试将现有带标签数据整合到整合数据集中
-    
+
     PMADS 数据已有 cell_state 标签
     """
     pmads_path = os.path.join(PROCESSED_DIR, "pmads_combined.csv")
@@ -472,9 +474,7 @@ def integrate_labels(integrated_df, gene_symbol_map=None):
     # P2-1: PMADS 的 protein 列即 UniProt accession；source 列即来源数据库。
     pmads_clean["protein_accession"] = pmads.get("protein", "unknown").astype(str)
     gene_map = gene_symbol_map or {}
-    pmads_clean["gene_symbol"] = pmads_clean["protein_accession"].map(
-        lambda acc: gene_map.get(acc, "")
-    )
+    pmads_clean["gene_symbol"] = pmads_clean["protein_accession"].map(lambda acc: gene_map.get(acc, ""))
     pmads_clean["source_db"] = pmads.get("source", "pmads")
     pmads_clean["evidence_level"] = "database"
     pmads_clean["seq_length"] = pmads_clean["sequence"].str.len()
@@ -495,8 +495,7 @@ def main():
     parser = argparse.ArgumentParser(description="PTM2CellNet 数据整合 v2 (人类专用)")
     parser.add_argument("--max-seq-len", type=int, default=1000)
     parser.add_argument("--output", type=str, default="data/processed/ptm_integrated_human.csv")
-    parser.add_argument("--fetch-api", action="store_true",
-                        help="从 UniProt API 获取缺失序列")
+    parser.add_argument("--fetch-api", action="store_true", help="从 UniProt API 获取缺失序列")
     parser.add_argument("--api-batch", type=int, default=500, help="API 批次大小")
     args = parser.parse_args()
 
@@ -592,9 +591,9 @@ def main():
     print(f"  ✅ 已保存: {output_path} ({size_mb:.1f} MB)")
 
     # 统计报告
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  数据质量报告")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  总记录数: {len(df):,}")
     if len(df) > 0:
         print(f"  平均序列长度: {df['seq_length'].mean():.0f}")
@@ -616,7 +615,7 @@ def main():
                 print(f"    {ptm_type}: {cnt:,}")
 
     # 整合标签数据
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  整合已标记数据...")
     labeled_df = integrate_labels(df, gene_symbol_map)
     if labeled_df is not None and len(labeled_df) > 0:
@@ -624,9 +623,9 @@ def main():
         labeled_df.to_csv(labeled_path, index=False, encoding="utf-8")
         print(f"  ✅ 已标记数据保存: {labeled_path}")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  ✅ 数据整合完成")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

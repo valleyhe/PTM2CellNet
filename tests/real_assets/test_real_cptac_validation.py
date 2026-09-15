@@ -65,6 +65,7 @@ def test_pdc_real_file_download(tmp_path):
     study_alias = os.environ.get("PTM2CELLNET_CPTAC_STUDY", "BRCA")
     # Import the canonical study map from the script (no network needed).
     import importlib.util
+
     script_path = _repo_root() / "scripts" / "validate_cptac.py"
     spec = importlib.util.spec_from_file_location("validate_cptac_real", script_path)
     assert spec is not None and spec.loader is not None
@@ -82,9 +83,9 @@ def test_pdc_real_file_download(tmp_path):
         client = PDCClient()
         study = client.get_study(pdc_study_id)
         phospho_files = [
-            f for f in study.files
-            if "phospho" in str(f.get("data_category", "")).lower()
-            or "phospho" in str(f.get("file_name", "")).lower()
+            f
+            for f in study.files
+            if "phospho" in str(f.get("data_category", "")).lower() or "phospho" in str(f.get("file_name", "")).lower()
         ]
         assert phospho_files, f"PDC study {study_alias} returned no phospho files"
 
@@ -130,8 +131,7 @@ def test_cptac_validator_predictor_wired_against_real_pdc(tmp_path):
     model_dir = os.environ.get("PTM2CELLNET_CPTAC_MODEL_DIR")
     if not model_dir:
         pytest.skip(
-            "PTM2CELLNET_CPTAC_MODEL_DIR must point at a multi-task PTM "
-            "checkpoint directory for this real-asset test."
+            "PTM2CELLNET_CPTAC_MODEL_DIR must point at a multi-task PTM checkpoint directory for this real-asset test."
         )
 
     study_alias = os.environ.get("PTM2CELLNET_CPTAC_STUDY", "BRCA")
@@ -142,9 +142,12 @@ def test_cptac_validator_predictor_wired_against_real_pdc(tmp_path):
     cmd = [
         sys.executable,
         str(script),
-        "-o", str(output_dir),
-        "-s", study_alias,
-        "-m", model_dir,
+        "-o",
+        str(output_dir),
+        "-s",
+        study_alias,
+        "-m",
+        model_dir,
     ]
     env = os.environ.copy()
     env["PTM2CELLNET_ALLOW_EXPERIMENTAL"] = "1"
@@ -169,9 +172,7 @@ def test_cptac_validator_predictor_wired_against_real_pdc(tmp_path):
         if returncode != 0:
             outcome = "fail"
             err = f"subprocess exited {returncode}"
-            pytest.fail(
-                f"validate_cptac.py exited {returncode}.\nstderr tail:\n{tail_stderr}"
-            )
+            pytest.fail(f"validate_cptac.py exited {returncode}.\nstderr tail:\n{tail_stderr}")
 
         result_json = output_dir / "validation_results.json"
         assert result_json.is_file(), f"missing {result_json}"

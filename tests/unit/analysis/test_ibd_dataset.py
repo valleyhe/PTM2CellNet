@@ -53,20 +53,18 @@ def test_real_ibd_metadata_has_documented_inclusion_counts():
     }
     assert int(frame["include_atlas"].sum()) == 126
     assert int(frame["include_primary_DE"].sum()) == 91
-    assert int(
-        ((frame["dataset"] == "GSE282122") & frame["include_atlas"] & (frame["intestinal_region"] == "colon")).sum()
-    ) == 96
+    assert (
+        int(
+            ((frame["dataset"] == "GSE282122") & frame["include_atlas"] & (frame["intestinal_region"] == "colon")).sum()
+        )
+        == 96
+    )
     assert not frame["GSM"].duplicated().any()
 
 
 def test_metadata_outputs_round_trip(tmp_path: Path):
     frame = pd.DataFrame(
-        [
-            {
-                column: (True if column.startswith("include_") else "x")
-                for column in REQUIRED_METADATA_COLUMNS
-            }
-        ]
+        [{column: (True if column.startswith("include_") else "x") for column in REQUIRED_METADATA_COLUMNS}]
     )
     paths = write_metadata_outputs(frame, tmp_path)
     loaded = load_metadata(paths[0])

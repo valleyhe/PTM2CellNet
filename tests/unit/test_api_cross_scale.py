@@ -85,9 +85,7 @@ def _build_artifact(
         "label_vocabulary": LABELS,
         "config": config,
     }
-    (artifact_dir / "artifact_manifest.json").write_text(
-        json.dumps(manifest), encoding="utf-8"
-    )
+    (artifact_dir / "artifact_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     if drop_best:
         best_path.unlink()
     return artifact_dir
@@ -236,9 +234,7 @@ class TestInitialize:
 
 class TestPredict:
     def test_requires_initialization(self, client):
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"sequence": SEQUENCE}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"sequence": SEQUENCE})
         assert response.status_code == 503
 
     def test_sequence_prediction_with_fallback_flags(self, client, tmp_path):
@@ -252,9 +248,7 @@ class TestPredict:
         assert body["sample_id"] == "s1"
         assert body["cell_state"] in LABELS
         assert pytest.approx(sum(body["probabilities"].values()), abs=1e-4) == 1.0
-        assert body["confidence"] == pytest.approx(
-            max(body["probabilities"].values()), abs=1e-6
-        )
+        assert body["confidence"] == pytest.approx(max(body["probabilities"].values()), abs=1e-6)
         # 契约：禁止隐式随机 fallback —— 无已加载 backbone 时必须显式标记
         assert body["fallback_flags"]["plm_fallback_used"] is True
         # 服务端默认图已提供 signal_edge_index，无需图近似
@@ -279,7 +273,8 @@ class TestPredict:
         response = client.post(
             "/api/v1/cross-scale/predict",
             json={
-                "sequence": SEQUENCE, "allow_uniform_signal_map": True,
+                "sequence": SEQUENCE,
+                "allow_uniform_signal_map": True,
                 "ptm_sites": [{"position": 4, "type": "phosphorylation"}],
             },
         )
@@ -337,9 +332,7 @@ class TestPredict:
     def test_embedding_dim_mismatch_rejected(self, client, tmp_path):
         bad = _write_embedding_npz(tmp_path / "bad.npz", dims={"ankh39": 9, "esm2": 3, "prott5": 4})
         _initialize_ready(client, tmp_path)
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"embedding_ref": str(bad)}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"embedding_ref": str(bad)})
         assert response.status_code == 400
         assert "backbone dim" in response.json()["detail"]
 
@@ -351,9 +344,7 @@ class TestPredict:
             ankh39_embeddings=np.zeros((1, 5, 2), dtype="float32"),
         )
         _initialize_ready(client, tmp_path)
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"embedding_ref": str(partial)}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"embedding_ref": str(partial)})
         assert response.status_code == 400
         assert "esm2_embeddings" in response.json()["detail"]
 
@@ -368,9 +359,7 @@ class TestPredict:
     def test_missing_graph_fails_explicitly(self, client, tmp_path):
         # 模型契约：cell graph 不可静默替换 —— 未登记 graph_ref 时显式 400
         _initialize(client, _build_artifact(tmp_path / "artifact"))
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"sequence": SEQUENCE}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"sequence": SEQUENCE})
         assert response.status_code == 400
         assert "cell graph" in response.json()["detail"]
 
@@ -378,9 +367,7 @@ class TestPredict:
         # 默认图 signal_gene_map N_signal=3 与序列长度不匹配，跳过后缺映射；
         # 未显式 allow_uniform_signal_map 时必须 400 而非静默构造
         _initialize_ready(client, tmp_path)
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"sequence": SEQUENCE}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"sequence": SEQUENCE})
         assert response.status_code == 400
         assert "signal_gene_map" in response.json()["detail"]
 
@@ -401,9 +388,7 @@ class TestPredict:
             signal_gene_map=np.ones((3, 4), dtype="float32"),
         )
         _initialize_ready(client, tmp_path)
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"embedding_ref": str(npz)}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"embedding_ref": str(npz)})
         assert response.status_code == 200, response.text
         assert response.json()["fallback_flags"].get("signal_map_uniform") is not True
 
@@ -412,18 +397,14 @@ class TestPredict:
         reset_cross_scale_state()
         assert CROSS_SCALE_STATE.model is None
         assert CROSS_SCALE_STATE.default_graph is None
-        response = client.post(
-            "/api/v1/cross-scale/predict", json={"sequence": SEQUENCE}
-        )
+        response = client.post("/api/v1/cross-scale/predict", json={"sequence": SEQUENCE})
         assert response.status_code == 503
 
 
 class TestBatchPredict:
     def test_plain_sequences_are_batched(self, client, tmp_path):
         _initialize_ready(client, tmp_path)
-        samples = [
-            {"sequence": SEQUENCE, "sample_id": f"b{i}", "allow_uniform_signal_map": True} for i in range(3)
-        ]
+        samples = [{"sequence": SEQUENCE, "sample_id": f"b{i}", "allow_uniform_signal_map": True} for i in range(3)]
         response = client.post(
             "/api/v1/cross-scale/batch_predict",
             json={"samples": samples, "batch_size": 2},
@@ -440,14 +421,11 @@ class TestBatchPredict:
         _initialize_ready(client, tmp_path)
         samples = [
             {"sequence": SEQUENCE, "sample_id": "good", "allow_uniform_signal_map": True},
-            {"sequence": SEQUENCE, "sample_id": "bad-type",
-             "ptm_sites": [{"position": 2, "type": "not-a-ptm"}]},
+            {"sequence": SEQUENCE, "sample_id": "bad-type", "ptm_sites": [{"position": 2, "type": "not-a-ptm"}]},
             {"embedding_ref": str(embedding), "sample_id": "good-emb"},
             {"sequence": SEQUENCE, "sample_id": "both", "embedding_ref": str(embedding)},
         ]
-        response = client.post(
-            "/api/v1/cross-scale/batch_predict", json={"samples": samples}
-        )
+        response = client.post("/api/v1/cross-scale/batch_predict", json={"samples": samples})
         assert response.status_code == 200
         body = response.json()
         assert body["summary"]["total"] == 4
@@ -470,9 +448,7 @@ class TestBatchPredict:
 
     def test_empty_samples_rejected_by_schema(self, client, tmp_path):
         _initialize_ready(client, tmp_path)
-        response = client.post(
-            "/api/v1/cross-scale/batch_predict", json={"samples": []}
-        )
+        response = client.post("/api/v1/cross-scale/batch_predict", json={"samples": []})
         assert response.status_code == 422
 
     def test_requires_initialization(self, client):
@@ -489,6 +465,4 @@ class TestPtmVocabulary:
 
         assert PTM_TYPE_TO_IDX["phosphorylation"] == 1
         assert set(PTM_TYPE_TO_IDX) == set(DEFAULT_PTM_TYPES)
-        assert sorted(PTM_TYPE_TO_IDX.values()) == list(
-            range(1, len(DEFAULT_PTM_TYPES) + 1)
-        )
+        assert sorted(PTM_TYPE_TO_IDX.values()) == list(range(1, len(DEFAULT_PTM_TYPES) + 1))

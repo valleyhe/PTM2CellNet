@@ -380,9 +380,7 @@ class DAVFInferenceModule(nn.Module):
                 if not row or not any(cell.strip() for cell in row):
                     continue
                 if len(row) < 2:
-                    raise ValueError(
-                        f"DAVF gene alias table row {row_number} must contain Ensembl ID and gene symbol"
-                    )
+                    raise ValueError(f"DAVF gene alias table row {row_number} must contain Ensembl ID and gene symbol")
                 try:
                     ensembl_id = normalize_ensembl_id(row[0])
                 except ValueError:
@@ -622,7 +620,7 @@ class DAVFInferenceModule(nn.Module):
             if names[index] != str(symbol):
                 raise ValueError(
                     "target gene index does not match scVI gene order at row "
-                f"{row}: index {index} is {names[index]!r}, not {str(symbol)!r}"
+                    f"{row}: index {index} is {names[index]!r}, not {str(symbol)!r}"
                 )
 
     def _resolve_scvi_decoder_gene_names(

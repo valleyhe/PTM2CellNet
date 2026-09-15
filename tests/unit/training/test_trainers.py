@@ -23,7 +23,9 @@ class MockModel(nn.Module):
 
     def forward(self, batch):
         if isinstance(batch, dict):
-            x = batch.get("sequence", batch.get("input", torch.randn(batch.get("label", torch.tensor([0])).size(0), 10)))
+            x = batch.get(
+                "sequence", batch.get("input", torch.randn(batch.get("label", torch.tensor([0])).size(0), 10))
+            )
             if x.dim() > 2:
                 x = x.view(x.size(0), -1)[:, :10]
             logits = self.fc(x)
@@ -89,6 +91,7 @@ def sample_loader():
 @pytest.fixture
 def dict_loader():
     """创建字典批次格式的DataLoader"""
+
     class DictDataset(torch.utils.data.Dataset):
         def __init__(self):
             self.data = [
@@ -278,6 +281,7 @@ class TestCallbackIntegration:
         trainer = Trainer(mock_model, device="cpu")
         early_stop = EarlyStopping(monitor="val_loss", mode="min", patience=0, verbose=0)
         trainer.compile(callbacks=[early_stop])
+
         # 由于patience=0，第一次验证不改善就会停止
         # 但第一次epoch总是改善(从inf降低)，所以设置一个较复杂的场景
         # 使用一个总是触发不改善的callback
@@ -553,6 +557,7 @@ class TestExactResumeEquivalence:
             if resumed.scheduler is not None and loaded.get("scheduler_state_dict") is not None:
                 resumed.scheduler.load_state_dict(loaded["scheduler_state_dict"])
             from src.training.callbacks import _restore_rng_state
+
             if isinstance(loaded.get("rng_state"), dict):
                 _restore_rng_state(loaded["rng_state"])
 

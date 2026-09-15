@@ -37,6 +37,7 @@ def _make_sd():
 # extract_model_state_dict
 # ---------------------------------------------------------------------------
 
+
 class TestExtractModelStateDict:
     def test_extract_model_state_dict_lightning_prefix(self):
         """Lightning .ckpt：剥离 ``model.`` 前缀后返回裸权重。"""
@@ -101,6 +102,7 @@ class TestExtractModelStateDict:
 # ---------------------------------------------------------------------------
 # load_model
 # ---------------------------------------------------------------------------
+
 
 class TestLoadModel:
     def _make_model(self):
@@ -245,7 +247,11 @@ def test_load_checkpoint_tolerates_config_parse_failure(tmp_path, monkeypatch):
     config = tmp_path / "config.yaml"
     config.touch()
     monkeypatch.setattr(checkpoint_utils, "safe_torch_load", lambda *args, **kwargs: {})
-    monkeypatch.setattr(checkpoint_utils.Config, "from_yaml", classmethod(lambda cls, path: (_ for _ in ()).throw(ValueError("bad config"))))
+    monkeypatch.setattr(
+        checkpoint_utils.Config,
+        "from_yaml",
+        classmethod(lambda cls, path: (_ for _ in ()).throw(ValueError("bad config"))),
+    )
 
     _, loaded_config = load_checkpoint_with_config(checkpoint, config)
 

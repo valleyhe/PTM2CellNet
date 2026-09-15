@@ -11,7 +11,6 @@ rejected in formal mode.
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 import hashlib
 import json
 import math
@@ -30,6 +29,7 @@ from src.integration.perturbgen.reports import (
     build_candidate_report_payload,
     build_candidate_summary_dataframe,
     save_report_artifacts,
+    to_plain_object,
 )
 from src.integration.perturbgen.results import (
     benjamini_hochberg,
@@ -63,16 +63,15 @@ def replay_dual_path_evaluation(
     """
 
     _validate_top_level_spec(spec)
-    evaluation_mode = str(spec.get("evaluation_mode", "engineering")).strip().lower()
-    if evaluation_mode not in _VALID_EVALUATION_MODES:
-        raise ValueError(f"evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}")
+    evaluation_mode, evidence_class, pvalue_source = _evaluation_contract(spec)
+    contract = _report_contract(spec, evaluation_mode, evidence_class, pvalue_source)
 
     candidates = list(spec["candidates"])
     extracted: list[tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]] = []
     pvalues: list[float] = []
     for candidate_mapping in candidates:
         candidate_mapping = _require_mapping(candidate_mapping, name="candidate spec")
-        pvalue_kind = str(candidate_mapping.get("pvalue_source") or spec.get("pvalue_source") or "unspecified").strip()
+        pvalue_kind = str(candidate_mapping.get("pvalue_source") or pvalue_source).strip()
         if evaluation_mode == "formal":
             if pvalue_kind in _SYNTHETIC_PVALUE_SOURCES or "candidate_pvalue" in candidate_mapping:
                 raise ValueError(
@@ -139,8 +138,8 @@ def replay_dual_path_evaluation(
             extracted_runs=extracted_runs,
             evaluation_mode=evaluation_mode,
             empirical_aggregation=aggregation,
-            spec_pvalue_source=str(spec.get("pvalue_source", "")).strip() or None,
-            spec_evidence_class=str(spec.get("evidence_class", "")).strip() or None,
+            spec_pvalue_source=pvalue_source,
+            spec_evidence_class=evidence_class,
         )
         payloads.append(payload)
         candidate_entries.append(manifest_entry)
@@ -156,14 +155,18 @@ def replay_dual_path_evaluation(
         "input_sha256": _sha256_file(input_path),
         "summary_csv": str(summary_path),
         "candidate_count": len(candidate_entries),
+        "evaluation_mode": evaluation_mode,
+        "evidence_class": evidence_class,
+        "pvalue_source": pvalue_source,
+        "contract": contract,
         "candidates": candidate_entries,
     }
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(
-        json.dumps(_to_plain_object(manifest), ensure_ascii=False, indent=2),
+        json.dumps(to_plain_object(manifest), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return cast(dict[str, Any], _to_plain_object(manifest))
+    return cast(dict[str, Any], to_plain_object(manifest))
 
 
 def _evaluate_candidate(
@@ -206,8 +209,8 @@ def _evaluate_candidate(
         if empirical_aggregation is None:
             raise ValueError("formal evaluation requires empirical p aggregation provenance")
         candidate_pvalue = float(empirical_aggregation["pvalue"])
-        evidence_class = "empirical_null"
-        pvalue_kind = "empirical_aggregated"
+        evidence_class = _require_non_empty_string(spec_evidence_class, name="evidence_class")
+        pvalue_kind = _require_non_empty_string(spec_pvalue_source, name="pvalue_source")
     else:
         candidate_pvalue = _coerce_probability(
             candidate_spec.get("candidate_pvalue"),
@@ -238,9 +241,9 @@ def _evaluate_candidate(
         "evaluation_mode": evaluation_mode,
         "evidence_class": evidence_class,
         "pvalue_source": pvalue_kind,
-        "empirical_aggregation": _to_plain_object(empirical_aggregation) if empirical_aggregation else None,
+        "empirical_aggregation": to_plain_object(empirical_aggregation) if empirical_aggregation else None,
         "replay": {
-            "candidate": _to_plain_object(candidate),
+            "candidate": to_plain_object(candidate),
             "observed_direction": observed_direction,
             "unperturbed_quality_status": unperturbed_quality_status,
             "runs": extracted_runs,
@@ -401,7 +404,7 @@ def _extract_run(
         "seed": seed,
         "output_h5ad": str(output_h5ad.expanduser().resolve(strict=True)),
         "deg_table_path": str(deg_table_path.expanduser().resolve(strict=True)),
-        "h5ad_provenance": _to_plain_object(h5ad_provenance),
+        "h5ad_provenance": to_plain_object(h5ad_provenance),
         "target_gene": target_gene,
         "donor_obs_column": donor_obs_column,
         "var_gene_column": var_gene_column,
@@ -419,8 +422,8 @@ def _extract_run(
         "baseline_matrix": extraction.baseline_matrix,
         "perturbed_matrix": extraction.perturbed_matrix,
         "bootstrap_ci": list(extraction.bootstrap_ci) if extraction.bootstrap_ci is not None else None,
-        "donor_scores": _to_plain_object(extraction.donor_scores),
-        "path_result": _to_plain_object(extraction.path_result),
+        "donor_scores": to_plain_object(extraction.donor_scores),
+        "path_result": to_plain_object(extraction.path_result),
     }
     if null_distribution_path is not None:
         result["null_distribution_path"] = str(null_distribution_path.expanduser().resolve(strict=True))
@@ -438,6 +441,71 @@ def _validate_top_level_spec(spec: Any) -> None:
     candidates = mapping.get("candidates")
     if not isinstance(candidates, Sequence) or isinstance(candidates, (str, bytes)) or not candidates:
         raise ValueError("candidates must be a non-empty sequence")
+
+
+def _evaluation_contract(spec: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Resolve evaluation semantics while preserving the engineering default."""
+
+    evaluation_mode = _require_choice(
+        spec.get("evaluation_mode", "engineering"),
+        valid_values=_VALID_EVALUATION_MODES,
+        name="evaluation_mode",
+    ).lower()
+    if evaluation_mode == "formal":
+        evidence_class = _require_non_empty_string(
+            spec.get("evidence_class"),
+            name="evidence_class",
+        )
+        pvalue_source = _require_non_empty_string(
+            spec.get("pvalue_source"),
+            name="pvalue_source",
+        )
+        if evidence_class != "empirical_null":
+            raise ValueError("formal evaluation requires evidence_class='empirical_null'")
+        if pvalue_source in _SYNTHETIC_PVALUE_SOURCES or not pvalue_source.startswith("empirical_"):
+            raise ValueError("formal evaluation requires an empirical pvalue_source")
+    else:
+        evidence_class = _optional_non_empty_string(spec.get("evidence_class")) or "synthetic"
+        pvalue_source = _optional_non_empty_string(spec.get("pvalue_source")) or "unspecified"
+    return evaluation_mode, evidence_class, pvalue_source
+
+
+def _report_contract(
+    spec: Mapping[str, Any],
+    evaluation_mode: str,
+    evidence_class: str,
+    pvalue_source: str,
+) -> Any:
+    declared = spec.get("contract")
+    if evaluation_mode == "formal" and declared is None:
+        raise ValueError("formal evaluation requires contract lineage")
+    if declared is not None:
+        if evaluation_mode != "formal":
+            if isinstance(declared, Mapping):
+                return dict(declared)
+            if isinstance(declared, str) and declared.strip():
+                return declared
+            raise ValueError("contract must be a non-empty mapping or string")
+        if not isinstance(declared, Mapping):
+            raise ValueError("formal evaluation contract must be a mapping")
+        contract = dict(declared)
+        if evaluation_mode == "formal":
+            if contract.get("schema_version") != INPUT_SCHEMA_VERSION:
+                raise ValueError("formal evaluation contract has an invalid schema_version")
+            for field_name, expected in (
+                ("evaluation_mode", evaluation_mode),
+                ("evidence_class", evidence_class),
+                ("pvalue_source", pvalue_source),
+            ):
+                if contract.get(field_name) != expected:
+                    raise ValueError(f"formal evaluation contract.{field_name} does not match evaluation input")
+        return contract
+    return {
+        "schema_version": INPUT_SCHEMA_VERSION,
+        "evaluation_mode": evaluation_mode,
+        "evidence_class": evidence_class,
+        "pvalue_source": pvalue_source,
+    }
 
 
 def load_deg_table(path: Path) -> pd.DataFrame:
@@ -505,16 +573,6 @@ def _sha256_file(path: Path) -> str:
 def _slug(value: str) -> str:
     text = re.sub(r"[^0-9A-Za-z._-]+", "_", value.strip()).strip("_")
     return text or "candidate"
-
-
-def _to_plain_object(value: Any) -> Any:
-    if is_dataclass(value):
-        return asdict(cast(Any, value))
-    if isinstance(value, Mapping):
-        return {str(key): _to_plain_object(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_to_plain_object(item) for item in value]
-    return value
 
 
 def _require_mapping(value: Any, *, name: str) -> Mapping[str, Any]:

@@ -222,8 +222,12 @@ def plot_training_curves(
         axes[0].legend()
     else:
         axes[0].text(
-            0.5, 0.5, "No loss data",
-            ha="center", va="center", transform=axes[0].transAxes,
+            0.5,
+            0.5,
+            "No loss data",
+            ha="center",
+            va="center",
+            transform=axes[0].transAxes,
             color="gray",
         )
     axes[0].grid(True, alpha=0.3)
@@ -243,8 +247,12 @@ def plot_training_curves(
         axes[1].legend()
     else:
         axes[1].text(
-            0.5, 0.5, "No accuracy data",
-            ha="center", va="center", transform=axes[1].transAxes,
+            0.5,
+            0.5,
+            "No accuracy data",
+            ha="center",
+            va="center",
+            transform=axes[1].transAxes,
             color="gray",
         )
     axes[1].grid(True, alpha=0.3)
@@ -360,8 +368,7 @@ def plot_multiclass_roc(
     for i in range(num_classes):
         fpr, tpr, _ = roc_curve(y_bin[:, i], y_score[:, i])
         roc_auc = auc(fpr, tpr)
-        ax.plot(fpr, tpr, color=colors[i], lw=2,
-                label=f"{class_names[i]} (AUC = {roc_auc:.3f})")
+        ax.plot(fpr, tpr, color=colors[i], lw=2, label=f"{class_names[i]} (AUC = {roc_auc:.3f})")
 
     ax.plot([0, 1], [0, 1], "k--", lw=1)
     ax.set_xlim((0.0, 1.0))
@@ -397,9 +404,7 @@ def plot_calibration_curve(
     """
     from sklearn.calibration import calibration_curve
 
-    fraction_positives, mean_predicted = calibration_curve(
-        y_true, y_score, n_bins=n_bins
-    )
+    fraction_positives, mean_predicted = calibration_curve(y_true, y_score, n_bins=n_bins)
 
     fig, ax = plt.subplots(figsize=figsize)
     ax.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")

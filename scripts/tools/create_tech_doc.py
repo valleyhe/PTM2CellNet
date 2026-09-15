@@ -16,6 +16,7 @@ warnings.warn(
     stacklevel=2,
 )
 
+
 def generate_tech_doc():
     """生成完整的技术文档"""
 
@@ -1461,14 +1462,16 @@ print(metrics)
     output_path = "docs/PTM2CellNet项目技术说明文档.md"
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(doc_content)
 
     print(f"技术文档已生成: {output_path}")
     print(f"文档大小: {len(doc_content)} 字符")
 
+
 if __name__ == "__main__":
     import sys
+
     print("=" * 70)
     print("WARNING: This script generates potentially outdated documentation.")
     print("For current architecture, see the code and docs/ directory.")

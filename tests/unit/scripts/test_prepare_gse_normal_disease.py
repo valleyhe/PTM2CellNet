@@ -41,4 +41,3 @@ def test_parse_args_keeps_explicit_sample_lists():
     assert args.normal_samples == "HC1,HC2"
     assert args.disease_samples == "CD1,CD2"
     assert args.dataset_accession == "GSE214695"
-

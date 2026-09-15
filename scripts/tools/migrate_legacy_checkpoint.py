@@ -75,10 +75,7 @@ def migrate_checkpoint(input_path: str, output_path: str, device: str = "cpu") -
     if not inp.exists():
         raise FileNotFoundError(f"Legacy checkpoint not found: {inp}")
 
-    logger.info(
-        "Loading legacy checkpoint with weights_only=False (UNSAFE) — "
-        "only use on fully trusted files."
-    )
+    logger.info("Loading legacy checkpoint with weights_only=False (UNSAFE) — only use on fully trusted files.")
     try:
         # ═══════════════════════════════════════════════════════════════
         # SAFETY WARNING: weights_only=False allows arbitrary code
@@ -93,9 +90,7 @@ def migrate_checkpoint(input_path: str, output_path: str, device: str = "cpu") -
             weights_only=False,
         )
     except (pickle.UnpicklingError, RuntimeError) as e:
-        raise RuntimeError(
-            f"Failed to load legacy checkpoint {inp}: {e}"
-        ) from e
+        raise RuntimeError(f"Failed to load legacy checkpoint {inp}: {e}") from e
 
     # Extract the safe tensor state dict, discarding any custom objects.
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
@@ -104,18 +99,15 @@ def migrate_checkpoint(input_path: str, output_path: str, device: str = "cpu") -
         # The checkpoint may be a bare state_dict.
         state_dict = checkpoint
     else:
-        raise RuntimeError(
-            f"Unexpected checkpoint format: {type(checkpoint)}. "
-            "Expected a dictionary."
-        )
+        raise RuntimeError(f"Unexpected checkpoint format: {type(checkpoint)}. Expected a dictionary.")
 
     # Verify that the state dict contains only tensors (safe to save).
     for key, value in state_dict.items():
         if not isinstance(value, torch.Tensor):
             logger.warning(
-                "Non-tensor value under key '%s' (type=%s) will be dropped "
-                "during migration.",
-                key, type(value).__name__,
+                "Non-tensor value under key '%s' (type=%s) will be dropped during migration.",
+                key,
+                type(value).__name__,
             )
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -130,18 +122,17 @@ def migrate_checkpoint(input_path: str, output_path: str, device: str = "cpu") -
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Migrate a legacy PyTorch checkpoint to the safe "
-            "weights_only=True format."
-        ),
+        description=("Migrate a legacy PyTorch checkpoint to the safe weights_only=True format."),
     )
     parser.add_argument(
-        "--input", "-i",
+        "--input",
+        "-i",
         required=True,
         help="Path to the legacy checkpoint file",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         required=True,
         help="Path for the migrated safe checkpoint",
     )

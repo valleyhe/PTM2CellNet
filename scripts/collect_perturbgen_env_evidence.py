@@ -23,9 +23,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PERTURBGEN_SRC = REPO_ROOT / "ref" / "Perturbgen-src"
-OUTPUT_PATH = REPO_ROOT / "outputs" / "perturbgen" / (
-    "env_evidence_" + _dt.date.today().strftime("%Y%m%d") + ".json"
-)
+OUTPUT_PATH = REPO_ROOT / "outputs" / "perturbgen" / ("env_evidence_" + _dt.date.today().strftime("%Y%m%d") + ".json")
 
 # Force offline semantics for the import checks: M0 requires that the stack
 # initializes without network access.
@@ -37,7 +35,9 @@ def _git_commit(path: Path) -> str | None:
     try:
         return subprocess.run(
             ["git", "-C", str(path), "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
@@ -46,9 +46,10 @@ def _git_commit(path: Path) -> str | None:
 def _gpu_info() -> dict:
     try:
         out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,driver_version,memory.total",
-             "--format=csv,noheader"],
-            capture_output=True, text=True, check=True,
+            ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return {"available": False}
@@ -83,17 +84,20 @@ def main() -> int:
             "cuda_available": torch.cuda.is_available(),
             "cuda_version": torch.version.cuda,
             "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
-            "device_name": (
-                torch.cuda.get_device_name(0)
-                if torch.cuda.is_available() else None
-            ),
+            "device_name": (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None),
         },
         "offline_imports": {
             # HF/evaluate components must initialize under offline semantics.
             name: _import_check(name)
             for name in (
-                "transformers", "datasets", "evaluate", "tokenizers",
-                "safetensors", "anndata", "scanpy", "h5py",
+                "transformers",
+                "datasets",
+                "evaluate",
+                "tokenizers",
+                "safetensors",
+                "anndata",
+                "scanpy",
+                "h5py",
                 "pytorch_lightning",
             )
         },
@@ -104,7 +108,10 @@ def main() -> int:
     pip_bin = Path(sys.executable).with_name("pip")
     try:
         evidence["pip_freeze"] = subprocess.run(
-            [str(pip_bin), "freeze"], capture_output=True, text=True, check=True,
+            [str(pip_bin), "freeze"],
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.splitlines()
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         evidence["pip_freeze_error"] = str(exc)
@@ -117,16 +124,21 @@ def main() -> int:
         and evidence["perturbgen_import"]["ok"]
         and all(v["ok"] for v in evidence["offline_imports"].values())
     )
-    print(json.dumps({
-        "evidence_file": str(OUTPUT_PATH),
-        "python": evidence["python"]["version"],
-        "commit": evidence["perturbgen_source"]["commit"],
-        "gpu": evidence["gpu"].get("nvidia_smi"),
-        "torch_cuda_available": evidence["torch"]["cuda_available"],
-        "offline_imports_ok": all(v["ok"] for v in evidence["offline_imports"].values()),
-        "perturbgen_import_ok": evidence["perturbgen_import"]["ok"],
-        "overall": "OK" if ok else "INCOMPLETE",
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "evidence_file": str(OUTPUT_PATH),
+                "python": evidence["python"]["version"],
+                "commit": evidence["perturbgen_source"]["commit"],
+                "gpu": evidence["gpu"].get("nvidia_smi"),
+                "torch_cuda_available": evidence["torch"]["cuda_available"],
+                "offline_imports_ok": all(v["ok"] for v in evidence["offline_imports"].values()),
+                "perturbgen_import_ok": evidence["perturbgen_import"]["ok"],
+                "overall": "OK" if ok else "INCOMPLETE",
+            },
+            indent=2,
+        )
+    )
     return 0 if ok else 1
 
 

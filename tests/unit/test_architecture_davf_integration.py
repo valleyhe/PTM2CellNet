@@ -78,9 +78,7 @@ def make_embedding_asset(tmp_path) -> str:
     vocab_path = asset_dir / "vocabulary.json"
     matrix = torch.arange(8, dtype=torch.float32).reshape(4, 2)
     save_safetensors({"gene_embeddings": matrix}, str(tensor_path))
-    vocab_path.write_text(
-        json.dumps({f"ENSG00000{i}": i for i in range(4)}), encoding="utf-8"
-    )
+    vocab_path.write_text(json.dumps({f"ENSG00000{i}": i for i in range(4)}), encoding="utf-8")
 
     def _sha(path):
         return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -169,9 +167,7 @@ class TestDAVFArchitectureIntegration:
         assert model.davf_module.config.feature_dim == 64
         assert model.davf_config["scvi_model_path"] == "checkpoints/scvi/model.pt"
         assert model.davf_config["embedding_asset_path"] == asset_path
-        assert model.davf_module.embedding_gene_to_token == {
-            f"ENSG00000{i}": i for i in range(4)
-        }
+        assert model.davf_module.embedding_gene_to_token == {f"ENSG00000{i}": i for i in range(4)}
         assert model.ptm_mapper is not None
         assert model.ptm_mapper.gene_to_idx == model.davf_module.embedding_gene_to_token
         assert model.davf_path_class == "formal_schema_v2"
@@ -336,12 +332,8 @@ class TestDAVFArchitectureIntegration:
         assert model.davf_module._checkpoint_loaded is True
 
         # DAVF backbone frozen by default; projection head always trainable.
-        davf_encoder_frozen = all(
-            not p.requires_grad for p in model.davf_module.gene_encoder.parameters()
-        )
-        projection_trainable = any(
-            p.requires_grad for p in model.davf_module.delta_projection.parameters()
-        )
+        davf_encoder_frozen = all(not p.requires_grad for p in model.davf_module.gene_encoder.parameters())
+        projection_trainable = any(p.requires_grad for p in model.davf_module.delta_projection.parameters())
         assert davf_encoder_frozen, "DAVF encoder must be frozen by default (stage 1)"
         assert projection_trainable, "DeltaProjection must remain trainable"
 
@@ -359,7 +351,6 @@ class TestDAVFArchitectureIntegration:
         assert proj_grad is not None, "gradient must flow into DAVF projection"
         assert torch.isfinite(proj_grad).all()
         assert float(proj_grad.abs().sum()) > 0
-
 
     def test_from_config_with_multitask_and_davf(self):
         config = {

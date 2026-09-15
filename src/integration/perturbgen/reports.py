@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import fields, is_dataclass
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -18,7 +18,7 @@ def build_candidate_report_payload(
 ) -> dict[str, Any]:
     """稳定 JSON payload，保留 manifest 以便重放。"""
 
-    payload = _to_plain_object(decision)
+    payload = to_plain_object(decision)
     dual_payload = payload.get("dual_path") or payload
     path_decisions = dual_payload.get("path_decisions", [])
     candidate_payload = candidate or payload.get("candidate") or {}
@@ -148,7 +148,7 @@ def save_report_artifacts(
     md_path = path / "candidate_report.md"
 
     json_path.write_text(
-        json.dumps(_to_plain_object(payload), ensure_ascii=False, indent=2),
+        json.dumps(to_plain_object(payload), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     summary_frame.to_csv(csv_path, index=False)
@@ -163,11 +163,21 @@ def save_report_artifacts(
     }
 
 
-def _to_plain_object(value: Any) -> Any:
+def to_plain_object(value: Any) -> Any:
+    """Single JSON-ready serializer for report/lineage payloads.
+
+    Handles Path (stringified), dataclasses (field-wise, so nested Paths and
+    mapping keys are normalized too), mappings (keys stringified), and
+    sequences.  Anything else is returned as-is: an exotic value then fails
+    at ``json.dumps`` time instead of being silently stringified.
+    """
+
+    if isinstance(value, Path):
+        return str(value)
     if is_dataclass(value) and not isinstance(value, type):
-        return asdict(value)
+        return {item.name: to_plain_object(getattr(value, item.name)) for item in fields(value)}
     if isinstance(value, Mapping):
-        return {str(key): _to_plain_object(item) for key, item in value.items()}
+        return {str(key): to_plain_object(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_to_plain_object(item) for item in value]
+        return [to_plain_object(item) for item in value]
     return value

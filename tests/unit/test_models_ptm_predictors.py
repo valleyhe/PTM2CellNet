@@ -159,6 +159,7 @@ class TestEvaluationInitFallback:
 
     def test_evaluation_init_import_fallback(self):
         import types
+
         # Create a synthetic evaluation module with try/except fallback
         # to verify the pattern works as intended
         fake_module = types.ModuleType("src.evaluation.fake_test")
@@ -197,6 +198,7 @@ except ImportError:
             sys.modules.pop("src.evaluation", None)
             # Now the real import will try to import from our broken stub
             import src.evaluation as eval_module
+
             importlib.reload(eval_module)
             # Because our stub is missing LeaveOnePTMOutScorer, the fallback
             # should be triggered — either None (direct try/except) or a
@@ -215,4 +217,5 @@ except ImportError:
             # Restore the real src.evaluation
             sys.modules.pop("src.evaluation", None)
             import src.evaluation as eval_module
+
             importlib.reload(eval_module)

@@ -155,9 +155,7 @@ class CrossScalePredictor:
             actual = int(dataset_dims[name])
             expected = configured_dims.get(name)
             if expected is not None and actual != expected:
-                raise CrossScaleArtifactError(
-                    f"推理 {name} embedding_dim={actual} 与模型 {expected} 不一致"
-                )
+                raise CrossScaleArtifactError(f"推理 {name} embedding_dim={actual} 与模型 {expected} 不一致")
 
     def predict_dataset(
         self,

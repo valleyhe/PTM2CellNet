@@ -82,9 +82,7 @@ def test_train_artifacts_split_training_state_from_inference_artifact(tmp_path):
     assert (models / "checkpoint_best.pt").exists()
     assert (models / "checkpoint_best_last.pt").exists()
 
-    ckpt = torch.load(
-        models / "checkpoint_best.pt", map_location="cpu", weights_only=False
-    )
+    ckpt = torch.load(models / "checkpoint_best.pt", map_location="cpu", weights_only=False)
     assert "model_state_dict" in ckpt
     assert "optimizer_state_dict" in ckpt, "optimizer 状态必须写入 checkpoint"
     assert "scheduler_state_dict" in ckpt, "scheduler 状态必须写入 checkpoint"
@@ -105,9 +103,7 @@ def test_train_resume_continues_from_saved_epoch(tmp_path):
     first = _run_train(tmp_path, output, extra=["--epochs", "1"])
     assert first.returncode == 0, first.stderr
 
-    ckpt = torch.load(
-        output / "models" / "checkpoint_best.pt", map_location="cpu", weights_only=False
-    )
+    ckpt = torch.load(output / "models" / "checkpoint_best.pt", map_location="cpu", weights_only=False)
     first_epoch = ckpt["epoch"]
 
     second = _run_train(
@@ -122,9 +118,7 @@ def test_train_resume_continues_from_saved_epoch(tmp_path):
 
     # TD-M01: resume 后 best_value 恢复，val_loss 未改善时 checkpoint_best.pt
     # 不被覆盖；以 checkpoint_best_last.pt（每 epoch 保存）验证 epoch 推进。
-    final_ckpt = torch.load(
-        output / "models" / "checkpoint_best_last.pt", map_location="cpu", weights_only=False
-    )
+    final_ckpt = torch.load(output / "models" / "checkpoint_best_last.pt", map_location="cpu", weights_only=False)
     # resume 后训练的 epoch 从 first_epoch 继续，总 epoch 数 = 3（0,1,2）
     assert final_ckpt["epoch"] >= first_epoch + 1
 
@@ -186,9 +180,7 @@ def test_train_checkpoint_contains_callback_states_and_resume_restores(tmp_path)
     first = _run_train(tmp_path, output, extra=["--epochs", "1"])
     assert first.returncode == 0, first.stderr
 
-    ckpt = torch.load(
-        output / "models" / "checkpoint_best.pt", map_location="cpu", weights_only=False
-    )
+    ckpt = torch.load(output / "models" / "checkpoint_best.pt", map_location="cpu", weights_only=False)
     assert "callback_states" in ckpt, "checkpoint 必须包含 callback_states"
     assert "ModelCheckpoint" in ckpt["callback_states"]
     assert "EarlyStopping" in ckpt["callback_states"]

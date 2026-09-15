@@ -2,6 +2,7 @@
 ESM-2 Token Position Mapping验证测试
 验证PTM位置在tokenization过程中的正确偏移
 """
+
 import os
 import json
 import pytest
@@ -15,6 +16,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 def esm2_encoder():
     """提供ESM2Encoder实例。"""
     from src.models.pretrained_encoders import ESM2Encoder
+
     return ESM2Encoder(model_size="8M", freeze=True)
 
 
@@ -31,11 +33,15 @@ class TestESMTokenPositionMapping:
         from src.data.datasets import ESMTokenizedDataset
 
         sequence = "ACD"
-        df = pd.DataFrame([{
-            "sequence": sequence,
-            "ptm_sites": json.dumps([{"position": 3, "type": "phosphorylation"}]),  # D的PTM
-            "cell_state": "Test",
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": sequence,
+                    "ptm_sites": json.dumps([{"position": 3, "type": "phosphorylation"}]),  # D的PTM
+                    "cell_state": "Test",
+                }
+            ]
+        )
 
         dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
         sample = dataset[0]
@@ -54,11 +60,15 @@ class TestESMTokenPositionMapping:
         """验证第一个氨基酸(位置1)的PTM映射到tokenized位置1"""
         from src.data.datasets import ESMTokenizedDataset
 
-        df = pd.DataFrame([{
-            "sequence": "ACDEF",
-            "ptm_sites": json.dumps([{"position": 1, "type": "phosphorylation"}]),  # A的PTM
-            "cell_state": "Test",
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": "ACDEF",
+                    "ptm_sites": json.dumps([{"position": 1, "type": "phosphorylation"}]),  # A的PTM
+                    "cell_state": "Test",
+                }
+            ]
+        )
 
         dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
         sample = dataset[0]
@@ -73,11 +83,15 @@ class TestESMTokenPositionMapping:
         from src.data.datasets import ESMTokenizedDataset
 
         sequence = "ACDEF"
-        df = pd.DataFrame([{
-            "sequence": sequence,
-            "ptm_sites": json.dumps([{"position": len(sequence), "type": "phosphorylation"}]),  # F的PTM
-            "cell_state": "Test",
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": sequence,
+                    "ptm_sites": json.dumps([{"position": len(sequence), "type": "phosphorylation"}]),  # F的PTM
+                    "cell_state": "Test",
+                }
+            ]
+        )
 
         dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
         sample = dataset[0]
@@ -95,16 +109,22 @@ class TestESMTokenPositionMapping:
         from src.data.datasets import ESMTokenizedDataset
 
         sequence = "ACDEFGHIKLMNPQRSTVWY"
-        df = pd.DataFrame([{
-            "sequence": sequence,
-            "ptm_sites": json.dumps([
-                {"position": 1, "type": "phosphorylation"},   # A
-                {"position": 5, "type": "acetylation"},       # E
-                {"position": 10, "type": "methylation"},      # K
-                {"position": 20, "type": "ubiquitination"},   # Y
-            ]),
-            "cell_state": "Test",
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": sequence,
+                    "ptm_sites": json.dumps(
+                        [
+                            {"position": 1, "type": "phosphorylation"},  # A
+                            {"position": 5, "type": "acetylation"},  # E
+                            {"position": 10, "type": "methylation"},  # K
+                            {"position": 20, "type": "ubiquitination"},  # Y
+                        ]
+                    ),
+                    "cell_state": "Test",
+                }
+            ]
+        )
 
         dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
         sample = dataset[0]
@@ -112,8 +132,8 @@ class TestESMTokenPositionMapping:
         # Tokenized: [<cls>, A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y, <eos>]
         # 位置:      [0,    1, 2, 3, 4, 5, 6, 7, 8, 9, 10...]
         # A(1) -> 1, E(5) -> 5, K(10) -> 10, Y(20) -> 20
-        assert sample["ptm_mask"][1].item() == 1.0   # A
-        assert sample["ptm_mask"][5].item() == 1.0   # E
+        assert sample["ptm_mask"][1].item() == 1.0  # A
+        assert sample["ptm_mask"][5].item() == 1.0  # E
         assert sample["ptm_mask"][10].item() == 1.0  # K
         assert sample["ptm_mask"][20].item() == 1.0  # Y
         assert sample["ptm_mask"].sum().item() == 4.0
@@ -130,11 +150,15 @@ class TestESMTokenPositionMapping:
         sequence = "ACDEFGHIKLMN"
         ptm_position = 5  # E的PTM
 
-        df = pd.DataFrame([{
-            "sequence": sequence,
-            "ptm_sites": json.dumps([{"position": ptm_position, "type": "phosphorylation"}]),
-            "cell_state": "Test",
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": sequence,
+                    "ptm_sites": json.dumps([{"position": ptm_position, "type": "phosphorylation"}]),
+                    "cell_state": "Test",
+                }
+            ]
+        )
 
         dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
         sample = dataset[0]
@@ -172,11 +196,15 @@ class TestESMTokenPositionMapping:
 
         for seq in sequences:
             for pos in range(1, len(seq) + 1):
-                df = pd.DataFrame([{
-                    "sequence": seq,
-                    "ptm_sites": json.dumps([{"position": pos, "type": "phosphorylation"}]),
-                    "cell_state": "Test",
-                }])
+                df = pd.DataFrame(
+                    [
+                        {
+                            "sequence": seq,
+                            "ptm_sites": json.dumps([{"position": pos, "type": "phosphorylation"}]),
+                            "cell_state": "Test",
+                        }
+                    ]
+                )
 
                 dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
                 sample = dataset[0]
@@ -194,23 +222,28 @@ class TestESMTokenPositionMapping:
         from src.data.datasets import ESMTokenizedDataset
 
         # 在边界位置测试
-        df = pd.DataFrame([{
-            "sequence": "ACDEF",
-            "ptm_sites": json.dumps([
-                {"position": 1, "type": "phosphorylation"},  # 第一个氨基酸
-                {"position": 5, "type": "acetylation"},      # 最后一个氨基酸
-            ]),
-            "cell_state": "Test",
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "sequence": "ACDEF",
+                    "ptm_sites": json.dumps(
+                        [
+                            {"position": 1, "type": "phosphorylation"},  # 第一个氨基酸
+                            {"position": 5, "type": "acetylation"},  # 最后一个氨基酸
+                        ]
+                    ),
+                    "cell_state": "Test",
+                }
+            ]
+        )
 
         dataset = ESMTokenizedDataset(df=df, tokenizer=esm2_encoder.tokenizer)
         sample = dataset[0]
 
         # <cls>和<eos>不应该有PTM
-        assert sample["ptm_mask"][0].item() == 0.0   # <cls>
-        assert sample["ptm_mask"][6].item() == 0.0   # <eos>
+        assert sample["ptm_mask"][0].item() == 0.0  # <cls>
+        assert sample["ptm_mask"][6].item() == 0.0  # <eos>
 
         # PTM应该在正确的氨基酸位置
-        assert sample["ptm_mask"][1].item() == 1.0   # A (第一个氨基酸)
-        assert sample["ptm_mask"][5].item() == 1.0   # F (最后一个氨基酸)
-
+        assert sample["ptm_mask"][1].item() == 1.0  # A (第一个氨基酸)
+        assert sample["ptm_mask"][5].item() == 1.0  # F (最后一个氨基酸)

@@ -40,6 +40,7 @@ def _setup_health_endpoint(app: FastAPI) -> None:
             "signaling_network_available": SIGNALING_NETWORK_AVAILABLE,
         }
 
+
 logger = setup_logger(__name__)
 
 
@@ -91,9 +92,7 @@ def _setup_monitoring(app: FastAPI) -> None:
             for quantile in ("avg_ms", "p50_ms", "p95_ms", "p99_ms"):
                 if quantile in latency:
                     label = quantile.replace("_ms", "")
-                    lines.append(
-                        f'ptm2cellnet_latency_ms{{quantile="{label}"}} {latency[quantile]}'
-                    )
+                    lines.append(f'ptm2cellnet_latency_ms{{quantile="{label}"}} {latency[quantile]}')
             # Histogram buckets as cumulative counters (Prometheus convention).
             lines.append("# HELP ptm2cellnet_latency_bucket_ms Latency histogram buckets (cumulative).")
             lines.append("# TYPE ptm2cellnet_latency_bucket_ms counter")
@@ -107,21 +106,15 @@ def _setup_monitoring(app: FastAPI) -> None:
                 if torch.cuda.is_available():
                     lines.append("# HELP ptm2cellnet_gpu_utilization_pct GPU utilization percent.")
                     lines.append("# TYPE ptm2cellnet_gpu_utilization_pct gauge")
-                    lines.append(
-                        f"ptm2cellnet_gpu_utilization_pct {round(float(torch.cuda.utilization()), 2)}"
-                    )
+                    lines.append(f"ptm2cellnet_gpu_utilization_pct {round(float(torch.cuda.utilization()), 2)}")
                     lines.append("# HELP ptm2cellnet_gpu_memory_allocated_mb GPU memory allocated (MB).")
                     lines.append("# TYPE ptm2cellnet_gpu_memory_allocated_mb gauge")
                     allocated = torch.cuda.memory_allocated()
-                    lines.append(
-                        f"ptm2cellnet_gpu_memory_allocated_mb {round(allocated / (1024 * 1024), 2)}"
-                    )
+                    lines.append(f"ptm2cellnet_gpu_memory_allocated_mb {round(allocated / (1024 * 1024), 2)}")
                     lines.append("# HELP ptm2cellnet_gpu_memory_reserved_mb GPU memory reserved (MB).")
                     lines.append("# TYPE ptm2cellnet_gpu_memory_reserved_mb gauge")
                     reserved = torch.cuda.memory_reserved()
-                    lines.append(
-                        f"ptm2cellnet_gpu_memory_reserved_mb {round(reserved / (1024 * 1024), 2)}"
-                    )
+                    lines.append(f"ptm2cellnet_gpu_memory_reserved_mb {round(reserved / (1024 * 1024), 2)}")
             except (RuntimeError, OSError, ModuleNotFoundError) as exc:  # GPU metrics are best-effort.
                 logger.debug("GPU metrics unavailable: %s", exc)
             return "\n".join(lines) + "\n"
@@ -145,17 +138,11 @@ def _setup_monitoring(app: FastAPI) -> None:
             gpu_metrics: _GpuMetrics = {}
             try:
                 if torch.cuda.is_available():
-                    gpu_metrics["gpu_utilization_pct"] = round(
-                        float(torch.cuda.utilization()), 2
-                    )
+                    gpu_metrics["gpu_utilization_pct"] = round(float(torch.cuda.utilization()), 2)
                     allocated = torch.cuda.memory_allocated()
                     reserved = torch.cuda.memory_reserved()
-                    gpu_metrics["gpu_memory_allocated_mb"] = round(
-                        allocated / (1024 * 1024), 2
-                    )
-                    gpu_metrics["gpu_memory_reserved_mb"] = round(
-                        reserved / (1024 * 1024), 2
-                    )
+                    gpu_metrics["gpu_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
+                    gpu_metrics["gpu_memory_reserved_mb"] = round(reserved / (1024 * 1024), 2)
             except (RuntimeError, OSError, ModuleNotFoundError) as exc:  # GPU metrics are best-effort.
                 logger.debug("GPU metrics unavailable: %s", exc)
 

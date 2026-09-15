@@ -24,6 +24,7 @@ def _seed_random():
     import random
     import torch
     import numpy as np
+
     torch.manual_seed(42)
     np.random.seed(42)
     random.seed(42)

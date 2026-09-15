@@ -40,9 +40,28 @@ class TestAminoAcidAlphabet:
 
     def test_canonical_residues_present(self):
         """关键残基均存在 (覆盖极性/非极性/芳香/带电)"""
-        for residue in ("A", "G", "V", "L", "I", "F", "W", "Y",
-                        "S", "T", "C", "M", "N", "Q", "K", "R",
-                        "D", "E", "H", "P"):
+        for residue in (
+            "A",
+            "G",
+            "V",
+            "L",
+            "I",
+            "F",
+            "W",
+            "Y",
+            "S",
+            "T",
+            "C",
+            "M",
+            "N",
+            "Q",
+            "K",
+            "R",
+            "D",
+            "E",
+            "H",
+            "P",
+        ):
             assert residue in aac.AMINO_ACIDS
 
 
@@ -148,8 +167,28 @@ class TestImmutability:
         # 替换后模块看到的是新对象, 原始 tuple 未被改写
         assert aac.AMINO_ACIDS == ("X",)
         # 原始对象自身内容不变
-        assert original == ("A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
-                            "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y")
+        assert original == (
+            "A",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "K",
+            "L",
+            "M",
+            "N",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "V",
+            "W",
+            "Y",
+        )
 
     def test_dict_value_reassignment_is_isolated(self):
         """AA_TO_IDX 是 dict (可变), 重新赋值不影响模块外已绑定的副本快照

@@ -31,8 +31,11 @@ from src.training.trainers import Trainer
 from src.training.callbacks import ModelCheckpoint, EarlyStopping
 from src.training.losses import FocalLoss
 from src.evaluation.metrics import (
-    calculate_accuracy, calculate_precision, calculate_recall,
-    calculate_f1_score, calculate_auc_roc,
+    calculate_accuracy,
+    calculate_precision,
+    calculate_recall,
+    calculate_f1_score,
+    calculate_auc_roc,
 )
 
 logger = setup_logger(__name__)
@@ -51,17 +54,17 @@ def load_binary_data(data_path: str, config: Config, label_map: Optional[dict] =
     df["label"] = df["cell_state"].map(label_map)
     df = df.dropna(subset=["label"])
     df["label"] = df["label"].astype(int)
-    
+
     logger.info("标签分布:")
     for label, count in df["cell_state"].value_counts().items():
-        logger.info("  %s: %d (%.1f%%)", label, count, count/len(df)*100)
-    
+        logger.info("  %s: %d (%.1f%%)", label, count, count / len(df) * 100)
+
     # 预处理
     preprocessor = DataPreprocessor(config.to_dict())
     train_df, val_df, test_df = preprocessor.preprocess_pipeline(
         df, sequence_col="sequence", ptm_col="ptm_sites", label_col="cell_state"
     )
-    
+
     logger.info("数据划分: train=%d, val=%d, test=%d", len(train_df), len(val_df), len(test_df))
     return train_df, val_df, test_df
 
@@ -69,18 +72,17 @@ def load_binary_data(data_path: str, config: Config, label_map: Optional[dict] =
 def create_dataloaders(train_df, val_df, test_df, config: Config, batch_size: int = 64):
     """创建数据加载器"""
     feature_extractor = FeatureExtractor(config.to_dict())
-    
+
     train_dataset = PTMDataset(train_df, feature_extractor, config.to_dict())
     val_dataset = PTMDataset(val_df, feature_extractor, config.to_dict())
     test_dataset = PTMDataset(test_df, feature_extractor, config.to_dict())
-    
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    
-    logger.info("DataLoader: train=%d, val=%d, test=%d batches",
-                len(train_loader), len(val_loader), len(test_loader))
-    
+
+    logger.info("DataLoader: train=%d, val=%d, test=%d batches", len(train_loader), len(val_loader), len(test_loader))
+
     return train_loader, val_loader, test_loader
 
 
@@ -97,25 +99,23 @@ def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
     # 加载数据
     data_path = config.get("data.data_path", "data/processed/ptm_integrated_human_labeled.csv")
     train_df, val_df, test_df = load_binary_data(data_path, config, label_map=label_map)
-    
+
     # 创建DataLoader
     batch_size = config.get("training.batch_size", 64)
-    train_loader, val_loader, test_loader = create_dataloaders(
-        train_df, val_df, test_df, config, batch_size
-    )
-    
+    train_loader, val_loader, test_loader = create_dataloaders(train_df, val_df, test_df, config, batch_size)
+
     # 创建模型
     num_classes = config.get("model.num_classes", 2)
     model = PTM2CellNet.from_config(config.to_dict())
-    
+
     device = config.get("training.device", "cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     logger.info("模型参数量: %d", sum(p.numel() for p in model.parameters()))
     logger.info("设备: %s", device)
-    
+
     # 创建训练器
     trainer = Trainer(model, config.to_dict(), device=device)
-    
+
     # 损失函数
     loss_type = config.get("training.loss_type", "cross_entropy")
     if loss_type == "focal":
@@ -126,25 +126,25 @@ def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
     else:
         loss_fn = torch.nn.CrossEntropyLoss()
         logger.info("使用 CrossEntropy Loss")
-    
+
     # 回调
     checkpoint_path = os.path.join(output_dir, "best_model.pt")
     callbacks = [
         ModelCheckpoint(checkpoint_path, monitor="val_loss", save_best_only=True),
         EarlyStopping(patience=config.get("training.early_stopping_patience", 8), monitor="val_loss"),
     ]
-    
+
     # 编译训练器
     trainer.compile(loss_fn=loss_fn, callbacks=callbacks)
-    
+
     # 训练
     max_epochs = config.get("training.max_epochs", 50)
     t0 = time.time()
     trainer.fit(train_loader, val_loader, max_epochs=max_epochs)
     train_time = time.time() - t0
-    
+
     logger.info("训练完成! 耗时: %.1f 分钟", train_time / 60)
-    
+
     # 最终评估
     logger.info("=" * 60)
     logger.info("最终评估")
@@ -181,9 +181,7 @@ def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
             if labels is None:
                 labels = batch.get("labels")
             if labels is None:
-                raise KeyError(
-                    f"测试 batch 缺少标签键 '{label_key}'/'labels'，无法计算测试指标"
-                )
+                raise KeyError(f"测试 batch 缺少标签键 '{label_key}'/'labels'，无法计算测试指标")
             all_labels.append(labels.cpu() if isinstance(labels, torch.Tensor) else torch.as_tensor(labels))
 
     probs_tensor = torch.cat(all_probs, dim=0)
@@ -219,26 +217,34 @@ def train(config_path: str, output_dir: str, label_map: Optional[dict] = None):
         "val_metrics": val_logs,
         "test_metrics": test_metrics,
     }
-    
+
     logs_path = os.path.join(output_dir, "training_logs.json")
     save_json(training_logs, logs_path)
     logger.info("训练日志已保存: %s", logs_path)
-    
+
     return training_logs
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="PTM2CellNet 二分类微调")
-    parser.add_argument("--config", type=str, default="configs/smoke/cnn_cpu.yaml",
-                        help="配置文件路径（首次使用推荐 configs/smoke/ 下的配置）")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/smoke/cnn_cpu.yaml",
+        help="配置文件路径（首次使用推荐 configs/smoke/ 下的配置）",
+    )
     parser.add_argument("--output", type=str, default="outputs/models/binary_finetune")
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--label-map", type=str, default=None,
-                        help='JSON label mapping, e.g. \'{"Quiescent": 0, "Activated": 1}\' '
-                             '(default: {"Quiescent": 0, "Activated": 1})')
+    parser.add_argument(
+        "--label-map",
+        type=str,
+        default=None,
+        help='JSON label mapping, e.g. \'{"Quiescent": 0, "Activated": 1}\' '
+        '(default: {"Quiescent": 0, "Activated": 1})',
+    )
     return parser.parse_args()
 
 

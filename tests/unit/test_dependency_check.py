@@ -28,6 +28,7 @@ from src.utils.dependency_check import (
 # DependencyStatus
 # ---------------------------------------------------------------------------
 
+
 class TestDependencyStatus:
     def test_available_status_has_no_error(self):
         s = DependencyStatus(import_name="foo", available=True, version="1.2.3")
@@ -54,6 +55,7 @@ class TestDependencyStatus:
 # ---------------------------------------------------------------------------
 # check_dependency / check_extras / is_module_available
 # ---------------------------------------------------------------------------
+
 
 class TestCheckDependency:
     def test_real_available_module(self):
@@ -83,6 +85,7 @@ class TestCheckDependency:
 # ---------------------------------------------------------------------------
 # require_extras / MissingDependencyError
 # ---------------------------------------------------------------------------
+
 
 class TestRequireExtras:
     def test_raises_when_missing(self):
@@ -116,11 +119,13 @@ class TestRequireExtras:
 # assert_scvi_available
 # ---------------------------------------------------------------------------
 
+
 class TestAssertScviAvailable:
     def test_returns_status_when_scvi_present(self, monkeypatch):
         # Force scvi to look available regardless of the real environment.
         monkeypatch.setattr(
-            dc, "check_extras",
+            dc,
+            "check_extras",
             lambda names: [DependencyStatus(import_name="scvi", available=True, version="9.9.9")],
         )
         status = assert_scvi_available()
@@ -128,14 +133,17 @@ class TestAssertScviAvailable:
 
     def test_raises_when_scvi_missing(self, monkeypatch):
         monkeypatch.setattr(
-            dc, "check_extras",
-            lambda names: [DependencyStatus(
-                import_name="scvi",
-                available=False,
-                import_error=ModuleNotFoundError("No module named 'scvi'"),
-                extra="analysis",
-                install_name="scvi-tools",
-            )],
+            dc,
+            "check_extras",
+            lambda names: [
+                DependencyStatus(
+                    import_name="scvi",
+                    available=False,
+                    import_error=ModuleNotFoundError("No module named 'scvi'"),
+                    extra="analysis",
+                    install_name="scvi-tools",
+                )
+            ],
         )
         with pytest.raises(MissingDependencyError, match="scvi"):
             assert_scvi_available()
@@ -144,6 +152,7 @@ class TestAssertScviAvailable:
 # ---------------------------------------------------------------------------
 # format_dependency_table
 # ---------------------------------------------------------------------------
+
 
 class TestFormatDependencyTable:
     def test_table_marks_missing_with_hint(self, caplog):
@@ -169,6 +178,7 @@ class TestFormatDependencyTable:
 # GenKI / Mamba preflight (P1-2)
 # ---------------------------------------------------------------------------
 
+
 class TestOptionalBackendPreflight:
     """The genki_source / Mamba backends must fail fast with install hints."""
 
@@ -191,7 +201,7 @@ class TestOptionalBackendPreflight:
             require_extras([fake_missing], feature="GenKI source backend")
         msg = str(exc_info.value)
         assert "GenKI source backend" in msg
-        assert "pip install -e \".[genki]\"" in msg
+        assert 'pip install -e ".[genki]"' in msg
 
     def test_mamba_preflight_hint_references_mamba_extra(self):
         """The OPTIONAL_DEPENDENCIES table maps mamba_ssm to the mamba extra."""

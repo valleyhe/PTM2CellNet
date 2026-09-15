@@ -116,9 +116,7 @@ def parse_enzsub(path: Path, max_rows: Optional[int] = None) -> List[Dict[str, s
             cells = [cell.strip() for cell in line.split("\t")]
             if line_no == 1:
                 if cells[:5] != ["enzyme", "substrate", "residue_type", "residue_offset", "modification"]:
-                    raise ImportError_(
-                        f"输入文件列头不符合 enzsub 契约: {path}:1 -> {cells[:5]!r}"
-                    )
+                    raise ImportError_(f"输入文件列头不符合 enzsub 契约: {path}:1 -> {cells[:5]!r}")
                 continue
             if len(cells) < 5:
                 raise ImportError_(f"enzsub 行列数不足（期望 >=5，实际 {len(cells)}）: {path}:{line_no}")
@@ -247,9 +245,7 @@ def resolve_online(uniprot_ids: Sequence[str], *, session: Optional[Any] = None)
             time.sleep(ONLINE_POLL_INTERVAL_SECONDS)
 
     if pending:
-        raise ImportError_(
-            f"UniProt ID-mapping jobs {sorted(pending)} 未在预算时间内完成"
-        )
+        raise ImportError_(f"UniProt ID-mapping jobs {sorted(pending)} 未在预算时间内完成")
 
     # Phase 3: fetch the full result set for every job from /results
     # (the inline /status payload is truncated, so it is never trusted).

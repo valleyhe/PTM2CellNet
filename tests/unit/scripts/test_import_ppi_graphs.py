@@ -21,10 +21,7 @@ import scripts.import_ppi_graphs as imp
 def bioplex_raw(tmp_path):
     path = tmp_path / "bioplex_293T_v2_edges.tsv"
     path.write_text(
-        "source\ttarget\n"
-        "ADA\tPOTEF\n"
-        "POTEF\tHSPBP1\n"
-        "TP53\tMDM2\n",
+        "source\ttarget\nADA\tPOTEF\nPOTEF\tHSPBP1\nTP53\tMDM2\n",
         encoding="utf-8",
     )
     return path
@@ -66,9 +63,7 @@ def string_raw(tmp_path):
         handle.write("\n".join(lines) + "\n")
     mapping = tmp_path / "protein_info.tsv"
     mapping.write_text(
-        "# string_protein_id\tgene_symbol\n"
-        "9606.ENSP00000000233\tLCK\n"
-        "9606.ENSP00000356607\tPTPRJ\n",
+        "# string_protein_id\tgene_symbol\n9606.ENSP00000000233\tLCK\n9606.ENSP00000356607\tPTPRJ\n",
         encoding="utf-8",
     )
     return path, mapping
@@ -82,8 +77,7 @@ def string_raw(tmp_path):
 class TestBioplex:
     def test_parse_and_cli_roundtrip(self, bioplex_raw, tmp_path, capsys):
         exit_code = imp.main(
-            ["--source", "bioplex", "--raw-root", str(bioplex_raw.parent),
-             "--output-root", str(tmp_path / "out")]
+            ["--source", "bioplex", "--raw-root", str(bioplex_raw.parent), "--output-root", str(tmp_path / "out")]
         )
         assert exit_code == 0
         summary = json.loads(capsys.readouterr().out)
@@ -95,9 +89,7 @@ class TestBioplex:
         assert rows[1][:2] == ["ADA", "POTEF"]
         assert rows[1][2] == "ppi:bioplex_apms"
 
-        manifest = json.loads(
-            (tmp_path / "out" / "bioplex" / "import_manifest.json").read_text(encoding="utf-8")
-        )
+        manifest = json.loads((tmp_path / "out" / "bioplex" / "import_manifest.json").read_text(encoding="utf-8"))
         assert manifest["schema_version"] == "ptm2cellnet.ppi-graph.import.v1"
         assert manifest["edge_type_vocab"] == ["ppi:bioplex_apms"]
         assert manifest["summary"]["edge_type_counts"] == {"ppi:bioplex_apms": 3}
@@ -148,17 +140,22 @@ class TestRegnetwork:
     def test_cli_roundtrip(self, regnetwork_raw, tmp_path, capsys):
         source, node, core = regnetwork_raw
         exit_code = imp.main(
-            ["--source", "regnetwork", "--raw-root", str(source.parent),
-             "--output-root", str(tmp_path / "out"),
-             "--regnetwork-core", str(core)]
+            [
+                "--source",
+                "regnetwork",
+                "--raw-root",
+                str(source.parent),
+                "--output-root",
+                str(tmp_path / "out"),
+                "--regnetwork-core",
+                str(core),
+            ]
         )
         assert exit_code == 0
         summary = json.loads(capsys.readouterr().out)
         assert summary["n_edges"] == 4
         assert summary["n_typed_by_core"] == 2
-        manifest = json.loads(
-            (tmp_path / "out" / "regnetwork" / "import_manifest.json").read_text(encoding="utf-8")
-        )
+        manifest = json.loads((tmp_path / "out" / "regnetwork" / "import_manifest.json").read_text(encoding="utf-8"))
         assert manifest["relation_vocab"] == {
             "TF": "tf_regulation:unspecified",
             "miRNA": "mirna_regulation:unspecified",
@@ -196,8 +193,7 @@ class TestRegnetwork:
         """join 键（regulator_id/target_entrez）缺失的行跳过并计数，不报错。"""
         core = tmp_path / "human.core.txt"
         core.write_text(
-            "USF1\t7391\tS100A6\t6277\tTF\tGene\n"
-            "hsa-miR-182-5p\tMIMAT0000259\tBRCC-3\t\tmiRNA\tcircRNA\n",
+            "USF1\t7391\tS100A6\t6277\tTF\tGene\nhsa-miR-182-5p\tMIMAT0000259\tBRCC-3\t\tmiRNA\tcircRNA\n",
             encoding="utf-8",
         )
         relations, n_keyless = imp.load_regnetwork_core(core)
@@ -245,18 +241,23 @@ class TestString:
     def test_cli_roundtrip(self, string_raw, tmp_path, capsys):
         path, mapping_path = string_raw
         exit_code = imp.main(
-            ["--source", "string", "--raw-root", str(path.parent),
-             "--output-root", str(tmp_path / "out"),
-             "--ensp-mapping", str(mapping_path)]
+            [
+                "--source",
+                "string",
+                "--raw-root",
+                str(path.parent),
+                "--output-root",
+                str(tmp_path / "out"),
+                "--ensp-mapping",
+                str(mapping_path),
+            ]
         )
         assert exit_code == 0
         summary = json.loads(capsys.readouterr().out)
         assert summary["n_edges"] == 2
         assert summary["n_below_threshold"] == 1
         assert 0.0 < summary["mapping_rate"] < 1.0
-        manifest = json.loads(
-            (tmp_path / "out" / "string" / "import_manifest.json").read_text(encoding="utf-8")
-        )
+        manifest = json.loads((tmp_path / "out" / "string" / "import_manifest.json").read_text(encoding="utf-8"))
         assert manifest["parameters"]["min_score"] == 700
 
     def test_all_filtered_fails_fast(self, string_raw):

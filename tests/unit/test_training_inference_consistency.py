@@ -21,6 +21,7 @@ class TestTrainingInferenceConsistency:
     @pytest.fixture
     def sample_batch(self):
         """生成测试批次"""
+
         def _create_batch(batch_size: int = 4, seq_len: int = 50, vocab_size: int = 20):
             return {
                 "sequence": torch.randint(0, vocab_size, (batch_size, seq_len)),
@@ -28,6 +29,7 @@ class TestTrainingInferenceConsistency:
                 "ptm_types": torch.randint(0, 10, (batch_size, seq_len)),
                 "labels": torch.randint(0, 4, (batch_size,)),
             }
+
         return _create_batch
 
     @pytest.fixture
@@ -87,11 +89,9 @@ class TestTrainingInferenceConsistency:
             output_after = loaded_model(inputs)
 
         # 输出应该相同
-        assert torch.allclose(
-            output_before["logits"],
-            output_after["logits"],
-            atol=1e-6
-        ), "加载后模型输出应与保存前一致"
+        assert torch.allclose(output_before["logits"], output_after["logits"], atol=1e-6), (
+            "加载后模型输出应与保存前一致"
+        )
 
     def test_save_load_full_model(self, model_config, sample_batch, tmp_path):
         """测试完整模型保存和加载"""
@@ -118,11 +118,9 @@ class TestTrainingInferenceConsistency:
             with torch.no_grad():
                 output_after = loaded_model(inputs)
 
-            assert torch.allclose(
-                output_before["logits"],
-                output_after["logits"],
-                atol=1e-6
-            ), "完整模型加载后输出应一致"
+            assert torch.allclose(output_before["logits"], output_after["logits"], atol=1e-6), (
+                "完整模型加载后输出应一致"
+            )
         except (AttributeError, pickle.PicklingError):
             # 某些层（如MeanPooling的local class）无法pickle
             # 这是预期行为，跳过测试
@@ -146,8 +144,7 @@ class TestTrainingInferenceConsistency:
         # 对比参数
         for name, param_after in loaded_model.named_parameters():
             param_before = params_before[name]
-            assert torch.allclose(param_before, param_after, atol=1e-6), \
-                f"参数 {name} 加载后不一致"
+            assert torch.allclose(param_before, param_after, atol=1e-6), f"参数 {name} 加载后不一致"
 
     def test_training_changes_parameters(self, model_config, sample_batch):
         """测试训练会改变模型参数"""
@@ -196,8 +193,7 @@ class TestTrainingInferenceConsistency:
 
         # 所有输出应该相同
         for i in range(1, len(outputs)):
-            assert torch.allclose(outputs[0], outputs[i], atol=1e-6), \
-                f"第{i}次推理结果不一致"
+            assert torch.allclose(outputs[0], outputs[i], atol=1e-6), f"第{i}次推理结果不一致"
 
     def test_batch_consistency(self, model_config):
         """测试批次处理一致性 - 单样本vs批次结果应该一致"""
@@ -226,11 +222,9 @@ class TestTrainingInferenceConsistency:
 
         # 批次中每个样本应该与单样本结果相同
         for i in range(3):
-            assert torch.allclose(
-                single_output["logits"],
-                batch_output["logits"][i:i+1],
-                atol=1e-5
-            ), f"批次中第{i}个样本与单样本结果不一致"
+            assert torch.allclose(single_output["logits"], batch_output["logits"][i : i + 1], atol=1e-5), (
+                f"批次中第{i}个样本与单样本结果不一致"
+            )
 
     def test_different_batch_sizes_consistency(self, model_config, sample_batch):
         """测试不同批次大小的输出一致性"""
@@ -247,7 +241,7 @@ class TestTrainingInferenceConsistency:
         # 分割批次处理
         split_outputs = []
         for i in range(0, 8, 4):
-            split_input = {k: v[i:i+4] for k, v in inputs.items()}
+            split_input = {k: v[i : i + 4] for k, v in inputs.items()}
             with torch.no_grad():
                 split_output = model(split_input)
             split_outputs.append(split_output["logits"])
@@ -255,8 +249,7 @@ class TestTrainingInferenceConsistency:
         combined_output = torch.cat(split_outputs, dim=0)
 
         # 组合结果应该与完整批次一致
-        assert torch.allclose(full_output["logits"], combined_output, atol=1e-5), \
-            "分割批次结果应与完整批次一致"
+        assert torch.allclose(full_output["logits"], combined_output, atol=1e-5), "分割批次结果应与完整批次一致"
 
     def test_export_onnx_format(self, model_config, sample_batch, tmp_path):
         """测试导出为ONNX格式"""
@@ -384,9 +377,7 @@ class TestTrainingInferenceConsistency:
         losses = []
         for _ in range(3):
             output = model(batch)
-            loss = torch.nn.functional.cross_entropy(
-                output["logits"], batch["labels"]
-            )
+            loss = torch.nn.functional.cross_entropy(output["logits"], batch["labels"])
             losses.append(loss.item())
 
         # 损失值应该非常接近（eval模式下应该完全一致）
@@ -400,12 +391,14 @@ class TestAPIConsistency:
     @pytest.fixture
     def sample_batch(self):
         """生成测试批次"""
+
         def _create_batch(batch_size: int = 4, seq_len: int = 50):
             return {
                 "sequence": torch.randint(0, 20, (batch_size, seq_len)),
                 "ptm_mask": torch.randint(0, 2, (batch_size, seq_len)).float(),
                 "ptm_types": torch.randint(0, 10, (batch_size, seq_len)),
             }
+
         return _create_batch
 
     @pytest.fixture
@@ -437,9 +430,7 @@ class TestAPIConsistency:
                 output = model(batch)
                 return {
                     "predictions": output["predictions"].tolist(),
-                    "probabilities": output["probabilities"].tolist()
-                    if "probabilities" in output
-                    else None,
+                    "probabilities": output["probabilities"].tolist() if "probabilities" in output else None,
                 }
 
         api_output = api_predict(model, batch)
@@ -590,8 +581,5 @@ class TestCheckpointConsistency:
         assert checkpoint["best_loss"] == best_loss
 
         # 验证模型状态一致
-        for (_n1, p1), (_n2, p2) in zip(
-            model.named_parameters(),
-            loaded_model.named_parameters(), strict=False
-        ):
+        for (_n1, p1), (_n2, p2) in zip(model.named_parameters(), loaded_model.named_parameters(), strict=False):
             assert torch.allclose(p1, p2, atol=1e-6)

@@ -72,10 +72,7 @@ def test_report_slice_matches_training_window(seq_len: int, pos0: int) -> None:
     sequence = sequence[:seq_len]
 
     train = _training_window(sequence, pos0)
-    report = sequence[
-        max(0, (pos0 + 1) - (DEFAULT_PTM_HALF_WINDOW + 1)):
-        (pos0 + 1) + DEFAULT_PTM_HALF_WINDOW
-    ]
+    report = sequence[max(0, (pos0 + 1) - (DEFAULT_PTM_HALF_WINDOW + 1)) : (pos0 + 1) + DEFAULT_PTM_HALF_WINDOW]
     if len(sequence) - DEFAULT_PTM_HALF_WINDOW > pos0 >= DEFAULT_PTM_HALF_WINDOW:
         assert report == train
         # 位点必须位于窗口正中

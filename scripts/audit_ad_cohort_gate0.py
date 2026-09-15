@@ -2,14 +2,23 @@
 """Audit data/AD GEO cohorts against the Gate-0 donor cohort contract.
 
 Contract source: docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md
-§4.6 rule 1, implemented by ``prepare_perturbgen_anndata``: raw integer
-counts, canonical version-less ENSG, explicit donor-like annotation, and
->= 3 donors shared across the normal/disease states within one cohort.
+§4.6 rule 1 as extended by lessons.md L-2026-0914-01, implemented by
+``prepare_perturbgen_anndata``: raw integer counts, canonical version-less
+ENSG, explicit donor-like annotation, and a donor/state design declared as
+one of two pairings — ``within_donor`` needs >= 3 donors shared across the
+normal/disease states, ``between_donor`` (case-control) needs >= 3 donors in
+each of two donor-disjoint state groups.
 
 Unlike scripts/audit_perturbgen_cohort.py (scPerturb h5ad files), this audit
 targets the raw GEO downloads under data/AD and never modifies them. Policy
 unchanged: ``sample``/``batch``/``replicate``/title labels are recorded as
 raw labels and are NOT reinterpreted as donors or conditions.
+
+Current status (2026-09-14): GSE174367 has been standardized into
+``data/AD/standardized/GSE174367_ad_cohort.h5ad`` under the between_donor
+pairing and passed the real Gate-0 preflight for 7/7 cell types
+(outputs/perturbgen/spike/20260914_gse174367_gate0/evidence.json); the other
+three cohorts remain blocked on missing donor/condition labels.
 
 Usage:
     python scripts/audit_ad_cohort_gate0.py
@@ -36,21 +45,32 @@ GATE0_REQUIREMENTS = (
     "raw integer counts",
     "canonical version-less ENSG",
     "explicit donor annotation",
-    ">= 3 donors shared across normal/disease states",
+    "within_donor pairing: >= 3 donors shared across the normal/disease states, or "
+    "between_donor pairing (case-control): >= 3 donors in each of two donor-disjoint state groups",
 )
 
+GSE174367_STANDARDIZED_EVIDENCE = "outputs/perturbgen/spike/20260914_gse174367_gate0/evidence.json"
 
-def _first_matrix_group(path: Path) -> dict:
-    with h5py.File(path, "r") as handle:
-        return {name: list(group.keys()) for name, group in handle.items()}
+GATE0_STATUS_STANDARDIZED = "standardized_between_donor_preflight_pass"
+GATE0_STATUS_BLOCKED = "blocked_missing_donor_or_condition_labels"
+GATE0_VERDICT = "GATE0_UNLOCKED_FOR_BETWEEN_DONOR_GSE174367_ONLY"
+
+
+def _only_h5_file(directory: Path) -> Path:
+    matches = sorted(directory.glob("*.h5"))
+    if not matches:
+        raise ValueError(f"no .h5 matrix found under {directory}")
+    return matches[0]
 
 
 def audit_gse147528() -> dict:
     manifest = pd.read_csv(DATA_DIR / "metadata" / "GSE147528_sample_manifest.tsv", sep="\t")
     donors = sorted(manifest["donor_original"].astype(str).unique())
     braak_per_donor = manifest.groupby("donor_original")["braak_stage_original"].nunique()
-    h5 = next((DATA_DIR / "extracted" / "GSE147528").glob("*.h5"))
+    h5 = _only_h5_file(DATA_DIR / "extracted" / "GSE147528")
     with h5py.File(h5, "r") as handle:
+        if len(handle) == 0:
+            raise ValueError(f"{h5} contains no matrix group")
         group = next(iter(handle.values()))
         genes = [value.decode() for value in group["genes"][:5]]
         shape = tuple(int(v) for v in group["shape"][:])
@@ -78,6 +98,7 @@ def audit_gse147528() -> dict:
                 .items()
             },
         },
+        "gate0_status": GATE0_STATUS_BLOCKED,
         "gate0_gaps": [
             "no diagnosis/condition field (Braak-only control definition would be a derivation, not source metadata)",
             "raw droplets need cell calling before any cohort h5ad can be built",
@@ -111,6 +132,7 @@ def audit_gse157827() -> dict:
             "source": "explicit 'diagnosis' in GEO characteristics_ch1",
             "distribution": {str(k): int(v) for k, v in diagnosis.items()},
         },
+        "gate0_status": GATE0_STATUS_BLOCKED,
         "gate0_gaps": [
             "no explicit donor annotation (one library per subject is plausible but unverified)",
         ],
@@ -145,9 +167,19 @@ def audit_gse174367() -> dict:
             "per_sample": {str(k): str(v) for k, v in per_sample["first"].items()},
             "cell_level_covariates": ["Age", "Sex", "PMI", "Tangle.Stage", "Plaque.Stage", "RIN", "Batch"],
         },
+        "gate0_status": GATE0_STATUS_STANDARDIZED,
+        "standardized_between_donor": {
+            "cohort_h5ad": "data/AD/standardized/GSE174367_ad_cohort.h5ad",
+            "donor_derivation": (
+                "SampleID accepted as donor via unique subject covariate vectors "
+                "(scripts/standardize_gse174367_ad_cohort.py)"
+            ),
+            "preflight": "7/7 cell types PASS",
+            "evidence": GSE174367_STANDARDIZED_EVIDENCE,
+        },
         "gate0_gaps": [
-            "versioned ENSG ids (ENSG00000223972.5) rejected by Gate-0 canonical-Ensembl rule",
-            "no explicit donor annotation (SampleID is a raw label, not reinterpreted)",
+            "raw download itself stays versioned ENSG + donor-less; only the standardized "
+            "h5ad satisfies Gate-0 (use data/AD/standardized/, not raw_downloads/)"
         ],
     }
 
@@ -179,6 +211,7 @@ def audit_gse188545() -> dict:
             "title_hc": int(sum(title.startswith("HC") for title in titles)),
             "title_to_condition_done": False,
         },
+        "gate0_status": GATE0_STATUS_BLOCKED,
         "gate0_gaps": [
             "no explicit donor annotation",
             "condition only recoverable from titles, which is a derivation, not source metadata",
@@ -187,27 +220,47 @@ def audit_gse188545() -> dict:
 
 
 def structural_shared_donor_analysis() -> dict:
-    """Gate-0 as implemented requires donors observed in BOTH states.
+    """How the two Gate-0 pairings relate to post-mortem case-control cohorts.
 
-    All four cohorts are post-mortem case-control designs: one donor belongs
-    to exactly one condition. Within-donor normal/disease pairing is not a
-    data-quality gap that standardization can fix; it is a semantics
-    mismatch between the perturbation-paired contract and case-control
-    disease cohorts.
+    Under ``within_donor`` the cohort must contain donors observed in BOTH
+    states; a post-mortem donor is either AD or control, never both, so the
+    AD cohorts can never satisfy that pairing regardless of label quality.
+    The ``between_donor`` pairing (lessons L-2026-0914-01) is the accepted
+    contract for these cohorts: donor-disjoint state groups with >= 3 donors
+    each.  GSE174367 has passed under that contract; the others are blocked
+    on labels, not on semantics.
     """
     return {
-        "contract_semantics": "prepare_perturbgen_anndata _validate_obs_contract: shared_donors = normal_donors ∩ disease_donors >= min_donors (3)",
-        "ad_cohort_design": "between-donor case-control; a post-mortem donor is either AD or control, never both",
-        "max_achievable_shared_donors": 0,
-        "conclusion": (
-            "Even with donor/condition labels fully resolved, no data/AD cohort can pass the "
-            "current Gate-0 preflight. Closing this gap is a research-contract decision "
-            "(either use a perturbation cohort as the PerturbGen tokenise input and keep the AD "
-            "cohort on the donor-level disease-normal axis, or explicitly redesign Gate-0 for "
-            "between-donor case-control cohorts), not additional data wrangling."
+        "contract_semantics": (
+            "prepare_perturbgen_anndata _validate_obs_contract: within_donor requires "
+            "shared_donors = normal_donors ∩ disease_donors >= min_donors (3); between_donor "
+            "requires disjoint state groups with >= min_donors each and rejects any donor "
+            "observed in both states as a labeling error"
         ),
-        "decision_owner": "user/research contract; must be recorded in lessons.md before any code change",
+        "ad_cohort_design": "between-donor case-control; a post-mortem donor is either AD or control, never both",
+        "max_achievable_shared_donors_within_donor_pairing": 0,
+        "between_donor_status": {
+            "GSE174367": "standardized + preflight PASS 7/7 cell types",
+            "GSE147528": "blocked: no diagnosis labels, raw droplets need cell calling",
+            "GSE157827": "blocked: no donor annotation",
+            "GSE188545": "blocked: no donor annotation, condition only derivable from titles",
+        },
+        "conclusion": (
+            "Within-donor pairing is structurally impossible for post-mortem case-control "
+            "cohorts; between_donor is the frozen contract for them (L-2026-0914-01). "
+            "Remaining blockers are cohort-specific label/annotation gaps, not contract semantics."
+        ),
+        "decision_record": "lessons.md L-2026-0914-01 (user-approved option B)",
     }
+
+
+def compute_verdict(audits: dict) -> str:
+    """One GATE0 verdict line derived from the per-cohort statuses."""
+
+    standardized = [name for name, audit in audits.items() if audit.get("gate0_status") == GATE0_STATUS_STANDARDIZED]
+    if standardized:
+        return GATE0_VERDICT
+    return "GATE0_BLOCKED_SEMANTICS_AND_LABELS"
 
 
 def main() -> int:
@@ -232,7 +285,7 @@ def main() -> int:
         "real_patient_primary_tissue": True,
         "audits": audits,
         "structural_shared_donor_analysis": structural_shared_donor_analysis(),
-        "verdict": "GATE0_BLOCKED_SEMANTICS_AND_LABELS",
+        "verdict": compute_verdict(audits),
     }
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -243,6 +296,7 @@ def main() -> int:
             {
                 "evidence_file": str(out_path),
                 "verdict": evidence["verdict"],
+                "gate0_status": {g: a["gate0_status"] for g, a in audits.items()},
                 "donor_explicit": {g: a["donor"]["source"] for g, a in audits.items()},
                 "condition_explicit": {g: a["condition"]["source"] for g, a in audits.items()},
             },

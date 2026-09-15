@@ -30,13 +30,7 @@ def mock_uniprot_response():
     )
     # The real function parses the JSON response body, not raw text
     mock_resp.json.return_value = {
-        "results": [
-            {
-                "sequence": {
-                    "value": "MLRVLSLVLALLALLLWGRQPSAQEAAEAGAEAGAEVRVVNDEGNYTVRVTGEVREQLFHVDSYQ"
-                }
-            }
-        ]
+        "results": [{"sequence": {"value": "MLRVLSLVLALLALLLWGRQPSAQEAAEAGAEAGAEVRVVNDEGNYTVRVTGEVREQLFHVDSYQ"}}]
     }
     return mock_resp
 
@@ -82,9 +76,7 @@ class TestUniProtFetch:
         mock_resp = MagicMock()
         mock_resp.ok = False
         mock_resp.status_code = 404
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(
-            "404 Client Error: Not Found"
-        )
+        mock_resp.raise_for_status.side_effect = requests.HTTPError("404 Client Error: Not Found")
         mock_get.return_value = mock_resp
         seq = fetch_uniprot_sequence("NONEXISTENT")
         assert seq is None

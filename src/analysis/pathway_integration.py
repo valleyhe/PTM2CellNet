@@ -1,4 +1,5 @@
 """KEGG/Reactome pathway database integration (FEAT-02)."""
+
 import hmac
 import hashlib
 import logging
@@ -15,6 +16,7 @@ from ..utils.io import safe_pickle_load
 
 try:
     import sspa
+
     SSPA_AVAILABLE = True
 except ImportError:
     SSPA_AVAILABLE = False
@@ -40,6 +42,7 @@ _DEFAULT_CACHE_DIR = str(Path(__file__).resolve().parents[2] / ".cache" / "pathw
 # TypedDict definitions for structured dicts used in this module
 # ---------------------------------------------------------------------------
 
+
 class PathwayMatchResult(TypedDict):
     """Shape of the dict returned by ``_find_best_pathway_match``."""
 
@@ -62,45 +65,45 @@ class PathwayDatabaseIntegration:
 
     # 8 built-in pathways for validation
     BUILTIN_PATHWAYS = {
-        'MAPK/ERK': {
-            'description': 'RAS-RAF-MEK-ERK pathway',
-            'key_kinases': ['BRAF', 'RAF1', 'MAP2K1', 'MAP2K2', 'MAPK1', 'MAPK3'],
-            'key_substrates': ['EGFR', 'KRAS', 'NRAS', 'HRAS'],
+        "MAPK/ERK": {
+            "description": "RAS-RAF-MEK-ERK pathway",
+            "key_kinases": ["BRAF", "RAF1", "MAP2K1", "MAP2K2", "MAPK1", "MAPK3"],
+            "key_substrates": ["EGFR", "KRAS", "NRAS", "HRAS"],
         },
-        'PI3K/AKT': {
-            'description': 'PI3K-AKT-mTOR pathway',
-            'key_kinases': ['PIK3CA', 'PIK3CB', 'AKT1', 'AKT2', 'MTOR'],
-            'key_substrates': ['PTEN', 'PDK1', 'TSC2', 'GSK3B'],
+        "PI3K/AKT": {
+            "description": "PI3K-AKT-mTOR pathway",
+            "key_kinases": ["PIK3CA", "PIK3CB", "AKT1", "AKT2", "MTOR"],
+            "key_substrates": ["PTEN", "PDK1", "TSC2", "GSK3B"],
         },
-        'JAK/STAT': {
-            'description': 'JAK-STAT signaling pathway',
-            'key_kinases': ['JAK1', 'JAK2', 'JAK3', 'TYK2'],
-            'key_substrates': ['STAT1', 'STAT2', 'STAT3', 'STAT5A', 'STAT5B'],
+        "JAK/STAT": {
+            "description": "JAK-STAT signaling pathway",
+            "key_kinases": ["JAK1", "JAK2", "JAK3", "TYK2"],
+            "key_substrates": ["STAT1", "STAT2", "STAT3", "STAT5A", "STAT5B"],
         },
-        'NF-kB': {
-            'description': 'NF-kB inflammatory signaling',
-            'key_kinases': ['IKBKB', 'IKBKA', 'CHUK'],
-            'key_substrates': ['NFKBIA', 'NFKBIB', 'RELA', 'NFKB1'],
+        "NF-kB": {
+            "description": "NF-kB inflammatory signaling",
+            "key_kinases": ["IKBKB", "IKBKA", "CHUK"],
+            "key_substrates": ["NFKBIA", "NFKBIB", "RELA", "NFKB1"],
         },
-        'Wnt/beta-catenin': {
-            'description': 'Wnt signaling pathway',
-            'key_kinases': ['GSK3B', 'CSNK1A1', 'CSNK2A1'],
-            'key_substrates': ['CTNNB1', 'APC', 'AXIN1'],
+        "Wnt/beta-catenin": {
+            "description": "Wnt signaling pathway",
+            "key_kinases": ["GSK3B", "CSNK1A1", "CSNK2A1"],
+            "key_substrates": ["CTNNB1", "APC", "AXIN1"],
         },
-        'Cell Cycle': {
-            'description': 'Cell cycle regulation',
-            'key_kinases': ['CDK1', 'CDK2', 'CDK4', 'CDK6'],
-            'key_substrates': ['RB1', 'TP53', 'CCND1', 'CCNE1'],
+        "Cell Cycle": {
+            "description": "Cell cycle regulation",
+            "key_kinases": ["CDK1", "CDK2", "CDK4", "CDK6"],
+            "key_substrates": ["RB1", "TP53", "CCND1", "CCNE1"],
         },
-        'Apoptosis': {
-            'description': 'Apoptosis pathway',
-            'key_kinases': ['CASP3', 'CASP8', 'CASP9'],
-            'key_substrates': ['BCL2', 'BAX', 'PARP1', 'XIAP'],
+        "Apoptosis": {
+            "description": "Apoptosis pathway",
+            "key_kinases": ["CASP3", "CASP8", "CASP9"],
+            "key_substrates": ["BCL2", "BAX", "PARP1", "XIAP"],
         },
-        'DNA Damage': {
-            'description': 'DNA damage response',
-            'key_kinases': ['ATM', 'ATR', 'CHEK1', 'CHEK2', 'TP53'],
-            'key_substrates': ['H2AX', 'BRCA1', 'BRCA2', 'RAD51'],
+        "DNA Damage": {
+            "description": "DNA damage response",
+            "key_kinases": ["ATM", "ATR", "CHEK1", "CHEK2", "TP53"],
+            "key_substrates": ["H2AX", "BRCA1", "BRCA2", "RAD51"],
         },
     }
 
@@ -140,7 +143,7 @@ class PathwayDatabaseIntegration:
                     file_data = f.read()
                 with open(sig_path) as f:
                     expected_mac = f.read().strip()
-                actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                actual_mac = hmac.new(b"ptm2cellnet-cache-key", file_data, hashlib.sha256).hexdigest()
                 if not hmac.compare_digest(actual_mac, expected_mac):
                     raise ValueError(f"Cache integrity check failed for {cache_file}")
                 # Re-open for safe_pickle_load
@@ -172,7 +175,7 @@ class PathwayDatabaseIntegration:
         try:
             with open(cache_file, "rb") as f:
                 file_data = f.read()
-            mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+            mac = hmac.new(b"ptm2cellnet-cache-key", file_data, hashlib.sha256).hexdigest()
             sig_path = Path(f"{cache_file}.hmac")
             with open(sig_path, "w") as sig_f:
                 sig_f.write(mac)
@@ -205,14 +208,14 @@ class PathwayDatabaseIntegration:
         # Try cache first
         if use_cache and self._cache_is_fresh(cache_file):
             logger.info("Loading KEGG pathways from cache: %s", cache_file)
-            with open(cache_file, 'rb') as raw_f:
+            with open(cache_file, "rb") as raw_f:
                 # Verify HMAC signature
                 sig_path = Path(f"{cache_file}.hmac")
                 if sig_path.exists():
                     file_data = raw_f.read()
                     with open(sig_path) as sf:
                         expected_mac = sf.read().strip()
-                    actual_mac = hmac.new(b'ptm2cellnet-cache-key', file_data, hashlib.sha256).hexdigest()
+                    actual_mac = hmac.new(b"ptm2cellnet-cache-key", file_data, hashlib.sha256).hexdigest()
                     if not hmac.compare_digest(actual_mac, expected_mac):
                         raise ValueError(f"Cache integrity check failed for {cache_file}")
                     # ``BytesIO`` gives ``safe_pickle_load`` a file-like that
@@ -251,10 +254,12 @@ class PathwayDatabaseIntegration:
             if local_cache.exists():
                 logger.warning(
                     "sspa/network unavailable (%s). Loading KEGG pathways from local cache: %s",
-                    e, local_cache,
+                    e,
+                    local_cache,
                 )
                 try:
                     import pandas as pd
+
                     df = pd.read_csv(local_cache, sep="\t")
                     self.kegg_pathways = {
                         str(row.get("pathway_id", f"hsa_{i}")): str(row.get("genes", "")).split(";")
@@ -295,7 +300,7 @@ class PathwayDatabaseIntegration:
         # Try cache first
         if use_cache and self._cache_is_fresh(cache_file):
             logger.info("Loading Reactome pathways from cache: %s", cache_file)
-            with open(cache_file, 'rb') as f:
+            with open(cache_file, "rb") as f:
                 payload = safe_pickle_load(f)
             if isinstance(payload, dict):
                 self.reactome_pathways = payload["pathways"]
@@ -327,10 +332,12 @@ class PathwayDatabaseIntegration:
             if local_cache.exists():
                 logger.warning(
                     "sspa/network unavailable (%s). Loading Reactome pathways from local cache: %s",
-                    e, local_cache,
+                    e,
+                    local_cache,
                 )
                 try:
                     import pandas as pd
+
                     df = pd.read_csv(local_cache, sep="\t")
                     self.reactome_pathways = {
                         str(row.get("pathway_id", f"R-HSA-{i}")): str(row.get("genes", "")).split(";")
@@ -365,27 +372,24 @@ class PathwayDatabaseIntegration:
 
         for pathway_name, pathway_info in self.BUILTIN_PATHWAYS.items():
             builtin_genes = set(
-                list(pathway_info.get('key_kinases', [])) +
-                list(pathway_info.get('key_substrates', []))
+                list(pathway_info.get("key_kinases", [])) + list(pathway_info.get("key_substrates", []))
             )
 
             # Find best matching Reactome pathway
-            best_match = self._find_best_pathway_match(
-                pathway_name, builtin_genes
-            )
+            best_match = self._find_best_pathway_match(pathway_name, builtin_genes)
 
             coverage = 0.0
             if builtin_genes:
-                coverage = len(builtin_genes & best_match['genes']) / len(builtin_genes)
+                coverage = len(builtin_genes & best_match["genes"]) / len(builtin_genes)
 
             validation_report[pathway_name] = {
-                'builtin_gene_count': len(builtin_genes),
-                'reactome_match_id': best_match['pathway_id'],
-                'reactome_match_name': best_match['pathway_name'],
-                'reactome_gene_count': best_match['gene_count'],
-                'overlap': len(builtin_genes & best_match['genes']),
-                'coverage': coverage,
-                'validated': coverage >= min_coverage,
+                "builtin_gene_count": len(builtin_genes),
+                "reactome_match_id": best_match["pathway_id"],
+                "reactome_match_name": best_match["pathway_name"],
+                "reactome_gene_count": best_match["gene_count"],
+                "overlap": len(builtin_genes & best_match["genes"]),
+                "coverage": coverage,
+                "validated": coverage >= min_coverage,
             }
 
         return validation_report
@@ -397,10 +401,10 @@ class PathwayDatabaseIntegration:
     ) -> PathwayMatchResult:
         """Find pathway with maximum gene overlap."""
         best_match: PathwayMatchResult = {
-            'pathway_id': None,
-            'pathway_name': None,
-            'genes': set(),
-            'gene_count': 0,
+            "pathway_id": None,
+            "pathway_name": None,
+            "genes": set(),
+            "gene_count": 0,
         }
         best_overlap = 0
 
@@ -411,10 +415,10 @@ class PathwayDatabaseIntegration:
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_match = {
-                    'pathway_id': reactome_id,
-                    'pathway_name': reactome_id,  # Could extract name from metadata
-                    'genes': reactome_gene_set,
-                    'gene_count': len(reactome_gene_set),
+                    "pathway_id": reactome_id,
+                    "pathway_name": reactome_id,  # Could extract name from metadata
+                    "genes": reactome_gene_set,
+                    "gene_count": len(reactome_gene_set),
                 }
 
         return best_match
@@ -460,9 +464,7 @@ class PathwayDatabaseIntegration:
                 col_b = header.index("gene_b")
                 col_score = header.index("score")
             except ValueError as e:
-                raise ValueError(
-                    f"Interaction table {path} missing required column: {e}"
-                ) from e
+                raise ValueError(f"Interaction table {path} missing required column: {e}") from e
             col_type = header.index("type") if "type" in header else None
             for line in f:
                 parts = line.rstrip("\n").split("\t")
@@ -505,10 +507,7 @@ class PathwayDatabaseIntegration:
         # Get genes in pathway
         if pathway_id in self.BUILTIN_PATHWAYS:
             pathway_info = self.BUILTIN_PATHWAYS[pathway_id]
-            genes = list(
-                list(pathway_info.get('key_kinases', [])) +
-                list(pathway_info.get('key_substrates', []))
-            )
+            genes = list(list(pathway_info.get("key_kinases", [])) + list(pathway_info.get("key_substrates", [])))
             # Deduplicate while preserving order
             seen: Set[str] = set()
             deduped_genes: List[str] = []
@@ -517,8 +516,8 @@ class PathwayDatabaseIntegration:
                     seen.add(g)
                     deduped_genes.append(g)
             genes = deduped_genes
-            kinases = set(pathway_info.get('key_kinases', []))
-            substrates = set(pathway_info.get('key_substrates', []))
+            kinases = set(pathway_info.get("key_kinases", []))
+            substrates = set(pathway_info.get("key_substrates", []))
         elif pathway_id in self.reactome_pathways:
             genes = self.reactome_pathways[pathway_id]
             kinases, substrates = set(), set()
@@ -560,7 +559,7 @@ class PathwayDatabaseIntegration:
             )
             G.add_nodes_from(genes)
             for i, gene1 in enumerate(genes):
-                for gene2 in genes[i + 1:]:
+                for gene2 in genes[i + 1 :]:
                     G.add_edge(gene1, gene2, weight=1.0, type="approximation")
 
         # Add directed kinase -> substrate edges for built-in pathways to
@@ -595,10 +594,7 @@ class PathwayDatabaseIntegration:
         """
         builtin = {}
         for name, info in self.BUILTIN_PATHWAYS.items():
-            genes = list(set(
-                list(info.get('key_kinases', [])) +
-                list(info.get('key_substrates', []))
-            ))
+            genes = list(set(list(info.get("key_kinases", [])) + list(info.get("key_substrates", []))))
             builtin[name] = genes
         self.kegg_pathways.update(builtin)
         self.reactome_pathways.update(builtin)

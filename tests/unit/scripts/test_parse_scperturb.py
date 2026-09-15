@@ -41,10 +41,12 @@ def _make_anndata(
     n = len(perturb)
     if perturb_type is None:
         perturb_type = [""] * n
-    obs = pd.DataFrame({
-        "perturbation": perturb,
-        "perturbation_type": perturb_type,
-    })
+    obs = pd.DataFrame(
+        {
+            "perturbation": perturb,
+            "perturbation_type": perturb_type,
+        }
+    )
     # Distinct mean for control (low) vs each target (offset +3) so Δ is non-trivial.
     X = rng.integers(0, 5, size=(n, n_genes)).astype(np.float32)
     for i, p in enumerate(perturb):
@@ -134,8 +136,12 @@ def test_parse_study_delta_is_target_minus_control(tiny_study_path: Path, tmp_pa
 
     expr = sp.load_npz(summary["expression_npz"]).toarray()
     obs = ad.read_h5ad(tiny_study_path).obs
-    ctrl_mask = obs["perturbation"].map(ps._is_control_cell).to_numpy() if False else np.array(
-        [ps._is_control_cell(p, t) for p, t in zip(obs["perturbation"], obs["perturbation_type"], strict=True)]
+    ctrl_mask = (
+        obs["perturbation"].map(ps._is_control_cell).to_numpy()
+        if False
+        else np.array(
+            [ps._is_control_cell(p, t) for p, t in zip(obs["perturbation"], obs["perturbation_type"], strict=True)]
+        )
     )
     control_mean = expr[ctrl_mask].mean(axis=0)
     for row, pid in enumerate(delta["perturbation_ids"]):
@@ -210,6 +216,7 @@ def test_cli_accepts_study_with_and_without_h5ad_suffix(
     raw.mkdir()
     # Copy the fixture into raw/.
     import shutil
+
     shutil.copy(tiny_study_path, raw / "tiny.h5ad")
 
     out = tmp_path / "out"

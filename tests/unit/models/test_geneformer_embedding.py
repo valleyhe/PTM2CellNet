@@ -144,53 +144,39 @@ class TestRealVocabularySemantics:
             import json
 
             vocabulary = {"<pad>": 0, "ENSG00000139618": 1, "ENSG00000168610": 3, "ENSG00000141510": 5}
-            (asset_dir / "vocab.json").write_text(
-                json.dumps(vocabulary), encoding="utf-8"
-            )
+            (asset_dir / "vocab.json").write_text(json.dumps(vocabulary), encoding="utf-8")
         return asset_dir, embeddings
 
     def test_known_gene_hits_real_row(self, tmp_path):
         asset_dir, embeddings = self._write_asset(tmp_path)
-        loader = GeneformerEmbeddingLoader(
-            model_path=str(asset_dir), device=torch.device("cpu")
-        )
+        loader = GeneformerEmbeddingLoader(model_path=str(asset_dir), device=torch.device("cpu"))
         assert loader._vocabulary_is_semantic is True
         got = loader.get_gene_embedding(["ENSG00000168610"])
         torch.testing.assert_close(got, embeddings[3:4, :])
 
     def test_unknown_gene_raises_key_error(self, tmp_path):
         asset_dir, _ = self._write_asset(tmp_path)
-        loader = GeneformerEmbeddingLoader(
-            model_path=str(asset_dir), device=torch.device("cpu")
-        )
+        loader = GeneformerEmbeddingLoader(model_path=str(asset_dir), device=torch.device("cpu"))
         with pytest.raises(KeyError, match="not in the Geneformer vocabulary"):
             loader.get_gene_embedding(["TP53"])
 
     def test_create_gene_id_mapping_rejects_unknown_gene(self, tmp_path):
         asset_dir, _ = self._write_asset(tmp_path)
-        loader = GeneformerEmbeddingLoader(
-            model_path=str(asset_dir), device=torch.device("cpu")
-        )
+        loader = GeneformerEmbeddingLoader(model_path=str(asset_dir), device=torch.device("cpu"))
         with pytest.raises(KeyError, match="not in the Geneformer vocabulary"):
             loader.create_gene_id_mapping(["TP53"])
 
     def test_missing_vocab_fails_fast_without_random_fallback(self, tmp_path):
         asset_dir, _ = self._write_asset(tmp_path, include_vocab=False)
         with pytest.raises(RuntimeError, match="vocab.json"):
-            GeneformerEmbeddingLoader(
-                model_path=str(asset_dir), device=torch.device("cpu")
-            )
+            GeneformerEmbeddingLoader(model_path=str(asset_dir), device=torch.device("cpu"))
 
     def test_vocab_out_of_range_fails_fast(self, tmp_path):
         asset_dir, embeddings = self._write_asset(tmp_path)
-        (asset_dir / "vocab.json").write_text(
-            '{"ENSG00000139618": 99}', encoding="utf-8"
-        )
+        (asset_dir / "vocab.json").write_text('{"ENSG00000139618": 99}', encoding="utf-8")
         assert embeddings.shape[0] == 6
         with pytest.raises(RuntimeError, match="outside the embedding matrix range"):
-            GeneformerEmbeddingLoader(
-                model_path=str(asset_dir), device=torch.device("cpu")
-            )
+            GeneformerEmbeddingLoader(model_path=str(asset_dir), device=torch.device("cpu"))
 
 
 class TestDeviceAndSingletonHelpers:

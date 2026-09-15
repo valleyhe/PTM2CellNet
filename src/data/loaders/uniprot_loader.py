@@ -80,7 +80,8 @@ class UniProtLoaderMixin:
 
             logger.info(
                 "UniProt batch URL 会超过 %d 字节，拆分为 %d 个子请求",
-                max_url_bytes, len(chunks),
+                max_url_bytes,
+                len(chunks),
             )
             aggregated: List[UniProtRecord] = []
             for chunk in chunks:
@@ -101,13 +102,15 @@ class UniProtLoaderMixin:
         except requests.RequestException as exc:
             logger.error(
                 "UniProt 批量请求失败 (query=%s): %s",
-                query[:80], exc,
+                query[:80],
+                exc,
             )
             raise
         if response.status_code != 200:
             logger.error(
                 "UniProt 批量请求返回非 200: status=%s, body=%s",
-                response.status_code, response.text[:200],
+                response.status_code,
+                response.text[:200],
             )
             response.raise_for_status()
         data = response.json()
@@ -120,6 +123,7 @@ class UniProtLoaderMixin:
             try:
                 from requests.adapters import HTTPAdapter
                 import importlib
+
                 _retry_mod = "urllib3.util.retry"
                 try:
                     _Retry = importlib.import_module(_retry_mod).Retry
@@ -135,7 +139,11 @@ class UniProtLoaderMixin:
                 adapter = HTTPAdapter(max_retries=retry)
                 session.mount("http://", adapter)
                 session.mount("https://", adapter)
-            except (ValueError, TypeError, AttributeError) as exc:  # 重试配置失败不阻塞基础功能；可用 monkeypatch requests.adapters.HTTPAdapter 抛异常测试该分支
+            except (
+                ValueError,
+                TypeError,
+                AttributeError,
+            ) as exc:  # 重试配置失败不阻塞基础功能；可用 monkeypatch requests.adapters.HTTPAdapter 抛异常测试该分支
                 logger.warning("配置 UniProt HTTP 重试失败，使用默认 Session: %s", exc)
             self._uniprot_http_session = session
         return self._uniprot_http_session
@@ -234,11 +242,13 @@ class UniProtLoaderMixin:
                     if isinstance(gene_name, dict):
                         gene_symbol = gene_name.get("value", "")
 
-            rows.append({
-                "sequence": sequence,
-                "gene_symbol": gene_symbol,
-                "accession": accession,
-            })
+            rows.append(
+                {
+                    "sequence": sequence,
+                    "gene_symbol": gene_symbol,
+                    "accession": accession,
+                }
+            )
 
         df = pd.DataFrame(rows, columns=columns)
         logger.info("UniProt加载完成，共 %d 条有效记录", len(df))

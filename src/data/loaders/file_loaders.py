@@ -54,19 +54,18 @@ class FileLoaderMixin:
             try:
                 loaded = pd.read_hdf(file_path)
                 if not isinstance(loaded, pd.DataFrame):
-                    raise TypeError(
-                        "HDF5 table must contain a pandas DataFrame, "
-                        f"got {type(loaded).__name__}"
-                    )
+                    raise TypeError(f"HDF5 table must contain a pandas DataFrame, got {type(loaded).__name__}")
                 df = loaded
             except (ImportError, ValueError, KeyError) as exc:
                 # read_hdf 需要 pytables；若不可用或 key 不匹配，回退到 src.utils.io.load_hdf5
                 logger.warning(
-                    "pd.read_hdf 失败 (%s)，尝试使用 src.utils.io.load_hdf5 回退", exc,
+                    "pd.read_hdf 失败 (%s)，尝试使用 src.utils.io.load_hdf5 回退",
+                    exc,
                 )
                 # FileLoaderMixin lives in ``src.data.loaders``; the shared
                 # HDF5 helper lives in ``src.utils`` (three-dot relative import).
                 from ...utils.io import load_hdf5
+
                 data = load_hdf5(file_path)
                 if isinstance(data, pd.DataFrame):
                     df = data
@@ -178,18 +177,16 @@ class FileLoaderMixin:
             ptm_sites = []
             positions = random.sample(range(1, seq_length + 1), min(num_ptms, seq_length))
             for pos in positions:
-                ptm_sites.append({
-                    "position": pos,
-                    "type": random.choice(ptm_types),
-                    "amino_acid": sequence[pos - 1]
-                })
+                ptm_sites.append({"position": pos, "type": random.choice(ptm_types), "amino_acid": sequence[pos - 1]})
 
-            data.append({
-                "id": f"sample_{i:04d}",
-                "sequence": sequence,
-                "ptm_sites": json.dumps(ptm_sites),
-                "cell_state": random.choice(cell_states)
-            })
+            data.append(
+                {
+                    "id": f"sample_{i:04d}",
+                    "sequence": sequence,
+                    "ptm_sites": json.dumps(ptm_sites),
+                    "cell_state": random.choice(cell_states),
+                }
+            )
 
         df = pd.DataFrame(data)
         logger.info("示例数据生成完成")

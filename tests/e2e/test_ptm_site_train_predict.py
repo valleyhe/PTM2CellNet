@@ -18,14 +18,16 @@ SCRIPTS = PROJECT_ROOT / "scripts"
 def _run(cmd, cwd=PROJECT_ROOT):
     """运行子进程，失败时打印完整输出。"""
     result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, timeout=600,
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
     if result.returncode != 0:
         print("STDOUT:", result.stdout)
         print("STDERR:", result.stderr)
-    assert result.returncode == 0, (
-        f"命令失败 (exit {result.returncode}): {' '.join(cmd)}"
-    )
+    assert result.returncode == 0, f"命令失败 (exit {result.returncode}): {' '.join(cmd)}"
     return result
 
 
@@ -49,25 +51,37 @@ class TestPTMSiteTrainPredictE2E:
                 position, aa, ptm_type = 3, "S", "phosphorylation"
             else:
                 position, aa, ptm_type = 0, "X", ""
-            rows.append(f'P{i:04d},{seq},{position},{aa},{label},{ptm_type}')
+            rows.append(f"P{i:04d},{seq},{position},{aa},{label},{ptm_type}")
 
         data_csv.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        _run([
-            sys.executable, str(SCRIPTS / "train_ptm_site.py"),
-            "--data", str(data_csv),
-            "--encoder", "cnn",
-            "--embed-dim", "16",
-            "--hidden-dim", "32",
-            "--num-layers", "2",
-            "--batch-size", "4",
-            "--max-epochs", "1",
-            "--output-dir", str(output_dir),
-            "--gpus", "0",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "train_ptm_site.py"),
+                "--data",
+                str(data_csv),
+                "--encoder",
+                "cnn",
+                "--embed-dim",
+                "16",
+                "--hidden-dim",
+                "32",
+                "--num-layers",
+                "2",
+                "--batch-size",
+                "4",
+                "--max-epochs",
+                "1",
+                "--output-dir",
+                str(output_dir),
+                "--gpus",
+                "0",
+            ]
+        )
 
         # 验证 checkpoint 已生成
         ckpts = list(output_dir.rglob("*.ckpt"))
@@ -82,26 +96,38 @@ class TestPTMSiteEdgeCases:
         data_csv = tmp_path / "train.csv"
         data_csv.write_text(
             "uniprot_id,sequence_window,position,aa,label,ptm_type\n"
-            'P0001,ACDEFGHIKLMNPQRSTVWY,0,X,0,\n'
-            'P0002,AYDEFGHIKLMNPQRSTVWC,0,X,1,phosphorylation\n',
+            "P0001,ACDEFGHIKLMNPQRSTVWY,0,X,0,\n"
+            "P0002,AYDEFGHIKLMNPQRSTVWC,0,X,1,phosphorylation\n",
             encoding="utf-8",
         )
 
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        _run([
-            sys.executable, str(SCRIPTS / "train_ptm_site.py"),
-            "--data", str(data_csv),
-            "--encoder", "cnn",
-            "--embed-dim", "16",
-            "--hidden-dim", "32",
-            "--num-layers", "1",
-            "--batch-size", "2",
-            "--max-epochs", "1",
-            "--output-dir", str(output_dir),
-            "--gpus", "0",
-        ])
+        _run(
+            [
+                sys.executable,
+                str(SCRIPTS / "train_ptm_site.py"),
+                "--data",
+                str(data_csv),
+                "--encoder",
+                "cnn",
+                "--embed-dim",
+                "16",
+                "--hidden-dim",
+                "32",
+                "--num-layers",
+                "1",
+                "--batch-size",
+                "2",
+                "--max-epochs",
+                "1",
+                "--output-dir",
+                str(output_dir),
+                "--gpus",
+                "0",
+            ]
+        )
 
         ckpts = list(output_dir.rglob("*.ckpt"))
         assert len(ckpts) >= 1

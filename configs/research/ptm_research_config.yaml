@@ -1,0 +1,40 @@
+# 冻结研究设计（阶段 0，方案 §7 / 指南 §1）
+#
+# AD 侧字段（contrast、reference_axis、objective、pairing、donor/FDR 阈值、
+# cell_types、cohort_h5ad）基于 GSE174367 真实队列冻结；方向语义按方案 §3.1
+# 分字段记录，禁止全局同号/取反。
+#
+# PTM 侧两个资产绑定字段（network_release、ptm_cohort）当前为显式 PENDING
+# 标记：signed network（OmniPath signed signaling / TF regulon 导出）与真实
+# PTM 定量队列尚未到位。资产到位时必须把这两个字段更新为真实 release/队列
+# 标识并重新登记 manifest lineage，之后才允许运行阶段 1–3（方案 §7 停止条件：
+# 缺 site 定量、物种不符、比较轴不明或 donor 语义不可解释）。在 PENDING 状态
+# 下运行 PTM 阶段视为契约违规，不得产出正式 PTM score。
+schema_version: ptm2cellnet.ptm-research-config/v1
+research_objective: association
+reference_axis: disease_minus_normal
+contrast: "disease-minus-normal"
+primary_activity_method: KSTAR
+sensitivity_activity_method: PhosR
+network_release: "PENDING_SIGNED_NETWORK_RELEASE"
+cell_types: [EX, INH]
+cohort_h5ad: /home/scu/PTM2CellNet/data/AD/standardized/GSE174367_ad_cohort.h5ad
+cohort_pairing: between_donor
+species: "9606"
+ptm_cohort: PENDING_EXTERNAL_PTM_COHORT
+deg_max_fdr: 0.05
+min_donors_per_state: 3
+replicate_policy: mean
+propagation:
+  max_depth: 3
+  decay: 0.5
+  gene_edge_types: [tf_regulation]
+  max_paths_per_seed: null
+semantic_context:
+  context: "GSE174367 {cell_type} cells"
+  intervention: "KO"
+  comparison_baseline: "donor-level disease vs normal"
+  reference_axis: "disease_minus_normal"
+  research_objective: association
+  evidence_source: "PTM activity network concordance + donor DEG"
+  cohort: "GSE174367"

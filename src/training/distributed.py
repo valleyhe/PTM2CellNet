@@ -17,6 +17,7 @@ _LIGHTNING_IMPORT_ERROR: Optional[Exception] = None
 
 try:  # pragma: no cover - optional dependency
     import lightning as _LIGHTNING_MODULE  # noqa: F811
+
     _LIGHTNING_IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover - optional dependency
     _LIGHTNING_MODULE = None

@@ -307,8 +307,7 @@ class PTM2CellNetBase(nn.Module):
             )
 
             logger.info(
-                f"DAVF branch enabled: feature_dim={self.davf_feature_dim}, "
-                f"combined_input_dim={combined_input_dim}"
+                f"DAVF branch enabled: feature_dim={self.davf_feature_dim}, combined_input_dim={combined_input_dim}"
             )
 
     # ------------------------------------------------------------------
@@ -371,9 +370,7 @@ class PTM2CellNetBase(nn.Module):
                 dropout=dropout,
             ), None
         if encoder_type == "mamba":
-            logger.info(
-                f"使用Mamba编码器，隐藏维度: {embed_dim}, 层数: {num_layers}"
-            )
+            logger.info(f"使用Mamba编码器，隐藏维度: {embed_dim}, 层数: {num_layers}")
             return MambaEncoder(
                 vocab_size=vocab_size,
                 hidden_dim=embed_dim,
@@ -408,9 +405,11 @@ class PTM2CellNetBase(nn.Module):
             esm3_source = getattr(enc, "_model_source", "unknown")
             esm3_cache = getattr(enc, "_cache_dir", None)
             logger.info(
-                "使用ESM-3 %s 预训练编码器 (model_source=%s, cache_dir=%s, "
-                "隐藏维度: %d)",
-                model_size, esm3_source, esm3_cache or "(default)", enc.hidden_dim,
+                "使用ESM-3 %s 预训练编码器 (model_source=%s, cache_dir=%s, 隐藏维度: %d)",
+                model_size,
+                esm3_source,
+                esm3_cache or "(default)",
+                enc.hidden_dim,
             )
             # Store provenance on the encoder instance so training scripts can
             # extract it via ``model.encoder.model_source`` / ``._cache_dir``
@@ -507,9 +506,7 @@ class PTM2CellNetBase(nn.Module):
             device = sequences.device
             attention_mask = None
 
-        ptm_types = batch.get(
-            "ptm_types", torch.zeros(batch_size, seq_len, dtype=torch.long, device=device)
-        )
+        ptm_types = batch.get("ptm_types", torch.zeros(batch_size, seq_len, dtype=torch.long, device=device))
         ptm_mask = batch.get("ptm_mask")
         if ptm_mask is None:
             ptm_mask = (ptm_types > 0).float()
@@ -535,7 +532,12 @@ class PTM2CellNetBase(nn.Module):
             B = pooled.shape[0]
             device = pooled.device
 
-            if "davf_sites" in batch and "davf_gene_names" in batch and self.ptm_mapper is not None and self.davf_module is not None:
+            if (
+                "davf_sites" in batch
+                and "davf_gene_names" in batch
+                and self.ptm_mapper is not None
+                and self.davf_module is not None
+            ):
                 mapper_output = self.ptm_mapper.map_batch(
                     batch["davf_sites"],
                     batch["davf_gene_names"],
@@ -587,9 +589,7 @@ class PTM2CellNetBase(nn.Module):
         try:
             yaml_cfg = yaml.safe_load(config_path.read_text())
         except (FileNotFoundError, OSError, yaml.YAMLError) as exc:
-            raise ValueError(
-                "DAVF config file configs/davf_integration.yaml is missing or invalid"
-            ) from exc
+            raise ValueError("DAVF config file configs/davf_integration.yaml is missing or invalid") from exc
 
         if not isinstance(yaml_cfg, dict) or not isinstance(yaml_cfg.get("davf"), dict):
             raise ValueError("DAVF config file configs/davf_integration.yaml is missing or invalid")

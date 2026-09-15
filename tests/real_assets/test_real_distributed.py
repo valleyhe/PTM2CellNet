@@ -91,9 +91,7 @@ def test_ddp_real_multi_gpu_fit(tmp_path):
         strategy_used = getattr(trainer, "_strategy", None)
         strategy_name = getattr(strategy_used, "__class__", type(strategy_used)).__name__
         devices_used = getattr(trainer, "num_devices", None)
-        assert "DDP" in strategy_name or "ddp" in strategy_name.lower(), (
-            f"expected DDP strategy, got {strategy_name}"
-        )
+        assert "DDP" in strategy_name or "ddp" in strategy_name.lower(), f"expected DDP strategy, got {strategy_name}"
 
         # If the trainer is a Lightning Trainer with .fit, run a short fit.
         # (For non-Lightning fallback the test would have skipped above.)

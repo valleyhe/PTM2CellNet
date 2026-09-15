@@ -5,9 +5,7 @@ from typing import Dict, List, Tuple
 import pandas as pd
 
 
-def derive_label_mapping(
-    df: pd.DataFrame, label_col: str = "cell_state"
-) -> Tuple[List[str], Dict[str, int]]:
+def derive_label_mapping(df: pd.DataFrame, label_col: str = "cell_state") -> Tuple[List[str], Dict[str, int]]:
     """Derive label mapping from a DataFrame with a label column.
 
     Args:
@@ -23,9 +21,7 @@ def derive_label_mapping(
     """
     labels = sorted(df[label_col].dropna().astype(str).unique())
     if len(labels) < 2:
-        raise ValueError(
-            f"需要至少 2 个类别才能训练，当前只有 {len(labels)} 个类别: {labels}"
-        )
+        raise ValueError(f"需要至少 2 个类别才能训练，当前只有 {len(labels)} 个类别: {labels}")
     label_to_idx = {label: i for i, label in enumerate(labels)}
     return labels, label_to_idx
 

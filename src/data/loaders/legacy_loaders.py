@@ -69,8 +69,7 @@ def mass_spec_stream(file_or_stream: Any, **kwargs: Any) -> pd.DataFrame:
         new code. Use standard batch data loading instead.
     """
     warnings.warn(
-        "mass_spec_stream is deprecated (V2-02 cancelled on 2026-07-05). "
-        "Use standard batch data loading instead.",
+        "mass_spec_stream is deprecated (V2-02 cancelled on 2026-07-05). Use standard batch data loading instead.",
         DeprecationWarning,
         stacklevel=2,
     )

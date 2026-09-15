@@ -1,4 +1,5 @@
 """Tests for HGVS variant parser."""
+
 import pytest
 from src.analysis.variant_parser import (
     HGVSVariantParser,

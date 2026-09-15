@@ -556,6 +556,14 @@ def test_formal_cli_rejects_hand_filled_candidate_pvalue(tmp_path: Path) -> None
             "schema_version": INPUT_SCHEMA_VERSION,
             "run_id": "formal-reject",
             "evaluation_mode": "formal",
+            "evidence_class": "empirical_null",
+            "pvalue_source": "empirical_matched_null",
+            "contract": {
+                "schema_version": INPUT_SCHEMA_VERSION,
+                "evaluation_mode": "formal",
+                "evidence_class": "empirical_null",
+                "pvalue_source": "empirical_matched_null",
+            },
             "candidates": [
                 {
                     "candidate": {
@@ -610,6 +618,14 @@ def test_formal_cli_aggregates_empirical_p_for_kd_mask(tmp_path: Path) -> None:
             "schema_version": INPUT_SCHEMA_VERSION,
             "run_id": "formal-kd",
             "evaluation_mode": "formal",
+            "evidence_class": "empirical_null",
+            "pvalue_source": "empirical_matched_null",
+            "contract": {
+                "schema_version": INPUT_SCHEMA_VERSION,
+                "evaluation_mode": "formal",
+                "evidence_class": "empirical_null",
+                "pvalue_source": "empirical_matched_null",
+            },
             "candidates": [
                 {
                     "candidate": {

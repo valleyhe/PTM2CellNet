@@ -357,3 +357,121 @@ def test_donor_bound_pairs_reject_leaking_donor_lists(tmp_path, monkeypatch):
     payload["held_out_donors"] = ["d1", "d3", "d4"]
     with pytest.raises(DAVFScPerturbError, match="leaks donors into both pools"):
         _build_donor_bound_pairs(tmp_path, monkeypatch, payload)
+
+
+def _prepared_state_anndata(path: Path, held_out_states: list[str]) -> None:
+    """Donor-bound prepared AnnData with a two-value ``state`` obs column.
+
+    Train donors d1/d2 contribute both states; held-out donors d3/d4 carry
+    ``held_out_states`` (one cell of each target/none combination per donor
+    keeps the control pools satisfiable).
+    """
+    gene_ids = [f"ENSG{index:011d}" for index in range(4018)]
+    matrix = sp.csr_matrix((10, 4018), dtype=np.float32)
+    obs = pd.DataFrame(
+        {
+            "davf_target_ensembl": [
+                "ENSG00000000000",
+                "ENSG00000000000",
+                "ENSG00000000001",
+                "ENSG00000000001",
+                "",
+                "",
+                "ENSG00000000000",
+                "ENSG00000000001",
+                "",
+                "",
+            ],
+            "davf_batch": ["b0"] * 10,
+            "donor": ["d1", "d1", "d2", "d2", "d1", "d2", "d3", "d4", "d3", "d4"],
+            "state": ["normal", "disease", "normal", "disease", "normal", "disease"] + held_out_states * 2,
+        },
+        index=[f"cell_{index}" for index in range(10)],
+    )
+    prepared = ad.AnnData(X=matrix, obs=obs, var=pd.DataFrame(index=gene_ids))
+    prepared.uns["davf_preparation"] = {"modality": "KO"}
+    prepared.write_h5ad(path)
+
+
+def _build_state_bound_pairs(tmp_path, monkeypatch, held_out_states: list[str], **overrides):
+    prepared_path = tmp_path / "prepared.h5ad"
+    _prepared_state_anndata(prepared_path, held_out_states)
+    monkeypatch.setattr(
+        "src.models.scvi_adapter.ScVIAdapter",
+        _FakeScVIAdapterForDonors,
+    )
+    kwargs = dict(
+        scvi_model_path=tmp_path / "scvi",
+        embedding_asset=_donor_asset(),
+        embedding_asset_path=tmp_path / "asset",
+        output_dir=tmp_path / "pairs",
+        modality="KO",
+        donor_obs_column="donor",
+        donor_split=_DONOR_SPLIT_PAYLOAD,
+        state_obs_column="state",
+        require_state_coverage=True,
+    )
+    kwargs.update(overrides)
+    return build_scperturb_latent_pairs(prepared_path, **kwargs)
+
+
+def test_require_state_coverage_rejects_single_state_held_out_pool(tmp_path, monkeypatch):
+    with pytest.raises(DAVFScPerturbError, match="fewer than two states"):
+        _build_state_bound_pairs(tmp_path, monkeypatch, ["normal", "normal"])
+
+
+def test_require_state_coverage_passes_and_records_distribution(tmp_path, monkeypatch):
+    report = _build_state_bound_pairs(tmp_path, monkeypatch, ["normal", "disease"])
+    assert set(report) == {"train", "val", "test"}
+    manifest = json.loads((tmp_path / "pairs" / "pair_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["state_obs_column"] == "state"
+    assert manifest["held_out_state_coverage"] == {"disease": 2, "normal": 2}
+
+
+def test_require_state_coverage_needs_explicit_state_column(tmp_path, monkeypatch):
+    with pytest.raises(DAVFScPerturbError, match="needs an explicit state_obs_column"):
+        _build_state_bound_pairs(
+            tmp_path,
+            monkeypatch,
+            ["normal", "disease"],
+            state_obs_column=None,
+        )
+    with pytest.raises(DAVFScPerturbError, match="no state column"):
+        _build_state_bound_pairs(
+            tmp_path,
+            monkeypatch,
+            ["normal", "disease"],
+            state_obs_column="missing_state",
+        )
+
+
+def test_state_coverage_check_is_opt_in(tmp_path, monkeypatch):
+    report = _build_state_bound_pairs(
+        tmp_path,
+        monkeypatch,
+        ["normal", "normal"],
+        require_state_coverage=False,
+    )
+    assert set(report) == {"train", "val", "test"}
+    manifest = json.loads((tmp_path / "pairs" / "pair_manifest.json").read_text(encoding="utf-8"))
+    assert "held_out_state_coverage" not in manifest
+
+
+def test_require_state_coverage_without_donor_split_is_rejected(tmp_path, monkeypatch):
+    prepared_path = tmp_path / "prepared.h5ad"
+    _prepared_state_anndata(prepared_path, ["normal", "disease"])
+    monkeypatch.setattr(
+        "src.models.scvi_adapter.ScVIAdapter",
+        _FakeScVIAdapterForDonors,
+    )
+    with pytest.raises(DAVFScPerturbError, match="only applies to donor-bound splits"):
+        build_scperturb_latent_pairs(
+            prepared_path,
+            scvi_model_path=tmp_path / "scvi",
+            embedding_asset=_donor_asset(),
+            embedding_asset_path=tmp_path / "asset",
+            output_dir=tmp_path / "pairs",
+            modality="KO",
+            state_obs_column="state",
+            require_state_coverage=True,
+        )

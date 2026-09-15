@@ -75,6 +75,7 @@ class PerturbationResult:
 @dataclass(frozen=True)
 class BatchPerturbationRequest:
     """Batch of gene perturbation requests for parallel execution."""
+
     requests: Sequence[GenePerturbationRequest]
     parallel: bool = True
     fail_fast: bool = False
@@ -96,6 +97,7 @@ class BatchPerturbationRequest:
 @dataclass(frozen=True)
 class BatchPerturbationResult:
     """Results from a batch perturbation execution."""
+
     results: Sequence[PerturbationResult]
     failed_requests: Sequence[str] = field(default_factory=tuple)
     total_time_ms: float = 0.0

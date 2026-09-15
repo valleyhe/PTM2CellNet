@@ -36,11 +36,8 @@ def mock_gene_mapper():
 def ptm_mapper(mock_geneformer_loader, mock_gene_mapper):
     """Create PTMDirectionMapper with mocked dependencies."""
     from src.models.ptm_direction_mapper import PTMDirectionMapper
-    return PTMDirectionMapper(
-        geneformer_loader=mock_geneformer_loader,
-        gene_mapper=mock_gene_mapper,
-        max_targets=32
-    )
+
+    return PTMDirectionMapper(geneformer_loader=mock_geneformer_loader, gene_mapper=mock_gene_mapper, max_targets=32)
 
 
 class TestPTMDirectionMapper:
@@ -147,8 +144,7 @@ class TestPTMDirectionMapper:
             gene_names = ["TP53"]
 
             result = ptm_mapper.map_ptms(ptm_sites, gene_names)
-            assert result.directions[0, 0].item() == expected_dir, \
-                f"Failed for {ptm_type}: expected {expected_dir}"
+            assert result.directions[0, 0].item() == expected_dir, f"Failed for {ptm_type}: expected {expected_dir}"
 
     def test_default_unknown_ptm(self, ptm_mapper):
         """Unknown PTM type defaults to direction=2 (OE)."""
@@ -177,10 +173,7 @@ class TestPTMDirectionMapper:
     def test_max_targets_truncation(self, ptm_mapper):
         """More than 32 PTMs truncated to max_targets."""
         # Create 40 PTM sites (position starts at 1 per PTMSite validation)
-        ptm_sites = [
-            PTMSite(position=i + 1, type="phosphorylation")
-            for i in range(40)
-        ]
+        ptm_sites = [PTMSite(position=i + 1, type="phosphorylation") for i in range(40)]
         gene_names = ["TP53"] * 40
 
         result = ptm_mapper.map_ptms(ptm_sites, gene_names)
@@ -201,9 +194,7 @@ class TestPTMDirectionMapper:
         ("intervention_type", "expected_direction"),
         [("KO", 0), ("KD", 1), ("OE", 2)],
     )
-    def test_formal_intervention_mapping_uses_explicit_route(
-        self, intervention_type, expected_direction
-    ):
+    def test_formal_intervention_mapping_uses_explicit_route(self, intervention_type, expected_direction):
         from src.models.ptm_direction_mapper import PTMDirectionMapper
 
         mapper = PTMDirectionMapper(gene_to_idx={"TP53": 100})
@@ -253,6 +244,6 @@ class TestPTMDirectionMapperOutput:
 
         result = ptm_mapper.map_ptms(ptm_sites, gene_names)
 
-        assert hasattr(result, 'gene_ids')
-        assert hasattr(result, 'directions')
-        assert hasattr(result, 'attention_mask')
+        assert hasattr(result, "gene_ids")
+        assert hasattr(result, "directions")
+        assert hasattr(result, "attention_mask")

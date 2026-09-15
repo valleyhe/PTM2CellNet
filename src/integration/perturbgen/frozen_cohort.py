@@ -30,6 +30,10 @@ from typing import Any, Literal, Mapping, Sequence, cast
 
 import pandas as pd
 
+from .contracts import VALID_COHORT_PAIRINGS
+from .dual_path import evaluate_dual_path_candidate
+from .empirical_pvalue import EmpiricalPvalueError, aggregate_candidate_empirical_pvalues
+
 FROZEN_COHORT_SCHEMA_VERSION = "ptm2cellnet.frozen-cohort/v1"
 
 _VALID_PATHS = ("source_intervention", "within_state")
@@ -39,6 +43,8 @@ _KO_MODES = frozenset(("mask", "pad", "delete"))
 _FORMAL_MIN_NULLS = 99
 _FORMAL_MIN_SEEDS = 3
 _EVAL_INPUT_SCHEMA_VERSION = "perturbgen_dual_path_eval/v1"
+_VALID_EVALUATION_MODES = {"engineering", "formal"}
+_SYNTHETIC_PVALUE_SOURCES = {"uniform", "hand_filled", "external_table"}
 _PATH_TO_SEQUENCE = {"source_intervention": "src", "within_state": "tgt"}
 _H5AD_NAME_PATTERN = re.compile(r"_g(?P<gene>[^_]+)_s(?P<sequence>src|tgt)_t(?P<mode>[A-Za-z]+)\.h5ad$")
 _REPLAY_PARAMETER_FIELDS = (
@@ -131,6 +137,7 @@ class FrozenCohortManifest:
     candidates: tuple[FrozenCandidate, ...]
     created_at: str
     source_config: str | None = None
+    pairing: str = "within_donor"
     notes: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
@@ -144,6 +151,10 @@ class FrozenCohortManifest:
             raise FrozenCohortError("donor_obs_column must not be empty")
         object.__setattr__(self, "cell_type", cell_type)
         object.__setattr__(self, "donor_obs_column", donor_obs_column)
+        pairing = str(self.pairing).strip()
+        if pairing not in VALID_COHORT_PAIRINGS:
+            raise FrozenCohortError(f"pairing must be one of {VALID_COHORT_PAIRINGS}, got {pairing!r}")
+        object.__setattr__(self, "pairing", pairing)
         if not self.train_donors or not self.held_out_donors:
             raise FrozenCohortError("frozen cohort requires explicit train and held-out donor lists")
         train = _normalise_donors(self.train_donors, "training")
@@ -190,6 +201,7 @@ class FrozenCohortManifest:
             ],
             "created_at": self.created_at,
             "source_config": self.source_config,
+            "pairing": self.pairing,
             "notes": list(self.notes),
         }
 
@@ -226,6 +238,7 @@ def build_frozen_manifest(
     seeds: Sequence[int] = (0, 1, 2),
     matched_nulls: int = _FORMAL_MIN_NULLS,
     source_config: str | None = None,
+    pairing: str = "within_donor",
     notes: Sequence[str] = (),
 ) -> FrozenCohortManifest:
     """Build a frozen manifest from explicit splits and a candidate CSV.
@@ -233,6 +246,9 @@ def build_frozen_manifest(
     The candidate CSV needs ``gene_symbol``, ``ensembl_id`` and
     ``intervention_type`` columns; the mode/seed/null plan is uniform and
     recorded per candidate so the acceptance matrix is reproducible.
+    ``pairing`` freezes the donor/state design the cohort was accepted under
+    (``within_donor`` shared donors vs ``between_donor`` case-control) and is
+    propagated into every downstream Gate-0 validation of this manifest.
     """
 
     resolved = Path(cohort_h5ad).expanduser().resolve(strict=True)
@@ -243,11 +259,7 @@ def build_frozen_manifest(
             gene_symbol=row["gene_symbol"],
             ensembl_id=row["ensembl_id"],
             intervention_type=row["intervention_type"],
-            modes=(
-                tuple(mode.strip() for mode in row["modes"].split(","))
-                if row.get("modes", "")
-                else default_modes
-            ),
+            modes=(tuple(mode.strip() for mode in row["modes"].split(",")) if row.get("modes", "") else default_modes),
             seeds=tuple(seeds),
             matched_nulls=matched_nulls,
         )
@@ -263,6 +275,7 @@ def build_frozen_manifest(
         candidates=candidates,
         created_at=created_at,
         source_config=source_config,
+        pairing=pairing,
         notes=tuple(notes),
     )
 
@@ -300,6 +313,7 @@ def load_frozen_manifest(path: str | Path) -> FrozenCohortManifest:
         candidates=candidates,
         created_at=str(payload.get("created_at", "")),
         source_config=payload.get("source_config"),
+        pairing=str(payload.get("pairing", "within_donor")),
         notes=tuple(payload.get("notes", ())),
     )
     current_hash = sha256_file(manifest.cohort_h5ad)
@@ -336,6 +350,7 @@ def build_acceptance_plan(manifest: FrozenCohortManifest) -> dict[str, Any]:
         "cohort_sha256": manifest.cohort_sha256,
         "cell_type": manifest.cell_type,
         "donor_obs_column": manifest.donor_obs_column,
+        "pairing": manifest.pairing,
         "train_donors": list(manifest.train_donors),
         "held_out_donors": list(manifest.held_out_donors),
         "formal_plan_complete": all(candidate.formal_plan_complete for candidate in manifest.candidates),
@@ -352,12 +367,21 @@ def build_acceptance_plan(manifest: FrozenCohortManifest) -> dict[str, Any]:
 def _validate_frozen_cohort_asset(
     manifest: FrozenCohortManifest,
 ) -> tuple[bool, dict[str, Any], list[str]]:
-    """Validate the manifest cohort and its fixed state/donor partition."""
+    """Validate the manifest cohort and its fixed state/donor partition.
+
+    The donor/state coverage rule follows the frozen ``pairing``: under
+    ``within_donor`` every frozen donor must appear in both states (the
+    perturbation-paired design Gate-0 accepted); under ``between_donor`` each
+    donor belongs to exactly one state, so the frozen donors only need to be
+    present in the cohort while per-state donor counts and disjointness are
+    enforced by ``prepare_perturbgen_anndata`` with the same pairing.
+    """
 
     details: dict[str, Any] = {
         "path": manifest.cohort_h5ad,
         "cell_type": manifest.cell_type,
         "donor_obs_column": manifest.donor_obs_column,
+        "pairing": manifest.pairing,
     }
     adata = None
     try:
@@ -366,7 +390,7 @@ def _validate_frozen_cohort_asset(
         from .data_prep import prepare_perturbgen_anndata
 
         adata = ad.read_h5ad(manifest.cohort_h5ad)
-        spec = PerturbGenDataSpec(donor_col=manifest.donor_obs_column)
+        spec = PerturbGenDataSpec(donor_col=manifest.donor_obs_column, pairing=manifest.pairing)
         prepared = prepare_perturbgen_anndata(adata, cell_type=manifest.cell_type, spec=spec)
         target = prepared.adata.obs.loc[
             prepared.adata.obs[spec.cell_type_col].astype(str).str.strip() == manifest.cell_type
@@ -386,11 +410,15 @@ def _validate_frozen_cohort_asset(
             for state in (spec.normal_state, spec.disease_state)
         }
         actual_donors = set().union(*state_donors.values())
-        missing = {
-            state: sorted(expected_donors - set(donors))
-            for state, donors in state_donors.items()
-            if expected_donors - set(donors)
-        }
+        if manifest.pairing == "within_donor":
+            missing = {
+                state: sorted(expected_donors - set(donors))
+                for state, donors in state_donors.items()
+                if expected_donors - set(donors)
+            }
+        else:
+            absent = sorted(expected_donors - actual_donors)
+            missing = {"both_states": absent} if absent else {}
         extra = sorted(actual_donors - expected_donors)
         details.update(
             {
@@ -402,7 +430,7 @@ def _validate_frozen_cohort_asset(
         )
         issues: list[str] = []
         if missing:
-            issues.append(f"fixed donors are absent from one or more states: {missing}")
+            issues.append(f"fixed donors are absent from the cohort states under pairing={manifest.pairing}: {missing}")
         if extra:
             issues.append(f"cohort contains donors outside the frozen split: {extra}")
         return not issues, details, issues
@@ -438,6 +466,244 @@ def _validate_declared_cohort_reference(
             issues.append(f"declared cohort_h5ad is not readable: {exc}")
     if hash_value is not None and str(hash_value).strip() != manifest.cohort_sha256:
         issues.append("declared cohort_sha256 does not match frozen cohort")
+    return issues
+
+
+def _validate_declared_pairing(
+    manifest: FrozenCohortManifest,
+    source: Mapping[str, Any],
+) -> list[str]:
+    """Compare an optional cohort_pairing declaration with the frozen manifest."""
+
+    declared = source.get("cohort_pairing")
+    if declared is None:
+        return []
+    if str(declared).strip() != manifest.pairing:
+        return [f"declared cohort_pairing {declared!r} does not match frozen pairing {manifest.pairing!r}"]
+    return []
+
+
+def _evaluation_mode(eval_input: Mapping[str, Any]) -> str:
+    raw_mode = eval_input.get("evaluation_mode")
+    return "engineering" if raw_mode is None else str(raw_mode).strip().lower()
+
+
+def _validate_eval_input_lineage(eval_input: Mapping[str, Any]) -> list[str]:
+    """Validate the extra lineage required by formal frozen replay."""
+
+    mode = _evaluation_mode(eval_input)
+    if mode not in _VALID_EVALUATION_MODES:
+        return [f"eval input evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}"]
+    if mode != "formal":
+        return []
+
+    issues: list[str] = []
+    if eval_input.get("evidence_class") != "empirical_null":
+        issues.append("formal eval input requires evidence_class='empirical_null'")
+    raw_source = eval_input.get("pvalue_source")
+    pvalue_source = str(raw_source).strip() if raw_source is not None else ""
+    if not pvalue_source or pvalue_source in _SYNTHETIC_PVALUE_SOURCES or not pvalue_source.startswith("empirical_"):
+        issues.append("formal eval input requires an empirical pvalue_source")
+
+    raw_input_json = eval_input.get("input_json")
+    input_path: Path | None = None
+    if not isinstance(raw_input_json, str) or not raw_input_json.strip():
+        issues.append("formal eval input requires input_json lineage")
+    else:
+        try:
+            input_path = Path(raw_input_json).expanduser().resolve(strict=True)
+        except (OSError, ValueError) as exc:
+            issues.append(f"formal eval input input_json is not readable: {exc}")
+
+    raw_hash = eval_input.get("input_sha256")
+    input_hash = str(raw_hash).strip() if raw_hash is not None else ""
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", input_hash):
+        issues.append("formal eval input requires a 64-character input_sha256")
+    elif input_path is not None:
+        try:
+            actual_hash = sha256_file(input_path)
+        except OSError as exc:
+            issues.append(f"formal eval input input_json cannot be hashed: {exc}")
+        else:
+            if actual_hash != input_hash:
+                issues.append("formal eval input input_sha256 does not match input_json")
+
+    contract = eval_input.get("contract")
+    if not isinstance(contract, Mapping):
+        issues.append("formal eval input requires contract lineage")
+    else:
+        if contract.get("schema_version") != _EVAL_INPUT_SCHEMA_VERSION:
+            issues.append("formal eval input contract.schema_version is invalid")
+        for field_name in ("evaluation_mode", "evidence_class", "pvalue_source"):
+            if contract.get(field_name) != eval_input.get(field_name):
+                issues.append(f"formal eval input contract.{field_name} does not match eval input")
+
+    candidates = eval_input.get("candidates")
+    if isinstance(candidates, list):
+        for index, entry in enumerate(candidates):
+            if not isinstance(entry, Mapping):
+                continue
+            if "candidate_pvalue" in entry:
+                issues.append(f"formal eval input candidate[{index}] must not declare candidate_pvalue")
+            candidate_source = entry.get("pvalue_source")
+            if candidate_source is not None:
+                candidate_source = str(candidate_source).strip()
+                if not candidate_source.startswith("empirical_") or candidate_source in _SYNTHETIC_PVALUE_SOURCES:
+                    issues.append(f"formal eval input candidate[{index}] requires an empirical pvalue_source")
+                elif candidate_source != pvalue_source:
+                    issues.append(f"formal eval input candidate[{index}] pvalue_source does not match eval input")
+            quality = entry.get("unperturbed_quality")
+            if not isinstance(quality, Mapping) or quality.get("source") != "extract_unperturbed_quality_from_h5ad":
+                issues.append(f"formal eval input candidate[{index}] requires unperturbed_quality extracted from h5ad")
+            elif quality.get("status") != entry.get("unperturbed_quality_status"):
+                issues.append(f"formal eval input candidate[{index}] quality status does not match its declaration")
+    return issues
+
+
+def _same_path(left: Any, right: Any) -> bool:
+    try:
+        return Path(str(left)).expanduser().resolve() == Path(str(right)).expanduser().resolve()
+    except (OSError, ValueError):
+        return False
+
+
+def _validate_report_declaration(
+    report_manifest: Mapping[str, Any],
+    eval_input: Mapping[str, Any],
+) -> list[str]:
+    """Bind report-level declarations to the supplied evaluation input."""
+
+    if _evaluation_mode(eval_input) != "formal":
+        return []
+
+    issues: list[str] = []
+    for field_name in ("input_json", "input_sha256", "contract"):
+        if field_name not in report_manifest:
+            issues.append(f"report manifest is missing {field_name} declaration")
+            continue
+        expected = eval_input.get(field_name)
+        actual = report_manifest[field_name]
+        if field_name == "input_json":
+            if not _same_path(actual, expected):
+                issues.append("report input_json does not match eval input")
+        elif actual != expected:
+            issues.append(f"report {field_name} does not match eval input")
+
+    for field_name in ("evaluation_mode", "evidence_class", "pvalue_source"):
+        if report_manifest.get(field_name) != eval_input.get(field_name):
+            issues.append(f"report {field_name} does not match eval input")
+    return issues
+
+
+def _run_identity(run: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (str(run.get("path", "")), str(run.get("mode", "")), str(run.get("seed", "")))
+
+
+def _validate_report_against_eval_input(
+    report_manifest: Mapping[str, Any],
+    eval_input: Mapping[str, Any],
+) -> list[str]:
+    """Ensure report replay inputs are the ones supplied in ``eval_input``."""
+
+    report_candidates = report_manifest.get("candidates")
+    eval_candidates = eval_input.get("candidates")
+    if not isinstance(report_candidates, list) or not isinstance(eval_candidates, list):
+        return ["report and eval input candidates must both be lists"]
+
+    expected_by_id: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]] = {}
+    for index, raw_entry in enumerate(eval_candidates):
+        if not isinstance(raw_entry, Mapping):
+            return [f"eval input candidate[{index}] must be an object"]
+        raw_candidate = raw_entry.get("candidate")
+        if not isinstance(raw_candidate, Mapping):
+            return [f"eval input candidate[{index}] must declare a candidate object"]
+        ensembl_id = str(raw_candidate.get("ensembl_id", "")).strip()
+        if not ensembl_id:
+            return [f"eval input candidate[{index}] is missing ensembl_id"]
+        if ensembl_id in expected_by_id:
+            return [f"eval input contains duplicate candidate {ensembl_id}"]
+        expected_by_id[ensembl_id] = (raw_entry, raw_candidate)
+
+    actual_by_id: dict[str, Mapping[str, Any]] = {}
+    issues: list[str] = []
+    for index, raw_entry in enumerate(report_candidates):
+        if not isinstance(raw_entry, Mapping):
+            issues.append(f"report candidate[{index}] must be an object")
+            continue
+        replay = raw_entry.get("replay")
+        raw_candidate = replay.get("candidate") if isinstance(replay, Mapping) else None
+        if not isinstance(raw_candidate, Mapping):
+            issues.append(f"report candidate[{index}] is missing replay.candidate")
+            continue
+        ensembl_id = str(raw_candidate.get("ensembl_id", "")).strip()
+        if not ensembl_id:
+            issues.append(f"report candidate[{index}] is missing replay candidate ensembl_id")
+        elif ensembl_id in actual_by_id:
+            issues.append(f"report contains duplicate candidate {ensembl_id}")
+        else:
+            actual_by_id[ensembl_id] = raw_entry
+
+    if set(expected_by_id) != set(actual_by_id):
+        issues.append(
+            "report/eval input candidate set differs: "
+            f"missing={sorted(set(expected_by_id) - set(actual_by_id))}, "
+            f"extra={sorted(set(actual_by_id) - set(expected_by_id))}"
+        )
+
+    for ensembl_id, (expected_entry, expected_candidate) in expected_by_id.items():
+        actual_entry = actual_by_id.get(ensembl_id)
+        if actual_entry is None:
+            continue
+        replay = actual_entry.get("replay")
+        if not isinstance(replay, Mapping):
+            continue
+        actual_candidate = replay.get("candidate")
+        if not isinstance(actual_candidate, Mapping):
+            continue
+        for field_name, expected_value in expected_candidate.items():
+            if field_name not in actual_candidate:
+                issues.append(f"{ensembl_id}: report replay candidate is missing {field_name}")
+            else:
+                issues.extend(
+                    _compare_replay_values(
+                        expected_value, actual_candidate[field_name], f"{ensembl_id}.candidate.{field_name}"
+                    )
+                )
+        for field_name in ("observed_direction", "unperturbed_quality_status"):
+            if expected_entry.get(field_name) != replay.get(field_name):
+                issues.append(f"{ensembl_id}: report replay {field_name} does not match eval input")
+
+        if _evaluation_mode(eval_input) != "formal" and "candidate_pvalue" in expected_entry:
+            if actual_entry.get("candidate_pvalue") != expected_entry.get("candidate_pvalue"):
+                issues.append(f"{ensembl_id}: report candidate_pvalue does not match eval input")
+
+        expected_runs = expected_entry.get("runs")
+        actual_runs = replay.get("runs")
+        if not isinstance(expected_runs, list) or not isinstance(actual_runs, list):
+            issues.append(f"{ensembl_id}: report/eval input runs must both be lists")
+            continue
+        actual_by_identity: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+        for raw_run in actual_runs:
+            if isinstance(raw_run, Mapping):
+                actual_by_identity[_run_identity(raw_run)] = raw_run
+        for index, raw_run in enumerate(expected_runs):
+            if not isinstance(raw_run, Mapping):
+                issues.append(f"{ensembl_id}: eval input run[{index}] must be an object")
+                continue
+            identity = _run_identity(raw_run)
+            actual_run = actual_by_identity.get(identity)
+            if actual_run is None:
+                issues.append(f"{ensembl_id}: report is missing eval input run {identity}")
+                continue
+            for field_name, expected_value in raw_run.items():
+                if field_name not in actual_run:
+                    issues.append(f"{ensembl_id} run {identity}: report is missing {field_name}")
+                else:
+                    issues.extend(
+                        _compare_replay_values(expected_value, actual_run[field_name], f"{ensembl_id}.run.{field_name}")
+                    )
+        if len(expected_runs) != len(actual_runs):
+            issues.append(f"{ensembl_id}: report/eval input run counts differ")
     return issues
 
 
@@ -942,6 +1208,8 @@ def _validate_frozen_run(
 def verify_eval_input_against_manifest(
     manifest: FrozenCohortManifest,
     eval_input: Mapping[str, Any],
+    *,
+    require_formal: bool = False,
 ) -> dict[str, Any]:
     """Check coverage and bind every formal evaluation artifact to the freeze.
 
@@ -961,10 +1229,17 @@ def verify_eval_input_against_manifest(
     if not isinstance(candidates_field, list) or not candidates_field:
         raise FrozenCohortError("eval input has no candidates")
 
+    evaluation_mode = _evaluation_mode(eval_input)
+    eval_input_issues = _validate_eval_input_lineage(eval_input)
+    if require_formal and evaluation_mode != "formal":
+        eval_input_issues.insert(0, "formal frozen verification requires evaluation_mode='formal'")
     cohort_ok, cohort_details, cohort_issues = _validate_frozen_cohort_asset(manifest)
     top_cohort_issues = _validate_declared_cohort_reference(manifest, eval_input)
+    pairing_issues = _validate_declared_pairing(manifest, eval_input)
     cohort_issues.extend(top_cohort_issues)
-    cohort_ok = cohort_ok and not top_cohort_issues
+    cohort_issues.extend(pairing_issues)
+    cohort_issues.extend(eval_input_issues)
+    cohort_ok = cohort_ok and not top_cohort_issues and not pairing_issues and not eval_input_issues
 
     manifest_candidates = {candidate.ensembl_id: candidate for candidate in manifest.candidates}
     by_ensembl: dict[str, dict[str, set[tuple[str, int]]]] = {}
@@ -1078,10 +1353,15 @@ def verify_eval_input_against_manifest(
         "schema_version": "ptm2cellnet.frozen-acceptance-verification/v1",
         "cohort_h5ad": manifest.cohort_h5ad,
         "cohort_sha256": manifest.cohort_sha256,
+        "pairing": manifest.pairing,
         "donor_leakage_audited": True,
         "cohort_valid": cohort_ok,
         "cohort_details": cohort_details,
         "cohort_issues": cohort_issues,
+        "eval_input_issues": eval_input_issues,
+        "evaluation_mode": evaluation_mode,
+        "evidence_class": eval_input.get("evidence_class"),
+        "pvalue_source": eval_input.get("pvalue_source"),
         "n_manifest_candidates": len(manifest.candidates),
         "n_eval_candidates": len(by_ensembl),
         "missing_runs": missing,
@@ -1098,48 +1378,38 @@ def replay_verdicts(
     report_manifest: Mapping[str, Any],
     *,
     manifest: FrozenCohortManifest,
+    eval_input: Mapping[str, Any],
+    require_formal: bool = False,
 ) -> dict[str, Any]:
     """Independently recompute the dual-path verdicts of a produced report.
 
     The report manifest (written by ``evaluate_perturbgen_dual_path.py``)
-    stores the full per-run extraction inputs and published statistics.  The
-    frozen manifest is required so replay cannot invent a candidate route or
-    mode plan from report data.
-    Recompute each path from its H5AD, DEG table, bound null distribution, and
-    explicit statistical parameters before re-deriving the route-aware
-    dual-path verdict.  Missing replay inputs are hard failures.
+    stores published statistics.  The supplied evaluation input is the only
+    source for replay extraction inputs; report replay blocks are declarations
+    checked against it.  Formal candidate p-values and BH q-values are rebuilt
+    from independently extracted path results.
     """
 
-    from .dual_path import evaluate_dual_path_candidate
     from .results import benjamini_hochberg
 
     candidates_field = report_manifest.get("candidates")
     if not isinstance(candidates_field, list) or not candidates_field:
         raise FrozenCohortError("report manifest has no candidates")
 
-    eval_candidates: list[dict[str, Any]] = []
-    for entry in candidates_field:
-        if not isinstance(entry, Mapping):
-            raise FrozenCohortError("report manifest candidate entries must be objects")
-        replay = entry.get("replay")
-        if not isinstance(replay, Mapping):
-            raise FrozenCohortError("report manifest entry is missing its replay block")
-        replay_candidate = replay.get("candidate")
-        replay_runs = replay.get("runs")
-        if not isinstance(replay_candidate, Mapping):
-            raise FrozenCohortError("report manifest replay is missing its candidate route")
-        if not isinstance(replay_runs, list) or not replay_runs:
-            raise FrozenCohortError("report manifest replay block has no runs")
-        eval_candidates.append({"candidate": dict(replay_candidate), "runs": replay_runs})
-    binding = verify_eval_input_against_manifest(
-        manifest,
-        {"schema_version": _EVAL_INPUT_SCHEMA_VERSION, "candidates": eval_candidates},
-    )
-    if not binding["contract_eligible"]:
+    if not isinstance(eval_input, Mapping):
+        raise FrozenCohortError("eval_input must be a mapping")
+    require_formal = require_formal or str(report_manifest.get("evaluation_mode", "")).strip().lower() == "formal"
+    binding = verify_eval_input_against_manifest(manifest, eval_input, require_formal=require_formal)
+    declaration_mismatches = _validate_report_declaration(report_manifest, eval_input)
+    input_mismatches = _validate_report_against_eval_input(report_manifest, eval_input)
+    if not binding["contract_eligible"] or declaration_mismatches or input_mismatches:
+        binding_mismatches = [*declaration_mismatches, *input_mismatches]
+        if not binding["contract_eligible"]:
+            binding_mismatches.append("report evidence is not formally bound to the frozen cohort")
         return {
             "schema_version": "ptm2cellnet.frozen-acceptance-replay/v1",
             "n_candidates": len(candidates_field),
-            "mismatches": ["report evidence is not formally bound to the frozen cohort"],
+            "mismatches": binding_mismatches,
             "reproduced": False,
             "independent_h5ad_recomputed": False,
             "binding": binding,
@@ -1147,11 +1417,25 @@ def replay_verdicts(
         }
 
     manifest_candidates = {candidate.ensembl_id: candidate for candidate in manifest.candidates}
-    pvalues = [float(entry["candidate_pvalue"]) for entry in candidates_field]
-    q_values = benjamini_hochberg(pvalues)
+    evaluation_mode = _evaluation_mode(eval_input)
+    evidence_class = str(eval_input.get("evidence_class") or "unspecified").strip()
+    pvalue_source = str(eval_input.get("pvalue_source") or "unspecified").strip()
+    eval_candidates_by_id: dict[str, Mapping[str, Any]] = {}
+    for raw_entry in eval_input["candidates"]:
+        if not isinstance(raw_entry, Mapping):
+            raise FrozenCohortError("eval input candidate entries must be objects")
+        raw_candidate = raw_entry.get("candidate")
+        if not isinstance(raw_candidate, Mapping):
+            raise FrozenCohortError("eval input candidate must be an object")
+        ensembl_id = str(raw_candidate.get("ensembl_id", "")).strip()
+        if not ensembl_id:
+            raise FrozenCohortError("eval input candidate is missing ensembl_id")
+        eval_candidates_by_id[ensembl_id] = raw_entry
+
     mismatches: list[str] = []
-    replayed: list[dict[str, Any]] = []
-    for entry, q_value in zip(candidates_field, q_values, strict=True):
+    recomputed: list[dict[str, Any]] = []
+    pvalues: list[float] = []
+    for entry in candidates_field:
         if not isinstance(entry, Mapping):
             raise FrozenCohortError("report manifest candidate entries must be objects")
         replay = entry.get("replay")
@@ -1173,37 +1457,108 @@ def replay_verdicts(
         candidate_ensembl = str(replay_candidate.get("ensembl_id", "")).strip()
         if not candidate_ensembl:
             raise FrozenCohortError("report manifest replay candidate is missing ensembl_id")
+        eval_entry = eval_candidates_by_id.get(candidate_ensembl)
+        if eval_entry is None:
+            raise FrozenCohortError("report manifest replay candidate is absent from the eval input")
         frozen_candidate = manifest_candidates.get(candidate_ensembl)
         if frozen_candidate is None:
             raise FrozenCohortError("report manifest replay candidate is absent from the frozen manifest")
-        if "q_value" not in entry or "verdict" not in entry:
-            raise FrozenCohortError("report manifest candidate is missing q_value or verdict")
-        mismatches.extend(_compare_replay_values(entry["q_value"], q_value, f"{candidate_gene}.q_value"))
+        eval_runs = eval_entry.get("runs")
+        if not isinstance(eval_runs, list) or not eval_runs:
+            raise FrozenCohortError("eval input replay block has no runs")
+        report_runs_by_identity = {_run_identity(run): run for run in runs if isinstance(run, Mapping)}
         recomputed_path_results: list[Mapping[str, Any]] = []
         run_mismatches: list[str] = []
-        for index, run in enumerate(runs):
-            if not isinstance(run, Mapping):
-                raise FrozenCohortError("report manifest replay runs must be objects")
-            extraction, statistics_mismatches = _independently_recompute_run(run, candidate=frozen_candidate)
+        for index, eval_run in enumerate(eval_runs):
+            if not isinstance(eval_run, Mapping):
+                raise FrozenCohortError("eval input runs must be objects")
+            report_run = report_runs_by_identity.get(_run_identity(eval_run))
+            if report_run is None:
+                raise FrozenCohortError(
+                    f"report manifest is missing eval input run {_run_identity(eval_run)} for {candidate_ensembl}"
+                )
+            replay_run = dict(eval_run)
+            for field_name in ("path_result", "bootstrap_ci", "donor_scores", "baseline_matrix", "perturbed_matrix"):
+                if field_name not in report_run:
+                    raise FrozenCohortError(
+                        f"report replay run is missing published independent statistic {field_name}"
+                    )
+                replay_run[field_name] = report_run[field_name]
+            extraction, statistics_mismatches = _independently_recompute_run(
+                replay_run,
+                candidate=frozen_candidate,
+            )
             recomputed_path_results.append(asdict(extraction.path_result))
             run_mismatches.extend(f"run[{index}] {mismatch}" for mismatch in statistics_mismatches)
         mismatches.extend(f"{candidate_gene}: {mismatch}" for mismatch in run_mismatches)
+
+        observed_direction = str(eval_entry.get("observed_direction", "")).strip()
+        intervention_type = str(replay_candidate.get("intervention_type", "")).strip().upper()
+        if evaluation_mode == "formal":
+            try:
+                aggregation = aggregate_candidate_empirical_pvalues(
+                    recomputed_path_results,
+                    intervention_type,
+                    observed_direction,
+                    ensembl_id=candidate_ensembl,
+                )
+            except EmpiricalPvalueError as exc:
+                raise FrozenCohortError(f"formal empirical p aggregation failed: {exc}") from exc
+            candidate_pvalue = float(aggregation["pvalue"])
+        else:
+            if "candidate_pvalue" not in entry:
+                raise FrozenCohortError("report manifest candidate is missing candidate_pvalue")
+            candidate_pvalue = float(entry["candidate_pvalue"])
+        pvalues.append(candidate_pvalue)
+        recomputed.append(
+            {
+                "entry": entry,
+                "replay": replay,
+                "candidate_gene": candidate_gene,
+                "candidate_ensembl": candidate_ensembl,
+                "intervention_type": intervention_type,
+                "observed_direction": observed_direction,
+                "unperturbed_quality_status": str(eval_entry.get("unperturbed_quality_status", "")),
+                "path_results": recomputed_path_results,
+                "run_mismatches": run_mismatches,
+                "candidate_pvalue": candidate_pvalue,
+            }
+        )
+
+    q_values = benjamini_hochberg(pvalues)
+    replayed: list[dict[str, Any]] = []
+    for record, q_value in zip(recomputed, q_values, strict=True):
+        entry = record["entry"]
+        candidate_gene = record["candidate_gene"]
+        if "candidate_pvalue" not in entry or "q_value" not in entry or "verdict" not in entry:
+            raise FrozenCohortError("report manifest candidate is missing candidate_pvalue, q_value or verdict")
+        mismatches.extend(
+            _compare_replay_values(
+                entry["candidate_pvalue"], record["candidate_pvalue"], f"{candidate_gene}.candidate_pvalue"
+            )
+        )
+        mismatches.extend(_compare_replay_values(entry["q_value"], q_value, f"{candidate_gene}.q_value"))
         decision = evaluate_dual_path_candidate(
-            recomputed_path_results,
-            observed_direction=str(replay["observed_direction"]),
+            record["path_results"],
+            observed_direction=record["observed_direction"],
             q_value=q_value,
             candidate_gene=candidate_gene,
-            intervention_type=str(route).strip().upper(),
-            unperturbed_quality_status=str(replay["unperturbed_quality_status"]),
+            intervention_type=record["intervention_type"],
+            unperturbed_quality_status=record["unperturbed_quality_status"],
+            evaluation_mode=evaluation_mode,
+            evidence_class=evidence_class,
+            pvalue_source=pvalue_source,
         )
         replayed.append(
             {
                 "candidate_gene": candidate_gene,
                 "published_verdict": entry["verdict"],
                 "replayed_verdict": decision.verdict,
+                "published_candidate_pvalue": entry["candidate_pvalue"],
+                "replayed_candidate_pvalue": record["candidate_pvalue"],
                 "replayed_q_value": q_value,
                 "replayed_reasons": list(decision.reasons),
-                "statistics_mismatches": run_mismatches,
+                "statistics_mismatches": record["run_mismatches"],
             }
         )
         if decision.verdict != entry["verdict"]:
@@ -1216,6 +1571,11 @@ def replay_verdicts(
         "independent_h5ad_recomputed": True,
         "candidates": replayed,
         "binding": binding,
+        "report_declaration": {
+            "input_json": report_manifest.get("input_json"),
+            "input_sha256": report_manifest.get("input_sha256"),
+            "contract": report_manifest.get("contract"),
+        },
     }
 
 

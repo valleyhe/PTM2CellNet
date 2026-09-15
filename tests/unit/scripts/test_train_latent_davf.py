@@ -81,9 +81,7 @@ def test_run_epoch_reports_flow_endpoint_and_combined_losses() -> None:
     )
 
     assert set(stats) == {"loss", "flow_loss", "endpoint_loss", "direction_loss"}
-    assert stats["loss"] == (
-        stats["flow_loss"] + 2.0 * stats["endpoint_loss"] + stats["direction_loss"]
-    )
+    assert stats["loss"] == (stats["flow_loss"] + 2.0 * stats["endpoint_loss"] + stats["direction_loss"])
     assert len(model.seen_times) == 2
     assert model.seen_times[0] is not None
     assert torch.equal(model.seen_times[0], torch.full((1,), 0.5))
@@ -147,8 +145,6 @@ def test_donor_split_metadata_requires_train_only_donor_rows() -> None:
     donor_split = build_donor_split(["D1", "D2"], ["D3", "D4", "D5"])
 
     for dataset_metadata in ({}, {"donor_rows": ["D1", "D3"]}):
-        dataset = SimpleNamespace(
-            metadata={"donor_split": donor_split.to_payload(), "dataset": dataset_metadata}
-        )
+        dataset = SimpleNamespace(metadata={"donor_split": donor_split.to_payload(), "dataset": dataset_metadata})
         with pytest.raises(ValueError):
             _validate_donor_split_metadata(dataset, "train", donor_split)

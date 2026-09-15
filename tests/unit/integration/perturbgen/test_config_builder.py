@@ -303,9 +303,7 @@ def _assert_ckpt_masking_path_rejected(tmp_path, monkeypatch, mutation):
     ],
 )
 def test_perturb_contract_ckpt_masking_path_matrix(tmp_path, monkeypatch, mutation):
-    _assert_ckpt_masking_path_rejected(
-        tmp_path, monkeypatch, mutation
-    )
+    _assert_ckpt_masking_path_rejected(tmp_path, monkeypatch, mutation)
 
 
 @pytest.mark.parametrize("field", ["tgt_vocab_size", "max_seq_length"])

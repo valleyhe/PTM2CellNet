@@ -20,21 +20,14 @@ class MultiTargetAttention(nn.Module):
     gene target embeddings into a unified perturbation embedding.
     """
 
-    def __init__(
-        self,
-        embed_dim: int,
-        num_heads: int = 4,
-        dropout: float = 0.1
-    ):
+    def __init__(self, embed_dim: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
 
         if embed_dim % num_heads != 0:
-            raise ValueError(
-                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
-            )
+            raise ValueError(f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})")
 
         # Multi-head attention
         self.q_proj = nn.Linear(embed_dim, embed_dim)
@@ -45,11 +38,7 @@ class MultiTargetAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.scale = math.sqrt(self.head_dim)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Multi-head self-attention over targets.
 
@@ -81,9 +70,7 @@ class MultiTargetAttention(nn.Module):
             elif mask.shape == (B, self.num_heads, K, K):
                 key_mask = mask.to(dtype=torch.bool)
             else:
-                raise ValueError(
-                    f"mask must be [B, K], [B, K, K], or [B, H, K, K], got {tuple(mask.shape)}"
-                )
+                raise ValueError(f"mask must be [B, K], [B, K, K], or [B, H, K, K], got {tuple(mask.shape)}")
             attn_scores = attn_scores.masked_fill(~key_mask, -1e9)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
@@ -116,13 +103,7 @@ class DirectionAwareAttention(nn.Module):
     - KO + OE might have antagonistic (negative) attention
     """
 
-    def __init__(
-        self,
-        embed_dim: int,
-        direction_embed_dim: int = 64,
-        num_heads: int = 4,
-        dropout: float = 0.1
-    ):
+    def __init__(self, embed_dim: int, direction_embed_dim: int = 64, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.embed_dim = embed_dim
         self.direction_embed_dim = direction_embed_dim
@@ -139,10 +120,7 @@ class DirectionAwareAttention(nn.Module):
         # Learnable per-head direction interaction matrix
         # [num_heads, 3, 3] for KO/KD/OE combinations
         self.direction_interaction = nn.Parameter(
-            torch.stack([
-                torch.eye(3) * 0.5 + torch.ones(3, 3) * 0.25
-                for _ in range(num_heads)
-            ])
+            torch.stack([torch.eye(3) * 0.5 + torch.ones(3, 3) * 0.25 for _ in range(num_heads)])
         )
 
         self.dropout = nn.Dropout(dropout)
@@ -211,10 +189,7 @@ class DirectionAwareAttention(nn.Module):
 
         return output, scaled_weights.mean(dim=1)  # [B, K, K] averaged for external use
 
-    def _compute_direction_interactions(
-        self,
-        directions: torch.Tensor
-    ) -> torch.Tensor:
+    def _compute_direction_interactions(self, directions: torch.Tensor) -> torch.Tensor:
         """
         Compute per-head direction interaction weights.
 
@@ -251,23 +226,12 @@ class CrossModalAttention(nn.Module):
     and protein abundance) for multi-omics perturbation prediction.
     """
 
-    def __init__(
-        self,
-        embed_dim: int,
-        num_heads: int = 4,
-        dropout: float = 0.1
-    ):
+    def __init__(self, embed_dim: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
-        self.attention = nn.MultiheadAttention(
-            embed_dim, num_heads, dropout=dropout, batch_first=True
-        )
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(embed_dim)
 
-    def forward(
-        self,
-        query: torch.Tensor,
-        key_value: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, query: torch.Tensor, key_value: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Cross-modal attention.
 
@@ -280,9 +244,7 @@ class CrossModalAttention(nn.Module):
             attention_weights: [batch_size, num_queries, num_keys]
         """
         attn_output, attn_weights = self.attention(
-            query, key_value, key_value,
-            need_weights=True,
-            average_attn_weights=True
+            query, key_value, key_value, need_weights=True, average_attn_weights=True
         )
 
         output = self.norm(query + attn_output)

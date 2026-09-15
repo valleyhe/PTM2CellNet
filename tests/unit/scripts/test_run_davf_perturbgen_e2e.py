@@ -15,6 +15,7 @@ from scripts.run_davf_perturbgen_e2e import (
     _load_candidate_spec,
     _load_davf_config,
     _preflight_perturbgen_context,
+    _resolve_perturbgen_contract,
     _validate_perturbgen_tokenise_input,
 )
 from src.integration.perturbgen.contracts import PerturbGenDataSpec
@@ -106,6 +107,33 @@ def test_perturbgen_tokenise_input_binds_cohort_pairing_into_spec(tmp_path):
     assert case_control_spec.pairing == "between_donor"
     with pytest.raises(ValueError, match="pairing must be one of"):
         _validate_perturbgen_tokenise_input(config, context_path.resolve(), cohort_pairing="cross_over")
+
+
+def test_formal_perturbgen_contract_binds_frozen_matrix_args(monkeypatch, tmp_path):
+    context_path = tmp_path / "context.h5ad"
+    context_path.write_bytes(b"context")
+    config_path = tmp_path / "perturbgen.yaml"
+    args = SimpleNamespace(
+        perturbgen_config=config_path,
+        seeds="0,1,2",
+        sensitivity_modes="pad,delete",
+        perturbgen_cohort_pairing="between_donor",
+    )
+    monkeypatch.setattr(e2e, "load_pipeline_config", lambda _path: _perturbgen_config(context_path))
+
+    _, (data_spec, tokenise_path), seeds, sensitivity_modes, pipeline_seed = _resolve_perturbgen_contract(
+        args, context_path.resolve()
+    )
+
+    assert data_spec.pairing == "between_donor"
+    assert tokenise_path == context_path.resolve()
+    assert seeds == (0, 1, 2)
+    assert sensitivity_modes == ("pad", "delete")
+    assert pipeline_seed == 0
+
+    args.perturbgen_config = None
+    with pytest.raises(ValueError, match="requires --perturbgen-config"):
+        _resolve_perturbgen_contract(args, context_path.resolve())
 
 
 def test_gate0_preflight_uses_the_same_context_and_explicit_cell_type(monkeypatch, tmp_path):
@@ -399,9 +427,12 @@ def _stat_e2e_payload(run_root: Path) -> dict:
     }
 
 
-def test_assemble_statistical_evidence_chains_null_quality_pq_dual_path(tmp_path):
+def _build_stat_chain_fixture(tmp_path: Path) -> tuple[dict, Path, Path]:
+    """Tokenise/perturb stage manifests + DEG table + null index for one candidate."""
+
     run_root = tmp_path / "perturbgen" / "KO" / "ENSG00000168610"
-    tokenise_root = run_root / "tokenise" / "artifacts"
+    prepare_root = tmp_path / "perturbgen" / "KO" / "_prepare"
+    tokenise_root = prepare_root / "tokenise" / "artifacts"
     tokenise_root.mkdir(parents=True, exist_ok=True)
     (tokenise_root / "src.dataset").write_bytes(b"src")
     (tokenise_root / "src.h5ad").write_bytes(b"src-h5ad")
@@ -413,7 +444,7 @@ def test_assemble_statistical_evidence_chains_null_quality_pq_dual_path(tmp_path
         "tgt_dataset_folder": str(tokenise_root / "tgt_dataset"),
         "tgt_h5ad_folder": str(tokenise_root / "tgt_h5ad"),
     }
-    (run_root / "tokenise" / "stage_manifest.json").write_text(
+    (prepare_root / "tokenise" / "stage_manifest.json").write_text(
         json.dumps(
             {
                 "schema_version": 1,
@@ -459,8 +490,13 @@ def test_assemble_statistical_evidence_chains_null_quality_pq_dual_path(tmp_path
         ),
         encoding="utf-8",
     )
-
     payload = _stat_e2e_payload(run_root)
+    payload["perturbgen_runs"][0]["prepare_root"] = str(prepare_root)
+    return payload, deg_table, null_manifest
+
+
+def test_assemble_statistical_evidence_chains_null_quality_pq_dual_path(tmp_path):
+    payload, deg_table, null_manifest = _build_stat_chain_fixture(tmp_path)
     evidence = e2e._assemble_statistical_evidence(
         payload,
         deg_table_path=deg_table,
@@ -483,6 +519,79 @@ def test_assemble_statistical_evidence_chains_null_quality_pq_dual_path(tmp_path
     assert Path(evidence["report_manifest"]).is_file()
 
 
+def test_assemble_statistical_evidence_records_between_donor_pairing_in_lineage(tmp_path):
+    """F-11/F-15: the between_donor design must survive into eval-input lineage."""
+
+    payload, deg_table, null_manifest = _build_stat_chain_fixture(tmp_path)
+    evidence = e2e._assemble_statistical_evidence(
+        payload,
+        deg_table_path=deg_table,
+        null_distribution_manifest_path=null_manifest,
+        output_dir=tmp_path / "statistical_evidence",
+        donor_obs_column="donor_id",
+        cohort_pairing="between_donor",
+    )
+
+    assert evidence["status"] == "assembled"
+    assert evidence["pairing"] == "between_donor"
+    eval_input = json.loads(Path(evidence["eval_input"]).read_text(encoding="utf-8"))
+    assert eval_input["cohort_pairing"] == "between_donor"
+    report_manifest = json.loads(Path(evidence["report_manifest"]).read_text(encoding="utf-8"))
+    recorded_eval_inputs = [entry for entry in report_manifest.get("candidates", [])]
+    assert recorded_eval_inputs, "report manifest must carry candidate replay blocks"
+
+
+def test_assemble_statistical_evidence_rejects_unknown_pairing(tmp_path):
+    payload, deg_table, null_manifest = _build_stat_chain_fixture(tmp_path)
+    with pytest.raises(ValueError, match="cohort_pairing must be one of"):
+        e2e._assemble_statistical_evidence(
+            payload,
+            deg_table_path=deg_table,
+            null_distribution_manifest_path=null_manifest,
+            output_dir=tmp_path / "statistical_evidence",
+            donor_obs_column="donor_id",
+            cohort_pairing="cross_donor",
+        )
+
+
+def test_assemble_statistical_evidence_supports_custom_deg_columns(tmp_path):
+    """F-16: DEG column names must be parameterisable end to end."""
+
+    payload, deg_table, null_manifest = _build_stat_chain_fixture(tmp_path)
+    renamed = tmp_path / "deg_renamed.csv"
+    renamed.write_text(
+        deg_table.read_text(encoding="utf-8").replace(
+            "donor,gene_symbol,log2fc,fdr", "subject_id,gene_name,effect_size,qval"
+        ),
+        encoding="utf-8",
+    )
+    evidence = e2e._assemble_statistical_evidence(
+        payload,
+        deg_table_path=renamed,
+        null_distribution_manifest_path=null_manifest,
+        output_dir=tmp_path / "statistical_evidence",
+        donor_obs_column="donor_id",
+        deg_donor_column="subject_id",
+        deg_gene_column="gene_name",
+        deg_effect_column="effect_size",
+        deg_fdr_column="qval",
+    )
+
+    assert evidence["status"] == "assembled"
+    assert evidence["deg_columns"] == {
+        "donor": "subject_id",
+        "gene": "gene_name",
+        "effect": "effect_size",
+        "fdr": "qval",
+    }
+    eval_input = json.loads(Path(evidence["eval_input"]).read_text(encoding="utf-8"))
+    run_record = eval_input["candidates"][0]["runs"][0]
+    assert run_record["deg_donor_column"] == "subject_id"
+    assert run_record["deg_gene_column"] == "gene_name"
+    assert run_record["deg_effect_column"] == "effect_size"
+    assert run_record["deg_fdr_column"] == "qval"
+
+
 def test_assemble_statistical_evidence_requires_completed_runs(tmp_path):
     payload = {"schema_version": "davf_perturbgen_e2e/v1", "perturbgen_runs": []}
     deg_table = tmp_path / "deg.csv"
@@ -496,4 +605,184 @@ def test_assemble_statistical_evidence_requires_completed_runs(tmp_path):
             null_distribution_manifest_path=null_manifest,
             output_dir=tmp_path / "statistical_evidence",
             donor_obs_column="donor_id",
+        )
+
+
+def _write_downstream_h5ad(path: Path, *, include_target: bool = True) -> None:
+    import anndata as ad
+
+    genes = ["ENSG00000100002"] if include_target else ["ENSG00000100004"]
+    baseline = np.asarray([[1.0], [1.5], [2.0]], dtype=float)
+    perturbed = np.asarray([[2.0], [2.5], [3.0]], dtype=float)
+    adata = ad.AnnData(
+        X=perturbed,
+        obs=pd.DataFrame({"donor": ["D1", "D2", "D3"]}, index=["c1", "c2", "c3"]),
+        var=pd.DataFrame(index=genes),
+    )
+    adata.layers["pred_counts"] = baseline
+    path.parent.mkdir(parents=True, exist_ok=True)
+    adata.write_h5ad(path)
+
+
+def _build_downstream_fixture(tmp_path: Path, *, include_target: bool = True) -> tuple[dict, Path, list[dict]]:
+    import hashlib
+
+    source_id = "ENSG00000100001"
+    run_root = tmp_path / "perturbgen" / "KO" / source_id
+    prepare_root = tmp_path / "perturbgen" / "KO" / "_prepare"
+    tokenise_root = prepare_root / "tokenise" / "artifacts"
+    tokenise_root.mkdir(parents=True, exist_ok=True)
+    tokenise_artifacts = {
+        "src_dataset": str(tokenise_root / "src.dataset"),
+        "src_h5ad": str(tokenise_root / "src.h5ad"),
+        "tgt_dataset_folder": str(tokenise_root / "tgt_dataset"),
+        "tgt_h5ad_folder": str(tokenise_root / "tgt_h5ad"),
+    }
+    Path(tokenise_artifacts["src_dataset"]).write_bytes(b"src")
+    Path(tokenise_artifacts["src_h5ad"]).write_bytes(b"src-h5ad")
+    Path(tokenise_artifacts["tgt_dataset_folder"]).mkdir()
+    Path(tokenise_artifacts["tgt_h5ad_folder"]).mkdir()
+    (prepare_root / "tokenise" / "stage_manifest.json").write_text(
+        json.dumps({"schema_version": 1, "stage": "tokenise", "status": "success", "artifacts": tokenise_artifacts}),
+        encoding="utf-8",
+    )
+
+    for path_kind, sequence in (("source_intervention", "src"), ("within_state", "tgt")):
+        stage_dir = run_root / "perturb" / path_kind / "mask_seed0"
+        h5ad = stage_dir / "results" / f"run_minference_adata_gSRC_s{sequence}_tmask.h5ad"
+        _write_downstream_h5ad(h5ad, include_target=include_target)
+        digest = hashlib.sha256(h5ad.read_bytes()).hexdigest()
+        manifest = {
+            "schema_version": 1,
+            "stage": path_kind,
+            "status": "success",
+            "fingerprint": f"fp-{path_kind}",
+            "fingerprint_material": {
+                "random_seed": 0,
+                "fingerprint_config": {
+                    "stage_config": {
+                        "perturb_config": {
+                            "data": {
+                                "src_dataset_file": tokenise_artifacts["src_dataset"],
+                                "src_adata": tokenise_artifacts["src_h5ad"],
+                                "tgt_dataset_folder": tokenise_artifacts["tgt_dataset_folder"],
+                                "tgt_adata_folder": tokenise_artifacts["tgt_h5ad_folder"],
+                            }
+                        }
+                    }
+                },
+            },
+            "outputs": {str(h5ad): {"kind": "file", "sha256": digest}},
+            "artifacts": {"result_h5ad": str(h5ad)},
+        }
+        (stage_dir / "stage_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    candidate = {
+        "context_cell_index": 0,
+        "gene_symbol": "SRC",
+        "ensembl_id": source_id,
+        "cell_type": "EX",
+        "source_activity_id": "SRC_ACTIVITY",
+    }
+    sidecar_path = tmp_path / "downstream_targets_EX.json"
+    sidecar_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "ptm2cellnet.downstream-target-sidecar/v1",
+                "cell_type": "EX",
+                "sources": {
+                    source_id: {
+                        "source_activity_id": "SRC_ACTIVITY",
+                        "gene_symbol": "SRC",
+                        "position": 1,
+                        "ptm_type": "phosphorylation",
+                        "proposed_direction": "up",
+                        "site_probability": 0.9,
+                        "provenance": "unit-test",
+                        "targets": [
+                            {
+                                "target_ensembl_id": "ENSG00000100002",
+                                "target_gene_symbol": "TARGET",
+                                "predicted_gene_direction": "up",
+                                "observed_direction": "down",
+                            },
+                            {
+                                "target_ensembl_id": "ENSG00000100003",
+                                "target_gene_symbol": "MISSING",
+                                "predicted_gene_direction": "down",
+                                "observed_direction": "down",
+                            },
+                        ],
+                    }
+                },
+                "lineage": {"candidate_spec": "candidate_spec_EX.json"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload = {
+        "candidates": [
+            {
+                "status": "pass",
+                "invocation": {"gene_symbol": "SRC", "ensembl_id": source_id},
+            }
+        ],
+        "perturbgen_runs": [
+            {
+                "gene_symbol": "SRC",
+                "ensembl_id": source_id,
+                "output_root": str(run_root),
+                "prepare_root": str(prepare_root),
+            }
+        ],
+    }
+    return payload, sidecar_path, [candidate]
+
+
+def test_downstream_target_evaluation_writes_payload_and_lineage(tmp_path):
+    payload, sidecar_path, candidates = _build_downstream_fixture(tmp_path)
+
+    result = e2e._assemble_downstream_target_evaluation(
+        payload,
+        sidecar_path=sidecar_path,
+        raw_candidates=candidates,
+        donor_obs_column="donor",
+    )
+
+    evaluation = result["payload"]["sources"]["ENSG00000100001"]
+    target = evaluation["targets"][0]
+    assert result["payload"]["schema_version"] == "ptm2cellnet.target-set-evaluation/v1"
+    assert target["matches_predicted"] is True
+    assert target["matches_observed"] is False
+    assert evaluation["missing_targets"] == ["ENSG00000100003"]
+    assert result["lineage"]["sidecar_path"] == str(sidecar_path.resolve())
+    assert result["lineage"]["baseline_layer"] == "pred_counts"
+    assert result["lineage"]["perturbed_layer"] == "X"
+    assert len(result["lineage"]["candidates"][0]["result_h5ad"]) == 2
+    assert all(Path(item["result_h5ad"]).is_absolute() for item in result["lineage"]["candidates"][0]["result_h5ad"])
+
+
+def test_downstream_target_evaluation_rejects_sidecar_spec_mismatch(tmp_path):
+    payload, sidecar_path, candidates = _build_downstream_fixture(tmp_path)
+    candidates[0]["source_activity_id"] = "OTHER_ACTIVITY"
+
+    with pytest.raises(ValueError, match="source relation"):
+        e2e._assemble_downstream_target_evaluation(
+            payload,
+            sidecar_path=sidecar_path,
+            raw_candidates=candidates,
+            donor_obs_column="donor",
+        )
+
+
+def test_downstream_target_evaluation_requires_a_gated_candidate(tmp_path):
+    payload, sidecar_path, candidates = _build_downstream_fixture(tmp_path)
+    payload["candidates"][0] = {"status": "fail", "invocation": None}
+
+    with pytest.raises(ValueError, match="at least one gated candidate"):
+        e2e._assemble_downstream_target_evaluation(
+            payload,
+            sidecar_path=sidecar_path,
+            raw_candidates=candidates,
+            donor_obs_column="donor",
         )

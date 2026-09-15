@@ -68,7 +68,9 @@ def main(argv: list[str] | None = None) -> int:
             selection_manifest_path=args.selection_manifest,
             output_path=args.output,
         )
-        print(json.dumps({key: distribution[key] for key in ("schema_version", "required_count", "candidate_ensembl_id")}))
+        print(
+            json.dumps({key: distribution[key] for key in ("schema_version", "required_count", "candidate_ensembl_id")})
+        )
         return 0
 
     try:

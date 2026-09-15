@@ -21,6 +21,7 @@ from src.models.davf import (
 # DAVFConfig validation tests
 # ---------------------------------------------------------------------------
 
+
 class TestDAVFConfig:
     """Tests for DAVFConfig dataclass validation."""
 
@@ -98,6 +99,7 @@ class TestDAVFConfig:
 # TimeEncoder tests
 # ---------------------------------------------------------------------------
 
+
 class TestTimeEncoder:
     """Tests for TimeEncoder module."""
 
@@ -120,13 +122,18 @@ class TestTimeEncoder:
 # GeneSpecificModulation tests
 # ---------------------------------------------------------------------------
 
+
 class TestGeneSpecificModulation:
     """Tests for GeneSpecificModulation module."""
 
     def test_output_shape(self):
         """Modulation preserves [B, num_genes] shape."""
         mod = GeneSpecificModulation(
-            num_genes=10, hidden_dim=8, modulation_dim=8, num_kv=2, num_heads=1,
+            num_genes=10,
+            hidden_dim=8,
+            modulation_dim=8,
+            num_kv=2,
+            num_heads=1,
         )
         condition = torch.randn(2, 8)
         velocity = torch.randn(2, 10)
@@ -137,6 +144,7 @@ class TestGeneSpecificModulation:
 # ---------------------------------------------------------------------------
 # DAVF model instantiation & forward tests (small config)
 # ---------------------------------------------------------------------------
+
 
 def _small_config(**overrides):
     """Create a minimal DAVFConfig for fast testing."""
@@ -279,6 +287,7 @@ class TestDAVFModel:
 # DAVFLoss tests
 # ---------------------------------------------------------------------------
 
+
 class TestDAVFLoss:
     """Tests for DAVFLoss module."""
 
@@ -303,6 +312,7 @@ class TestDAVFLoss:
 # ---------------------------------------------------------------------------
 # DirectionConsistencyLoss tests
 # ---------------------------------------------------------------------------
+
 
 class TestDirectionConsistencyLoss:
     """Tests for DirectionConsistencyLoss module."""

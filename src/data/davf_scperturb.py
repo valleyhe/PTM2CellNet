@@ -542,6 +542,8 @@ def build_scperturb_latent_pairs(
     test_ratio: float = 0.1,
     donor_obs_column: str | None = None,
     donor_split: Mapping[str, Any] | None = None,
+    state_obs_column: str | None = None,
+    require_state_coverage: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """Encode a prepared AnnData and export leakage-free latent-pair NPZ files.
 
@@ -551,6 +553,13 @@ def build_scperturb_latent_pairs(
     rows whose donor is in ``held_out_donors`` may only enter the test NPZ,
     and every exported row records its donor in ``dataset.donor_rows`` plus a
     ``target_donors`` array so training can prove no held-out leakage.
+
+    ``require_state_coverage`` additionally demands that the held-out donor
+    pool covers at least two values of ``state_obs_column``; rescue verdicts
+    computed on the test split lose their disease-state contrast when every
+    held-out donor comes from a single state (a realistic between_donor
+    split mistake).  The observed held-out state distribution is recorded in
+    the pair manifest so the declared design stays auditable.
     """
 
     if modality not in DIRECTION_CODES:
@@ -581,6 +590,8 @@ def build_scperturb_latent_pairs(
     donor_labels: np.ndarray | None = None
     train_donors: frozenset[str] | None = None
     held_out_donors: frozenset[str] | None = None
+    if require_state_coverage and donor_split is None:
+        raise DAVFScPerturbError("require_state_coverage only applies to donor-bound splits; provide donor_split")
     if donor_split is not None:
         if donor_obs_column is None:
             raise DAVFScPerturbError("donor_split requires donor_obs_column")
@@ -646,10 +657,28 @@ def build_scperturb_latent_pairs(
         dtype="U",
     )
     target_labels = tuple(sorted(set(target_values) - {""}))
+    held_out_state_coverage: dict[str, int] | None = None
     if donor_labels is not None:
         assert train_donors is not None and held_out_donors is not None
         train_mask = np.isin(donor_labels, sorted(train_donors))
         held_mask = np.isin(donor_labels, sorted(held_out_donors))
+        if require_state_coverage:
+            if state_obs_column is None:
+                raise DAVFScPerturbError("require_state_coverage needs an explicit state_obs_column")
+            if state_obs_column not in adata.obs.columns:
+                raise DAVFScPerturbError(
+                    f"prepared AnnData has no state column {state_obs_column!r} for held-out state coverage"
+                )
+            held_states = adata.obs[state_obs_column].astype(str).str.strip().to_numpy()[held_mask]
+            held_out_state_coverage = {
+                str(state): int((held_states == state).sum()) for state in sorted(set(held_states) - {""})
+            }
+            if len(held_out_state_coverage) < 2:
+                raise DAVFScPerturbError(
+                    "held-out donor pool covers fewer than two states of "
+                    f"{state_obs_column!r}: {held_out_state_coverage}; rescue judgements on the "
+                    "test split would lose their state contrast"
+                )
         if split_strategy == "target":
             train_pool_labels = tuple(sorted(set(target_values[train_mask]) - {""}))
             if len(train_pool_labels) < 2:
@@ -951,6 +980,9 @@ def build_scperturb_latent_pairs(
     if donor_labels is not None:
         pair_manifest["donor_obs_column"] = donor_obs_column
         pair_manifest["donor_split"] = dict(donor_split) if donor_split is not None else None
+    if held_out_state_coverage is not None:
+        pair_manifest["state_obs_column"] = state_obs_column
+        pair_manifest["held_out_state_coverage"] = held_out_state_coverage
     report_path.write_text(
         json.dumps(pair_manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

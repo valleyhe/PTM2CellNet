@@ -13,9 +13,7 @@ from src.utils.dependency_check import DependencyStatus, MissingDependencyError
 
 
 def test_build_adata_transposes_feature_by_cell_matrix_and_selects_rows():
-    features = pd.DataFrame(
-        [["g1", "MT-ND1", "Gene Expression"], ["g2", "CD3D", "Gene Expression"]]
-    )
+    features = pd.DataFrame([["g1", "MT-ND1", "Gene Expression"], ["g2", "CD3D", "Gene Expression"]])
     # Matrix Market convention: features x barcodes.
     matrix = sparse.csr_matrix(np.asarray([[1, 0, 2], [0, 3, 0]], dtype=np.float32))
     row = {
@@ -46,9 +44,7 @@ def test_qc_groups_by_sample_index_not_obs_labels():
             {"sample_id": ["s1", "s1", "s2"]},
             index=["s1:cell-a", "s1:cell-b", "s2:cell-a"],
         ),
-        var=pd.DataFrame(
-            {"gene_symbol": ["MT-ND1", "CD3D"]}, index=["g1", "g2"]
-        ),
+        var=pd.DataFrame({"gene_symbol": ["MT-ND1", "CD3D"]}, index=["g1", "g2"]),
     )
 
     summary = run_qc_on_adata(result)

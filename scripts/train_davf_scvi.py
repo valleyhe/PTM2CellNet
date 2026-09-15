@@ -63,9 +63,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     if not isinstance(preparation, dict):
         raise ValueError("input H5AD is missing uns['davf_preparation']")
     if preparation.get("modality") != args.modality:
-        raise ValueError(
-            f"input H5AD modality={preparation.get('modality')!r} does not match {args.modality!r}"
-        )
+        raise ValueError(f"input H5AD modality={preparation.get('modality')!r} does not match {args.modality!r}")
     if adata.n_vars != FORMAL_DAVF_NUM_GENES:
         raise ValueError(f"input H5AD must have {FORMAL_DAVF_NUM_GENES} genes, got {adata.n_vars}")
     if tuple(map(str, adata.var_names)) != tuple(preparation.get("gene_names", ())):

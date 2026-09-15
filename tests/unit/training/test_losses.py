@@ -74,9 +74,7 @@ class TestFocalLossAlphaWeighting:
 
         total = sum(class_counts)
         num_classes = len(class_counts)
-        expected_alpha = torch.tensor([
-            total / (num_classes * c) for c in class_counts
-        ])
+        expected_alpha = torch.tensor([total / (num_classes * c) for c in class_counts])
         expected_alpha = expected_alpha / expected_alpha.mean()
 
         assert loss_fn.alpha is not None
@@ -84,12 +82,14 @@ class TestFocalLossAlphaWeighting:
 
     def test_alpha_weighting_effect(self):
         """验证alpha加权改变损失值"""
-        logits = torch.tensor([
-            [2.0, 0.0],
-            [2.0, 0.0],
-            [2.0, 0.0],
-            [0.0, 2.0],
-        ])
+        logits = torch.tensor(
+            [
+                [2.0, 0.0],
+                [2.0, 0.0],
+                [2.0, 0.0],
+                [0.0, 2.0],
+            ]
+        )
         targets = torch.tensor([0, 0, 0, 1])
 
         loss_no_alpha = FocalLoss(alpha=None)(logits, targets)
@@ -116,10 +116,12 @@ class TestFocalLossGammaEffect:
 
     def test_gamma_downweights_easy(self):
         """gamma=2.0比gamma=1.0损失更小"""
-        logits = torch.tensor([
-            [5.0, 0.0],
-            [5.0, 0.0],
-        ])
+        logits = torch.tensor(
+            [
+                [5.0, 0.0],
+                [5.0, 0.0],
+            ]
+        )
         targets = torch.tensor([0, 0])
 
         loss_gamma_1 = FocalLoss(gamma=1.0)(logits, targets)

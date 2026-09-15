@@ -22,13 +22,14 @@ logger = logging.getLogger(__name__)
 
 try:
     import requests as _requests
+
     _REQUESTS_AVAILABLE = True
 except ImportError:
     _REQUESTS_AVAILABLE = False
 
 
 # Exception types to catch when gene mapper makes network calls.
-_NetworkError: Type[Exception]  
+_NetworkError: Type[Exception]
 if _REQUESTS_AVAILABLE:
     _NetworkError = _requests.RequestException
 else:
@@ -54,35 +55,35 @@ DIRECTION_OE = 2  # Overexpr  — effect=+1   (e.g. activating PTMs)
 # cover additional biologically relevant PTM types.
 PTM_DIRECTION_MAP: Dict[str, int] = {
     # Core signaling PTMs (D-01..D-07)
-    "phosphorylation": DIRECTION_OE,   # activates signaling pathways
-    "ubiquitination":  DIRECTION_KO,   # marks for degradation
-    "acetylation":     DIRECTION_OE,   # enhances activity
-    "methylation":     DIRECTION_OE,   # stabilizing/activating (context-dependent, see below)
-    "sumoylation":     DIRECTION_KD,   # partial inhibition
-    "neddylation":     DIRECTION_OE,   # activates cullin-RING ligases
+    "phosphorylation": DIRECTION_OE,  # activates signaling pathways
+    "ubiquitination": DIRECTION_KO,  # marks for degradation
+    "acetylation": DIRECTION_OE,  # enhances activity
+    "methylation": DIRECTION_OE,  # stabilizing/activating (context-dependent, see below)
+    "sumoylation": DIRECTION_KD,  # partial inhibition
+    "neddylation": DIRECTION_OE,  # activates cullin-RING ligases
     # Extended PTM types (V22-05)
-    "succinylation":   DIRECTION_OE,   # metabolic / mitochondrial activation
-    "malonylation":    DIRECTION_KD,   # metabolic regulation, often repressive
-    "glutarylation":   DIRECTION_KD,   # metabolic regulation, often repressive
-    "glycosylation":   DIRECTION_OE,   # enhances stability / secretion
-    "palmitoylation":  DIRECTION_OE,   # enhances membrane localization
-    "hydroxylation":   DIRECTION_OE,   # stabilizing (e.g. HIF1A context)
-    "oxidation":       DIRECTION_OE,   # redox signaling activation
-    "nitrosylation":   DIRECTION_OE,   # activates signaling (e.g. SNO)
-    "adpribosylation": DIRECTION_KD,   # modifies / inhibits target
-    "deamidation":     DIRECTION_KD,   # alters function, often inactivating
-    "citrullination":  DIRECTION_KD,   # alters charge, often inactivating
-    "lactylation":     DIRECTION_OE,   # activates gene expression (recent)
-    "crotonylation":   DIRECTION_OE,   # activates gene expression
-    "propionylation":  DIRECTION_OE,   # activates gene expression
-    "butyrylation":    DIRECTION_OE,   # activates gene expression
-    "formylation":     DIRECTION_OE,   # regulatory
-    "carbonylation":   DIRECTION_KD,   # oxidative damage marker, inactivating
-    "sulfation":       DIRECTION_OE,   # enhances protein-protein interaction
-    "myristoylation":  DIRECTION_OE,   # enhances membrane localization
-    "prenylation":     DIRECTION_OE,   # enhances membrane localization
-    "disulfidebond":   DIRECTION_OE,   # stabilizes structure
-    "amidation":       DIRECTION_OE,   # stabilizes / activates peptide
+    "succinylation": DIRECTION_OE,  # metabolic / mitochondrial activation
+    "malonylation": DIRECTION_KD,  # metabolic regulation, often repressive
+    "glutarylation": DIRECTION_KD,  # metabolic regulation, often repressive
+    "glycosylation": DIRECTION_OE,  # enhances stability / secretion
+    "palmitoylation": DIRECTION_OE,  # enhances membrane localization
+    "hydroxylation": DIRECTION_OE,  # stabilizing (e.g. HIF1A context)
+    "oxidation": DIRECTION_OE,  # redox signaling activation
+    "nitrosylation": DIRECTION_OE,  # activates signaling (e.g. SNO)
+    "adpribosylation": DIRECTION_KD,  # modifies / inhibits target
+    "deamidation": DIRECTION_KD,  # alters function, often inactivating
+    "citrullination": DIRECTION_KD,  # alters charge, often inactivating
+    "lactylation": DIRECTION_OE,  # activates gene expression (recent)
+    "crotonylation": DIRECTION_OE,  # activates gene expression
+    "propionylation": DIRECTION_OE,  # activates gene expression
+    "butyrylation": DIRECTION_OE,  # activates gene expression
+    "formylation": DIRECTION_OE,  # regulatory
+    "carbonylation": DIRECTION_KD,  # oxidative damage marker, inactivating
+    "sulfation": DIRECTION_OE,  # enhances protein-protein interaction
+    "myristoylation": DIRECTION_OE,  # enhances membrane localization
+    "prenylation": DIRECTION_OE,  # enhances membrane localization
+    "disulfidebond": DIRECTION_OE,  # stabilizes structure
+    "amidation": DIRECTION_OE,  # stabilizes / activates peptide
 }
 
 # Default direction for unknown PTM types (D-07)
@@ -109,15 +110,10 @@ def register_ptm_direction(ptm_type: str, direction: int, overwrite: bool = Fals
             is False and ``ptm_type`` is already registered.
     """
     if direction not in (DIRECTION_KO, DIRECTION_KD, DIRECTION_OE):
-        raise ValueError(
-            f"direction must be 0 (KO), 1 (KD) or 2 (OE), got {direction}"
-        )
+        raise ValueError(f"direction must be 0 (KO), 1 (KD) or 2 (OE), got {direction}")
     normalized = ptm_type.lower().replace("-", "").replace("_", "").replace(" ", "")
     if not overwrite and normalized in PTM_DIRECTION_MAP:
-        raise ValueError(
-            f"PTM type '{ptm_type}' already registered; "
-            "pass overwrite=True to override"
-        )
+        raise ValueError(f"PTM type '{ptm_type}' already registered; pass overwrite=True to override")
     PTM_DIRECTION_MAP[normalized] = direction
     logger.debug("Registered PTM direction: %s -> %d", ptm_type, direction)
 
@@ -135,23 +131,21 @@ def register_ptm_direction(ptm_type: str, direction: int, overwrite: bool = Fals
 # ``pathway_context`` string.
 PTM_PATHWAY_CONTEXT_OVERRIDES: Dict[Tuple[str, str], int] = {
     # Methylation is repressive in chromatin / gene-regulation contexts
-    ("methylation", "chromatin"):     DIRECTION_KD,
-    ("methylation", "histone"):       DIRECTION_KD,
-    ("methylation", "dna damage"):    DIRECTION_KD,
+    ("methylation", "chromatin"): DIRECTION_KD,
+    ("methylation", "histone"): DIRECTION_KD,
+    ("methylation", "dna damage"): DIRECTION_KD,
     ("methylation", "gene regulation"): DIRECTION_KD,
     ("methylation", "transcription"): DIRECTION_KD,
     # Ubiquitination can be activating in NF-kB context (degradation of IkB)
-    ("ubiquitination", "nf-kb"):      DIRECTION_OE,
+    ("ubiquitination", "nf-kb"): DIRECTION_OE,
     ("ubiquitination", "inflammation"): DIRECTION_OE,
     # Sumoylation is activating in nuclear transcription contexts
     ("sumoylation", "transcription"): DIRECTION_OE,
-    ("sumoylation", "nuclear"):       DIRECTION_OE,
+    ("sumoylation", "nuclear"): DIRECTION_OE,
 }
 
 
-def register_pathway_context_override(
-    ptm_type: str, pathway_keyword: str, direction: int
-) -> None:
+def register_pathway_context_override(ptm_type: str, pathway_keyword: str, direction: int) -> None:
     """V22-03: Register a context-aware direction override at runtime.
 
     Args:
@@ -163,14 +157,14 @@ def register_pathway_context_override(
         ValueError: If ``direction`` is not in {0, 1, 2}.
     """
     if direction not in (DIRECTION_KO, DIRECTION_KD, DIRECTION_OE):
-        raise ValueError(
-            f"direction must be 0 (KO), 1 (KD) or 2 (OE), got {direction}"
-        )
+        raise ValueError(f"direction must be 0 (KO), 1 (KD) or 2 (OE), got {direction}")
     normalized = ptm_type.lower().replace("-", "").replace("_", "").replace(" ", "")
     PTM_PATHWAY_CONTEXT_OVERRIDES[(normalized, pathway_keyword.lower())] = direction
     logger.debug(
         "Registered context override: (%s, %s) -> %d",
-        ptm_type, pathway_keyword, direction,
+        ptm_type,
+        pathway_keyword,
+        direction,
     )
 
 
@@ -187,6 +181,7 @@ class PTMDirectionMapperOutput:
         directions: [B, K] tensor of direction codes: 0=KO, 1=KD, 2=OE (long)
         attention_mask: [B, K] tensor: 1 for valid targets, 0 for padding/masked (float)
     """
+
     gene_ids: torch.Tensor
     directions: torch.Tensor
     attention_mask: torch.Tensor
@@ -229,10 +224,12 @@ class PTMDirectionMapper:
         """
         if geneformer_loader is None and gene_to_idx is None:
             from src.models.geneformer_embedding import get_geneformer_loader
+
             geneformer_loader = get_geneformer_loader()
 
         if gene_mapper is None and gene_to_idx is None:
             from src.analysis.gene_mapper import GeneMapper
+
             gene_mapper = GeneMapper()
 
         self.geneformer_loader = geneformer_loader
@@ -252,13 +249,7 @@ class PTMDirectionMapper:
         Returns:
             Normalized string (e.g., "phosphorylation")
         """
-        return (
-            ptm_type
-            .lower()
-            .replace("-", "")
-            .replace("_", "")
-            .replace(" ", "")
-        )
+        return ptm_type.lower().replace("-", "").replace("_", "").replace(" ", "")
 
     def _get_direction(
         self,
@@ -292,7 +283,9 @@ class PTMDirectionMapper:
                 if ctx_ptm == normalized and keyword in ctx_lower:
                     logger.debug(
                         "Context override for '%s' in context '%s' -> direction=%d",
-                        ptm_type, pathway_context, direction,
+                        ptm_type,
+                        pathway_context,
+                        direction,
                     )
                     return direction
 
@@ -300,9 +293,7 @@ class PTMDirectionMapper:
         direction = PTM_DIRECTION_MAP.get(normalized, DEFAULT_DIRECTION)
 
         if normalized not in PTM_DIRECTION_MAP:
-            logger.debug(
-                f"Unknown PTM type '{ptm_type}', defaulting to OE (direction=2)"
-            )
+            logger.debug(f"Unknown PTM type '{ptm_type}', defaulting to OE (direction=2)")
 
         return direction
 
@@ -330,11 +321,7 @@ class PTMDirectionMapper:
         if self.gene_to_idx is not None:
             normalized_gene_name = gene_name.strip()
             candidate_names = (normalized_gene_name, normalized_gene_name.upper())
-            candidate_tokens = {
-                int(self.gene_to_idx[name])
-                for name in candidate_names
-                if name in self.gene_to_idx
-            }
+            candidate_tokens = {int(self.gene_to_idx[name]) for name in candidate_names if name in self.gene_to_idx}
             if len(candidate_tokens) == 1:
                 return candidate_tokens.pop(), 1
             if len(candidate_tokens) > 1:
@@ -434,10 +421,7 @@ class PTMDirectionMapper:
         """
         # Validate parallel lists
         if len(ptm_sites) != len(gene_names):
-            raise ValueError(
-                f"ptm_sites ({len(ptm_sites)}) and gene_names ({len(gene_names)}) "
-                "must have same length"
-            )
+            raise ValueError(f"ptm_sites ({len(ptm_sites)}) and gene_names ({len(gene_names)}) must have same length")
 
         # Handle empty input (D-16)
         if not ptm_sites:
@@ -457,9 +441,7 @@ class PTMDirectionMapper:
             gene_id, valid = self._resolve_gene_id(gene_name)
 
             # Get direction code (context-aware when pathway_context given, V22-03)
-            direction = self._get_direction(
-                self._get_ptm_type(ptm_site), pathway_context
-            )
+            direction = self._get_direction(self._get_ptm_type(ptm_site), pathway_context)
 
             gene_ids.append(gene_id if valid else 0)
             directions.append(direction)
@@ -497,10 +479,7 @@ class PTMDirectionMapper:
             )
         token_id, valid = self._resolve_gene_id(gene_name)
         if not valid:
-            raise KeyError(
-                f"gene {gene_name!r} is absent or ambiguous in the verified "
-                "PerturbGen vocabulary"
-            )
+            raise KeyError(f"gene {gene_name!r} is absent or ambiguous in the verified PerturbGen vocabulary")
         return int(token_id)
 
     def map_intervention_targets(
@@ -527,8 +506,7 @@ class PTMDirectionMapper:
             raise ValueError("formal DAVF intervention targets must not be empty")
         if len(gene_names) > self.max_targets:
             raise ValueError(
-                "formal DAVF intervention target count exceeds max_targets: "
-                f"{len(gene_names)} > {self.max_targets}"
+                f"formal DAVF intervention target count exceeds max_targets: {len(gene_names)} > {self.max_targets}"
             )
 
         token_ids = [self.resolve_verified_gene_token(name) for name in gene_names]
@@ -559,10 +537,7 @@ class PTMDirectionMapper:
 
         if not batch_gene_names:
             raise ValueError("formal DAVF intervention batch must not be empty")
-        rows = [
-            self.map_intervention_targets(gene_names, intervention_type)
-            for gene_names in batch_gene_names
-        ]
+        rows = [self.map_intervention_targets(gene_names, intervention_type) for gene_names in batch_gene_names]
         return PTMDirectionMapperOutput(
             gene_ids=torch.cat([row.gene_ids for row in rows], dim=0),
             directions=torch.cat([row.directions for row in rows], dim=0),
@@ -601,10 +576,7 @@ class PTMDirectionMapper:
             )
 
         if pathway_contexts is not None and len(pathway_contexts) != B:
-            raise ValueError(
-                f"pathway_contexts ({len(pathway_contexts)}) must match batch "
-                f"size ({B})"
-            )
+            raise ValueError(f"pathway_contexts ({len(pathway_contexts)}) must match batch size ({B})")
 
         # Initialize output tensors
         all_gene_ids = torch.zeros(B, K, dtype=torch.long)
@@ -640,24 +612,24 @@ class PTMDirectionMapper:
         if pathway_mapper is None:
             return
 
-        pathways = getattr(pathway_mapper, 'pathways', {})
+        pathways = getattr(pathway_mapper, "pathways", {})
         if not pathways:
             return
 
         # Context-aware overrides derived from pathway descriptions
         context_keywords = {
-            'chromatin': ['methylation', 'acetylation'],
-            'histone': ['methylation', 'acetylation', 'ubiquitination'],
-            'dna damage': ['phosphorylation', 'ubiquitination', 'sumoylation'],
-            'nf-kb': ['ubiquitination', 'phosphorylation'],
-            'inflammation': ['ubiquitination', 'phosphorylation'],
-            'transcription': ['methylation', 'acetylation', 'sumoylation'],
-            'nuclear': ['sumoylation', 'methylation'],
+            "chromatin": ["methylation", "acetylation"],
+            "histone": ["methylation", "acetylation", "ubiquitination"],
+            "dna damage": ["phosphorylation", "ubiquitination", "sumoylation"],
+            "nf-kb": ["ubiquitination", "phosphorylation"],
+            "inflammation": ["ubiquitination", "phosphorylation"],
+            "transcription": ["methylation", "acetylation", "sumoylation"],
+            "nuclear": ["sumoylation", "methylation"],
         }
 
         registered = 0
         for _pathway_name, pathway_info in pathways.items():
-            description = pathway_info.get('description', '').lower()
+            description = pathway_info.get("description", "").lower()
             pathway_keywords = [kw for kw in context_keywords if kw in description]
 
             for keyword in pathway_keywords:
@@ -678,9 +650,7 @@ class PTMDirectionMapper:
         register_ptm_direction(ptm_type, direction, overwrite=overwrite)
 
     @staticmethod
-    def register_context_override(
-        ptm_type: str, pathway_keyword: str, direction: int
-    ) -> None:
+    def register_context_override(ptm_type: str, pathway_keyword: str, direction: int) -> None:
         """Register a pathway-context-aware direction override (V22-03)."""
         register_pathway_context_override(ptm_type, pathway_keyword, direction)
 

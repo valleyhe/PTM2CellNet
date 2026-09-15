@@ -51,9 +51,7 @@ class AlphaFoldClient:
             logger.error("Unexpected error checking AlphaFold API: %s", e)
             return False
 
-    def predict_structure(
-        self, sequence: str, **kwargs: str
-    ) -> StructurePrediction:
+    def predict_structure(self, sequence: str, **kwargs: str) -> StructurePrediction:
         """Predict the 3D structure of a protein.
 
         Tries the EBI AlphaFold Database API first (requires *uniprot_id* in

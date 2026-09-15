@@ -70,14 +70,11 @@ class TestDefaultEntrypoint:
             args = train_mod.parse_args()
         finally:
             __import__("sys").argv = old_argv
-        assert args.config == "configs/smoke/cnn_cpu.yaml", (
-            f"train.py 默认配置应为 smoke 入口，实际为 {args.config}"
-        )
+        assert args.config == "configs/smoke/cnn_cpu.yaml", f"train.py 默认配置应为 smoke 入口，实际为 {args.config}"
 
     def test_default_yaml_is_documented_as_research(self):
         """configs/default.yaml must warn it is not the quickstart entrypoint."""
         text = (CONFIGS / "default.yaml").read_text(encoding="utf-8")
         assert "smoke" in text.lower(), (
-            "configs/default.yaml should document that the smoke config is the "
-            "recommended first-run entrypoint (P1-3)."
+            "configs/default.yaml should document that the smoke config is the recommended first-run entrypoint (P1-3)."
         )

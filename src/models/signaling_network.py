@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from src.analysis.pathway_integration import PathwayDatabaseIntegration
+
     PATHWAY_INTEGRATION_AVAILABLE = True
 except ImportError:
     PATHWAY_INTEGRATION_AVAILABLE = False
@@ -117,117 +118,117 @@ class SignalingNetworkMapper:
 
     # 主要信号通路定义
     SIGNALING_PATHWAYS = {
-        'MAPK/ERK': {
-            'description': 'RAS-RAF-MEK-ERK通路',
-            'key_kinases': ['BRAF', 'RAF1', 'MAP2K1', 'MAP2K2', 'MAPK1', 'MAPK3'],
-            'key_substrates': ['EGFR', 'KRAS', 'NRAS', 'HRAS'],
-            'ptm_types': ['Phosphorylation'],
-            'output_genes': ['FOS', 'JUN', 'MYC', 'EGR1'],
+        "MAPK/ERK": {
+            "description": "RAS-RAF-MEK-ERK通路",
+            "key_kinases": ["BRAF", "RAF1", "MAP2K1", "MAP2K2", "MAPK1", "MAPK3"],
+            "key_substrates": ["EGFR", "KRAS", "NRAS", "HRAS"],
+            "ptm_types": ["Phosphorylation"],
+            "output_genes": ["FOS", "JUN", "MYC", "EGR1"],
         },
-        'PI3K/AKT': {
-            'description': 'PI3K-AKT-mTOR通路',
-            'key_kinases': ['PIK3CA', 'PIK3CB', 'AKT1', 'AKT2', 'MTOR'],
-            'key_substrates': ['PTEN', 'PDK1', 'TSC2', 'GSK3B'],
-            'ptm_types': ['Phosphorylation'],
-            'output_genes': ['FOXO1', 'FOXO3', 'S6K', '4EBP1'],
+        "PI3K/AKT": {
+            "description": "PI3K-AKT-mTOR通路",
+            "key_kinases": ["PIK3CA", "PIK3CB", "AKT1", "AKT2", "MTOR"],
+            "key_substrates": ["PTEN", "PDK1", "TSC2", "GSK3B"],
+            "ptm_types": ["Phosphorylation"],
+            "output_genes": ["FOXO1", "FOXO3", "S6K", "4EBP1"],
         },
-        'JAK/STAT': {
-            'description': 'JAK-STAT信号通路',
-            'key_kinases': ['JAK1', 'JAK2', 'JAK3', 'TYK2'],
-            'key_substrates': ['STAT1', 'STAT2', 'STAT3', 'STAT5A', 'STAT5B'],
-            'ptm_types': ['Phosphorylation'],
-            'output_genes': ['SOCS1', 'SOCS3', 'IRF1', 'IRF9'],
+        "JAK/STAT": {
+            "description": "JAK-STAT信号通路",
+            "key_kinases": ["JAK1", "JAK2", "JAK3", "TYK2"],
+            "key_substrates": ["STAT1", "STAT2", "STAT3", "STAT5A", "STAT5B"],
+            "ptm_types": ["Phosphorylation"],
+            "output_genes": ["SOCS1", "SOCS3", "IRF1", "IRF9"],
         },
-        'NF-kB': {
-            'description': 'NF-kB炎症信号通路',
-            'key_kinases': ['IKBKB', 'IKBKA', 'CHUK'],
-            'key_substrates': ['NFKBIA', 'NFKBIB', 'RELA', 'NFKB1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['TNF', 'IL6', 'IL8', 'CXCL10'],
+        "NF-kB": {
+            "description": "NF-kB炎症信号通路",
+            "key_kinases": ["IKBKB", "IKBKA", "CHUK"],
+            "key_substrates": ["NFKBIA", "NFKBIB", "RELA", "NFKB1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["TNF", "IL6", "IL8", "CXCL10"],
         },
-        'Wnt/beta-catenin': {
-            'description': 'Wnt信号通路',
-            'key_kinases': ['GSK3B', 'CSNK1A1', 'CSNK2A1'],
-            'key_substrates': ['CTNNB1', 'APC', 'AXIN1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['MYC', 'CCND1', 'AXIN2', 'LEF1'],
+        "Wnt/beta-catenin": {
+            "description": "Wnt信号通路",
+            "key_kinases": ["GSK3B", "CSNK1A1", "CSNK2A1"],
+            "key_substrates": ["CTNNB1", "APC", "AXIN1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["MYC", "CCND1", "AXIN2", "LEF1"],
         },
-        'Cell Cycle': {
-            'description': '细胞周期调控',
-            'key_kinases': ['CDK1', 'CDK2', 'CDK4', 'CDK6'],
-            'key_substrates': ['RB1', 'TP53', 'CCND1', 'CCNE1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['E2F1', 'E2F2', 'CDKN1A', 'CDKN1B'],
+        "Cell Cycle": {
+            "description": "细胞周期调控",
+            "key_kinases": ["CDK1", "CDK2", "CDK4", "CDK6"],
+            "key_substrates": ["RB1", "TP53", "CCND1", "CCNE1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["E2F1", "E2F2", "CDKN1A", "CDKN1B"],
         },
-        'Apoptosis': {
-            'description': '细胞凋亡通路',
-            'key_kinases': ['CASP3', 'CASP8', 'CASP9'],
-            'key_substrates': ['BCL2', 'BAX', 'PARP1', 'XIAP'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['BCL2L11', 'PMAIP1', 'BBC3'],
+        "Apoptosis": {
+            "description": "细胞凋亡通路",
+            "key_kinases": ["CASP3", "CASP8", "CASP9"],
+            "key_substrates": ["BCL2", "BAX", "PARP1", "XIAP"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["BCL2L11", "PMAIP1", "BBC3"],
         },
-        'DNA Damage': {
-            'description': 'DNA损伤修复',
-            'key_kinases': ['ATM', 'ATR', 'CHEK1', 'CHEK2', 'TP53'],
-            'key_substrates': ['H2AX', 'BRCA1', 'BRCA2', 'RAD51'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination', 'Sumoylation'],
-            'output_genes': ['CDKN1A', 'GADD45A', 'BAX'],
+        "DNA Damage": {
+            "description": "DNA损伤修复",
+            "key_kinases": ["ATM", "ATR", "CHEK1", "CHEK2", "TP53"],
+            "key_substrates": ["H2AX", "BRCA1", "BRCA2", "RAD51"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination", "Sumoylation"],
+            "output_genes": ["CDKN1A", "GADD45A", "BAX"],
         },
-        'TGF-beta': {
-            'description': 'TGF-beta signaling pathway',
-            'key_kinases': ['TGFBR1', 'TGFBR2', 'SMAD2', 'SMAD3', 'SMAD4'],
-            'key_substrates': ['SERPINE1', 'CTGF', 'TGFB1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['PAI1', 'JUN', 'CDKN1A'],
+        "TGF-beta": {
+            "description": "TGF-beta signaling pathway",
+            "key_kinases": ["TGFBR1", "TGFBR2", "SMAD2", "SMAD3", "SMAD4"],
+            "key_substrates": ["SERPINE1", "CTGF", "TGFB1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["PAI1", "JUN", "CDKN1A"],
         },
-        'Hippo': {
-            'description': 'Hippo signaling pathway',
-            'key_kinases': ['STK3', 'STK4', 'LATS1', 'LATS2'],
-            'key_substrates': ['YAP1', 'WWTR1', 'TEAD1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['CTGF', 'CYR61', 'ANKRD1'],
+        "Hippo": {
+            "description": "Hippo signaling pathway",
+            "key_kinases": ["STK3", "STK4", "LATS1", "LATS2"],
+            "key_substrates": ["YAP1", "WWTR1", "TEAD1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["CTGF", "CYR61", "ANKRD1"],
         },
-        'Notch': {
-            'description': 'Notch signaling pathway',
-            'key_kinases': ['NOTCH1', 'NOTCH2', 'ADAM17', 'PSEN1'],
-            'key_substrates': ['RBPJ', 'MAML1', 'HES1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['HES1', 'HEY1', 'NRARP'],
+        "Notch": {
+            "description": "Notch signaling pathway",
+            "key_kinases": ["NOTCH1", "NOTCH2", "ADAM17", "PSEN1"],
+            "key_substrates": ["RBPJ", "MAML1", "HES1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["HES1", "HEY1", "NRARP"],
         },
-        'mTOR': {
-            'description': 'mTOR signaling pathway',
-            'key_kinases': ['MTOR', 'RICTOR', 'RPTOR', 'AKT1S1'],
-            'key_substrates': ['RPS6KB1', 'EIF4EBP1', 'ULK1'],
-            'ptm_types': ['Phosphorylation', 'Ubiquitination'],
-            'output_genes': ['S6K', '4EBP1', 'HIF1A'],
+        "mTOR": {
+            "description": "mTOR signaling pathway",
+            "key_kinases": ["MTOR", "RICTOR", "RPTOR", "AKT1S1"],
+            "key_substrates": ["RPS6KB1", "EIF4EBP1", "ULK1"],
+            "ptm_types": ["Phosphorylation", "Ubiquitination"],
+            "output_genes": ["S6K", "4EBP1", "HIF1A"],
         },
     }
 
     # PTM类型功能影响
     PTM_FUNCTIONAL_IMPACT = {
-        'Phosphorylation': {
-            'gain': '激活激酶活性或蛋白互作',
-            'loss': '失去活性或互作能力',
+        "Phosphorylation": {
+            "gain": "激活激酶活性或蛋白互作",
+            "loss": "失去活性或互作能力",
         },
-        'Ubiquitination': {
-            'gain': '促进蛋白降解',
-            'loss': '蛋白稳定性增加',
+        "Ubiquitination": {
+            "gain": "促进蛋白降解",
+            "loss": "蛋白稳定性增加",
         },
-        'Acetylation': {
-            'gain': '调节蛋白功能或稳定性',
-            'loss': '失去调控',
+        "Acetylation": {
+            "gain": "调节蛋白功能或稳定性",
+            "loss": "失去调控",
         },
-        'Methylation': {
-            'gain': '调节蛋白互作或定位',
-            'loss': '失去调控',
+        "Methylation": {
+            "gain": "调节蛋白互作或定位",
+            "loss": "失去调控",
         },
-        'Sumoylation': {
-            'gain': '调节核定位或转录活性',
-            'loss': '失去核定位',
+        "Sumoylation": {
+            "gain": "调节核定位或转录活性",
+            "loss": "失去核定位",
         },
-        'Succinylation': {
-            'gain': '代谢调控',
-            'loss': '失去代谢调控',
+        "Succinylation": {
+            "gain": "代谢调控",
+            "loss": "失去代谢调控",
         },
     }
 
@@ -310,7 +311,8 @@ class SignalingNetworkMapper:
             except (FileNotFoundError, OSError, ValueError) as e:
                 logger.warning(
                     "无法识别的通路数据库路径 '%s' (%s)。回退到内置通路。",
-                    db_path, e,
+                    db_path,
+                    e,
                 )
                 return
 
@@ -320,7 +322,9 @@ class SignalingNetworkMapper:
             except (ImportError, RuntimeError, ValueError, OSError) as e:
                 logger.warning(
                     "加载 %s 通路失败: %s。%s 通路将仅使用内置数据。",
-                    name, e, name,
+                    name,
+                    e,
+                    name,
                 )
                 continue
             # Merge external pathways into the in-memory pathway map.
@@ -331,17 +335,18 @@ class SignalingNetworkMapper:
                 if pathway_id in self.pathways:
                     continue  # don't shadow built-in pathways
                 self.pathways[f"{name}:{pathway_id}"] = {
-                    'description': f"{name} pathway {pathway_id}",
-                    'key_kinases': [],
-                    'key_substrates': gene_list,
-                    'ptm_types': [],
-                    'output_genes': gene_list,
+                    "description": f"{name} pathway {pathway_id}",
+                    "key_kinases": [],
+                    "key_substrates": gene_list,
+                    "ptm_types": [],
+                    "output_genes": gene_list,
                 }
                 added += 1
 
         logger.info(
             "从外部数据库加载完成：新增 %d 条通路（当前总数 %d）。",
-            added, len(self.pathways),
+            added,
+            len(self.pathways),
         )
 
     def get_missing_pathway_warning(self, pathway_names: List[str]) -> List[str]:
@@ -356,9 +361,9 @@ class SignalingNetworkMapper:
         missing = [name for name in pathway_names if name not in self.pathways]
         if missing:
             logger.warning(
-                "Missing pathways: %s. Available: %s. "
-                "Install sspa for KEGG/Reactome integration.",
-                missing, list(self.pathways.keys()),
+                "Missing pathways: %s. Available: %s. Install sspa for KEGG/Reactome integration.",
+                missing,
+                list(self.pathways.keys()),
             )
         return missing
 
@@ -367,9 +372,9 @@ class SignalingNetworkMapper:
         mapping = defaultdict(set)
 
         for pathway, info in self.pathways.items():
-            for protein in info['key_kinases']:
+            for protein in info["key_kinases"]:
                 mapping[protein].add(pathway)
-            for protein in info['key_substrates']:
+            for protein in info["key_substrates"]:
                 mapping[protein].add(pathway)
 
         return dict(mapping)
@@ -402,17 +407,17 @@ class SignalingNetworkMapper:
             pathway_info = self.pathways[pathway]
 
             # 检查PTM类型是否相关
-            if ptm_type not in pathway_info['ptm_types']:
+            if ptm_type not in pathway_info["ptm_types"]:
                 continue
 
             # 计算影响分数
-            if gene_symbol in pathway_info['key_kinases']:
+            if gene_symbol in pathway_info["key_kinases"]:
                 # 激酶变异影响更大
-                impact_score = 0.8 if effect != 'neutral' else 0.1
-            elif gene_symbol in pathway_info['key_substrates']:
-                impact_score = 0.5 if effect != 'neutral' else 0.1
+                impact_score = 0.8 if effect != "neutral" else 0.1
+            elif gene_symbol in pathway_info["key_substrates"]:
+                impact_score = 0.5 if effect != "neutral" else 0.1
             else:
-                impact_score = 0.2 if effect != 'neutral' else 0.0
+                impact_score = 0.2 if effect != "neutral" else 0.0
 
             pathway_impacts[pathway] = impact_score
 
@@ -435,18 +440,18 @@ class SignalingNetworkMapper:
         pathway_counts: Dict[str, int] = defaultdict(int)
 
         for _, row in ptm_effects.iterrows():
-            gene = row.get('gene_symbol', '')
-            ptm_type = row.get('ptm_type', '')
-            effect = row.get('effect', 'neutral')
-            delta_prob = row.get('delta_prob', 0)
+            gene = row.get("gene_symbol", "")
+            ptm_type = row.get("ptm_type", "")
+            effect = row.get("effect", "neutral")
+            delta_prob = row.get("delta_prob", 0)
 
-            if gene and effect != 'neutral':
+            if gene and effect != "neutral":
                 impacts = self.map_ptm_to_pathway(gene, ptm_type, effect)
 
                 for pathway, score in impacts.items():
                     # 加权累积
                     weight = abs(delta_prob) * score
-                    if effect == 'gain':
+                    if effect == "gain":
                         pathway_activities[pathway] += weight
                     else:
                         pathway_activities[pathway] -= weight
@@ -485,7 +490,7 @@ class SignalingNetworkMapper:
                 continue
 
             # 下游基因受通路活性影响
-            for gene in pathway_info['output_genes']:
+            for gene in pathway_info["output_genes"]:
                 gene_changes[gene] += activity * DOWNSTREAM_GENE_IMPACT_FACTOR  # 假设中等影响
 
         return dict(gene_changes)
@@ -505,10 +510,10 @@ class SignalingNetworkMapper:
 
         for pathway_name, pathway_info in self.pathways.items():
             issues = []
-            has_kinases = bool(pathway_info.get('key_kinases'))
-            has_substrates = bool(pathway_info.get('key_substrates'))
-            has_output = bool(pathway_info.get('output_genes'))
-            has_ptm_types = bool(pathway_info.get('ptm_types'))
+            has_kinases = bool(pathway_info.get("key_kinases"))
+            has_substrates = bool(pathway_info.get("key_substrates"))
+            has_output = bool(pathway_info.get("output_genes"))
+            has_ptm_types = bool(pathway_info.get("ptm_types"))
 
             if not has_kinases:
                 issues.append("no key_kinases")
@@ -520,18 +525,18 @@ class SignalingNetworkMapper:
                 issues.append("no ptm_types")
 
             gene_count = (
-                len(pathway_info.get('key_kinases', [])) +
-                len(pathway_info.get('key_substrates', [])) +
-                len(pathway_info.get('output_genes', []))
+                len(pathway_info.get("key_kinases", []))
+                + len(pathway_info.get("key_substrates", []))
+                + len(pathway_info.get("output_genes", []))
             )
 
             validation_report[pathway_name] = {
-                'validated': len(issues) == 0,
-                'source': 'builtin',
-                'gene_count': gene_count,
-                'kinase_count': len(pathway_info.get('key_kinases', [])),
-                'substrate_count': len(pathway_info.get('key_substrates', [])),
-                'issues': issues,
+                "validated": len(issues) == 0,
+                "source": "builtin",
+                "gene_count": gene_count,
+                "kinase_count": len(pathway_info.get("key_kinases", [])),
+                "substrate_count": len(pathway_info.get("key_substrates", [])),
+                "issues": issues,
             }
 
         return validation_report
@@ -553,29 +558,22 @@ class SignalingNetworkMapper:
             Validation report for each pathway
         """
         if self.pathway_integration is None:
-            logger.warning(
-                "Pathway integration not available; "
-                "using built-in self-consistency validation"
-            )
+            logger.warning("Pathway integration not available; using built-in self-consistency validation")
             self._validation_report = self._validate_builtin_pathways()
             return self._validation_report
 
         try:
-            self._validation_report = self.pathway_integration.validate_builtin_pathways(
-                min_coverage=min_coverage
-            )
+            self._validation_report = self.pathway_integration.validate_builtin_pathways(min_coverage=min_coverage)
 
             # Log results
-            validated_count = sum(
-                1 for r in self._validation_report.values() if r['validated']
-            )
+            validated_count = sum(1 for r in self._validation_report.values() if r["validated"])
             logger.info(
                 f"Pathway validation: {validated_count}/{len(self.pathways)} "
                 f"pathways meet {min_coverage:.0%} coverage threshold"
             )
 
             for pathway_name, report in self._validation_report.items():
-                status = "✓" if report['validated'] else "✗"
+                status = "✓" if report["validated"] else "✗"
                 logger.info(
                     f"  {status} {pathway_name}: {report['coverage']:.1%} coverage "
                     f"(match: {report['reactome_match_id']})"
@@ -592,29 +590,29 @@ class SignalingNetworkMapper:
         """Check if a pathway passed external validation."""
         if self._validation_report is None:
             return False
-        return bool(self._validation_report.get(pathway_name, {}).get('validated', False))
+        return bool(self._validation_report.get(pathway_name, {}).get("validated", False))
 
     def get_validation_summary(self) -> Dict:
         """Get summary of pathway validation results."""
         if self._validation_report is None:
             if self.pathways:
                 return {
-                    'status': 'builtin_only',
-                    'total_pathways': len(self.pathways),
-                    'note': 'External KEGG/Reactome validation not available. '
-                            'Install sspa (pip install sspa) for full validation.',
+                    "status": "builtin_only",
+                    "total_pathways": len(self.pathways),
+                    "note": "External KEGG/Reactome validation not available. "
+                    "Install sspa (pip install sspa) for full validation.",
                 }
-            return {'status': 'not_validated'}
+            return {"status": "not_validated"}
 
         total = len(self._validation_report)
-        validated = sum(1 for r in self._validation_report.values() if r['validated'])
+        validated = sum(1 for r in self._validation_report.values() if r["validated"])
 
         return {
-            'status': 'validated',
-            'total_pathways': total,
-            'validated_pathways': validated,
-            'validation_rate': validated / total if total > 0 else 0,
-            'pathways': self._validation_report,
+            "status": "validated",
+            "total_pathways": total,
+            "validated_pathways": validated,
+            "validation_rate": validated / total if total > 0 else 0,
+            "pathways": self._validation_report,
         }
 
     def generate_network_report(
@@ -640,29 +638,25 @@ class SignalingNetworkMapper:
 
         # 识别关键通路
         key_pathways = [
-            (p, a) for p, a in sorted(
-                pathway_activities.items(),
-                key=lambda x: abs(x[1]),
-                reverse=True
-            ) if abs(a) > 0.2
+            (p, a) for p, a in sorted(pathway_activities.items(), key=lambda x: abs(x[1]), reverse=True) if abs(a) > 0.2
         ][:5]
 
         # 生成报告
         report = {
-            'summary': {
-                'total_ptm_changes': len(ptm_effects),
-                'significant_changes': len(ptm_effects[ptm_effects['effect'] != 'neutral']),
-                'affected_pathways': len([a for a in pathway_activities.values() if abs(a) > 0.1]),
+            "summary": {
+                "total_ptm_changes": len(ptm_effects),
+                "significant_changes": len(ptm_effects[ptm_effects["effect"] != "neutral"]),
+                "affected_pathways": len([a for a in pathway_activities.values() if abs(a) > 0.1]),
             },
-            'pathway_activities': pathway_activities,
-            'key_pathways': key_pathways,
-            'downstream_genes': downstream_genes,
-            'interpretation': self._generate_interpretation(pathway_activities, downstream_genes),
+            "pathway_activities": pathway_activities,
+            "key_pathways": key_pathways,
+            "downstream_genes": downstream_genes,
+            "interpretation": self._generate_interpretation(pathway_activities, downstream_genes),
         }
 
         # Add validation info if available
         if include_validation and self._validation_report:
-            report['pathway_validation'] = self.get_validation_summary()
+            report["pathway_validation"] = self.get_validation_summary()
 
         return report
 
@@ -675,14 +669,10 @@ class SignalingNetworkMapper:
         interpretations = []
 
         # 分析主要通路变化
-        for pathway, activity in sorted(
-            pathway_activities.items(),
-            key=lambda x: abs(x[1]),
-            reverse=True
-        )[:3]:
+        for pathway, activity in sorted(pathway_activities.items(), key=lambda x: abs(x[1]), reverse=True)[:3]:
             if abs(activity) > 0.2:
                 direction = "激活" if activity > 0 else "抑制"
-                pathway_name = self.pathways[pathway]['description']
+                pathway_name = self.pathways[pathway]["description"]
                 interpretations.append(f"- {pathway_name}通路可能被{direction} (分数: {activity:.2f})")
 
         if not interpretations:
@@ -723,12 +713,14 @@ class PTMNetworkAnalyzer:
         # 转换为DataFrame
         effects_list = []
         for ptm_type, effect in ptm_effects.items():
-            effects_list.append({
-                'gene_symbol': gene_symbol,
-                'ptm_type': ptm_type,
-                'effect': effect.get('effect', 'neutral'),
-                'delta_prob': effect.get('delta_prob', 0),
-            })
+            effects_list.append(
+                {
+                    "gene_symbol": gene_symbol,
+                    "ptm_type": ptm_type,
+                    "effect": effect.get("effect", "neutral"),
+                    "delta_prob": effect.get("delta_prob", 0),
+                }
+            )
 
         ptm_df = pd.DataFrame(effects_list)
 
@@ -736,15 +728,15 @@ class PTMNetworkAnalyzer:
         network_report = self.mapper.generate_network_report(ptm_df)
 
         return {
-            'variant': {
-                'gene_symbol': gene_symbol,
-                'uniprot_id': uniprot_id,
-                'position': position,
-                'ref_aa': ref_aa,
-                'alt_aa': alt_aa,
+            "variant": {
+                "gene_symbol": gene_symbol,
+                "uniprot_id": uniprot_id,
+                "position": position,
+                "ref_aa": ref_aa,
+                "alt_aa": alt_aa,
             },
-            'ptm_effects': ptm_effects,
-            'network_effects': network_report,
+            "ptm_effects": ptm_effects,
+            "network_effects": network_report,
         }
 
 
@@ -757,23 +749,23 @@ def create_pathway_visualization(
         import matplotlib.pyplot as plt
         import matplotlib
 
-        matplotlib.use('Agg')  # 非交互式后端
+        matplotlib.use("Agg")  # 非交互式后端
 
         pathways = list(pathway_activities.keys())
         activities = list(pathway_activities.values())
 
         # 颜色映射
-        colors = ['green' if a > 0 else 'red' for a in activities]
+        colors = ["green" if a > 0 else "red" for a in activities]
 
         fig, ax = plt.subplots(figsize=(10, 6))
         _ = ax.barh(pathways, activities, color=colors, alpha=0.7)
 
-        ax.set_xlabel('Activity Change')
-        ax.set_title('Signaling Pathway Activity Changes')
-        ax.axvline(x=0, color='black', linestyle='-', linewidth=0.5)
+        ax.set_xlabel("Activity Change")
+        ax.set_title("Signaling Pathway Activity Changes")
+        ax.axvline(x=0, color="black", linestyle="-", linewidth=0.5)
 
         plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
         plt.close()
 
         logger.info(f"可视化保存至: {output_path}")

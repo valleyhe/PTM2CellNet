@@ -86,9 +86,7 @@ class _FakeDAVF:
                 embedding_provenance="outputs/perturbgen/asset",
                 confidence=0.5,
             )
-            for symbol, ensembl_id in zip(
-                target_gene_symbols, target_ensembl_ids, strict=True
-            )
+            for symbol, ensembl_id in zip(target_gene_symbols, target_ensembl_ids, strict=True)
         ]
 
 

@@ -91,9 +91,7 @@ class TestDataPreprocessor:
 
     def test_clean_sequences_uppercases_and_strips_whitespace(self):
         """合法序列应被清洗（去空白、转大写）后保留。"""
-        df = pd.DataFrame(
-            [{"sequence": " ac def ghik ", "cell_state": "a"}]
-        )
+        df = pd.DataFrame([{"sequence": " ac def ghik ", "cell_state": "a"}])
         preprocessor = DataPreprocessor()
         cleaned = preprocessor.clean_sequences(df)
 
@@ -149,9 +147,7 @@ class TestDataPreprocessor:
                 },
                 {
                     "sequence": "ACDEFGHIKL",  # 长度 10
-                    "ptm_sites": json.dumps(
-                        [{"position": 3, "type": "acetylation"}]
-                    ),
+                    "ptm_sites": json.dumps([{"position": 3, "type": "acetylation"}]),
                     "cell_state": "b",
                 },
             ]
@@ -268,12 +264,8 @@ class TestDataPreprocessor:
         df = pd.DataFrame(rows)
 
         preprocessor = DataPreprocessor()
-        train1, val1, test1 = preprocessor.split_dataset(
-            df, ratios=(0.7, 0.15, 0.15), random_state=42
-        )
-        train2, val2, test2 = preprocessor.split_dataset(
-            df, ratios=(0.7, 0.15, 0.15), random_state=42
-        )
+        train1, val1, test1 = preprocessor.split_dataset(df, ratios=(0.7, 0.15, 0.15), random_state=42)
+        train2, val2, test2 = preprocessor.split_dataset(df, ratios=(0.7, 0.15, 0.15), random_state=42)
 
         assert list(train1.index) == list(train2.index)
         assert list(val1.index) == list(val2.index)
@@ -303,10 +295,7 @@ class TestDataPreprocessor:
             for _ in range(40)
         ]
         # 混入若干无效序列（应被清洗删除）
-        rows += [
-            {"sequence": "ACXDEFGHIK", "ptm_sites": json.dumps([]), "cell_state": "a"}
-            for _ in range(5)
-        ]
+        rows += [{"sequence": "ACXDEFGHIK", "ptm_sites": json.dumps([]), "cell_state": "a"} for _ in range(5)]
         df = pd.DataFrame(rows)
 
         preprocessor = DataPreprocessor()
@@ -330,19 +319,10 @@ class TestDataPreprocessor:
     def test_preprocess_to_dataframe_respects_config(self):
         """配置 max_sequence_length 应在端到端流程中生效，超长序列被删除。"""
         config = {"data": {"max_sequence_length": 10}}
-        rows = [
-            {"sequence": "ACDEFGHIK", "ptm_sites": json.dumps([]), "cell_state": "a"}
-            for _ in range(40)
-        ]
-        rows += [
-            {"sequence": "ACDEFGHIK", "ptm_sites": json.dumps([]), "cell_state": "b"}
-            for _ in range(40)
-        ]
+        rows = [{"sequence": "ACDEFGHIK", "ptm_sites": json.dumps([]), "cell_state": "a"} for _ in range(40)]
+        rows += [{"sequence": "ACDEFGHIK", "ptm_sites": json.dumps([]), "cell_state": "b"} for _ in range(40)]
         # 超长序列，应在 clean_sequences 阶段被删除
-        rows += [
-            {"sequence": "ACDEFGHIKLMNPQRSTVWY", "ptm_sites": json.dumps([]), "cell_state": "a"}
-            for _ in range(5)
-        ]
+        rows += [{"sequence": "ACDEFGHIKLMNPQRSTVWY", "ptm_sites": json.dumps([]), "cell_state": "a"} for _ in range(5)]
         df = pd.DataFrame(rows)
 
         preprocessor = DataPreprocessor(config)

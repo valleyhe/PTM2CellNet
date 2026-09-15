@@ -22,6 +22,7 @@ from src.models.biperturb import (
 # BiPerturbConfig tests
 # ---------------------------------------------------------------------------
 
+
 class TestBiPerturbConfig:
     """Tests for BiPerturbConfig dataclass."""
 
@@ -43,6 +44,7 @@ class TestBiPerturbConfig:
 # ---------------------------------------------------------------------------
 # DirectionEncoder tests
 # ---------------------------------------------------------------------------
+
 
 class TestDirectionEncoder:
     """Tests for DirectionEncoder module."""
@@ -70,6 +72,7 @@ class TestDirectionEncoder:
 # MagnitudeEncoder tests
 # ---------------------------------------------------------------------------
 
+
 class TestMagnitudeEncoder:
     """Tests for MagnitudeEncoder module (backward compatibility)."""
 
@@ -91,6 +94,7 @@ class TestMagnitudeEncoder:
 # ---------------------------------------------------------------------------
 # BiPerturbEncoder tests
 # ---------------------------------------------------------------------------
+
 
 def _small_encoder_config():
     """Minimal BiPerturbConfig for fast testing."""
@@ -196,6 +200,7 @@ class TestBiPerturbEncoder:
 # PerturbationGNN tests
 # ---------------------------------------------------------------------------
 
+
 class TestPerturbationGNN:
     """Tests for PerturbationGNN module."""
 
@@ -213,6 +218,7 @@ class TestPerturbationGNN:
 # BiPerturb full model tests
 # ---------------------------------------------------------------------------
 
+
 class TestBiPerturb:
     """Tests for the full BiPerturb model."""
 
@@ -225,8 +231,12 @@ class TestBiPerturb:
     def test_mismatched_dims_raises(self):
         """hidden_dim != gnn_hidden_dim raises ValueError."""
         config = BiPerturbConfig(
-            gene_embed_dim=8, hidden_dim=8, num_heads=1, num_genes=10,
-            direction_embed_dim=8, gnn_hidden_dim=16,  # mismatch
+            gene_embed_dim=8,
+            hidden_dim=8,
+            num_heads=1,
+            num_genes=10,
+            direction_embed_dim=8,
+            gnn_hidden_dim=16,  # mismatch
         )
         with pytest.raises(ValueError, match="hidden_dim"):
             BiPerturb(config)
@@ -307,6 +317,7 @@ class TestBiPerturb:
 # BiPerturbLoss tests
 # ---------------------------------------------------------------------------
 
+
 class TestBiPerturbLoss:
     """Tests for BiPerturbLoss module."""
 
@@ -338,7 +349,8 @@ class TestBiPerturbLoss:
         mask = torch.tensor([[1, 1], [1, 0]], dtype=torch.float)
 
         result = loss_fn(
-            pred, target,
+            pred,
+            target,
             directions=directions,
             delta_pred=delta_pred,
             target_gene_ids=gene_ids,

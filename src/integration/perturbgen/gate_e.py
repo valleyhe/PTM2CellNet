@@ -73,9 +73,7 @@ class GateEBenchmark:
             try:
                 normalize_ensembl_id(row["ensembl_id"])
             except (KeyError, TypeError, ValueError) as exc:
-                raise GateEError(
-                    f"benchmark row {index} has an invalid ensembl_id: {row.get('ensembl_id')!r}"
-                ) from exc
+                raise GateEError(f"benchmark row {index} has an invalid ensembl_id: {row.get('ensembl_id')!r}") from exc
 
 
 def load_benchmark(path: str | Path) -> GateEBenchmark:
@@ -161,9 +159,7 @@ def evaluate_vocabulary_migration(
         try:
             canonical_ensembl_id = normalize_ensembl_id(row.get("ensembl_id", ""))
         except (TypeError, ValueError) as exc:
-            raise GateEError(
-                f"benchmark row {index} has an invalid ensembl_id: {row.get('ensembl_id')!r}"
-            ) from exc
+            raise GateEError(f"benchmark row {index} has an invalid ensembl_id: {row.get('ensembl_id')!r}") from exc
         if canonical_ensembl_id in new_vocabulary:
             covered += 1
     coverage = covered / len(benchmark.rows) if benchmark.rows else 0.0

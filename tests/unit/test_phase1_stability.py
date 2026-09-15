@@ -9,10 +9,12 @@ from src.training.optimizers import configure_optimizer
 
 def test_sequence_encoding_reserves_zero_for_padding():
     dataset = PTMDataset(
-        df=__import__("pandas").DataFrame([
-            {"sequence": "AC", "ptm_sites": "[]", "cell_state": "x"},
-            {"sequence": "LM", "ptm_sites": "[]", "cell_state": "y"},
-        ]),
+        df=__import__("pandas").DataFrame(
+            [
+                {"sequence": "AC", "ptm_sites": "[]", "cell_state": "x"},
+                {"sequence": "LM", "ptm_sites": "[]", "cell_state": "y"},
+            ]
+        ),
         config={"data": {"max_sequence_length": 8, "valid_amino_acids": "ACDEFGHIKLMNPQRSTVWY"}},
     )
 

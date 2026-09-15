@@ -29,9 +29,7 @@ def test_ci_has_dependency_consistency_job() -> None:
 
 def test_ci_workflows_make_huggingface_offline_mode_explicit() -> None:
     ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    real_assets_workflow = (
-        PROJECT_ROOT / ".github/workflows/perturbgen-real-assets.yml"
-    ).read_text(encoding="utf-8")
+    real_assets_workflow = (PROJECT_ROOT / ".github/workflows/perturbgen-real-assets.yml").read_text(encoding="utf-8")
 
     for workflow in (ci_workflow, real_assets_workflow):
         assert 'HF_HUB_OFFLINE: "1"' in workflow

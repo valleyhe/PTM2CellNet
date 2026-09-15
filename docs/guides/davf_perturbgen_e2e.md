@@ -64,6 +64,12 @@ checkpoint 干预类型。
 要求的协变量；当前 KO/KD 模型要求 `davf_batch`。候选的 symbol/Ensembl pair
 还必须同时存在于 DAVF alias asset 和 verified PerturbGen vocabulary。
 
+候选 JSON 可以手工编写，也可以由上游 PTM activity → AD 交集主线的
+`scripts/build_celltype_candidate_specs.py` 从交集产物生成（同一
+`candidate-spec/v1` 契约；`context_cell_index` 绑定该 cell type 在 cohort
+中的第一个 cell 的位置索引，source 无 verified token 硬失败）。生成方式与
+字段要求见 [PTM activity 管线指南](ptm_activity_pipeline.md) §6。
+
 公开 candidate spec 的每个候选都必须提供 `semantic_context` 的七个字段：
 `context`、`intervention`、`comparison_baseline`、`reference_axis`、
 `research_objective`、`evidence_source`、`cohort`。`research_objective` 只能是
@@ -121,8 +127,13 @@ E2E 报告中的 `statistical_evidence` 默认写 `status="inconclusive"` 和
 primary-mode `within_state` h5ad 提取未扰动质量、以 manifest 绑定的 matched-null
 分布组装 formal 评估输入、执行候选 empirical-p 聚合与 BH-FDR、产出双路径 AND
 判定并把完整 lineage 写回 `statistical_evidence`。该组装需要显式提供
-`--deg-table`（donor/gene_symbol/log2fc/fdr 列）和 `--null-distribution-manifest`
-（`perturbgen_null_distribution/v1` 索引），缺 null/质量/seed 覆盖会硬失败或保持
+`--deg-table`（默认 donor/gene_symbol/log2fc/fdr 列，可用
+`--deg-donor-column/--deg-gene-column/--deg-effect-column/--deg-fdr-column`
+改指其他列名）和 `--null-distribution-manifest`
+（`perturbgen_null_distribution/v1` 索引）；本次运行的 cohort pairing
+（`--perturbgen-cohort-pairing`）会随 Gate-0 spec 一并写入
+`statistical_evidence.pairing` 与评估输入的 `cohort_pairing` lineage 字段。
+缺 null/质量/seed 覆盖会硬失败或保持
 INCONCLUSIVE，绝不产生伪造 p/q。mock、synthetic、smoke 或 bridge 运行不等于
 biology PASS。
 
@@ -175,7 +186,10 @@ report 用于另一份 YAML。
 
 训练与 tokenise 的 donor 身份现已可显式绑定。正式 held-out 声明必须同时提供
 `--train-donors` 与 `--held-out-donors`（≥2 / ≥3、互斥），可选
-`--frozen-cohort-manifest` 按 SHA 逐值核对；缺列表时 `donor_split_status` 为
+`--frozen-cohort-manifest` 按 SHA 逐值核对（manifest 的 `pairing` 字段还须与
+`--perturbgen-cohort-pairing` 一致，between_donor 冻结验收需用
+`run_frozen_acceptance.py --freeze --cohort-pairing between_donor` 生成）；
+缺列表时 `donor_split_status` 为
 `unspecified`，不能声称 held-out 细胞未进入 DAVF/PerturbGen 训练。参数绑定不会
 替代对 cohort 来源和 DAVF 训练 donor 的独立性审计。匹配 null 的
 batch 生成入口是 `scripts/run_matched_null_stages.py`（`--dry-run` 或
@@ -187,6 +201,17 @@ batch 生成入口是 `scripts/run_matched_null_stages.py`（`--dry-run` 或
 由 `--assemble-statistical-evidence` 显式触发（见上文 statistical_evidence 段）；
 不启用时 `build_dual_path_eval_input.py` 与 `evaluate_perturbgen_dual_path.py`
 仍可独立两步调用，但两步调用容易漏接，正式入口应使用 E2E 内置组装。
+
+需要 target-set 下游评估时，才在上述同一条六阶段命令中显式追加
+`--downstream-target-sidecar path/to/downstream_targets_K562.json`；该参数必须与
+`--run-perturbgen` 同用，不自动发现 sidecar，也不是默认步骤，`--dry-run` 不能评估。
+E2E 会读取 sidecar，对每个 source 三方 gate 通过的候选解析 PerturbGen
+`result.h5ad`，按 donor 聚合 `pred_counts` baseline 与 `X` perturbed，计算
+`X - pred_counts` 的 donor-level delta，并将顶层
+`downstream_target_evaluation`（含 per-target 的
+`matches_predicted`/`matches_observed`）及其 lineage 写入报告。该结果是与 source
+三方 gate 互补的方向一致性证据，不改变 source 三方 gate 的 pass/fail，也不等于
+因果验证或生物学 PASS。
 
 gate 边界（F-09 的现行约定）：正式 PerturbGen 执行的唯一公开入口是绑定通过
 E2E gate report 的 `scripts/run_perturbgen_pipeline.py --e2e-gate-report` 与

@@ -38,11 +38,13 @@ class PTMDatabaseLoaderMixin:
         def _read_tabular_file(self, file_path: str, sep: Optional[str] = None) -> pd.DataFrame: ...
         def _get_matching_column(self, df: pd.DataFrame, candidates: List[str]) -> Optional[str]: ...
         def _build_ptm_dataframe(
-            self, df: pd.DataFrame,
+            self,
+            df: pd.DataFrame,
             accession_candidates: List[str],
             position_candidates: List[str],
             amino_acid_candidates: List[str],
-            source: str, ptm_type: str,
+            source: str,
+            ptm_type: str,
         ) -> pd.DataFrame: ...
         @staticmethod
         def _normalize_column_name(column_name: str) -> str: ...
@@ -85,16 +87,13 @@ class PTMDatabaseLoaderMixin:
             accession_col = self._get_matching_column(df, ["ACC_ID", "accession", "UniProt Accession"])
             gene_col = self._get_matching_column(df, ["GENE", "gene symbol", "gene"])
             mod_rsd_col = self._get_matching_column(df, ["MOD_RSD", "modified residue"])
-            confidence_col = self._get_matching_column(
-                df, ["confidence", "CONFIDENCE", "site group id", "SITE_GRP_ID"]
-            )
+            confidence_col = self._get_matching_column(df, ["confidence", "CONFIDENCE", "site group id", "SITE_GRP_ID"])
             # 优先匹配真正的 confidence 列；若 PhosphoSitePlus 导出无该列，
             # 则回退到 site group id（非置信度）并在日志中说明。
             # 注意：经 _normalize_column_name 处理后 "site group id" -> "sitegroupid"，
             # 而 "SITE_GRP_ID" -> "sitegrpid"（下划线被移除但 g 与 grp 不同），两者均需覆盖。
             confidence_is_group_id = confidence_col is not None and (
-                self._normalize_column_name(confidence_col)
-                in {"sitegroupid", "sitegrpid"}
+                self._normalize_column_name(confidence_col) in {"sitegroupid", "sitegrpid"}
             )
             if confidence_is_group_id:
                 logger.warning(
@@ -120,9 +119,7 @@ class PTMDatabaseLoaderMixin:
                     "ptm_type": ptm_type,
                     "amino_acid": amino_acids,
                     "confidence": (
-                        pd.to_numeric(df[confidence_col], errors="coerce")
-                        if confidence_col is not None
-                        else pd.NA
+                        pd.to_numeric(df[confidence_col], errors="coerce") if confidence_col is not None else pd.NA
                     ),
                     "source": "PhosphoSitePlus",
                 }
@@ -171,9 +168,7 @@ class PTMDatabaseLoaderMixin:
             logger.error("解析 %s 数据失败: %s", source, exc)
             return self._empty_or_raise(self._empty_ptm_df(), source)
 
-    def load_from_dbptm(
-        self, file_path_or_url: str, ptm_type: str = "phosphorylation"
-    ) -> pd.DataFrame:
+    def load_from_dbptm(self, file_path_or_url: str, ptm_type: str = "phosphorylation") -> pd.DataFrame:
         """
         Load PTM annotations from a dbPTM CSV/TSV export.
 

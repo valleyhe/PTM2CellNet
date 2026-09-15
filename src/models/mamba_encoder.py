@@ -16,6 +16,7 @@ logger = setup_logger(__name__)
 
 try:
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
+
     _HAS_MAMBA_SSM = True
 except ImportError:
     _HAS_MAMBA_SSM = False
@@ -108,9 +109,9 @@ class SelectiveSSM(nn.Module):
         x_ssm, x_gate = x_proj.chunk(2, dim=-1)  # 各 [B, L, d_inner]
 
         # 2. 1D因果卷积
-        x_conv = rearrange(x_ssm, 'b l d -> b d l')
+        x_conv = rearrange(x_ssm, "b l d -> b d l")
         x_conv = self.conv1d(x_conv)[:, :, :L]  # 截断到原始长度
-        x_conv = rearrange(x_conv, 'b d l -> b l d')
+        x_conv = rearrange(x_conv, "b d l -> b l d")
         x_conv = F.silu(x_conv)  # SiLU激活
 
         # 3. 计算选择性参数（输入依赖）
@@ -169,7 +170,7 @@ class SelectiveSSM(nn.Module):
             return self._ssm_step_fused(x, delta, B, C)
 
         # Fallback logging (one-time warning)
-        if not getattr(self, '_fallback_logged', False):
+        if not getattr(self, "_fallback_logged", False):
             logger.info(
                 "Mamba fused kernel not available (mamba_ssm not installed or no CUDA). "
                 "Using vectorized parallel scan implementation."
@@ -200,10 +201,10 @@ class SelectiveSSM(nn.Module):
 
         # 离散化SSM参数
         # A̅ = exp(Δ·A)  [B, L, d_inner, N]
-        A_bar = torch.exp(einsum(delta, self.A, 'b l d, d n -> b l d n'))
+        A_bar = torch.exp(einsum(delta, self.A, "b l d, d n -> b l d n"))
 
         # B̅ = Δ·B  [B, L, d_inner, N]
-        B_bar = einsum(delta, B, 'b l d, b l n -> b l d n')
+        B_bar = einsum(delta, B, "b l d, b l n -> b l d n")
 
         # Pre-compute the D-gated output term D*x once.
         Dx = self.D.unsqueeze(0).unsqueeze(0) * x
@@ -211,13 +212,19 @@ class SelectiveSSM(nn.Module):
 
         # Pre-allocate the output buffer.
         y_out = torch.empty(
-            seq_len, batch_size, d_inner,
-            device=x.device, dtype=x.dtype,
+            seq_len,
+            batch_size,
+            d_inner,
+            device=x.device,
+            dtype=x.dtype,
         )
 
         h = torch.zeros(
-            batch_size, d_inner, self.d_state,
-            device=x.device, dtype=x.dtype,
+            batch_size,
+            d_inner,
+            self.d_state,
+            device=x.device,
+            dtype=x.dtype,
         )
 
         x_perm = x.permute(1, 0, 2).contiguous()  # [L, B, d_inner]
@@ -248,20 +255,20 @@ class SelectiveSSM(nn.Module):
         while our code uses ``(B, L, D)``.  We permute at the boundary.
         """
         # Convert from our (B, L, D) to kernel's (B, D, L) layout
-        u = x.permute(0, 2, 1).contiguous()          # [B, d_inner, L]
+        u = x.permute(0, 2, 1).contiguous()  # [B, d_inner, L]
         delta_perm = delta.permute(0, 2, 1).contiguous()  # [B, d_inner, L]
         # B, C: (B, L, N) -> (B, N, L)  (gets rearranged to (B, 1, N, L) inside)
-        B_perm = B.permute(0, 2, 1).contiguous()     # [B, N, L]
-        C_perm = C.permute(0, 2, 1).contiguous()     # [B, N, L]
+        B_perm = B.permute(0, 2, 1).contiguous()  # [B, N, L]
+        C_perm = C.permute(0, 2, 1).contiguous()  # [B, N, L]
 
         A_param = self.A.contiguous()  # [d_inner, N]
 
         y = selective_scan_fn(
-            u,          # [B, d_inner, L]
-            delta_perm, # [B, d_inner, L]
-            A_param,    # [d_inner, N]
-            B_perm,     # [B, N, L]
-            C_perm,     # [B, N, L]
+            u,  # [B, d_inner, L]
+            delta_perm,  # [B, d_inner, L]
+            A_param,  # [d_inner, N]
+            B_perm,  # [B, N, L]
+            C_perm,  # [B, N, L]
             z=None,
             D=self.D,
             delta_bias=None,
@@ -296,8 +303,8 @@ class SelectiveSSM(nn.Module):
         batch_size, seq_len, d_inner = x.shape
 
         # Discretize: A_bar [B, L, d_inner, N], B_bar [B, L, d_inner, N]
-        A_bar = torch.exp(einsum(delta, self.A, 'b l d, d n -> b l d n'))
-        B_bar = einsum(delta, B, 'b l d, b l n -> b l d n')
+        A_bar = torch.exp(einsum(delta, self.A, "b l d, d n -> b l d n"))
+        B_bar = einsum(delta, B, "b l d, b l n -> b l d n")
 
         # Bx[t] = B_bar[t] * x[t]   [B, L, d_inner, N]
         Bx = B_bar * x.unsqueeze(-1)
@@ -315,7 +322,7 @@ class SelectiveSSM(nn.Module):
         h = cumprod_A * cumsum_Bx  # [B, L, d_inner, N]
 
         # y[t] = C[t] @ h[t]  (einsum: 'b l n, b l d n -> b l d')
-        y = einsum(C, h, 'b l n, b l d n -> b l d')
+        y = einsum(C, h, "b l n, b l d n -> b l d")
 
         # Add D*x
         Dx = self.D.unsqueeze(0).unsqueeze(0) * x  # [B, L, d_inner]
@@ -405,16 +412,18 @@ class MambaEncoder(nn.Module):
         self.embedding = nn.Embedding(vocab_size, hidden_dim, padding_idx=0)
 
         # Mamba块堆叠
-        self.layers = nn.ModuleList([
-            MambaBlock(
-                d_model=hidden_dim,
-                d_state=state_dim,
-                d_conv=d_conv,
-                expand_factor=expand_factor,
-                dropout=dropout,
-            )
-            for _ in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                MambaBlock(
+                    d_model=hidden_dim,
+                    d_state=state_dim,
+                    d_conv=d_conv,
+                    expand_factor=expand_factor,
+                    dropout=dropout,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
         # 最终归一化
         self.norm = nn.LayerNorm(hidden_dim)

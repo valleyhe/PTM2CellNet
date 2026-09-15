@@ -132,8 +132,7 @@ def test_install_requires_is_exact_mirror_of_core(declarations) -> None:
     install, _ = declarations
     core = parse_requirements_file(_CORE_FILE)
     assert set(install) == set(core), (
-        f"package-set drift: only-setup={sorted(set(install) - set(core))} "
-        f"only-core={sorted(set(core) - set(install))}"
+        f"package-set drift: only-setup={sorted(set(install) - set(core))} only-core={sorted(set(core) - set(install))}"
     )
     mismatched = {name for name in install if install[name] != core[name]}
     assert not mismatched, f"version-pin drift in install_requires vs core: {sorted(mismatched)}"
@@ -221,9 +220,7 @@ def parse_lock_file() -> dict:
         if not line:
             continue
         name, _, version = line.partition("==")
-        assert name and version and " " not in version, (
-            f"lock entry is not an exact pin 'name==version': {raw_line!r}"
-        )
+        assert name and version and " " not in version, f"lock entry is not an exact pin 'name==version': {raw_line!r}"
         out[_norm_name(name)] = version
     return out
 

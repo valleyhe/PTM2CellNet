@@ -8,6 +8,7 @@ from typing import Dict, List, TypedDict, Union
 
 class UniProtRecord(TypedDict, total=False):
     """Shape of a single record from the UniProt JSON API response."""
+
     primaryAccession: str
     sequence: Dict[str, str]
     genes: List[Dict[str, Dict[str, str]]]
@@ -15,6 +16,7 @@ class UniProtRecord(TypedDict, total=False):
 
 class UniProtRow(TypedDict, total=False):
     """Row produced by load_from_uniprot before DataFrame construction."""
+
     sequence: str
     gene_symbol: str
     accession: str

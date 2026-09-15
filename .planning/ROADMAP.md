@@ -18,7 +18,7 @@ follow-up proposal remains an acceptance track rather than a completed roadmap
 phase: Gate-0 donor eligibility, Gate-E real DAVF retraining, Gate-4 release
 evidence and Gate-5 scientific validation are still open. See
 `docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`,
-`docs/CURRENT_STATUS.md` and `project_analysis_20260913.md` for current evidence;
+`docs/CURRENT_STATUS.md` and `project_analysis_20260914.md` for current evidence;
 the older `project_analysis_20260901.md` reference is historical only. The E2E
 bridge now performs candidate direction gating and creates a passing invocation;
 E2E defaults to report export and only explicit `--run-perturbgen` runs the
@@ -28,7 +28,7 @@ currently executes a `StagePlan` and does not independently re-check the gate.
 Synthetic fixtures, smoke, bridges and opt-in code paths must not be described as
 real biological validation.
 
-## Active DAVF × PerturbGen acceptance track (2026-09-13)
+## Active DAVF × PerturbGen acceptance track (2026-09-13, updated 2026-09-14)
 
 This is the current work order outside the completed v1.0–v2.2 phase history.
 `src/tgt` are two PerturbGen experiment scenes, not two separate preparation
@@ -37,15 +37,31 @@ candidate enters the experimental validation list.
 
 | Order | Work package | Status | Dependency / completion condition |
 |---|---|---|---|
-| 1 | Direction semantics and independent evidence | **Open** | Freeze `context`, `intervention`, comparison baseline, research objective, source/cohort and train-only/held-out donor records; keep classifier site presence, external candidate direction, observed donor disease−normal and DAVF decode delta distinct. |
-| 2 | Public prepare/reuse and invocation boundary | **Partly implemented** | Specify one fixed cohort/vocabulary/training configuration/asset preparation and candidate-only dual-scene perturb/utility calls. Current orchestrator repeats preparation per candidate; runner executes StagePlan; formal CLI remains bound to passing E2E invocation. |
-| 3 | Statistical continuation | **Interfaces implemented; wiring open** | Connect existing matched-null generation, empirical-p aggregation, formal isolation, unperturbed quality and dual-path AND to E2E report with lineage. Do not re-plan these modules as new from-scratch features. |
-| 4 | Real cohort and formal evidence | **Blocked** | Owner-supplied real normal/disease raw counts, explicit donor, ≥3 shared donors, canonical Ensembl, scVI/embedding manifests, real null/quality/dual-scene statistics and Gate-E/Gate-4/Gate-5 evidence. The four-cohort IBD plan is source planning only. |
+| 1 | Direction semantics and independent evidence | **Landed (contract level)** | Seven-field `semantic_context` is mandatory on formal candidates/invocations (2026-09-13); the PTM activity mainline now records ptm_site/activity/predicted_gene/observed directions as separate fields upstream (2026-09-14). Unified reference-axis research wording remains per-analysis bookkeeping. |
+| 2 | Public prepare/reuse and invocation boundary | **Landed (2026-09-13)** | `orchestrator.build_shared_prepare_plans` runs tokenise/train_mask/train_decoder once per route; candidate loops reuse shared artifacts; formal CLI remains bound to a passing E2E invocation, while the lower-level runner executes a `StagePlan` without re-checking the gate. |
+| 3 | Statistical continuation | **Landed behind explicit flag (2026-09-13)** | `--assemble-statistical-evidence --deg-table --null-distribution-manifest` chains quality → formal eval input → empirical-p/BH-FDR → dual-path AND into `statistical_evidence` lineage; matched-null batch execution stays in `run_matched_null_stages.py`. Real GPU null runs pending. |
+| 4 | Real cohort and formal evidence | **Partially unblocked** | GSE174367 passed between_donor Gate-0 preflight 7/7 cell types and the EX M6 data-contract freeze (train 12 / held-out 6, 90-run plan, 5×99 matched-null selections). Six-stage GPU execution, real null/quality/dual-scene statistics and Gate-E/Gate-4/Gate-5 evidence remain open. scPerturb audit stays 0/30; the four-cohort IBD plan is source planning only. |
 
 No new hash, scheduler, feature flag or compatibility layer is part of this
 track. Workflow A is gate → PerturbGen utility; Workflow B is fixed encoder →
 frozen embedding asset → LatentDAVF retraining → Gate-E, with no candidate-result
 feedback into that export.
+
+## PTM activity → AD intersection mainline (2026-09-14)
+
+Upstream of the acceptance track above, per
+`docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` (v1.0) and
+`docs/guides/ptm_activity_pipeline.md`: global PTM quantification → KSTAR/PhosR
+activity (external environment) → signed-network propagation → per-cell-type AD
+DEG intersection → gene-level intervention candidate specs consumed by the
+unchanged E2E entry.
+
+| Order | Work package | Status | Dependency / completion condition |
+|---|---|---|---|
+| 1 | Stage 0–5 command/data contracts | **Landed (2026-09-14)** | 5 modules + 4 CLIs + 84 tests, synthetic contract pass only (`ptm_research_config` / `ptm_activity` / `signed_network` / `ptm_gene_score` / `downstream_target_evaluation`). |
+| 2 | 方案 §10 external inputs | **Open** | Real PTM site quantification, KSTAR/PhosR activity tables, OmniPath signed-network release export, network id map, activity benchmark, and the AD donor-level DEG table (GSE174367). Until supplied, intersections/candidates stay synthetic-contract-only. |
+| 3 | Downstream-target lineage wiring | **Open** | Write target-set delta evaluation into the E2E report lineage and define the driver–target gate contract; target-set concordance never replaces the source three-way gate. |
+| 4 | Formal biology acceptance | **Open** | Reuses acceptance-track order 4: real six-stage/null runs, M6 `--verify`, Gate-E/Gate-4/Gate-5. |
 
 ## Phases
 
@@ -214,12 +230,13 @@ Phases execute in numeric order: 15 → 16 → 17 → 18 → 19 → 20
 | 19. Cross-Scale Scientific Model | v2.2 | 1/1 | Complete | 2026-08-08 |
 | 20. Verification & Technical Summary | v2.2 | 1/1 | Complete | 2026-08-08 |
 
-The table above is the historical v1.0–v2.2 phase record. The active
-DAVF × PerturbGen acceptance order is the four work packages in the 2026-09-13
-section above; it is not represented as a completed phase. Current Gate-0
-evidence is 0 compliant real cohorts, and no smoke/synthetic/bridge result
-closes Gate-E, Gate-4 or Gate-5.
+The table above is the historical v1.0–v2.2 phase record. The active work order
+is the PTM activity → AD intersection mainline (2026-09-14 section above) feeding
+the DAVF × PerturbGen acceptance packages; neither is represented as a completed
+phase. Gate-0 evidence: scPerturb 0/30 compliant; GSE174367 passed between_donor
+data-contract preflight and the EX M6 freeze, and no smoke/synthetic/bridge
+result closes Gate-E, Gate-4 or Gate-5.
 
 ---
 *Created: 2026-03-30*
-*Updated: 2026-09-13 — v2.2 phase history retained; active DAVF × PerturbGen acceptance order documented above*
+*Updated: 2026-09-14 — PTM activity → AD intersection mainline added; acceptance-track statuses refreshed (prepare/reuse and statistical continuation landed, GSE174367 between_donor preflight + M6 freeze)*

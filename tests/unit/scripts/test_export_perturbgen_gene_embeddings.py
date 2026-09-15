@@ -48,8 +48,18 @@ def test_exporter_rejects_missing_explicit_tensor_key(tmp_path):
     vocabulary.write_text(json.dumps({"ENSG_A": 0}), encoding="utf-8")
     script = Path(__file__).parents[3] / "scripts" / "export_perturbgen_gene_embeddings.py"
     result = subprocess.run(
-        [sys.executable, str(script), "--checkpoint", str(checkpoint), "--tensor-key", "guessed.weight",
-         "--vocabulary", str(vocabulary), "--output-dir", str(tmp_path / "asset")],
+        [
+            sys.executable,
+            str(script),
+            "--checkpoint",
+            str(checkpoint),
+            "--tensor-key",
+            "guessed.weight",
+            "--vocabulary",
+            str(vocabulary),
+            "--output-dir",
+            str(tmp_path / "asset"),
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -67,10 +77,21 @@ def test_exporter_accepts_flat_dotted_state_dict_key(tmp_path):
     vocabulary.write_text(json.dumps({"ENSG_A": 0, "ENSG_B": 1}), encoding="utf-8")
     script = Path(__file__).parents[3] / "scripts" / "export_perturbgen_gene_embeddings.py"
     result = subprocess.run(
-        [sys.executable, str(script), "--checkpoint", str(checkpoint),
-         "--tensor-key", "transformer.encoder.embedding.weight",
-         "--vocabulary", str(vocabulary), "--output-dir", str(output)],
-        check=False, capture_output=True, text=True,
+        [
+            sys.executable,
+            str(script),
+            "--checkpoint",
+            str(checkpoint),
+            "--tensor-key",
+            "transformer.encoder.embedding.weight",
+            "--vocabulary",
+            str(vocabulary),
+            "--output-dir",
+            str(output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stderr
 

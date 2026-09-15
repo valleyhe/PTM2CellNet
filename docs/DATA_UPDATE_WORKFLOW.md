@@ -100,10 +100,12 @@ split; do not fill missing semantics with a global sign flip.
 
 The current code already provides matched-null generation, candidate empirical-p
 aggregation, formal input isolation, unperturbed quality extraction, donor split
-and dual-path AND interfaces. This workflow must connect those interfaces to the
-E2E report before calling the output formal evidence; a report that only lists a
-`stage_manifest` is an engineering record.
+and dual-path AND interfaces. E2E chains them behind
+`--assemble-statistical-evidence` (2026-09-13) while matched-null batch execution
+stays in `run_matched_null_stages.py`; passing synthetic fixtures through this
+workflow still produces an engineering record, not formal evidence.
 
 Execution references are [`CURRENT_STATUS`](CURRENT_STATUS.md), the [central
-dual-path plan](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md), and
-[`task_plan.md`](../task_plan.md).
+dual-path plan](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md), the
+[PTM activity mainline guide](guides/ptm_activity_pipeline.md), and
+[`task_plan.md`](../.planning/task_plan.md).

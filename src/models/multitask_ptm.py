@@ -35,16 +35,16 @@ class MultiTaskPTMPredictor(nn.Module):
 
     # PTM类型到修饰残基的映射
     PTM_RESIDUE_MAP = {
-        'Phosphorylation': ['S', 'T', 'Y'],
-        'Ubiquitination': ['K'],
-        'Acetylation': ['K'],
-        'Methylation': ['K', 'R'],
-        'Sumoylation': ['K'],
-        'Succinylation': ['K'],
+        "Phosphorylation": ["S", "T", "Y"],
+        "Ubiquitination": ["K"],
+        "Acetylation": ["K"],
+        "Methylation": ["K", "R"],
+        "Sumoylation": ["K"],
+        "Succinylation": ["K"],
     }
 
     # K修饰类型（难以区分的类型）
-    K_MODIFICATIONS = ['Ubiquitination', 'Acetylation', 'Methylation', 'Sumoylation', 'Succinylation']
+    K_MODIFICATIONS = ["Ubiquitination", "Acetylation", "Methylation", "Sumoylation", "Succinylation"]
 
     def __init__(
         self,
@@ -84,12 +84,12 @@ class MultiTaskPTMPredictor(nn.Module):
         self.encoder_type = encoder_type
         self.window_size = window_size
         self.ptm_types: List[str] = ptm_types or [
-            'Phosphorylation',
-            'Acetylation',
-            'Ubiquitination',
-            'Methylation',
-            'Succinylation',
-            'Sumoylation',
+            "Phosphorylation",
+            "Acetylation",
+            "Ubiquitination",
+            "Methylation",
+            "Succinylation",
+            "Sumoylation",
         ]
         self.share_encoder = share_encoder
         self.use_adversarial = use_adversarial
@@ -108,27 +108,32 @@ class MultiTaskPTMPredictor(nn.Module):
                 dropout,
             )
         else:
-            self.encoder = nn.ModuleDict({
-                ptm: self._create_encoder(
-                    encoder_type,
-                    embed_dim,
-                    hidden_dim,
-                    num_layers,
-                    num_heads,
-                    dropout,
-                )
-                for ptm in self.ptm_types
-            })
+            self.encoder = nn.ModuleDict(
+                {
+                    ptm: self._create_encoder(
+                        encoder_type,
+                        embed_dim,
+                        hidden_dim,
+                        num_layers,
+                        num_heads,
+                        dropout,
+                    )
+                    for ptm in self.ptm_types
+                }
+            )
 
         # 任务特定分类头
-        self.classifiers = nn.ModuleDict({
-            ptm: nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim // 2),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_dim // 2, 2),
-            ) for ptm in self.ptm_types
-        })
+        self.classifiers = nn.ModuleDict(
+            {
+                ptm: nn.Sequential(
+                    nn.Linear(hidden_dim, hidden_dim // 2),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(hidden_dim // 2, 2),
+                )
+                for ptm in self.ptm_types
+            }
+        )
 
         # 对抗域判别器（可选）
         if use_adversarial:
@@ -141,7 +146,9 @@ class MultiTaskPTMPredictor(nn.Module):
         # 初始化权重
         self.apply(self._init_weights)
 
-    def _create_encoder(self, encoder_type: str, embed_dim: int, hidden_dim: int, num_layers: int, num_heads: int, dropout: float) -> nn.Module:
+    def _create_encoder(
+        self, encoder_type: str, embed_dim: int, hidden_dim: int, num_layers: int, num_heads: int, dropout: float
+    ) -> nn.Module:
         """创建编码器"""
         if encoder_type == "cnn":
             return PooledCNNEncoder(embed_dim, hidden_dim, num_layers, dropout)
@@ -211,12 +218,12 @@ class MultiTaskPTMPredictor(nn.Module):
         probs = F.softmax(logits, dim=-1)
 
         result = {
-            'logits': logits,
-            'probs': probs,
+            "logits": logits,
+            "probs": probs,
         }
 
         if return_features:
-            result['features'] = features
+            result["features"] = features
 
         return result
 
@@ -314,7 +321,7 @@ class MultiTaskLoss(nn.Module):
         """
         losses = {}
         # 从第一个有效 target 推断设备，保证 total_loss 始终在正确设备上。
-        device = torch.device('cpu')
+        device = torch.device("cpu")
         for ptm_type in self.ptm_types:
             if ptm_type in targets:
                 device = targets[ptm_type].device
@@ -325,7 +332,7 @@ class MultiTaskLoss(nn.Module):
             if ptm_type not in outputs or ptm_type not in targets:
                 continue
 
-            logits = outputs[ptm_type]['logits']
+            logits = outputs[ptm_type]["logits"]
             target = targets[ptm_type]
 
             # 交叉熵损失
@@ -340,10 +347,10 @@ class MultiTaskLoss(nn.Module):
                 loss = precision * loss + self.log_vars[i]
 
             weighted_loss = weight * loss
-            losses[f'{ptm_type}_loss'] = loss
+            losses[f"{ptm_type}_loss"] = loss
             total_loss = total_loss + weighted_loss
 
-        losses['total_loss'] = total_loss
+        losses["total_loss"] = total_loss
 
         return losses
 
@@ -351,15 +358,15 @@ class MultiTaskLoss(nn.Module):
 def create_multitask_model(config: Dict) -> MultiTaskPTMPredictor:
     """根据配置创建多任务模型"""
     return MultiTaskPTMPredictor(
-        vocab_size=config.get('vocab_size', 21),
-        embed_dim=config.get('embed_dim', 64),
-        hidden_dim=config.get('hidden_dim', 128),
-        num_layers=config.get('num_layers', 2),
-        num_heads=config.get('num_heads', 4),
-        dropout=config.get('dropout', 0.1),
-        encoder_type=config.get('encoder_type', 'cnn'),
-        window_size=config.get('window_size', 31),
-        ptm_types=config.get('ptm_types'),
-        share_encoder=config.get('share_encoder', True),
-        use_adversarial=config.get('use_adversarial', False),
+        vocab_size=config.get("vocab_size", 21),
+        embed_dim=config.get("embed_dim", 64),
+        hidden_dim=config.get("hidden_dim", 128),
+        num_layers=config.get("num_layers", 2),
+        num_heads=config.get("num_heads", 4),
+        dropout=config.get("dropout", 0.1),
+        encoder_type=config.get("encoder_type", "cnn"),
+        window_size=config.get("window_size", 31),
+        ptm_types=config.get("ptm_types"),
+        share_encoder=config.get("share_encoder", True),
+        use_adversarial=config.get("use_adversarial", False),
     )

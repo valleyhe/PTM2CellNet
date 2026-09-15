@@ -14,7 +14,9 @@ import scripts.import_kinase_substrate as imp
 # ---------------------------------------------------------------------------
 
 
-def _write_enzsub(path: Path, rows: str, header: str = "enzyme\tsubstrate\tresidue_type\tresidue_offset\tmodification\n") -> Path:
+def _write_enzsub(
+    path: Path, rows: str, header: str = "enzyme\tsubstrate\tresidue_type\tresidue_offset\tmodification\n"
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(header + rows, encoding="utf-8")
     return path
@@ -142,15 +144,8 @@ class TestResolveOnline:
             json=lambda: {"jobId": "job-1"},
             raise_for_status=lambda: None,
         )
-        results = [
-            {"from": uid, "to": {"primaryAccession": gene}}
-            for uid, gene in mapping.items()
-        ]
-        status_payload = (
-            {"results": results, "failedIds": []}
-            if inline
-            else {"jobStatus": "FINISHED"}
-        )
+        results = [{"from": uid, "to": {"primaryAccession": gene}} for uid, gene in mapping.items()]
+        status_payload = {"results": results, "failedIds": []} if inline else {"jobStatus": "FINISHED"}
         session.get = mock.MagicMock(
             side_effect=[
                 mock.MagicMock(status_code=200, json=lambda: status_payload, raise_for_status=lambda: None),
@@ -199,9 +194,11 @@ class TestResolveOnline:
         session.get.return_value = mock.MagicMock(
             status_code=200, json=lambda: {"jobStatus": "RUNNING"}, raise_for_status=lambda: None
         )
-        with mock.patch.object(imp, "ONLINE_POLL_BUDGET_SECONDS", 0.1), mock.patch.object(
-            imp, "ONLINE_POLL_INTERVAL_SECONDS", 0.0
-        ), pytest.raises(imp.ImportError_, match="未在预算时间内完成"):
+        with (
+            mock.patch.object(imp, "ONLINE_POLL_BUDGET_SECONDS", 0.1),
+            mock.patch.object(imp, "ONLINE_POLL_INTERVAL_SECONDS", 0.0),
+            pytest.raises(imp.ImportError_, match="未在预算时间内完成"),
+        ):
             imp.resolve_online(["P06239"], session=session)
 
 

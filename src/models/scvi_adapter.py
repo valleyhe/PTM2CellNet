@@ -832,9 +832,7 @@ class ScVIAdapter:
         if adata is not None and getattr(self.model, "adata_manager", None) is None:
             model_path = self.config.model_path
             if model_path is None:
-                raise RuntimeError(
-                    "scVI model_path is required to bind AnnData before decoding with covariates"
-                )
+                raise RuntimeError("scVI model_path is required to bind AnnData before decoding with covariates")
             if not SCVI_AVAILABLE:
                 raise ImportError(
                     _format_scvi_installation_message(

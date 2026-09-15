@@ -114,9 +114,7 @@ def _validate_edge_index(edge_index: Tensor, num_nodes: int) -> Tensor:
         raise CrossScaleContractError("edge_index must use an integer dtype")
     edge_index = edge_index.to(dtype=torch.long)
     if edge_index.numel() and (edge_index.min() < 0 or edge_index.max() >= num_nodes):
-        raise CrossScaleContractError(
-            f"edge_index contains node ids outside [0, {num_nodes - 1}]"
-        )
+        raise CrossScaleContractError(f"edge_index contains node ids outside [0, {num_nodes - 1}]")
     return edge_index
 
 
@@ -267,7 +265,9 @@ class MultiPLMEncoder(nn.Module):
             raise CrossScaleContractError("backbone dimensions must be positive")
         names = tuple(
             str(name).lower()
-            for name in (backbone_names if backbone_names is not None else (tuple(dims) or ("ankh39", "esm2", "prott5")))
+            for name in (
+                backbone_names if backbone_names is not None else (tuple(dims) or ("ankh39", "esm2", "prott5"))
+            )
         )
         if not names:
             raise CrossScaleContractError("at least one protein language model backbone is required")
@@ -282,10 +282,7 @@ class MultiPLMEncoder(nn.Module):
             raise CrossScaleContractError(
                 f"backbone dimensions are configured for unknown backbones: {sorted(unknown_dimensions)}"
             )
-        configured_names = {
-            str(name).lower(): str(value).strip()
-            for name, value in (model_names or {}).items()
-        }
+        configured_names = {str(name).lower(): str(value).strip() for name, value in (model_names or {}).items()}
         unknown_model_names = set(configured_names) - set(names)
         if unknown_model_names:
             raise CrossScaleContractError(
@@ -309,9 +306,7 @@ class MultiPLMEncoder(nn.Module):
         self.fallback_embeddings = nn.ParameterDict()
         for name in names:
             dim = dims.get(name)
-            self.projections[name] = (
-                nn.Linear(dim, output_dim) if dim is not None else nn.LazyLinear(output_dim)
-            )
+            self.projections[name] = nn.Linear(dim, output_dim) if dim is not None else nn.LazyLinear(output_dim)
             self.fallback_embeddings[name] = nn.Parameter(torch.zeros(output_dim))
 
         score_hidden = max(8, output_dim // 2)
@@ -329,8 +324,7 @@ class MultiPLMEncoder(nn.Module):
             "fallback_allowed": bool(allow_fallback),
             "configured_model_names": dict(self.configured_model_names),
             "effective_model_names": {
-                name: self.configured_model_names.get(name, self.DEFAULT_MODEL_NAMES.get(name, ""))
-                for name in names
+                name: self.configured_model_names.get(name, self.DEFAULT_MODEL_NAMES.get(name, "")) for name in names
             },
             "model_names": {},
             "asset_status": {name: "missing" for name in names},
@@ -414,13 +408,8 @@ class MultiPLMEncoder(nn.Module):
     ) -> Tensor:
         found = self._collect_inputs(source)
         if not found and not self.allow_fallback:
-            raise CrossScaleContractError(
-                "no Ankh39/ESM-2/ProtT5 embeddings were supplied and fallback is disabled"
-            )
-        aligned_found = {
-            name: self._align_representation(name, tensor, source)
-            for name, tensor in found.items()
-        }
+            raise CrossScaleContractError("no Ankh39/ESM-2/ProtT5 embeddings were supplied and fallback is disabled")
+        aligned_found = {name: self._align_representation(name, tensor, source) for name, tensor in found.items()}
         if aligned_found:
             sample = next(iter(aligned_found.values()))
             sample_nodes = sample.unsqueeze(1) if sample.ndim == 2 else sample
@@ -475,13 +464,7 @@ class MultiPLMEncoder(nn.Module):
             if not torch.isfinite(mask).all() or (mask < 0).any() or (mask > 1).any():
                 raise CrossScaleContractError("attention_mask must contain finite values in [0, 1]")
         asset_status = {
-            name: (
-                "precomputed"
-                if name in found
-                else "fallback"
-                if name in fallback_names
-                else "missing"
-            )
+            name: ("precomputed" if name in found else "fallback" if name in fallback_names else "missing")
             for name in self.backbone_names
         }
         for name in self.backbone_models:
@@ -550,7 +533,9 @@ class MultiPLMEncoder(nn.Module):
         normalized = name.lower()
         if normalized not in self.backbone_names:
             raise CrossScaleContractError(f"backbone is not configured: {name}")
-        selected_name = model_name or self.configured_model_names.get(normalized) or self.DEFAULT_MODEL_NAMES.get(normalized)
+        selected_name = (
+            model_name or self.configured_model_names.get(normalized) or self.DEFAULT_MODEL_NAMES.get(normalized)
+        )
         if not selected_name:
             raise CrossScaleContractError(f"no default model name for backbone: {name}")
         selected_path = Path(selected_name).expanduser()
@@ -653,9 +638,7 @@ class MultiPLMEncoder(nn.Module):
         selected_names = dict(model_names or {})
         unknown = set(selected_names) - set(self.backbone_names)
         if unknown:
-            raise CrossScaleContractError(
-                f"model names are configured for unknown backbones: {sorted(unknown)}"
-            )
+            raise CrossScaleContractError(f"model names are configured for unknown backbones: {sorted(unknown)}")
         for name in self.backbone_names:
             loaded[name] = self.load_pretrained_backbone(
                 name,
@@ -695,9 +678,7 @@ class MultiPLMEncoder(nn.Module):
 
         try:
             rows = [
-                tokenizer.get_special_tokens_mask(
-                    row.detach().cpu().tolist(), already_has_special_tokens=True
-                )
+                tokenizer.get_special_tokens_mask(row.detach().cpu().tolist(), already_has_special_tokens=True)
                 for row in input_ids
             ]
             return torch.tensor(rows, device=input_ids.device, dtype=torch.bool)
@@ -760,8 +741,7 @@ class MultiPLMEncoder(nn.Module):
         model_inputs = {
             key: value
             for key, value in encoded.items()
-            if key in {"input_ids", "attention_mask", "token_type_ids", "position_ids"}
-            and isinstance(value, Tensor)
+            if key in {"input_ids", "attention_mask", "token_type_ids", "position_ids"} and isinstance(value, Tensor)
         }
         parameters: Mapping[str, inspect.Parameter]
         try:
@@ -779,9 +759,7 @@ class MultiPLMEncoder(nn.Module):
             try:
                 output = model(**model_inputs)
             except TypeError as exc:
-                raise CrossScaleContractError(
-                    f"backbone {name} rejected its tokenizer inputs"
-                ) from exc
+                raise CrossScaleContractError(f"backbone {name} rejected its tokenizer inputs") from exc
         hidden = getattr(output, "last_hidden_state", None)
         if not isinstance(hidden, Tensor) or hidden.ndim != 3:
             raise CrossScaleContractError(f"backbone {name} did not return [B, T, D] last_hidden_state")
@@ -819,9 +797,7 @@ class MultiPLMEncoder(nn.Module):
             raise CrossScaleContractError("max_length must be positive")
         source: Dict[str, Any] = {}
         max_sequence_length = max(len(sequence) for sequence in sequences)
-        residue_mask = torch.zeros(
-            (len(sequences), max_sequence_length), dtype=torch.float32
-        )
+        residue_mask = torch.zeros((len(sequences), max_sequence_length), dtype=torch.float32)
         for row_index, sequence in enumerate(sequences):
             residue_mask[row_index, : len(sequence)] = 1.0
         for name, model in self.backbone_models.items():
@@ -901,9 +877,7 @@ class CIGNNSignalBridge(nn.Module):
         self.norms = nn.ModuleList(nn.LayerNorm(hidden_dim) for _ in range(num_layers))
         self.output_projection = nn.Linear(hidden_dim, self.output_dim)
         self.dropout = nn.Dropout(dropout)
-        self.edge_type_scale = (
-            nn.Embedding(self.num_edge_types, 1) if self.num_edge_types > 0 else None
-        )
+        self.edge_type_scale = nn.Embedding(self.num_edge_types, 1) if self.num_edge_types > 0 else None
         if self.edge_type_scale is not None:
             nn.init.zeros_(self.edge_type_scale.weight)
         self.last_provenance: Dict[str, Any] = {
@@ -953,9 +927,7 @@ class CIGNNSignalBridge(nn.Module):
                 )
             return edge_index, edge_weight, approximation_used, None
         if self.edge_type_scale is None:
-            raise CrossScaleContractError(
-                "edge_type was supplied but bridge was not configured with num_edge_types"
-            )
+            raise CrossScaleContractError("edge_type was supplied but bridge was not configured with num_edge_types")
         if not isinstance(edge_type, Tensor):
             raise CrossScaleContractError("edge_type must be a torch.Tensor")
         if edge_type.dtype not in (torch.int32, torch.int64):
@@ -964,9 +936,7 @@ class CIGNNSignalBridge(nn.Module):
         if edge_type.ndim != 1 or edge_type.shape[0] != edge_index.shape[1]:
             raise CrossScaleContractError("edge_type must have shape [num_edges]")
         if edge_type.numel() and (edge_type.min() < 0 or edge_type.max() >= self.num_edge_types):
-            raise CrossScaleContractError(
-                f"edge_type values must be in [0, {self.num_edge_types - 1}]"
-            )
+            raise CrossScaleContractError(f"edge_type values must be in [0, {self.num_edge_types - 1}]")
         relation_scale = 1.0 + 0.25 * torch.tanh(self.edge_type_scale(edge_type).squeeze(-1))
         base_weight = _edge_weights(
             edge_weight,
@@ -1092,13 +1062,9 @@ class CellGraphCompassHead(nn.Module):
             return self.gene_embedding.to(device=device).unsqueeze(0).expand(batch_size, -1, -1)
         features, _ = _as_batched_nodes(gene_features, "gene_features")
         if features.shape[:2] != (batch_size, self.num_genes):
-            raise CrossScaleContractError(
-                f"gene_features must have shape [B, {self.num_genes}, F]"
-            )
+            raise CrossScaleContractError(f"gene_features must have shape [B, {self.num_genes}, F]")
         if features.shape[-1] != self.gene_feature_dim:
-            raise CrossScaleContractError(
-                f"gene_features last dimension must be {self.gene_feature_dim}"
-            )
+            raise CrossScaleContractError(f"gene_features last dimension must be {self.gene_feature_dim}")
         return features.to(device=device, dtype=self.gene_embedding.dtype)
 
     def _signal_to_gene(self, signal_nodes: Tensor, signal_gene_map: Optional[Tensor]) -> Tensor:
@@ -1116,9 +1082,7 @@ class CellGraphCompassHead(nn.Module):
         if mapping.ndim == 2:
             mapping = mapping.unsqueeze(0).expand(batch_size, -1, -1)
         if mapping.shape != (batch_size, num_signal_nodes, self.num_genes):
-            raise CrossScaleContractError(
-                "signal_gene_map must have shape [N_signal, G] or [B, N_signal, G]"
-            )
+            raise CrossScaleContractError("signal_gene_map must have shape [N_signal, G] or [B, N_signal, G]")
         if (mapping < 0).any() or not torch.isfinite(mapping).all():
             raise CrossScaleContractError("signal_gene_map must be finite and non-negative")
         normalizer = mapping.sum(dim=1, keepdim=False).clamp_min(torch.finfo(mapping.dtype).eps)
@@ -1145,9 +1109,7 @@ class CellGraphCompassHead(nn.Module):
             missing_graph = cell_edge_index.shape[1] == 0
         if missing_graph:
             if self.require_graph:
-                raise CrossScaleContractError(
-                    "cell_edge_index is required; the cell graph cannot be silently replaced"
-                )
+                raise CrossScaleContractError("cell_edge_index is required; the cell graph cannot be silently replaced")
             cell_edge_index = torch.arange(self.num_genes, device=signal.device).repeat(2, 1)
         assert cell_edge_index is not None
         adjacency = normalized_adjacency(
@@ -1274,9 +1236,7 @@ class CrossScalePTM2CellNet(nn.Module):
                 "prott5": cfg.protein_dim,
             },
             backbone_names=("ankh39", "esm2", "prott5"),
-            required_backbones=required_backbones
-            if required_backbones is not None
-            else ("ankh39", "esm2", "prott5"),
+            required_backbones=required_backbones if required_backbones is not None else ("ankh39", "esm2", "prott5"),
             output_dim=cfg.protein_dim,
             model_names=plm_model_names,
             allow_fallback=allow_plm_fallback,
@@ -1337,16 +1297,12 @@ class CrossScalePTM2CellNet(nn.Module):
         sequences = batch.get("sequence")
         if isinstance(sequences, (list, tuple)) and sequences and all(isinstance(value, str) for value in sequences):
             return {"sequence": sequences}
-        raise CrossScaleContractError(
-            "batch must contain protein_embeddings, PLM embedding keys or raw sequences"
-        )
+        raise CrossScaleContractError("batch must contain protein_embeddings, PLM embedding keys or raw sequences")
 
     def _protein_nodes(self, batch: Mapping[str, Any]) -> Tensor:
         source = self._plm_source(batch)
         if "sequence" in source:
-            nodes, residue_mask = self.protein_encoder.encode_sequence_nodes(
-                cast(Sequence[str], source["sequence"])
-            )
+            nodes, residue_mask = self.protein_encoder.encode_sequence_nodes(cast(Sequence[str], source["sequence"]))
             valid_sequence_lengths = residue_mask.sum(dim=1).to(dtype=torch.long)
         else:
             protein_mask = batch.get("protein_attention_mask")
@@ -1360,10 +1316,12 @@ class CrossScalePTM2CellNet(nn.Module):
                 if protein_mask.ndim == 1:
                     protein_mask = protein_mask.unsqueeze(0)
                 if protein_mask.shape != nodes.shape[:2]:
-                    raise CrossScaleContractError(
-                        "protein_attention_mask must match protein nodes [B, L]"
-                    )
-                if not torch.isfinite(protein_mask.float()).all() or (protein_mask < 0).any() or (protein_mask > 1).any():
+                    raise CrossScaleContractError("protein_attention_mask must match protein nodes [B, L]")
+                if (
+                    not torch.isfinite(protein_mask.float()).all()
+                    or (protein_mask < 0).any()
+                    or (protein_mask > 1).any()
+                ):
                     raise CrossScaleContractError("protein_attention_mask must contain finite values in [0, 1]")
                 if not torch.all((protein_mask == 0) | (protein_mask == 1)):
                     raise CrossScaleContractError("protein_attention_mask must be binary")
@@ -1431,9 +1389,7 @@ class CrossScalePTM2CellNet(nn.Module):
             or _file_sha256(str(manifest_path) if manifest_path is not None else None)
         )
         plm_fallback_used = bool(self.protein_encoder.last_provenance.get("fallback_used", False))
-        graph_approximation_used = bool(
-            self.signal_bridge.last_provenance.get("graph_approximation_used", False)
-        )
+        graph_approximation_used = bool(self.signal_bridge.last_provenance.get("graph_approximation_used", False))
         provenance = {
             "model_version": self.model_version,
             "data_manifest": manifest_path,
@@ -1465,17 +1421,11 @@ class CrossScalePTM2CellNet(nn.Module):
 
     def get_model_info(self) -> Dict[str, Any]:
         initialized_parameters = [
-            parameter
-            for parameter in self.parameters()
-            if not isinstance(parameter, UninitializedParameter)
+            parameter for parameter in self.parameters() if not isinstance(parameter, UninitializedParameter)
         ]
         total = sum(parameter.numel() for parameter in initialized_parameters)
-        trainable = sum(
-            parameter.numel() for parameter in initialized_parameters if parameter.requires_grad
-        )
-        uninitialized = sum(
-            1 for parameter in self.parameters() if isinstance(parameter, UninitializedParameter)
-        )
+        trainable = sum(parameter.numel() for parameter in initialized_parameters if parameter.requires_grad)
+        uninitialized = sum(1 for parameter in self.parameters() if isinstance(parameter, UninitializedParameter))
         return {
             "model_version": self.model_version,
             "model_class": self.__class__.__name__,

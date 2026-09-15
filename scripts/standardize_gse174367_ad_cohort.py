@@ -64,7 +64,10 @@ def _load_donor_evidence(cell_meta: pd.DataFrame) -> dict[str, object]:
     unknown = sorted(set(cell_meta["Diagnosis"].astype(str)) - set(DIAGNOSIS_TO_STATE))
     if unknown:
         raise ValueError(f"unexpected Diagnosis values: {unknown}")
-    per_sample_cardinality = cell_meta.groupby("SampleID")[list(SUBJECT_COVARIATES)].nunique()
+    # Diagnosis joins the per-sample cardinality check: a SampleID carrying two
+    # diagnoses would silently take the first one into the state mapping and
+    # corrupt the donor grouping (same contract as audit_ad_cohort_gate0.py).
+    per_sample_cardinality = cell_meta.groupby("SampleID")[list(SUBJECT_COVARIATES) + ["Diagnosis"]].nunique()
     if int(per_sample_cardinality.to_numpy().max()) != 1:
         raise ValueError("subject covariates must be constant within each SampleID")
     subjects = cell_meta.drop_duplicates("SampleID")
@@ -183,6 +186,13 @@ def _build_cohort_anndata(
 
 
 def main() -> int:
+    """Run the standardization; exit codes are 0=PASS, 2=PARTIAL, 1=NO_CELL_TYPE_PASSED.
+
+    PARTIAL means at least one cell type passed the Gate-0 preflight and at
+    least one was rejected: the cohort artifact exists, but the cohort-level
+    verdict is not PASS, so ``&&``-chained pipelines must not treat it as an
+    unqualified success.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix-h5", type=Path, default=DEFAULT_MATRIX)
     parser.add_argument("--cell-meta", type=Path, default=DEFAULT_CELL_META)
@@ -281,7 +291,11 @@ def main() -> int:
             ensure_ascii=False,
         )
     )
-    return 0 if passed else 1
+    if evidence["verdict"] == "PASS":
+        return 0
+    if evidence["verdict"] == "PARTIAL":
+        return 2
+    return 1
 
 
 if __name__ == "__main__":

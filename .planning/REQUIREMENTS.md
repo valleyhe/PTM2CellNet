@@ -124,6 +124,23 @@ remain separate: an existing interface or smoke run is not a biological PASS.
    Gate-4/Gate-5 real acceptance. Until then, report only engineering or
    scene-specific exploratory utility.
 
+## PTM activity → AD intersection mainline track (2026-09-14)
+
+Upstream research track defined by
+`docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` (v1.0) and
+`docs/guides/ptm_activity_pipeline.md`. It feeds the acceptance track above with
+`candidate-spec/v1` inputs and does not reopen the completed v2.1/v2.2
+engineering requirements.
+
+| ID | Mainline requirement | Status / evidence |
+|---|---|---|
+| P-01 | Stage 0–5 data/command contracts must exist as code: frozen research config, PTM input standardization, signed-network propagation, per-cell-type intersection, candidate-spec/sidecar generation. | **Landed (2026-09-14)**: `src/analysis/{ptm_research_config,ptm_activity,signed_network,ptm_gene_score}.py`, `src/integration/perturbgen/downstream_target_evaluation.py`, four stage CLIs; 84 new tests pass on synthetic data (contract pass only). |
+| P-02 | Direction semantics stay per-field (`ptm_site_direction`/`activity_direction`/`predicted_gene_direction`/`observed_direction`/`davf_predicted_direction`/`davf_action`); no global sign flip; source (PTM source protein/kinase) and target (intersection DEG) roles are recorded separately. | **Landed in the contract layer**: score/intersection/sidecar tables keep separate direction columns; multi-source same-gene opposite directions stay as separate rows without implicit aggregation. |
+| P-03 | No PTM-side significance without an independent null: `prediction_status=direction_only`; no PTM q-value; AD FDR/donor thresholds come from the frozen config and are not re-tuned on AD results. | **Landed**: `prediction_status=direction_only` enforced in the score contract; 方案 §8 boundary documented in the guide. |
+| P-04 | KSTAR/PhosR and the OmniPath signed network are external inputs consumed as standard tables in the main environment; heavy dependencies stay out of `requirements-core.txt`; `src/models/signaling_network.py` hardcoded paths do not participate in formal propagation. | **Landed (consumption side)**: loaders validate `ptm_activity.tsv` / `signed_network.tsv`; no KSTAR/PhosR/OmniPath execution entry exists in this repo. |
+| P-05 | 方案 §10 external inputs — real PTM site quantification, KSTAR/PhosR activity tables, OmniPath signed-network release export, network id map, activity benchmark, AD donor-level DEG table — must be supplied before any formal mainline result. | **Open**: all six remain owner-supplied; synthetic intersections/candidates are contract evidence only. |
+| P-06 | Downstream target-set delta evaluation must be written into the E2E report lineage with a defined driver–target gate contract; target-set concordance never replaces the source three-way gate, and concordance counts are not causal validation. | **Open**: library interface landed (`downstream_target_evaluation.py`); E2E lineage wiring and the gate contract are follow-up work. |
+
 ## Cancelled Requirements
 
 These items are explicitly removed from project scope as of 2026-07-05 and must not be reintroduced into roadmap, phase plans, or agent task prompts unless the project owner reverses this decision.
@@ -185,4 +202,4 @@ always the literal original wording:
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-09-13 — v2.2 formal requirements remain complete; active DAVF × PerturbGen acceptance track and its open evidence gates are documented above*
+*Last updated: 2026-09-14 — v2.2 formal requirements remain complete; active DAVF × PerturbGen acceptance track and the PTM activity → AD intersection mainline track (P-01..P-06) are documented above*

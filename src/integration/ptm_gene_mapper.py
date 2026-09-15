@@ -81,7 +81,8 @@ class ProteinGeneMapper:
             if fuzzy is not None:
                 logger.debug(
                     "Fuzzy match: %s -> %s (exact not found)",
-                    candidate.protein_id, fuzzy,
+                    candidate.protein_id,
+                    fuzzy,
                 )
                 return fuzzy
             raise KeyError(f"Protein id not found in mapper: {candidate.protein_id}")

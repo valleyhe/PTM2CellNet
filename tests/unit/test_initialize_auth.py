@@ -84,9 +84,7 @@ class TestInitializeAuth:
         )
         # The key is correct, so we should NOT get 401 or 403.
         # With a nonexistent checkpoint path we expect 404, not an auth error.
-        assert resp.status_code not in (401, 403), (
-            f"Expected non-auth status code, got {resp.status_code}: {resp.text}"
-        )
+        assert resp.status_code not in (401, 403), f"Expected non-auth status code, got {resp.status_code}: {resp.text}"
         assert resp.status_code == 404
 
     def test_uses_hmac_compare_digest(self, client, monkeypatch):
@@ -112,8 +110,7 @@ class TestInitializeAuth:
             )
 
         assert call_count >= 1, (
-            "hmac.compare_digest was never called. "
-            "The _require_api_key function may still be using plain '!='."
+            "hmac.compare_digest was never called. The _require_api_key function may still be using plain '!='."
         )
 
     def test_no_key_in_dev_mode_skips_auth(self, client, monkeypatch):

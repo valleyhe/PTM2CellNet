@@ -286,9 +286,7 @@ def test_train_lightning_script_smoke():
     )
 
     assert result.returncode == 0, (
-        "train_lightning.py smoke test failed\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
+        f"train_lightning.py smoke test failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
 
 

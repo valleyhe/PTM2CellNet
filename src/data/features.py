@@ -12,6 +12,7 @@ import numpy as np
 try:
     from sklearn.decomposition import PCA, TruncatedSVD
     from sklearn.manifold import TSNE
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -168,7 +169,7 @@ class FeatureExtractor:
             k = self.kmer_size
 
         base = len(self.amino_acids)
-        feature_vector = np.zeros(base ** k, dtype=np.float32)
+        feature_vector = np.zeros(base**k, dtype=np.float32)
 
         if len(sequence) < k:
             return feature_vector
@@ -176,7 +177,7 @@ class FeatureExtractor:
         # 用 collections.Counter 批量统计 k-mer，再一次性写入向量
         from collections import Counter
 
-        kmers = (sequence[i:i + k] for i in range(len(sequence) - k + 1))
+        kmers = (sequence[i : i + k] for i in range(len(sequence) - k + 1))
         counts = Counter(kmers)
 
         total = 0
@@ -209,14 +210,34 @@ class FeatureExtractor:
             理化特征向量
         """
         hydropathy = {
-            "A": 1.8, "R": -4.5, "N": -3.5, "D": -3.5, "C": 2.5,
-            "Q": -3.5, "E": -3.5, "G": -0.4, "H": -3.2, "I": 4.5,
-            "L": 3.8, "K": -3.9, "M": 1.9, "F": 2.8, "P": -1.6,
-            "S": -0.8, "T": -0.7, "W": -0.9, "Y": -1.3, "V": 4.2,
+            "A": 1.8,
+            "R": -4.5,
+            "N": -3.5,
+            "D": -3.5,
+            "C": 2.5,
+            "Q": -3.5,
+            "E": -3.5,
+            "G": -0.4,
+            "H": -3.2,
+            "I": 4.5,
+            "L": 3.8,
+            "K": -3.9,
+            "M": 1.9,
+            "F": 2.8,
+            "P": -1.6,
+            "S": -0.8,
+            "T": -0.7,
+            "W": -0.9,
+            "Y": -1.3,
+            "V": 4.2,
         }
 
         charge = {
-            "R": 1, "K": 1, "D": -1, "E": -1, "H": 0.1,
+            "R": 1,
+            "K": 1,
+            "D": -1,
+            "E": -1,
+            "H": 0.1,
         }
 
         features = []
@@ -246,23 +267,39 @@ class FeatureExtractor:
         返回形状 (n, P) 的数组，与逐样本调用逐行拼接结果一致。
         """
         hydropathy = {
-            "A": 1.8, "R": -4.5, "N": -3.5, "D": -3.5, "C": 2.5,
-            "Q": -3.5, "E": -3.5, "G": -0.4, "H": -3.2, "I": 4.5,
-            "L": 3.8, "K": -3.9, "M": 1.9, "F": 2.8, "P": -1.6,
-            "S": -0.8, "T": -0.7, "W": -0.9, "Y": -1.3, "V": 4.2,
+            "A": 1.8,
+            "R": -4.5,
+            "N": -3.5,
+            "D": -3.5,
+            "C": 2.5,
+            "Q": -3.5,
+            "E": -3.5,
+            "G": -0.4,
+            "H": -3.2,
+            "I": 4.5,
+            "L": 3.8,
+            "K": -3.9,
+            "M": 1.9,
+            "F": 2.8,
+            "P": -1.6,
+            "S": -0.8,
+            "T": -0.7,
+            "W": -0.9,
+            "Y": -1.3,
+            "V": 4.2,
         }
         charge = {
-            "R": 1, "K": 1, "D": -1, "E": -1, "H": 0.1,
+            "R": 1,
+            "K": 1,
+            "D": -1,
+            "E": -1,
+            "H": 0.1,
         }
 
         # 构建查表数组：将标准氨基酸按固定顺序堆叠为向量，按索引取值
         std_aas = "ACDEFGHIKLMNPQRSTVWY"
-        hydropathy_arr = np.array(
-            [hydropathy.get(aa, 0.0) for aa in std_aas], dtype=np.float32
-        )
-        charge_arr = np.array(
-            [charge.get(aa, 0.0) for aa in std_aas], dtype=np.float32
-        )
+        hydropathy_arr = np.array([hydropathy.get(aa, 0.0) for aa in std_aas], dtype=np.float32)
+        charge_arr = np.array([charge.get(aa, 0.0) for aa in std_aas], dtype=np.float32)
         aa_to_pos = {aa: i for i, aa in enumerate(std_aas)}
 
         n = len(sequences)
@@ -562,12 +599,12 @@ class FeatureExtractor:
         k = self.kmer_size
         base = len(self.amino_acids)
         n = len(sequences)
-        feature_matrix = np.zeros((n, base ** k), dtype=np.float32)
+        feature_matrix = np.zeros((n, base**k), dtype=np.float32)
 
         for i, seq in enumerate(sequences):
             if len(seq) < k:
                 continue
-            kmers = (seq[j:j + k] for j in range(len(seq) - k + 1))
+            kmers = (seq[j : j + k] for j in range(len(seq) - k + 1))
             counts = Counter(kmers)
             total = 0
             for kmer, count in counts.items():

@@ -78,26 +78,40 @@ PTM2CellNet 是一个用于蛋白质翻译后修饰（PTM）分析和细胞状�
 
 ### Active Follow-up
 
+- [ ] PTM activity 主线外部资产接入与正式运行：方案 §10 六项外部输入
+  （PTM 定量、KSTAR/PhosR activity 表、OmniPath signed 网络、network id map、
+  activity benchmark、AD donor-level DEG 表）+ downstream-target lineage
+  接线；契约层已落地，当前状态见 `docs/guides/ptm_activity_pipeline.md`
+  与 `docs/CURRENT_STATUS.md`。
 - [ ] DAVF 端到端微调：属于 2026-08-21 PerturbGen 后续方案 M4，当前状态见
-  `project_analysis_20260913.md` 的 A-02/A-03；不属于已完成的 v2.2 工程契约验收。
+  `project_analysis_20260914.md` 的未解决清单；不属于已完成的 v2.2 工程契约验收。
 - [ ] 真实数据/权重/图的科学验收：属于后续 Gate-0、Gate-E、Gate-4、Gate-5，
   不用 synthetic fixture 代替，当前状态见 `docs/CURRENT_STATUS.md` 和
-  `project_analysis_20260913.md`。
-- [ ] 文档持续维护：以 `docs/CURRENT_STATUS.md` 和
-  `project_analysis_20260913.md` 为活动入口；历史报告只作追溯。
+  `project_analysis_20260914.md`。
+- [ ] 文档持续维护：以 `docs/CURRENT_STATUS.md`、
+  `project_analysis_20260914.md` 和 `docs/guides/ptm_activity_pipeline.md`
+  为活动入口；历史报告只作追溯。
 
-### Current DAVF × PerturbGen acceptance contract (2026-09-13)
+### Current research mainline contract (2026-09-14)
 
-当前研究主线分为三个终点：
+当前研究主线是 PTM activity → AD 交集上游接入既有 DAVF × PerturbGen 验收路径
+（`docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` v1.0、
+`docs/guides/ptm_activity_pipeline.md`），分四个终点记录：
 
+0. **上游 PTM activity 主线（2026-09-14 契约层落地）**：全局 PTM 定量 →
+   KSTAR/PhosR activity（独立环境，主环境只消费标准表）→ signed network
+   有符号简单路径传播 → global gene score → AD per-cell-type donor-level
+   DEG 同方向交集 → gene-level intervention candidate spec。方向字段分字段
+   记录、source/target 角色分离、无独立 null 不写 PTM 侧 q 值
+   （`direction_only`）。真实 PTM/网络/benchmark 资产是外部输入（方案 §10）。
 1. 候选准入：外部 `PTM proposal/candidate_spec` → scVI/PTM 映射 → DAVF
    方向与置信证据 → 独立 donor-level 表达方向三方 gate → evidence/invocation。
-   classifier 只预测 site presence；候选方向来自外部假设或逐 site override，不能写成 rawsite 自动因果表达推断。
+   classifier 只预测 site presence；候选方向来自外部假设或逐 site override，不能写成 rawsite 自动因果表达推断。阶段 5 CLI 产出的 spec 走同一入口。
 2. PerturbGen 准备与运行：六阶段为
    `tokenise → train_mask → train_decoder → perturb → export_gene_embeddings → report`；
    E2E 默认只导出报告，只有显式 `--run-perturbgen` 才执行这条准备/执行链，不能把它写成另一条 PTM 推理入口。
-   `source_intervention=[src]` 与 `within_state=[tgt]+pert_tps` 是两个实验场景；正式候选要求两场景 AND。当前编排器仍按候选重复准备和运行，公共 cohort/词表/训练配置/资产版本 prepare 后候选只跑 perturb/效用是待实现目标。
-3. 统计验收：现有 matched-null、候选 empirical-p 聚合、formal 输入隔离、未扰动质量和 donor split 接口均已存在；E2E 尚未自动接续。正式结果必须绑定真实 normal/disease raw counts、显式 donor、≥3 共享 donor、canonical Ensembl、scVI/embedding manifest、真实 null/质量/双场景统计，不得将 smoke、synthetic、mock、bridge 或四队列规划写成生物学 PASS。
+   `source_intervention=[src]` 与 `within_state=[tgt]+pert_tps` 是两个实验场景；正式候选要求两场景 AND。自 2026-09-13 第四轮起每 route 的准备三阶段在 `_prepare/` 公共执行一次，候选循环只跑 perturb/export/report。
+3. 统计验收：matched-null、候选 empirical-p 聚合、formal 输入隔离、未扰动质量和 donor split 接口均已存在，E2E 经 `--assemble-statistical-evidence` 自动接续并写回 lineage；matched-null 批跑仍由 `run_matched_null_stages.py` 独立执行。正式结果必须绑定真实 normal/disease raw counts、显式 donor、≥3 可评估 donor（pairing 显式声明）、canonical Ensembl、scVI/embedding manifest、真实 null/质量/双场景统计，不得将 smoke、synthetic、mock、bridge 或四队列规划写成生物学 PASS。
 
 方向记录必须包含 `context`、`intervention`、比较基准、研究目标（关联、复现或逆转）、来源及训练/held-out 划分。观测 donor-level disease−normal、DAVF 干预后 decode−当前 context decode 和 PerturbGen 效用预测保持不同语义；不采用全局同号/取反，不把病程签名或 normal/disease 对比作为 KO/KD ground truth，也不把结果升级为治疗因果或临床疗效。
 
@@ -159,4 +173,4 @@ graph files or controlled datasets must be explicit in provenance; no synthetic
 fallback is accepted as evidence of biological validity.
 
 ---
-*Last updated: 2026-09-13 after the DAVF × PerturbGen research contract review; current evidence is in `docs/CURRENT_STATUS.md` and `project_analysis_20260913.md`*
+*Last updated: 2026-09-14 after the PTM activity → AD intersection mainline contract layer landed; current evidence is in `docs/CURRENT_STATUS.md` and `project_analysis_20260914.md`*

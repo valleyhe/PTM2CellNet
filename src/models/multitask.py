@@ -16,6 +16,7 @@ from .predictors import _build_mlp
 # TypedDict definitions for task configurations
 # ---------------------------------------------------------------------------
 
+
 class TaskConfig(TypedDict, total=False):
     """Shape of a single task configuration dict.
 
@@ -65,9 +66,7 @@ class MultiTaskPredictor(nn.Module):
         self._validate_task_configs()
 
         # 共享特征提取层
-        self.shared_backbone, backbone_dim = _build_mlp(
-            input_dim, hidden_dims, dropout
-        )
+        self.shared_backbone, backbone_dim = _build_mlp(input_dim, hidden_dims, dropout)
 
         # 任务特定的表示层（可选）
         self.task_specific_layers = nn.ModuleDict()
@@ -77,9 +76,7 @@ class MultiTaskPredictor(nn.Module):
             # 如果指定了任务特定层，为每个任务创建
             for task in task_configs:
                 task_name = task["name"]
-                layers, task_input_dim = _build_mlp(
-                    backbone_dim, task_specific_layers, dropout
-                )
+                layers, task_input_dim = _build_mlp(backbone_dim, task_specific_layers, dropout)
                 self.task_specific_layers[task_name] = layers
 
         # 任务输出头
@@ -159,17 +156,11 @@ class MultiTaskPredictor(nn.Module):
 
     def get_classification_tasks(self) -> List[str]:
         """获取分类任务名称列表"""
-        return [
-            task["name"] for task in self.task_configs
-            if task["type"] == "classification"
-        ]
+        return [task["name"] for task in self.task_configs if task["type"] == "classification"]
 
     def get_regression_tasks(self) -> List[str]:
         """获取回归任务名称列表"""
-        return [
-            task["name"] for task in self.task_configs
-            if task["type"] == "regression"
-        ]
+        return [task["name"] for task in self.task_configs if task["type"] == "regression"]
 
 
 class HierarchicalMultiTaskPredictor(nn.Module):
@@ -200,27 +191,19 @@ class HierarchicalMultiTaskPredictor(nn.Module):
         self.sub_tasks = sub_tasks
 
         # 共享特征提取
-        self.shared_backbone, backbone_dim = _build_mlp(
-            input_dim, hidden_dims, dropout
-        )
+        self.shared_backbone, backbone_dim = _build_mlp(input_dim, hidden_dims, dropout)
 
         # 主任务头
         primary_type = primary_task["type"]
         if primary_type == "classification":
-            self.primary_head = nn.Linear(
-                backbone_dim, primary_task["num_classes"]
-            )
+            self.primary_head = nn.Linear(backbone_dim, primary_task["num_classes"])
         else:
-            self.primary_head = nn.Linear(
-                backbone_dim, primary_task.get("output_dim", 1)
-            )
+            self.primary_head = nn.Linear(backbone_dim, primary_task.get("output_dim", 1))
 
         # 子任务头（接收主任务输出作为额外输入）
         self.sub_task_heads = nn.ModuleDict()
         primary_output_dim = (
-            primary_task["num_classes"]
-            if primary_type == "classification"
-            else primary_task.get("output_dim", 1)
+            primary_task["num_classes"] if primary_type == "classification" else primary_task.get("output_dim", 1)
         )
         sub_task_input_dim = backbone_dim + primary_output_dim
 
@@ -229,13 +212,9 @@ class HierarchicalMultiTaskPredictor(nn.Module):
             task_type = task["type"]
 
             if task_type == "classification":
-                self.sub_task_heads[task_name] = nn.Linear(
-                    sub_task_input_dim, task["num_classes"]
-                )
+                self.sub_task_heads[task_name] = nn.Linear(sub_task_input_dim, task["num_classes"])
             else:
-                self.sub_task_heads[task_name] = nn.Linear(
-                    sub_task_input_dim, task.get("output_dim", 1)
-                )
+                self.sub_task_heads[task_name] = nn.Linear(sub_task_input_dim, task.get("output_dim", 1))
 
     def forward(self, features: torch.Tensor) -> Dict[str, Dict[str, torch.Tensor]]:
         """

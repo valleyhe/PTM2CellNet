@@ -62,10 +62,7 @@ def main():
     try:
         config, config_source = resolve_inference_config(args.model, args.config)
     except FileNotFoundError as exc:
-        raise SystemExit(
-            f"配置/checkpoint 解析失败：{exc}。"
-            "请确认 --model 与 --config 路径存在且可读。"
-        ) from exc
+        raise SystemExit(f"配置/checkpoint 解析失败：{exc}。请确认 --model 与 --config 路径存在且可读。") from exc
     logger.info("使用配置文件: %s", config_source)
 
     os.makedirs(args.output, exist_ok=True)
@@ -75,9 +72,7 @@ def main():
 
     if args.data:
         if not os.path.exists(args.data):
-            raise SystemExit(
-                f"评估数据文件不存在: {args.data}。请确认 --data 路径正确。"
-            )
+            raise SystemExit(f"评估数据文件不存在: {args.data}。请确认 --data 路径正确。")
         df = loader.load_from_csv(args.data)
     else:
         df = loader.load_sample_data(num_samples=200)
@@ -86,15 +81,14 @@ def main():
     preprocessor = DataPreprocessor(config.to_dict())
     _, _, test_df = preprocessor.preprocess_pipeline(df)
     if test_df is None or len(test_df) == 0:
-        raise SystemExit(
-            "评估数据为空：预处理后测试集无样本，无法评估。"
-            "请检查 --data 数据内容或数据划分比例。"
-        )
+        raise SystemExit("评估数据为空：预处理后测试集无样本，无法评估。请检查 --data 数据内容或数据划分比例。")
 
     logger.info("步骤 3: 创建数据模块")
     batch_size = args.batch_size if args.batch_size is not None else config.get("training.batch_size", 32)
     datamodule = PTMPlainDataModule(
-        test_df, None, test_df,
+        test_df,
+        None,
+        test_df,
         config=config.to_dict(),
         batch_size=batch_size,
     )
@@ -109,15 +103,14 @@ def main():
         logger.warning(
             "数据标签数 (%d) 与配置 model.num_classes (%d) 不一致，"
             "请提供与配置类别数匹配的评估数据。将以配置为准继续加载模型。",
-            len(cell_states), config_num_classes,
+            len(cell_states),
+            config_num_classes,
         )
     model = PTM2CellNet.from_config(config.to_dict())
     try:
         load_model(model, args.model)
     except FileNotFoundError as exc:
-        raise SystemExit(
-            f"checkpoint 文件不存在: {args.model}。请确认 --model 路径正确。"
-        ) from exc
+        raise SystemExit(f"checkpoint 文件不存在: {args.model}。请确认 --model 路径正确。") from exc
     except RuntimeError as exc:
         raise RuntimeError(
             f"加载 checkpoint 失败：checkpoint 与 config 不匹配。"
@@ -145,8 +138,7 @@ def main():
         ) from exc
     except (KeyError, AttributeError) as exc:
         raise SystemExit(
-            f"评估过程中出现意外的键/属性错误: {exc}。"
-            "可能由于 config 与 checkpoint 或数据标签不一致，请核对配置。"
+            f"评估过程中出现意外的键/属性错误: {exc}。可能由于 config 与 checkpoint 或数据标签不一致，请核对配置。"
         ) from exc
 
     metrics = result["metrics"]

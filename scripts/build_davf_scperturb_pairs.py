@@ -64,11 +64,26 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=None,
         help="write the canonical donor split payload next to pair_manifest.json",
     )
+    parser.add_argument(
+        "--state-obs-column",
+        default=None,
+        help="obs column carrying the disease state; required with --require-state-coverage",
+    )
+    parser.add_argument(
+        "--require-state-coverage",
+        action="store_true",
+        help=(
+            "fail when the held-out donor pool covers fewer than two states of "
+            "--state-obs-column; the observed coverage is recorded in pair_manifest.json"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
+    if args.require_state_coverage and args.state_obs_column is None:
+        raise SystemExit("--require-state-coverage requires --state-obs-column")
     asset = load_perturbgen_embedding_asset(args.embedding_asset)
     donor_split_payload = None
     if args.train_donors is not None or args.held_out_donors is not None:
@@ -105,6 +120,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         test_ratio=args.test_ratio,
         donor_obs_column=args.donor_obs_column,
         donor_split=donor_split_payload,
+        state_obs_column=args.state_obs_column,
+        require_state_coverage=args.require_state_coverage,
     )
     print(json.dumps({"ok": True, "modality": args.modality, "splits": report}, ensure_ascii=False))
     return 0

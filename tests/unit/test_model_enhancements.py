@@ -53,9 +53,7 @@ class TestAttentionPooling:
 
     def test_multihead_attention_pooling(self, sample_features):
         """测试多头注意力池化"""
-        pooling = MultiHeadAttentionPooling(
-            hidden_dim=128, num_heads=4, num_queries=2, dropout=0.1
-        )
+        pooling = MultiHeadAttentionPooling(hidden_dim=128, num_heads=4, num_queries=2, dropout=0.1)
         output = pooling(sample_features)
         assert output.shape == (4, 128)
 

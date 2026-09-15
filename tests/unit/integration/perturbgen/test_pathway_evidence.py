@@ -29,6 +29,4 @@ def test_gseapy_absence_or_missing_gmt_stays_inconclusive() -> None:
 
 def test_cannot_claim_pathway_as_hard_gate() -> None:
     with pytest.raises(PathwayEvidenceError, match="must not affect"):
-        assert_not_used_for_dual_path(
-            {"affects_dual_path_verdict": True, "evidence_class": "secondary"}
-        )
+        assert_not_used_for_dual_path({"affects_dual_path_verdict": True, "evidence_class": "secondary"})

@@ -11,7 +11,6 @@ These tests focus on DAVF behaviours not already covered in
 * ``verify_direction_accuracy`` helper
 """
 
-
 import pytest
 import torch
 
@@ -33,6 +32,7 @@ except Exception:  # pragma: no cover - optional dependency
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _small_config(**overrides):
     """Return a tiny DAVFConfig suitable for fast unit tests."""
@@ -72,6 +72,7 @@ class _DummyEmbeddingLoader:
 # ---------------------------------------------------------------------------
 # ConditionalVelocityField
 # ---------------------------------------------------------------------------
+
 
 class TestConditionalVelocityField:
     """Tests for the standalone velocity field."""
@@ -121,6 +122,7 @@ class TestConditionalVelocityField:
 # ---------------------------------------------------------------------------
 # DAVF with an embedding loader
 # ---------------------------------------------------------------------------
+
 
 class TestDAVFWithEmbeddingLoader:
     """DAVF tests that use a mock pretrained embedding loader."""
@@ -174,6 +176,7 @@ class TestDAVFWithEmbeddingLoader:
 # Optional dependency handling
 # ---------------------------------------------------------------------------
 
+
 class TestDAVFOptionalDependencies:
     """Tests that gracefully skip when optional dependencies are absent."""
 
@@ -195,6 +198,7 @@ class TestDAVFOptionalDependencies:
 # ---------------------------------------------------------------------------
 # Edge cases and error handling
 # ---------------------------------------------------------------------------
+
 
 class TestDAVFEdgeCases:
     """Miscellaneous DAVF edge-case tests."""
@@ -294,9 +298,7 @@ class TestDAVFEdgeCases:
         directions = torch.randint(0, 3, (B, K))
         mask = torch.ones(B, K)
 
-        metrics = model.verify_direction_accuracy(
-            x_0, x_1, gene_ids, directions, attention_mask=mask
-        )
+        metrics = model.verify_direction_accuracy(x_0, x_1, gene_ids, directions, attention_mask=mask)
         assert "ko_direction_acc" in metrics
         assert "kd_direction_acc" in metrics
         assert "oe_direction_acc" in metrics

@@ -18,6 +18,7 @@ from typing_extensions import TypedDict
 # where a more specific type is practical.
 # ---------------------------------------------------------------------------
 
+
 class ConfigDict(TypedDict, total=False):
     """Minimal typed shape for the top-level config dict.
 
@@ -133,6 +134,7 @@ class Config:
             配置字典的深拷贝
         """
         import copy
+
         return copy.deepcopy(self._config)
 
     def save(self, file_path: str) -> None:

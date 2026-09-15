@@ -112,9 +112,7 @@ def parse_geo_family_soft(path: Path) -> pd.DataFrame:
 
         for characteristic_key, values in characteristics.items():
             record[characteristic_key] = values[0]
-        record["characteristics_json"] = json.dumps(
-            characteristics, ensure_ascii=False, sort_keys=True
-        )
+        record["characteristics_json"] = json.dumps(characteristics, ensure_ascii=False, sort_keys=True)
         if "GSM" not in record:
             raise ValueError(f"SOFT sample block has no GEO accession: {record['sample_title']}")
         records.append(record)
@@ -219,8 +217,7 @@ def _build_gse214695_metadata(raw_dir: Path) -> List[Dict[str, Any]]:
         )
     if len(records) != 18:
         raise ValueError(
-            "GSE214695 requires 18 HC/UC/CD libraries; "
-            f"found {len(records)} readable matrix filenames in {raw_dir}"
+            f"GSE214695 requires 18 HC/UC/CD libraries; found {len(records)} readable matrix filenames in {raw_dir}"
         )
     return records
 
@@ -305,12 +302,8 @@ def _build_gse282122_metadata(raw_dir: Path) -> List[Dict[str, Any]]:
         else:
             treatment_status, timepoint = "not_applicable", "baseline"
 
-        core_colon = intestinal_region == "colon" and (
-            disease == "Healthy" or treatment_raw == "Pre"
-        )
-        primary_contrast = core_colon and (
-            disease == "Healthy" or inflammation == "inflamed"
-        )
+        core_colon = intestinal_region == "colon" and (disease == "Healthy" or treatment_raw == "Pre")
+        primary_contrast = core_colon and (disease == "Healthy" or inflammation == "inflamed")
         if core_colon and primary_contrast:
             role = "discovery"
         elif core_colon:
@@ -440,9 +433,7 @@ def write_metadata_outputs(
     summary_path = output / "metadata_summary.json"
 
     ordered_columns = list(REQUIRED_METADATA_COLUMNS) + [
-        column
-        for column in ("sample_title", "archive_member", "characteristics_json")
-        if column in metadata.columns
+        column for column in ("sample_title", "archive_member", "characteristics_json") if column in metadata.columns
     ]
     metadata.loc[:, ordered_columns].to_csv(master_path, sep="\t", index=False)
 
@@ -467,18 +458,15 @@ def write_metadata_outputs(
     summary = {
         "total_libraries": int(len(metadata)),
         "by_dataset": {
-            str(dataset): int(count)
-            for dataset, count in metadata["dataset"].value_counts().sort_index().items()
+            str(dataset): int(count) for dataset, count in metadata["dataset"].value_counts().sort_index().items()
         },
         "atlas_libraries": int(metadata["include_atlas"].sum()),
         "primary_de_libraries": int(metadata["include_primary_DE"].sum()),
         "by_role": {
-            str(role): int(count)
-            for role, count in metadata["analysis_role"].value_counts().sort_index().items()
+            str(role): int(count) for role, count in metadata["analysis_role"].value_counts().sort_index().items()
         },
         "by_disease_group": {
-            str(group): int(count)
-            for group, count in metadata["disease_group"].value_counts().sort_index().items()
+            str(group): int(count) for group, count in metadata["disease_group"].value_counts().sort_index().items()
         },
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")

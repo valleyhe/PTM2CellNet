@@ -21,7 +21,7 @@ class PerturbGenDimensions:
     max_seq_length: int
 
 
-_DIMENSION_PROBE = r'''
+_DIMENSION_PROBE = r"""
 import json
 import os
 import sys
@@ -71,7 +71,7 @@ for target_path in target_entries:
 if max_target_token < 0:
     raise ValueError("target datasets contain no token IDs")
 print(json.dumps({"tgt_vocab_size": max_target_token + 1, "max_seq_length": max_length}))
-'''
+"""
 
 
 def parse_dimension_probe_output(stdout: str) -> PerturbGenDimensions:
@@ -83,9 +83,7 @@ def parse_dimension_probe_output(stdout: str) -> PerturbGenDimensions:
     try:
         payload: Any = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
-        raise PerturbGenDimensionError(
-            "PerturbGen dimension probe returned invalid JSON"
-        ) from exc
+        raise PerturbGenDimensionError("PerturbGen dimension probe returned invalid JSON") from exc
     if not isinstance(payload, dict):
         raise PerturbGenDimensionError("PerturbGen dimension probe output must be an object")
 
@@ -93,9 +91,7 @@ def parse_dimension_probe_output(stdout: str) -> PerturbGenDimensions:
     for name in ("tgt_vocab_size", "max_seq_length"):
         value = payload.get(name)
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise PerturbGenDimensionError(
-                f"PerturbGen dimension probe returned invalid {name}: {value!r}"
-            )
+            raise PerturbGenDimensionError(f"PerturbGen dimension probe returned invalid {name}: {value!r}")
         values[name] = value
     return PerturbGenDimensions(**values)
 
@@ -134,9 +130,7 @@ def derive_perturbgen_dimensions(
             timeout=timeout_seconds,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise PerturbGenDimensionError(
-            f"failed to execute PerturbGen dimension probe: {exc}"
-        ) from exc
+        raise PerturbGenDimensionError(f"failed to execute PerturbGen dimension probe: {exc}") from exc
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise PerturbGenDimensionError(

@@ -19,6 +19,7 @@ from src.models.davf_attention import DirectionAwareAttention
 @dataclass
 class BiPerturbConfig:
     """Configuration for BiPerturb model."""
+
     # Default architecture constants
     _DEFAULT_HIDDEN_DIM: int = 256
     _DEFAULT_NUM_GENES: int = 5000
@@ -73,7 +74,7 @@ class DirectionEncoder(nn.Module):
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(embed_dim * 2, embed_dim),
-            nn.LayerNorm(embed_dim)
+            nn.LayerNorm(embed_dim),
         )
 
         # Initialize base embedding with directional prior
@@ -83,7 +84,7 @@ class DirectionEncoder(nn.Module):
             if num_directions >= 2:
                 self.embedding.weight[1] = -torch.ones(embed_dim) * 0.25  # KD
             if num_directions >= 3:
-                self.embedding.weight[2] = torch.ones(embed_dim) * 0.5   # OE
+                self.embedding.weight[2] = torch.ones(embed_dim) * 0.5  # OE
 
     def forward(self, directions: torch.Tensor) -> torch.Tensor:
         """
@@ -118,7 +119,7 @@ class MagnitudeEncoder(nn.Module):
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, output_dim),
-            nn.LayerNorm(output_dim)
+            nn.LayerNorm(output_dim),
         )
 
     def forward(self, magnitudes: torch.Tensor) -> torch.Tensor:
@@ -152,9 +153,7 @@ class BiPerturbEncoder(nn.Module):
 
         # Direction encoder
         self.direction_encoder = DirectionEncoder(
-            num_directions=config.num_directions,
-            embed_dim=config.direction_embed_dim,
-            dropout=config.dropout
+            num_directions=config.num_directions, embed_dim=config.direction_embed_dim, dropout=config.dropout
         )
 
         # Magnitude encoder (optional, for backward compatibility with old checkpoints)
@@ -162,17 +161,12 @@ class BiPerturbEncoder(nn.Module):
         self.use_magnitude = mag_dim is not None and mag_dim > 0
         if self.use_magnitude and mag_dim is not None:
             self.magnitude_encoder = MagnitudeEncoder(
-                output_dim=mag_dim,
-                hidden_dim=config.magnitude_hidden_dim or 32,
-                dropout=config.dropout
+                output_dim=mag_dim, hidden_dim=config.magnitude_hidden_dim or 32, dropout=config.dropout
             )
 
         # Cross-attention: gene embeddings attend to direction embeddings
         self.direction_cross_attention = nn.MultiheadAttention(
-            config.gene_embed_dim,
-            config.num_heads,
-            dropout=config.attention_dropout,
-            batch_first=True
+            config.gene_embed_dim, config.num_heads, dropout=config.attention_dropout, batch_first=True
         )
         self.cross_attn_norm = nn.LayerNorm(config.gene_embed_dim)
         # Project direction embeddings to gene embedding dimension for cross-attention
@@ -189,7 +183,7 @@ class BiPerturbEncoder(nn.Module):
             embed_dim=config.hidden_dim,
             direction_embed_dim=config.direction_embed_dim,
             num_heads=config.num_heads,
-            dropout=config.attention_dropout
+            dropout=config.attention_dropout,
         )
 
         # Direction modulation layer (deeper for more expressiveness)
@@ -198,7 +192,7 @@ class BiPerturbEncoder(nn.Module):
             nn.LayerNorm(config.hidden_dim),
             nn.GELU(),
             nn.Linear(config.hidden_dim, config.hidden_dim),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
         # Feed-forward network
@@ -209,7 +203,7 @@ class BiPerturbEncoder(nn.Module):
             nn.GELU(),
             nn.Dropout(config.dropout),
             nn.Linear(config.hidden_dim * 4, config.hidden_dim),
-            nn.Dropout(config.dropout)
+            nn.Dropout(config.dropout),
         )
 
         # Output projection for combined perturbation embedding
@@ -243,9 +237,7 @@ class BiPerturbEncoder(nn.Module):
 
         if attention_mask is not None:
             if attention_mask.shape != (B, K):
-                raise ValueError(
-                    f"attention_mask must be [B, K], got {tuple(attention_mask.shape)}"
-                )
+                raise ValueError(f"attention_mask must be [B, K], got {tuple(attention_mask.shape)}")
 
         # Encode direction (or use zeros for ablation)
         if disable_direction:
@@ -329,9 +321,9 @@ class BiPerturbEncoder(nn.Module):
     def _get_direction_signs(self, directions: torch.Tensor) -> torch.Tensor:
         """Get soft signs for aggregation based on direction type."""
         signs = torch.zeros_like(directions, dtype=torch.float)
-        signs[directions == 0] = -1.0   # KO
-        signs[directions == 1] = -0.5   # KD
-        signs[directions == 2] = 1.0    # OE
+        signs[directions == 0] = -1.0  # KO
+        signs[directions == 1] = -0.5  # KD
+        signs[directions == 2] = 1.0  # OE
         return signs
 
 
@@ -350,22 +342,12 @@ class PerturbationGNN(nn.Module):
         self.gene_embedding = nn.Embedding(num_genes, hidden_dim)
 
         # GNN layers (simplified message passing)
-        self.gnn_layers = nn.ModuleList([
-            nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)
-        ])
+        self.gnn_layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)])
 
         # Output MLP
-        self.output_mlp = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
-        )
+        self.output_mlp = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, 1))
 
-    def forward(
-        self,
-        baseline_expression: torch.Tensor,
-        perturbation_embedding: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, baseline_expression: torch.Tensor, perturbation_embedding: torch.Tensor) -> torch.Tensor:
         """
         Predict expression changes based on perturbation.
 
@@ -425,9 +407,7 @@ class BiPerturb(nn.Module):
 
         # GNN for gene regulatory modeling
         self.gnn = PerturbationGNN(
-            hidden_dim=config.gnn_hidden_dim,
-            num_genes=config.num_genes,
-            num_layers=config.gnn_num_layers
+            hidden_dim=config.gnn_hidden_dim, num_genes=config.num_genes, num_layers=config.gnn_num_layers
         )
 
         # Initialize weights
@@ -473,7 +453,10 @@ class BiPerturb(nn.Module):
         """
         # Encode perturbation
         perturb_emb, attn_weights = self.encoder(
-            gene_embeddings, directions, magnitudes, return_attention,
+            gene_embeddings,
+            directions,
+            magnitudes,
+            return_attention,
             disable_direction=disable_direction,
             attention_mask=attention_mask,
         )
@@ -485,10 +468,10 @@ class BiPerturb(nn.Module):
         predicted_expression = baseline_expression + delta_expression
 
         return {
-            'predicted_expression': predicted_expression,
-            'delta_expression': delta_expression,
-            'perturbation_embedding': perturb_emb,
-            'attention_weights': attn_weights
+            "predicted_expression": predicted_expression,
+            "delta_expression": delta_expression,
+            "perturbation_embedding": perturb_emb,
+            "attention_weights": attn_weights,
         }
 
     def predict_knockout(
@@ -506,7 +489,7 @@ class BiPerturb(nn.Module):
             baseline_expression,
             attention_mask=attention_mask,
         )
-        return result['predicted_expression']
+        return result["predicted_expression"]
 
     def predict_overexpression(
         self,
@@ -523,7 +506,7 @@ class BiPerturb(nn.Module):
             baseline_expression,
             attention_mask=attention_mask,
         )
-        return result['predicted_expression']
+        return result["predicted_expression"]
 
     def predict_mixed(
         self,
@@ -541,7 +524,7 @@ class BiPerturb(nn.Module):
             magnitudes,
             attention_mask=attention_mask,
         )
-        return result['predicted_expression']
+        return result["predicted_expression"]
 
 
 class BiPerturbLoss(nn.Module):
@@ -554,12 +537,7 @@ class BiPerturbLoss(nn.Module):
     3. Direction consistency loss (optional)
     """
 
-    def __init__(
-        self,
-        mse_weight: float = 1.0,
-        pearson_weight: float = 0.5,
-        direction_weight: float = 0.1
-    ):
+    def __init__(self, mse_weight: float = 1.0, pearson_weight: float = 0.5, direction_weight: float = 0.1):
         super().__init__()
         self.mse_weight = mse_weight
         self.pearson_weight = pearson_weight
@@ -572,7 +550,7 @@ class BiPerturbLoss(nn.Module):
         directions: Optional[torch.Tensor] = None,
         delta_pred: Optional[torch.Tensor] = None,
         target_gene_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Compute loss.
@@ -592,11 +570,11 @@ class BiPerturbLoss(nn.Module):
 
         # MSE loss
         mse = F.mse_loss(predicted, target)
-        losses['mse'] = mse
+        losses["mse"] = mse
 
         # Pearson correlation loss (maximize correlation)
         pearson = 1 - self._pearson_correlation(predicted, target).mean()
-        losses['pearson'] = pearson
+        losses["pearson"] = pearson
 
         # Direction consistency loss: penalize when delta sign disagrees
         # with expected perturbation direction
@@ -607,9 +585,7 @@ class BiPerturbLoss(nn.Module):
                 -torch.ones_like(directions, dtype=torch.float),
             )
             # Sanitize target_gene_ids: replace -1 padding with 0 before gather
-            safe_target_gene_ids = torch.where(
-                target_gene_ids >= 0, target_gene_ids, torch.zeros_like(target_gene_ids)
-            )
+            safe_target_gene_ids = torch.where(target_gene_ids >= 0, target_gene_ids, torch.zeros_like(target_gene_ids))
             delta_at_targets = delta_pred.gather(1, safe_target_gene_ids)  # [B, K]
             direction_match = direction_signs * delta_at_targets
             # Mask out padding positions (attention_mask available in batch)
@@ -619,13 +595,13 @@ class BiPerturbLoss(nn.Module):
                 direction_loss = F.relu(-direction_match).sum() / n_valid
             else:
                 direction_loss = F.relu(-direction_match).mean()
-            losses['direction'] = direction_loss
+            losses["direction"] = direction_loss
 
         # Total loss
         total = self.mse_weight * mse + self.pearson_weight * pearson
-        if self.direction_weight > 0 and 'direction' in losses:
-            total = total + self.direction_weight * losses['direction']
-        losses['total'] = total
+        if self.direction_weight > 0 and "direction" in losses:
+            total = total + self.direction_weight * losses["direction"]
+        losses["total"] = total
 
         return losses
 
@@ -635,8 +611,6 @@ class BiPerturbLoss(nn.Module):
         y_centered = y - y.mean(dim=-1, keepdim=True)
 
         numerator = (x_centered * y_centered).sum(dim=-1)
-        denominator = torch.sqrt(
-            (x_centered ** 2).sum(dim=-1) * (y_centered ** 2).sum(dim=-1) + 1e-8
-        )
+        denominator = torch.sqrt((x_centered**2).sum(dim=-1) * (y_centered**2).sum(dim=-1) + 1e-8)
 
         return numerator / denominator

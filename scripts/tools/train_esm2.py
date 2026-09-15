@@ -7,6 +7,7 @@ ESM-2预训练模型微调训练脚本
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
@@ -22,7 +23,7 @@ import json
 import logging
 import argparse
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -39,21 +40,21 @@ class ESM2PTMDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.samples[idx]
         return {
-            'sequence': sample['sequence_window'],
-            'label': sample['label'],
-            'gene': sample.get('uniprot_id', 'unknown'),
-            'position': sample.get('position', 0),
+            "sequence": sample["sequence_window"],
+            "label": sample["label"],
+            "gene": sample.get("uniprot_id", "unknown"),
+            "position": sample.get("position", 0),
         }
 
 
 def collate_esm2_batch(batch):
     """ESM-2批处理函数"""
-    sequences = [item['sequence'] for item in batch]
-    labels = torch.tensor([item['label'] for item in batch])
+    sequences = [item["sequence"] for item in batch]
+    labels = torch.tensor([item["label"] for item in batch])
 
     return {
-        'sequences': sequences,
-        'labels': labels,
+        "sequences": sequences,
+        "labels": labels,
     }
 
 
@@ -66,18 +67,20 @@ def load_ptm_data(data_dir, ptm_type, max_samples=None):
     df = pd.read_csv(file_path)
 
     if max_samples and len(df) > max_samples:
-        pos_df = df[df['label'] == 1].sample(max_samples // 2, random_state=42)
-        neg_df = df[df['label'] == 0].sample(max_samples // 2, random_state=42)
+        pos_df = df[df["label"] == 1].sample(max_samples // 2, random_state=42)
+        neg_df = df[df["label"] == 0].sample(max_samples // 2, random_state=42)
         df = pd.concat([pos_df, neg_df])
 
     samples = []
     for _, row in df.iterrows():
-        samples.append({
-            'sequence_window': row['sequence_window'],
-            'label': int(row['label']),
-            'uniprot_id': row.get('uniprot_id', 'unknown'),
-            'position': row.get('position', 0),
-        })
+        samples.append(
+            {
+                "sequence_window": row["sequence_window"],
+                "label": int(row["label"]),
+                "uniprot_id": row.get("uniprot_id", "unknown"),
+                "position": row.get("position", 0),
+            }
+        )
 
     return samples
 
@@ -87,7 +90,7 @@ class ESM2FineTunedModel(nn.Module):
 
     def __init__(
         self,
-        esm_model='esm2_t12_35M_UR50D',
+        esm_model="esm2_t12_35M_UR50D",
         hidden_dim=256,
         num_classes=2,
         freeze_esm=True,
@@ -122,11 +125,10 @@ class ESM2FineTunedModel(nn.Module):
 
         try:
             import esm
+
             logger.info(f"加载ESM-2模型: {self.esm_model_name}")
 
-            self.esm, self.alphabet = esm.pretrained.load_model_and_alphabet(
-                self.esm_model_name
-            )
+            self.esm, self.alphabet = esm.pretrained.load_model_and_alphabet(self.esm_model_name)
             self.batch_converter = self.alphabet.get_batch_converter()
 
             # 获取embedding维度
@@ -166,7 +168,7 @@ class ESM2FineTunedModel(nn.Module):
             )
 
         # 获取CLS token表示
-        token_repr = results['representations'][self.esm.num_layers]
+        token_repr = results["representations"][self.esm.num_layers]
         cls_repr = token_repr[:, 0]  # CLS token
 
         return cls_repr
@@ -176,7 +178,7 @@ class ESM2FineTunedModel(nn.Module):
         embeddings = self.encode_sequences(sequences)
         logits = self.classifier(embeddings)
         probs = torch.softmax(logits, dim=-1)
-        return {'logits': logits, 'probs': probs, 'embeddings': embeddings}
+        return {"logits": logits, "probs": probs, "embeddings": embeddings}
 
 
 def train_epoch(model, dataloader, optimizer, criterion, device):
@@ -189,12 +191,12 @@ def train_epoch(model, dataloader, optimizer, criterion, device):
     all_labels = []
 
     for batch in tqdm(dataloader, desc="Training"):
-        sequences = batch['sequences']
-        labels = batch['labels'].to(device)
+        sequences = batch["sequences"]
+        labels = batch["labels"].to(device)
 
         # 前向传播
         output = model(sequences)
-        loss = criterion(output['logits'], labels)
+        loss = criterion(output["logits"], labels)
 
         # 反向传播
         optimizer.zero_grad()
@@ -205,21 +207,22 @@ def train_epoch(model, dataloader, optimizer, criterion, device):
         total_loss += loss.item()
 
         # 统计
-        preds = output['logits'].argmax(dim=-1)
+        preds = output["logits"].argmax(dim=-1)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
 
-        all_probs.extend(output['probs'][:, 1].detach().cpu().numpy())
+        all_probs.extend(output["probs"][:, 1].detach().cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
 
     # 计算AUROC
     from sklearn.metrics import roc_auc_score
+
     auroc = roc_auc_score(all_labels, all_probs) if len(set(all_labels)) > 1 else 0.5
 
     return {
-        'loss': total_loss / len(dataloader),
-        'accuracy': correct / total,
-        'auroc': auroc,
+        "loss": total_loss / len(dataloader),
+        "accuracy": correct / total,
+        "auroc": auroc,
     }
 
 
@@ -234,59 +237,60 @@ def evaluate(model, dataloader, criterion, device):
     all_labels = []
 
     for batch in tqdm(dataloader, desc="Evaluating"):
-        sequences = batch['sequences']
-        labels = batch['labels'].to(device)
+        sequences = batch["sequences"]
+        labels = batch["labels"].to(device)
 
         output = model(sequences)
-        loss = criterion(output['logits'], labels)
+        loss = criterion(output["logits"], labels)
 
         total_loss += loss.item()
 
-        preds = output['logits'].argmax(dim=-1)
+        preds = output["logits"].argmax(dim=-1)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
 
-        all_probs.extend(output['probs'][:, 1].cpu().numpy())
+        all_probs.extend(output["probs"][:, 1].cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
 
     # 计算AUROC
     from sklearn.metrics import roc_auc_score, f1_score
+
     auroc = roc_auc_score(all_labels, all_probs) if len(set(all_labels)) > 1 else 0.5
     pred_labels = (np.array(all_probs) > 0.5).astype(int)
     f1 = f1_score(all_labels, pred_labels)
 
     return {
-        'loss': total_loss / len(dataloader),
-        'accuracy': correct / total,
-        'auroc': auroc,
-        'f1': f1,
+        "loss": total_loss / len(dataloader),
+        "accuracy": correct / total,
+        "auroc": auroc,
+        "f1": f1,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description='ESM-2 PTM预测训练')
-    parser.add_argument('--data-dir', default='data/processed')
-    parser.add_argument('--output-dir', default='outputs/esm2_ptm')
-    parser.add_argument('--ptm-type', default='Phosphorylation')
-    parser.add_argument('--max-samples', type=int, default=10000)
-    parser.add_argument('--batch-size', type=int, default=16)  # ESM-2需要较小batch
-    parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=0.0001)
-    parser.add_argument('--esm-model', default='esm2_t12_35M_UR50D')
-    parser.add_argument('--hidden-dim', type=int, default=256)
-    parser.add_argument('--freeze-esm', action='store_true', default=True)
-    parser.add_argument('--unfreeze-esm', action='store_false', dest='freeze_esm')
-    parser.add_argument('--gpus', type=int, default=1)
+    parser = argparse.ArgumentParser(description="ESM-2 PTM预测训练")
+    parser.add_argument("--data-dir", default="data/processed")
+    parser.add_argument("--output-dir", default="outputs/esm2_ptm")
+    parser.add_argument("--ptm-type", default="Phosphorylation")
+    parser.add_argument("--max-samples", type=int, default=10000)
+    parser.add_argument("--batch-size", type=int, default=16)  # ESM-2需要较小batch
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--esm-model", default="esm2_t12_35M_UR50D")
+    parser.add_argument("--hidden-dim", type=int, default=256)
+    parser.add_argument("--freeze-esm", action="store_true", default=True)
+    parser.add_argument("--unfreeze-esm", action="store_false", dest="freeze_esm")
+    parser.add_argument("--gpus", type=int, default=1)
     args = parser.parse_args()
 
     # 设备
-    device = torch.device('cuda' if torch.cuda.is_available() and args.gpus > 0 else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() and args.gpus > 0 else "cpu")
     logger.info(f"使用设备: {device}")
 
     # 输出目录
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / 'checkpoints').mkdir(exist_ok=True)
+    (output_dir / "checkpoints").mkdir(exist_ok=True)
 
     # 加载数据
     logger.info(f"加载{args.ptm_type}数据...")
@@ -301,8 +305,8 @@ def main():
     n_val = int(len(samples) * 0.1)
 
     train_samples = samples[:n_train]
-    val_samples = samples[n_train:n_train + n_val]
-    test_samples = samples[n_train + n_val:]
+    val_samples = samples[n_train : n_train + n_val]
+    test_samples = samples[n_train + n_val :]
 
     logger.info(f"数据划分: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)}")
 
@@ -362,27 +366,29 @@ def main():
 
         # 打印
         logger.info(f"Train Loss: {train_metrics['loss']:.4f}, AUROC: {train_metrics['auroc']:.4f}")
-        logger.info(f"Val Loss: {val_metrics['loss']:.4f}, AUROC: {val_metrics['auroc']:.4f}, F1: {val_metrics['f1']:.4f}")
+        logger.info(
+            f"Val Loss: {val_metrics['loss']:.4f}, AUROC: {val_metrics['auroc']:.4f}, F1: {val_metrics['f1']:.4f}"
+        )
 
         # 保存最佳模型
-        if val_metrics['auroc'] > best_auroc:
-            best_auroc = val_metrics['auroc']
-            torch.save(model.state_dict(), output_dir / 'checkpoints' / 'best_model.pt')
+        if val_metrics["auroc"] > best_auroc:
+            best_auroc = val_metrics["auroc"]
+            torch.save(model.state_dict(), output_dir / "checkpoints" / "best_model.pt")
             logger.info(f"保存最佳模型: AUROC={best_auroc:.4f}")
 
     logger.info(f"\n训练完成，最佳AUROC: {best_auroc:.4f}")
 
     # 保存结果
     results = {
-        'ptm_type': args.ptm_type,
-        'esm_model': args.esm_model,
-        'best_auroc': best_auroc,
-        'args': vars(args),
+        "ptm_type": args.ptm_type,
+        "esm_model": args.esm_model,
+        "best_auroc": best_auroc,
+        "args": vars(args),
     }
 
-    with open(output_dir / 'results.json', 'w') as f:
+    with open(output_dir / "results.json", "w") as f:
         json.dump(results, f, indent=2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

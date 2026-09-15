@@ -2,6 +2,7 @@
 PTMDataModule tokenizer参数集成测试
 验证传入tokenizer时切换为ESMTokenizedDataset，不传时保持PTMDataset（向后兼容）
 """
+
 import os
 import json
 import pytest
@@ -14,6 +15,7 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 @pytest.fixture(scope="module")
 def tokenizer():
     from src.models.pretrained_encoders import ESM2Encoder
+
     enc = ESM2Encoder(model_size="8M", freeze=True)
     return enc.tokenizer
 
@@ -47,6 +49,7 @@ def sample_dfs():
 def test_without_tokenizer_uses_ptm_dataset(sample_dfs):
     from src.data.lightning_datamodule import PTMLightningDataModule
     from src.data.datasets import PTMDataset
+
     train_df, val_df, test_df = sample_dfs
     dm = PTMLightningDataModule(train_df=train_df, val_df=val_df, test_df=test_df, config={})
     dm.setup("fit")
@@ -56,6 +59,7 @@ def test_without_tokenizer_uses_ptm_dataset(sample_dfs):
 def test_with_tokenizer_uses_esm_dataset(sample_dfs, tokenizer):
     from src.data.lightning_datamodule import PTMLightningDataModule
     from src.data.datasets import ESMTokenizedDataset
+
     train_df, val_df, test_df = sample_dfs
     dm = PTMLightningDataModule(train_df=train_df, val_df=val_df, test_df=test_df, config={}, tokenizer=tokenizer)
     dm.setup("fit")
@@ -65,9 +69,12 @@ def test_with_tokenizer_uses_esm_dataset(sample_dfs, tokenizer):
 
 def test_train_dataloader_batch_has_input_ids(sample_dfs, tokenizer):
     from src.data.lightning_datamodule import PTMLightningDataModule
+
     train_df, val_df, test_df = sample_dfs
     dm = PTMLightningDataModule(
-        train_df=train_df, val_df=val_df, test_df=test_df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
         config={"training": {"batch_size": 2}, "data": {"num_workers": 0, "pin_memory": False}},
         tokenizer=tokenizer,
     )
@@ -80,9 +87,12 @@ def test_train_dataloader_batch_has_input_ids(sample_dfs, tokenizer):
 
 def test_batch_shapes_consistent(sample_dfs, tokenizer):
     from src.data.lightning_datamodule import PTMLightningDataModule
+
     train_df, val_df, test_df = sample_dfs
     dm = PTMLightningDataModule(
-        train_df=train_df, val_df=val_df, test_df=test_df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
         config={"training": {"batch_size": 2}, "data": {"num_workers": 0, "pin_memory": False}},
         tokenizer=tokenizer,
     )

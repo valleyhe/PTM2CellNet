@@ -98,26 +98,20 @@ def validate_repo_roots(
     """Resolve and validate the PTM2CellNet root and PerturbGen repo root."""
 
     resolved_project_root = Path(project_root or PROJECT_ROOT).expanduser().resolve(strict=True)
-    missing_project = [
-        sentinel for sentinel in PROJECT_SENTINELS if not (resolved_project_root / sentinel).exists()
-    ]
+    missing_project = [sentinel for sentinel in PROJECT_SENTINELS if not (resolved_project_root / sentinel).exists()]
     if missing_project:
         raise PerturbGenEnvError(
-            "invalid PTM2CellNet project root "
-            f"{resolved_project_root}: missing {', '.join(missing_project)}"
+            f"invalid PTM2CellNet project root {resolved_project_root}: missing {', '.join(missing_project)}"
         )
 
     candidate_repo = Path(perturbgen_repo_root or resolved_project_root / "ref/Perturbgen-src")
     if not candidate_repo.is_absolute():
         candidate_repo = resolved_project_root / candidate_repo
     resolved_repo_root = candidate_repo.expanduser().resolve(strict=True)
-    missing_repo = [
-        sentinel for sentinel in PERTURBGEN_SENTINELS if not (resolved_repo_root / sentinel).exists()
-    ]
+    missing_repo = [sentinel for sentinel in PERTURBGEN_SENTINELS if not (resolved_repo_root / sentinel).exists()]
     if missing_repo:
         raise PerturbGenEnvError(
-            "invalid PerturbGen repo root "
-            f"{resolved_repo_root}: missing {', '.join(missing_repo)}"
+            f"invalid PerturbGen repo root {resolved_repo_root}: missing {', '.join(missing_repo)}"
         )
 
     return ProjectRoots(
@@ -262,10 +256,7 @@ def probe_external_environment(
     elif expected_perturbgen_commit is not None and perturbgen_commit is not None:
         expected = expected_perturbgen_commit.strip().lower()
         if not perturbgen_commit.lower().startswith(expected):
-            issues.append(
-                "PerturbGen commit mismatch: "
-                f"expected {expected_perturbgen_commit}, got {perturbgen_commit}"
-            )
+            issues.append(f"PerturbGen commit mismatch: expected {expected_perturbgen_commit}, got {perturbgen_commit}")
 
     dependency_hashes, dependency_issues = _resolve_files(
         dependency_files,

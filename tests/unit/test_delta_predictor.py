@@ -46,19 +46,13 @@ class TestDeltaPredictorConstruction:
 class TestDeltaPredictorPredict:
     def test_predict_shape(self, model, inputs):
         z_0, gene_ids, directions, mask = inputs
-        z_1 = model.predict(
-            z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask
-        )
+        z_1 = model.predict(z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask)
         assert z_1.shape == z_0.shape
 
     def test_predict_delta_equals_predict_minus_z0(self, model, inputs):
         z_0, gene_ids, directions, mask = inputs
-        z_1 = model.predict(
-            z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask
-        )
-        delta = model.predict_delta(
-            z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask
-        )
+        z_1 = model.predict(z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask)
+        delta = model.predict_delta(z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask)
         assert torch.allclose(z_1, z_0 + delta, atol=1e-5)
 
     def test_predict_rejects_wrong_latent_dim(self, model):
@@ -74,8 +68,7 @@ class TestDeltaPredictorPredict:
     def test_predict_sets_eval_mode_then_restores(self, model, inputs):
         z_0, gene_ids, directions, mask = inputs
         model.train()
-        _ = model.predict(z_0, gene_ids=gene_ids, directions=directions,
-                          attention_mask=mask)
+        _ = model.predict(z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask)
         assert model.training  # restored
 
 
@@ -84,7 +77,10 @@ class TestDeltaPredictorForward:
         z_0, gene_ids, directions, mask = inputs
         z_1 = torch.randn_like(z_0)
         out = model.forward(
-            z_0, z_1=z_1, gene_ids=gene_ids, directions=directions,
+            z_0,
+            z_1=z_1,
+            gene_ids=gene_ids,
+            directions=directions,
             attention_mask=mask,
         )
         assert "loss" in out
@@ -94,9 +90,7 @@ class TestDeltaPredictorForward:
 
     def test_forward_inference_returns_z1_pred(self, model, inputs):
         z_0, gene_ids, directions, mask = inputs
-        out = model.forward(
-            z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask
-        )
+        out = model.forward(z_0, gene_ids=gene_ids, directions=directions, attention_mask=mask)
         assert "z_1_pred" in out
         assert out["z_1_pred"].shape == z_0.shape
 
@@ -104,7 +98,10 @@ class TestDeltaPredictorForward:
         z_0, gene_ids, directions, mask = inputs
         z_1 = torch.randn_like(z_0)
         out = model.forward(
-            z_0, z_1=z_1, gene_ids=gene_ids, directions=directions,
+            z_0,
+            z_1=z_1,
+            gene_ids=gene_ids,
+            directions=directions,
             attention_mask=mask,
         )
         out["loss"].backward()

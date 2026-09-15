@@ -123,9 +123,7 @@ class TestMambaBlock:
         num_layers = 12
 
         # 堆叠多个block
-        blocks = torch.nn.Sequential(*[
-            MambaBlock(d_model) for _ in range(num_layers)
-        ])
+        blocks = torch.nn.Sequential(*[MambaBlock(d_model) for _ in range(num_layers)])
 
         x = torch.randn(2, 10, d_model, requires_grad=True)
         output = blocks(x)
@@ -257,8 +255,6 @@ class TestMambaEncoder:
             assert not torch.isnan(output).any()
 
 
-
-
 class TestK02NumericalParity:
     """K02 (2026-08-17): fused CUDA kernel vs vectorized parallel scan must agree
     within max|delta| < 1e-5 across the length range (per the project-analysis
@@ -280,23 +276,38 @@ class TestK02NumericalParity:
         within numerical tolerance (sanity baseline for the fused path)."""
         ssm = self._make_ssm(device="cpu")
         x = torch.randn(2, 64, 16)
-        y_seq = ssm._ssm_step_sequential(
-            ssm._ssm_step_sequential.__wrapped__(ssm, x, ssm._ssm_step_sequential) if False else x,
-            ssm._ssm_step_sequential.__defaults__[0] if False else ssm._ssm_step_sequential(x, torch.zeros_like(x), torch.zeros(x.shape[0], x.shape[1], ssm.d_state), torch.zeros(x.shape[0], x.shape[1], ssm.d_state)),
-        ) if False else None  # placeholder, replaced below
+        y_seq = (
+            ssm._ssm_step_sequential(
+                ssm._ssm_step_sequential.__wrapped__(ssm, x, ssm._ssm_step_sequential) if False else x,
+                ssm._ssm_step_sequential.__defaults__[0]
+                if False
+                else ssm._ssm_step_sequential(
+                    x,
+                    torch.zeros_like(x),
+                    torch.zeros(x.shape[0], x.shape[1], ssm.d_state),
+                    torch.zeros(x.shape[0], x.shape[1], ssm.d_state),
+                ),
+            )
+            if False
+            else None
+        )  # placeholder, replaced below
         # Use public forward after forcing parallel path
         import src.models.mamba_encoder as me
+
         me._HAS_MAMBA_SSM = False
         y_par = ssm(x)
         me._HAS_MAMBA_SSM = True
         # Force sequential by invoking _ssm_step_sequential directly with its inputs.
         # We rebuild the same intermediate tensors the public path produces:
         import torch.nn.functional as F
-        x_proj = ssm.in_proj(x); x_ssm, x_gate = x_proj.chunk(2, dim=-1)
-        x_conv = ssm.conv1d(x_ssm.permute(0, 2, 1))[:, :, :x.shape[1]].permute(0, 2, 1)
+
+        x_proj = ssm.in_proj(x)
+        x_ssm, x_gate = x_proj.chunk(2, dim=-1)
+        x_conv = ssm.conv1d(x_ssm.permute(0, 2, 1))[:, :, : x.shape[1]].permute(0, 2, 1)
         x_conv = F.silu(x_conv)
         delta = torch.clamp(F.softplus(ssm.delta_proj(x_conv)), ssm.delta_min, ssm.delta_max)
-        B_p = ssm.B_proj(x_conv); C_p = ssm.C_proj(x_conv)
+        B_p = ssm.B_proj(x_conv)
+        C_p = ssm.C_proj(x_conv)
         y_seq_inner = ssm._ssm_step_sequential(x_conv, delta, B_p, C_p)
         y_seq = y_seq_inner * F.silu(x_gate)
         y_seq = ssm.out_proj(y_seq)
@@ -311,6 +322,7 @@ class TestK02NumericalParity:
         """K02 acceptance: fused CUDA kernel must agree with parallel scan
         within max|delta| < 1e-5 for the documented lengths (256/1024/2048)."""
         import src.models.mamba_encoder as me
+
         me._HAS_MAMBA_SSM = True  # ensure fused branch is taken
         for seq_len in (256, 1024, 2048):
             ssm = self._make_ssm(device="cuda")
@@ -333,6 +345,7 @@ class TestK02NumericalParity:
         """When mamba_ssm is available and input lives on CUDA, the fused
         kernel must be the executed branch (no fallback warning)."""
         import src.models.mamba_encoder as me
+
         me._HAS_MAMBA_SSM = True
         ssm = self._make_ssm(device="cuda")
         x = torch.randn(2, 64, 16, device="cuda")

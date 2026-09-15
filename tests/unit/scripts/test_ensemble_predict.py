@@ -79,9 +79,7 @@ class TestPredictionAggregation:
         m1 = StubModel([[0.3, 0.7], [0.4, 0.6]])
         m2 = StubModel([[0.6, 0.4], [0.2, 0.8]])
         ens = _make_ensemble(stub_loader, [m1, m2], [0.5, 0.5])
-        assert ens.predict_averaging(["A", "B"]) == pytest.approx(
-            ens.predict_voting(["A", "B"])
-        )
+        assert ens.predict_averaging(["A", "B"]) == pytest.approx(ens.predict_voting(["A", "B"]))
 
     def test_stacking_temporarily_replaces_weights(self, stub_loader):
         m1 = StubModel([[0.3, 0.7], [0.4, 0.6]])
@@ -106,9 +104,7 @@ class TestPredictionAggregation:
         assert probs == pytest.approx([0.35, 0.30])
 
     def test_all_models_failing_returns_zeros(self, stub_loader):
-        ens = _make_ensemble(
-            stub_loader, [StubModel([[0.0, 0.0]], fail=True)], [1.0]
-        )
+        ens = _make_ensemble(stub_loader, [StubModel([[0.0, 0.0]], fail=True)], [1.0])
         probs = ens.predict_voting(["A", "B"])
         assert probs.shape == (2,)
         assert (probs == 0).all()
@@ -155,9 +151,7 @@ class TestEnsembleCLI:
         """CLI 冒烟：--models/--test-data → 输出 CSV 生成（模型加载被 stub）。"""
         csv_path = tmp_path / "test_data.csv"
         out_path = tmp_path / "out.csv"
-        pd.DataFrame(
-            {"sequence_window": ["A", "B"], "label": [1, 0]}
-        ).to_csv(csv_path, index=False)
+        pd.DataFrame({"sequence_window": ["A", "B"], "label": [1, 0]}).to_csv(csv_path, index=False)
 
         # stub 掉模型加载与比较路径，仅验证 CLI 组装/产物契约
         called = {}
@@ -179,9 +173,12 @@ class TestEnsembleCLI:
             "sys.argv",
             [
                 "ensemble_predict.py",
-                "--models", "model_a.pt",
-                "--test-data", str(csv_path),
-                "--output", str(out_path),
+                "--models",
+                "model_a.pt",
+                "--test-data",
+                str(csv_path),
+                "--output",
+                str(out_path),
             ],
         )
         ep.main()

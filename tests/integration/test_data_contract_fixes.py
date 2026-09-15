@@ -70,9 +70,7 @@ class TestScperturbRegistration:
         """After the scperturb registration, the cross_scale_training profile
         gap shrinks to the two datasets that genuinely have no snapshots."""
         manifest = load_manifest(MANIFEST)
-        report = validate_manifest(
-            manifest, manifest_path=MANIFEST, check_files=True, profile="cross_scale_training"
-        )
+        report = validate_manifest(manifest, manifest_path=MANIFEST, check_files=True, profile="cross_scale_training")
         errors = report.get("errors") or []
         assert len(errors) == 2
         # Errors reference datasets by index; map them back to ids.
