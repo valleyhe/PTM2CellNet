@@ -496,7 +496,7 @@ U2–U7 批次的历史全量结果为 **2818 passed / 0 failed / 22 skipped / 7
 
 ### 10.1 前一阶段主会话 execution ledger（历史记录）
 
-以下表格完整保留前一阶段主会话的 9 次记录（8 个直接子代理调用 + 1 次报告执行），包括原有成功次数和可计算时长；这些记录不属于本轮 continuation，也不与本轮 5 次 direct spawn 重复。本表把容量错误的 Nietzsche 调用计入“调用次数”，但不计入成功执行次数；报告生成由前一阶段主会话直接执行，按原记录计为 1 次。`平均执行时长`只在有可靠开始/结束事件时填写；前一阶段仅 Avicenna 和 Fermat 有可靠事件，其余不可计算，绝不估计。
+以下表格完整保留前一阶段主会话的 9 次记录（8 个直接子代理调用 + 1 次报告执行），包括原有成功次数和可计算时长；这些记录不属于本轮 continuation，也不与本轮 6 次 direct spawn 重复。本表把容量错误的 Nietzsche 调用计入“调用次数”，但不计入成功执行次数；报告生成由前一阶段主会话直接执行，按原记录计为 1 次。`平均执行时长`只在有可靠开始/结束事件时填写；前一阶段仅 Avicenna 和 Fermat 有可靠事件，其余不可计算，绝不估计。
 
 ### 10.2 前一阶段历史统计表
 
@@ -515,7 +515,7 @@ U2–U7 批次的历史全量结果为 **2818 passed / 0 failed / 22 skipped / 7
 
 ### 10.3 本轮 continuation direct spawn ledger
 
-本轮 continuation 实际直接调用 `spawn_agent` 5 次：Epicurus、Meitner、Descartes、Lovelace、Aquinas 各 1 次；另有 Epicurus `resume` 1 次生命周期操作。`resume` 不作为新 spawn，也不计入 direct spawn 小计。成功完成只按完成通知或实际落地计数；Meitner 按代码/报告提交链实际落地计 1 次，但不声称返回了正常终态。
+本轮 continuation 实际直接调用 `spawn_agent` 6 次：Epicurus、Meitner、Descartes、Lovelace、Aquinas、Sartre 各 1 次；另有 Epicurus `resume` 1 次生命周期操作。`resume` 不作为新 spawn，也不计入 direct spawn 小计。成功完成只按完成通知或实际落地计数；Meitner 按代码/报告提交链实际落地计 1 次，但不声称返回了正常终态。
 
 | 直接 spawn 执行者 | 调用次数 | 成功完成次数 | 主要任务与真实状态 | 平均执行时长 |
 |---|---:|---:|---|---|
@@ -524,15 +524,16 @@ U2–U7 批次的历史全量结果为 **2818 passed / 0 failed / 22 skipped / 7
 | Descartes | 1 | 1 | 完成最终 HEAD 指针修正 | 不可计算（工具仅返回 timeout/完成通知，无可靠端到端起止时间） |
 | Lovelace | 1 | 1 | 移除报告自引用并提交 `ece3a58` | 不可计算（工具仅返回 timeout/完成通知，无可靠端到端起止时间） |
 | Aquinas | 1 | 1 | 补充并校正 continuation execution ledger；已完成 | 不可计算（无可靠端到端时长） |
-| **direct spawn 小计** | **5** | **4** | 5 次直接 spawn；Epicurus 未完成报告收口 | 不可计算（工具仅返回 timeout/完成通知，无可靠端到端起止时间） |
+| Sartre | 1 | 1 | 校正 continuation execution ledger，已完成并提交 `04c2bb0` | 不可计算（无可靠端到端时长） |
+| **direct spawn 小计** | **6** | **5** | 6 次直接 spawn；Epicurus 未完成报告收口 | 不可计算（工具仅返回 timeout/完成通知，无可靠端到端起止时间） |
 
 **生命周期操作：** Epicurus `resume` 1 次；不计为新 spawn，也不计入上述 direct spawn/成功完成小计。
 
-**本轮小计与去重：** direct spawn=5，resume=1；按“调用次数”只计 spawn=5，成功完成=4/5（Epicurus 未完成；Meitner、Descartes、Lovelace、Aquinas 按实际落地或完成通知计入）。前一阶段的 9 次是独立的历史主会话 ledger，本轮的 5 次是 continuation 的新 direct spawn，二者统计范围和调用集合不同，不重复计算。
+**本轮小计与去重：** direct spawn=6，resume=1；按“调用次数”只计 spawn=6，成功完成=5/6（Epicurus 未完成；Meitner、Descartes、Lovelace、Aquinas、Sartre 按实际落地或完成通知计入）。前一阶段的 9 次是独立的历史主会话 ledger，本轮的 6 次是 continuation 的新 direct spawn，二者统计范围和调用集合不同，不重复计算。
 
 ### 10.4 统计解释
 
-前一阶段的成功调用主要完成了当前工程交付所需的审计、归档和版本控制动作；Nietzsche 的 capacity error 没有产生审计结论，Darwin 承担了替代审计。时长不是由所有调用统一返回，故不以两项可靠时长推算其他 agent，也不把历史 ZMemory 的 started_at 当作本轮调用耗时。本轮 continuation 只报告 5 次实际 direct spawn 和 1 次 Epicurus resume；resume 是生命周期操作，不增加 spawn 调用次数。
+前一阶段的成功调用主要完成了当前工程交付所需的审计、归档和版本控制动作；Nietzsche 的 capacity error 没有产生审计结论，Darwin 承担了替代审计。时长不是由所有调用统一返回，故不以两项可靠时长推算其他 agent，也不把历史 ZMemory 的 started_at 当作本轮调用耗时。本轮 continuation 只报告 6 次实际 direct spawn 和 1 次 Epicurus resume；resume 是生命周期操作，不增加 spawn 调用次数。
 
 ## 11. 结论
 
