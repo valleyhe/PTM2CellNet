@@ -108,7 +108,7 @@ U8 已在 T5 完成：bridge guide 的 §2.1 登记了 22 个 formal `PTM2CELLNE
 | 本轮类型检查 | `python -m mypy src/ --ignore-missing-imports` | **174 source files / 0 errors / exit 0** |
 | 本轮编译检查 | `python -m compileall -q src scripts tests` | **exit 0** |
 | 本轮依赖一致性 | `python scripts/check_requirements_consistency.py` | **274 lock pins 一致 / exit 0** |
-| 本轮 VCS | `git fetch origin main`；`git ls-remote origin refs/heads/main`；`git rev-list --left-right --count HEAD...origin/main` | fetch exit 0；远端 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；代码提交 `40f115e0985a6cdbf9406cc94051ab84334a570b`；前一份报告批次 `c78ada1`；最终报告状态提交 `61846747d0de854d7ab0035b005e9c52fc515949`；最终报告状态提交后 `11 0`；无 merge、无 push |
+| 本轮 VCS | `git fetch origin main`；`git ls-remote origin refs/heads/main`；`git rev-list --left-right --count HEAD...origin/main` | fetch exit 0；远端 `refs/heads/main` 已核对为 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；提交顺序与用途为 `40f115e0985a6cdbf9406cc94051ab84334a570b`（代码批次）→ `c78ada1`（前一份报告批次）→ `61846747d0de854d7ab0035b005e9c52fc515949`（状态记录提交）→ `6a89e286620d5bbb70f32e207a5387e220c3eb45`（后续仅修正报告指针）；本地 `main` 在本地提交链上未落后远端；当前工作树 clean；本报告及后续报告修订均未 push；无 merge；精确当前关系以收口命令输出为准 |
 | 本轮空白检查 | `git diff --check` | exit 0 |
 | U2 真实验收 | context 契约字段 + E2E 同款 encode | 61,472×4018 ✓ / (256,64) finite ✓ |
 | U4 真实验收 | pseudobulk 重算 + 4 组功效对照 | 表产出 ✓；min FDR 0.9154（如实记录） |

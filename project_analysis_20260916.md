@@ -98,13 +98,14 @@ U4 的功效诊断还记录：GSE174367 EX 为 7 normal vs 11 disease `between_d
 | 远端 | `origin/main=219b81fe9d77d1f49cd916989e227ca88a2417d7`，`git ls-remote origin refs/heads/main` 已核对 |
 | 代码批次提交 | `40f115e0985a6cdbf9406cc94051ab84334a570b` — `feat: close PTM activity data and validation contracts` |
 | 前一份报告批次提交 | `c78ada1` — `docs: finalize 2026-09-16 audit reports` |
-| 最终报告状态提交后 HEAD/同步关系 | `HEAD=61846747d0de854d7ab0035b005e9c52fc515949`；`git rev-list --left-right --count HEAD...origin/main = 11 0`；远端未领先，无需 merge |
+| 历史提交顺序与用途 | `40f115e0985a6cdbf9406cc94051ab84334a570b`（代码批次）→ `c78ada1`（前一份报告批次）→ `61846747d0de854d7ab0035b005e9c52fc515949`（状态记录提交）→ `6a89e286620d5bbb70f32e207a5387e220c3eb45`（后续仅修正报告指针）；这些是历史节点，不把任一节点写成本报告当前 HEAD |
+| 当前分支/远端关系（非自引用） | 远端 `refs/heads/main` 已核对为 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；本地 `main` 在本地提交链上未落后远端；当前工作树 clean；本报告及后续报告修订均未 push；无 merge；精确当前关系以收口命令输出为准 |
 | 提交范围 | 显式提交当前已完成的代码、测试、配置、指南/状态文档、lessons 和两份 20260916 报告；不加入 outputs/运行产物 |
 | push | 未 push；本任务没有远程写入授权 |
 | 初始未提交范围 | 13 个 tracked `M` + 13 个 untracked 代码/测试/配置/报告文件；无 staged、delete 或 rename |
 | 报告批次提交后状态 | 工作区干净；无 staged、delete 或 rename；未加入 outputs/运行产物 |
 
-本批次使用显式文件清单，不使用宽泛 `git add -A`；`outputs/` 下忽略的运行产物、checkpoint 和临时 GPU 文件不进入提交。代码与报告提交 SHA、状态和 ahead/behind 已在本节及 §8.1 回填。
+本批次使用显式文件清单，不使用宽泛 `git add -A`；`outputs/` 下忽略的运行产物、checkpoint 和临时 GPU 文件不进入提交。代码与报告提交 SHA、远端、状态和 merge/no-push 口径已在本节及 §8.1 记录；精确当前关系以收口命令输出为准。
 
 ### 3.2 空白与 CRLF 记录
 
@@ -457,7 +458,7 @@ U8 采用最小修复：0.5 天在 `perturbgen_bridge.md` 增加变量名、来�
 |---|---|---|
 | ZMemory 注册、agents/claims/events、who/claim | 注册 session `codex-gpt-5-6-luna-54e0db`；两份报告 claim 成功；`zmemory resume` 因 `allow_mcp_exec` 未开启返回错误 | 协作状态已读取；未绕过已有 claim 或覆盖归档文件 |
 | archive manifest 与目标路径 | 读取现有 manifest；3 个快照与 manifest 保持原位，未发现需要新增移动的活动快照 | 归档范围未扩张；当前状态、方案/指南和 outputs/data 证据未归档 |
-| VCS fetch/远端比较 | `git fetch origin main` 退出 0；`git ls-remote origin refs/heads/main`=`219b81fe9d77d1f49cd916989e227ca88a2417d7`；代码批次=`40f115e0985a6cdbf9406cc94051ab84334a570b`；前一份报告批次=`c78ada1`；最终报告状态提交=`61846747d0de854d7ab0035b005e9c52fc515949`；最终报告状态提交后 `HEAD...origin/main=11 0`；无 merge、无 push | 当前目标分支为 `main`，远端未领先；代码和报告提交均已完成 |
+| VCS fetch/远端比较 | `git fetch origin main` 退出 0；远端 `refs/heads/main` 已核对为 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；提交顺序与用途为 `40f115e0985a6cdbf9406cc94051ab84334a570b`（代码批次）→ `c78ada1`（前一份报告批次）→ `61846747d0de854d7ab0035b005e9c52fc515949`（状态记录提交）→ `6a89e286620d5bbb70f32e207a5387e220c3eb45`（后续仅修正报告指针）；本地 `main` 在本地提交链上未落后远端；当前工作树 clean；本报告及后续报告修订均未 push；无 merge；精确当前关系以收口命令输出为准 | 当前目标分支为 `main`，代码和报告提交均已完成 |
 | `python -m compileall -q src scripts tests` | 退出码 0 | 未发现 Python 语法/字节码编译错误；只证明可编译，不证明科学正确 |
 | 定向 pytest | `python -m pytest tests/unit/analysis/test_ad_deg_table.py tests/unit/analysis/test_gate_e_benchmark.py tests/unit/data/test_scvi_context.py tests/unit/analysis/test_ptm_research_config.py tests/integration/test_scvi_davf_connection.py --timeout=300 -q`：**50 passed / 26 warnings / 4.36s / exit 0** | 覆盖本轮 DEG estimand、Gate-E、scVI context、config 和 Frangieh/DAVF 集成路径；没有跑长时间全量 pytest |
 | `ruff check src scripts tests` | **All checks passed / exit 0** | 检查触碰源码、脚本和测试的 lint 问题 |
