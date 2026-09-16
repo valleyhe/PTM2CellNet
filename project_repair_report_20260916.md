@@ -108,7 +108,7 @@ U8 已在 T5 完成：bridge guide 的 §2.1 登记了 22 个 formal `PTM2CELLNE
 | 本轮类型检查 | `python -m mypy src/ --ignore-missing-imports` | **174 source files / 0 errors / exit 0** |
 | 本轮编译检查 | `python -m compileall -q src scripts tests` | **exit 0** |
 | 本轮依赖一致性 | `python scripts/check_requirements_consistency.py` | **274 lock pins 一致 / exit 0** |
-| 本轮 VCS | `git fetch origin main`；`git ls-remote origin refs/heads/main`；`git rev-list --left-right --count HEAD...origin/main` | fetch exit 0；远端 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；代码提交 `40f115e0985a6cdbf9406cc94051ab84334a570b`；当前 `9 0`；无 merge、无 push |
+| 本轮 VCS | `git fetch origin main`；`git ls-remote origin refs/heads/main`；`git rev-list --left-right --count HEAD...origin/main` | fetch exit 0；远端 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；代码提交 `40f115e0985a6cdbf9406cc94051ab84334a570b`；报告提交 `c78ada1`；报告提交后 `10 0`；无 merge、无 push |
 | 本轮空白检查 | `git diff --check` | exit 0 |
 | U2 真实验收 | context 契约字段 + E2E 同款 encode | 61,472×4018 ✓ / (256,64) finite ✓ |
 | U4 真实验收 | pseudobulk 重算 + 4 组功效对照 | 表产出 ✓；min FDR 0.9154（如实记录） |
