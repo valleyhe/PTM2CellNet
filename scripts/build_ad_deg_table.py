@@ -61,6 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cell_type_column=args.cell_type_obs_column,
             state_column=args.state_obs_column,
             donor_column=args.donor_obs_column,
+            donor_aggregation=config.deg_donor_aggregation,
         )
         write_ad_deg_tables(aggregate, donor, aggregate_output, donor_output)
         manifest = manifest_payload(

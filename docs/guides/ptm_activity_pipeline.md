@@ -38,6 +38,7 @@ ptm_cohort: CPTAC_AD_BRAIN
 deg_max_fdr: 0.05
 min_donors_per_state: 3
 replicate_policy: mean               # mean | fail（重复位点登记规则）
+deg_donor_aggregation: pseudobulk_counts  # per_cell_log2_mean | pseudobulk_counts（2026-09-16 冻结）
 propagation:
   max_depth: 3                       # 简单路径深度上限
   decay: 0.5                         # 每跳权重衰减
@@ -156,6 +157,34 @@ python scripts/build_celltype_candidate_specs.py \
   `downstream_targets_<cell_type>.json` sidecar 和 `build_summary.json`。
 
 ## 7. 阶段 6：DAVF/PerturbGen 与 target-set 评估
+
+### 7.1 scVI context 准备（E2E 前置，2026-09-16 起）
+
+E2E 的 `context_h5ad` 必须与 route 的冻结 scVI checkpoint 4018 基因轴完全一致并
+携带 `davf_batch` 列。唯一准备入口是 `scripts/prepare_scvi_context.py`
+（`src/data/scvi_context.py`）；缺基因 policy（`zero_fill`/`fail`）、`davf_batch`
+绑定值（必须在该 route scVI batch registry 内）和绑定 rationale 都是显式必填
+输入并逐字记入 manifest——不能用"首个 batch"或隐式默认替代研究决策：
+
+```bash
+python scripts/prepare_scvi_context.py \
+  --cohort-h5ad data/AD/standardized/GSE174367_ad_cohort.h5ad \
+  --scvi-model checkpoints/scvi/davf_ko_dixit \
+  --gene-aliases data/processed/davf_scperturb/ko/prepared.gene_aliases.tsv \
+  --davf-route ko \
+  --davf-batch "DixitRegev2016_K562_TFs_7_days:168" \
+  --missing-gene-policy zero_fill \
+  --batch-binding-rationale "<verbatim research rationale>" \
+  --output-h5ad context_ko.h5ad \
+  --manifest-output context_ko.manifest.json
+```
+
+输出保留 cohort obs（附加绑定的 batch 列），基因轴替换为 adapter
+`gene_names` 顺序（缺失轴基因按 policy 显式处理，队列外基因丢弃并在 manifest
+计数）。route 候选轴覆盖先用 `scripts/audit_davf_axis_coverage.py` 审计
+（KO 当前仅 APOE；APP/PSEN1/BACE1/MAPT 在本地 scPerturb 数据集中无扰动数据）。
+
+### 7.2 E2E 与 target-set 评估
 
 E2E 运行方式不变，见 `docs/guides/davf_perturbgen_e2e.md` 与
 `docs/guides/perturbgen_bridge.md`。target-set 下游 delta 评估用库接口

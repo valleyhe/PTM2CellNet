@@ -14,12 +14,20 @@ from scipy.stats import ttest_ind
 from src.data.gse_normal_disease import (
     _bh_adjust,
     _donor_log2_means,
+    _donor_pseudobulk_log2,
     _validate_direction_input,
 )
 
 
 class ADDEGError(ValueError):
     """Raised when an AD DEG input or output contract is invalid."""
+
+
+#: Frozen donor-level estimands. ``per_cell_log2_mean`` normalizes each cell
+#: before averaging within a donor; ``pseudobulk_counts`` sums raw counts
+#: within a donor before normalization. The choice is a research-design
+#: decision recorded in the DEG manifest and must not drift between runs.
+VALID_DONOR_AGGREGATIONS = ("per_cell_log2_mean", "pseudobulk_counts")
 
 
 _AGGREGATE_COLUMNS = (
@@ -88,6 +96,7 @@ def build_ad_deg_tables(
     donor_column: str = "donor",
     normal_state: str = "normal",
     disease_state: str = "disease",
+    donor_aggregation: str = "per_cell_log2_mean",
     direction_epsilon: float = 1e-6,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Build aggregate and disease-donor AD DEG tables."""
@@ -99,6 +108,10 @@ def build_ad_deg_tables(
             raise ADDEGError(
                 "AD DEG table requires between_donor pairing; within_donor is not a valid independent "
                 "normal/disease DEG contract"
+            )
+        if donor_aggregation not in VALID_DONOR_AGGREGATIONS:
+            raise ADDEGError(
+                f"donor_aggregation must be one of {', '.join(VALID_DONOR_AGGREGATIONS)}; got {donor_aggregation!r}"
             )
         if (
             isinstance(min_donors_per_state, bool)
@@ -172,12 +185,13 @@ def build_ad_deg_tables(
             }
 
             donor_means: dict[tuple[str, str], np.ndarray] = {}
+            aggregation_fn = _donor_log2_means if donor_aggregation == "per_cell_log2_mean" else _donor_pseudobulk_log2
             for state, donors in ((normal_state, normal_donors), (disease_state, disease_donors)):
                 for donor in donors:
                     indices = np.flatnonzero(cell_mask & (state_values == state) & (donor_values == donor))
                     if len(indices) == 0:
                         raise ADDEGError(f"donor {donor!r} has no cells for cell type {cell_type!r}")
-                    donor_means[(state, str(donor))] = _donor_log2_means(counts, indices)
+                    donor_means[(state, str(donor))] = aggregation_fn(counts, indices)
 
             normal_matrix = np.vstack([donor_means[(normal_state, str(donor))] for donor in normal_donors])
             disease_matrix = np.vstack([donor_means[(disease_state, str(donor))] for donor in disease_donors])
@@ -221,12 +235,17 @@ def build_ad_deg_tables(
 
         aggregate = pd.DataFrame(aggregate_rows, columns=_AGGREGATE_COLUMNS)
         donor = pd.DataFrame(donor_rows, columns=_DONOR_COLUMNS)
+        if donor_aggregation == "pseudobulk_counts":
+            normal_reference = f"per cell type {normal_state} donor pseudobulk log2(normalized counts)"
+        else:
+            normal_reference = f"per cell type {normal_state} donor-level log2(normalized counts) mean"
         audit = {
             "cell_types": list(requested),
             "counts_layer": counts_layer,
+            "donor_aggregation": donor_aggregation,
             "normal_state": normal_state,
             "disease_state": disease_state,
-            "normal_reference": f"per cell type {normal_state} donor-level log2(normalized counts) mean",
+            "normal_reference": normal_reference,
             "effect_scale": f"{disease_state} donor mean minus {normal_state} donor mean",
             "state_counts": {
                 "normal": int(np.count_nonzero(state_values == "normal")),
@@ -282,6 +301,7 @@ def write_manifest(payload: Mapping[str, Any], output: str | Path) -> None:
 
 __all__ = [
     "ADDEGError",
+    "VALID_DONOR_AGGREGATIONS",
     "build_ad_deg_tables",
     "manifest_payload",
     "write_ad_deg_tables",

@@ -134,3 +134,16 @@ class TestPTMResearchConfig:
         config = parse_ptm_research_config(payload)
         with pytest.raises(PTMResearchConfigError, match="semantic_context"):
             config.semantic_context_for_cell_type("EX")
+
+    def test_deg_donor_aggregation_defaults_and_validation(self):
+        payload = _base_payload()
+        config = parse_ptm_research_config(payload)
+        assert config.deg_donor_aggregation == "per_cell_log2_mean"
+
+        payload["deg_donor_aggregation"] = "pseudobulk_counts"
+        config = parse_ptm_research_config(payload)
+        assert config.deg_donor_aggregation == "pseudobulk_counts"
+
+        payload["deg_donor_aggregation"] = "median_of_medians"
+        with pytest.raises(PTMResearchConfigError, match="deg_donor_aggregation"):
+            parse_ptm_research_config(payload)

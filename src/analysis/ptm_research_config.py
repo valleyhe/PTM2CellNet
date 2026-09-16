@@ -24,6 +24,11 @@ PTM_RESEARCH_CONFIG_SCHEMA_VERSION = "ptm2cellnet.ptm-research-config/v1"
 
 VALID_RESEARCH_OBJECTIVES = ("association", "replication", "reversal")
 VALID_REPLICATE_POLICIES = ("fail", "mean")
+#: Frozen donor-level DEG estimands (方案 §7.4-U4): ``per_cell_log2_mean``
+#: normalizes each cell before the donor average; ``pseudobulk_counts`` sums
+#: raw counts within a donor before normalization. Switching estimands is a
+#: research-design decision that must be recorded in the DEG manifest.
+VALID_DONOR_AGGREGATIONS = ("per_cell_log2_mean", "pseudobulk_counts")
 #: Direction fields that must stay separate per 方案 §3.1; the config freezes
 #: the *reference axis* used to interpret them, it never merges them.
 VALID_REFERENCE_AXES = (
@@ -89,6 +94,7 @@ class PTMResearchConfig:
     replicate_policy: str
     propagation: PropagationConfig
     sensitivity_activity_method: str | None = None
+    deg_donor_aggregation: str = "per_cell_log2_mean"
     semantic_context: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -125,6 +131,11 @@ class PTMResearchConfig:
             raise PTMResearchConfigError(
                 f"replicate_policy must be one of {', '.join(VALID_REPLICATE_POLICIES)}; "
                 "duplicate (sample, protein, residue, ptm_type) rows cannot be resolved silently (方案 §5.1)"
+            )
+        if self.deg_donor_aggregation not in VALID_DONOR_AGGREGATIONS:
+            raise PTMResearchConfigError(
+                f"deg_donor_aggregation must be one of {', '.join(VALID_DONOR_AGGREGATIONS)}; "
+                f"got {self.deg_donor_aggregation!r}"
             )
         if not isinstance(self.propagation, PropagationConfig):
             raise PTMResearchConfigError("propagation must be a PropagationConfig")
@@ -238,5 +249,6 @@ def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
         replicate_policy=str(payload["replicate_policy"]).strip(),
         propagation=propagation,
         sensitivity_activity_method=payload.get("sensitivity_activity_method"),
+        deg_donor_aggregation=str(payload.get("deg_donor_aggregation", "per_cell_log2_mean")).strip(),
         semantic_context=dict(semantic_context),
     )

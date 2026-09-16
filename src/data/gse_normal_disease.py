@@ -606,6 +606,23 @@ def _donor_log2_means(counts: Any, indices: Iterable[int] | np.ndarray) -> np.nd
     return np.asarray(np.log2(normalized_dense + 1.0).mean(axis=0))
 
 
+def _donor_pseudobulk_log2(counts: Any, indices: Iterable[int] | np.ndarray) -> np.ndarray:
+    """Donor pseudobulk profile: sum counts over cells, then normalize and log2.
+
+    Unlike :func:`_donor_log2_means` (per-cell normalization averaged within a
+    donor), this aggregation carries donor-level library composition into the
+    test statistic; the estimand is chosen once per frozen research design and
+    recorded in the DEG manifest, never switched silently.
+    """
+
+    subset = counts[list(indices)]
+    bulk = np.asarray(subset.sum(axis=0)).ravel().astype(np.float64)
+    library = float(bulk.sum())
+    if library <= 0:
+        raise GSENormalDiseaseError("direction evidence contains a zero-library donor pseudobulk")
+    return np.log2(bulk * (DEFAULT_TARGET_COUNT_SCALE / library) + 1.0)
+
+
 def summarize_normal_disease_directions(
     adata: Any,
     *,

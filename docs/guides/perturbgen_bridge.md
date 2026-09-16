@@ -81,6 +81,39 @@ python scripts/collect_perturbgen_env_evidence.py
 前提：`ref/Perturbgen-src`（浅克隆）与用户手动放置的 PerturbGen encoder
 权重（HuggingFace `lotfollahi-lab/PerturbGen`）。**agent 不得自动拉取大权重**。
 
+### 2.1 运行时环境变量清单（U8，2026-09-16）
+
+`configs/integration/perturbgen.yaml`（formal）与
+`configs/integration/perturbgen_local_adaptation.yaml`（local adaptation）的
+全部占位符在运行前必须已导出；`config_builder._expand_env` 对未解析占位符
+硬失败。变量语义与本地验证值（D3 探针 `outputs/perturbgen/d3_probe_20260916/`
+实测通过）如下。
+
+**formal 配置（`perturbgen.yaml`，22 个）**
+
+| 变量 | 语义 | 本地值（已验证） |
+|---|---|---|
+| `PTM2CELLNET_PERTURBGEN_PYTHON` | 独立环境 python 可执行文件 | `/home/scu/anaconda3/envs/perturbgen/bin/python` |
+| `PTM2CELLNET_PERTURBGEN_ENCODER_CKPT` | PerturbGen encoder checkpoint | `/home/scu/PTM2CellNet/perturbgen_ckpt/20250709_1223_cellgen_train_masking_lr_5e-05_wd_1e-06_batch_64_ptime_pos_sin_m_pow_tp_1-2-3_s_42-epoch=00.ckpt` |
+| `PTM2CELLNET_PERTURBGEN_TOKEN_DICT` | Geneformer token 词表 pkl | `ref/Perturbgen-src/perturbgen/pp/token_dict_gftokens_gc95M.pkl` |
+| `PTM2CELLNET_PERTURBGEN_GENE_MAPPING` | symbol→ENSG 映射 pkl | `ref/Perturbgen-src/perturbgen/pp/ensembl_mapping_dict_gc95M.pkl` |
+| `PTM2CELLNET_PERTURBGEN_GENE_MEDIAN` | token 中位数字典 pkl | `ref/Perturbgen-src/perturbgen/pp/gene_median_dict_gftokens_gc95M.pkl` |
+| `PTM2CELLNET_PERTURBGEN_INPUT_H5AD` | 正式输入 cohort h5ad（须过 Gate-0） | 待正式候选 context（未冻结） |
+| `PTM2CELLNET_PERTURBGEN_DATASET_NAME` | tokenise 数据集名（tokenized_data 子目录） | 待正式冻结 |
+| `PTM2CELLNET_PERTURBGEN_CELLTYPE_OBS` / `_STATE_OBS` / `_DONOR_OBS` | tokenise 需要的 obs 列名 | 按正式 context 冻结 |
+| `PTM2CELLNET_PERTURBGEN_REFERENCE_STATE` / `_TARGET_STATE` | 参考态/目标态标签 | 按正式队列冻结 |
+| `PTM2CELLNET_PERTURBGEN_OUTPUT_ROOT` | 六阶段输出根目录 | 每次运行显式指定 |
+| `PTM2CELLNET_PERTURBGEN_ESTIMATED_OUTPUT_BYTES` | 磁盘预算估计（字节） | 按产物规模估计 |
+| `PTM2CELLNET_PERTURBGEN_EMBEDDING_VOCAB` / `_TENSOR_KEY` / encoder 相关 | `export_gene_embeddings` 资产参数 | 按导出资产冻结 |
+| `PTM2CELLNET_PERTURBGEN_PERT_TP` / `_PERTURBATION_SEQUENCE` / `_TARGET_GENE` | perturb 阶段干预参数 | 按候选 spec 冻结 |
+
+**local adaptation 配置（`perturbgen_local_adaptation.yaml`，9 个）**：`PTM2CELLNET_PERTURBGEN_PYTHON`（同上）与 8 个 `PTM2CELLNET_PERTURBGEN_LOCAL_*`：
+`_INPUT_H5AD`（m0 smoke 子集 `ref/Perturbgen-src/data/perturbgen_m0_smoke/datlinger2021_m0smoke.h5ad`）、`_DATASET`（tokenized 数据集名）、`_ENCODER_CKPT`、`_TOKEN_DICT`、`_GENE_MAPPING`、`_GENE_MEDIAN`（均同 formal 路径）、`_TARGETS`（`ref/Perturbgen-src/data/perturbgen_m0_smoke/genes_to_include.csv`）、`_OUTPUT_ROOT`。
+
+**P40 注意**：`train_mask`/`train_decoder` 的 `torch.compile`（triton）要求
+CUDA Capability ≥ 7.0；Tesla P40（6.1）必须 `export TORCHDYNAMO_DISABLE=1`
+（eager 模式，探针实测 8.7s/43.0s/37.4s、峰值 4,359 MiB）。
+
 ## 3. 数据契约（Gate-0，先于一切训练）
 
 donor cohort 硬要求（方案 §4.6-1；lessons.md L-2026-0822-06、L-2026-0914-01）：

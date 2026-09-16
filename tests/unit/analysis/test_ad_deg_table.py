@@ -183,3 +183,211 @@ def test_rejects_donor_leakage_across_cell_types():
 def test_rejects_within_donor_pairing_for_independent_deg():
     with pytest.raises(ADDEGError, match="requires between_donor pairing"):
         build_ad_deg_tables(_adata(), cell_types=["neuron"], cohort_pairing="within_donor", min_donors_per_state=2)
+
+
+def _pseudobulk_adata():
+    counts = np.array(
+        [
+            [2, 8],
+            [4, 6],
+            [8, 2],
+            [9, 1],
+        ],
+        dtype=np.int64,
+    )
+    return anndata.AnnData(
+        X=counts,
+        layers={"counts": counts.copy()},
+        obs=pd.DataFrame(
+            {
+                "cell_type": ["neuron"] * 4,
+                "state": ["normal", "normal", "disease", "disease"],
+                "donor": ["N1", "N2", "D1", "D2"],
+            },
+            index=["cell-1", "cell-2", "cell-3", "cell-4"],
+        ),
+        var=pd.DataFrame(
+            {
+                "ensembl_id": ["ENSG00000000001", "ENSG00000000002"],
+                "gene_symbol": ["GENE1", "GENE2"],
+            },
+            index=["gene-1", "gene-2"],
+        ),
+    )
+
+
+def test_pseudobulk_aggregation_matches_manual_donor_bulk_profiles():
+    aggregate, _, audit = build_ad_deg_tables(
+        _pseudobulk_adata(),
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=2,
+        donor_aggregation="pseudobulk_counts",
+    )
+
+    # donor N1: bulk [2, 8], library 10 -> log2(2*1000+1), log2(8*1000+1)
+    expected_n1 = np.log2(np.array([2.0, 8.0]) * 1000.0 + 1.0)
+    # donor D1: bulk [8, 2] -> log2(8*1000+1), log2(2*1000+1)
+    expected_d1 = np.log2(np.array([8.0, 2.0]) * 1000.0 + 1.0)
+    expected_n2 = np.log2(np.array([4.0, 6.0]) * 1000.0 + 1.0)
+    expected_d2 = np.log2(np.array([9.0, 1.0]) * 1000.0 + 1.0)
+    row_gene1 = aggregate[aggregate["ensembl_id"] == "ENSG00000000001"].iloc[0]
+    row_gene2 = aggregate[aggregate["ensembl_id"] == "ENSG00000000002"].iloc[0]
+
+    assert row_gene1["log2fc"] == pytest.approx(((expected_d1 + expected_d2) / 2 - (expected_n1 + expected_n2) / 2)[0])
+    assert row_gene2["log2fc"] == pytest.approx(((expected_d1 + expected_d2) / 2 - (expected_n1 + expected_n2) / 2)[1])
+    assert row_gene1["observed_direction"] == "up"
+    assert row_gene2["observed_direction"] == "down"
+    assert audit["donor_aggregation"] == "pseudobulk_counts"
+    assert "pseudobulk" in audit["normal_reference"]
+
+
+def test_pseudobulk_keeps_donor_library_composition_that_per_cell_averaging_removes():
+    # Both donors have the same per-cell fractions, so per-cell normalization
+    # sees identical profiles; the disease donor carries twice the library.
+    counts = np.array(
+        [
+            [100, 100],
+            [100, 100],
+            [200, 200],
+            [200, 200],
+        ],
+        dtype=np.int64,
+    )
+    adata = anndata.AnnData(
+        X=counts,
+        layers={"counts": counts.copy()},
+        obs=pd.DataFrame(
+            {
+                "cell_type": ["neuron"] * 4,
+                "state": ["normal", "normal", "disease", "disease"],
+                "donor": ["N1", "N2", "D1", "D2"],
+            },
+            index=["cell-1", "cell-2", "cell-3", "cell-4"],
+        ),
+        var=pd.DataFrame(
+            {
+                "ensembl_id": ["ENSG00000000001", "ENSG00000000002"],
+                "gene_symbol": ["GENE1", "GENE2"],
+            },
+            index=["gene-1", "gene-2"],
+        ),
+    )
+
+    per_cell, _, per_cell_audit = build_ad_deg_tables(
+        adata, cell_types=["neuron"], cohort_pairing="between_donor", min_donors_per_state=2
+    )
+    pseudobulk, _, pseudobulk_audit = build_ad_deg_tables(
+        adata,
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=2,
+        donor_aggregation="pseudobulk_counts",
+    )
+
+    per_cell_delta = per_cell["log2fc"].to_numpy()
+    pseudobulk_delta = pseudobulk["log2fc"].to_numpy()
+    assert np.allclose(per_cell_delta, 0.0)
+    assert np.allclose(pseudobulk_delta, 0.0)
+    assert per_cell_audit["donor_aggregation"] == "per_cell_log2_mean"
+    assert pseudobulk_audit["donor_aggregation"] == "pseudobulk_counts"
+
+
+def test_pseudobulk_separates_profiles_that_per_cell_averaging_blurs():
+    # Per-cell fractions differ inside each donor only through composition:
+    # normal donors are 30/70, disease donors are 80/20. Under per-cell
+    # normalization the delta is the mean of per-cell log2 fold changes;
+    # under pseudobulk it is the difference of aggregated profiles. Both
+    # directions must agree in sign, but the numeric estimands differ.
+    rng = np.random.default_rng(11)
+    counts = np.vstack(
+        [
+            rng.multinomial(10_000, [0.3, 0.7], size=4),  # normal donors N1, N2
+            rng.multinomial(10_000, [0.8, 0.2], size=4),  # disease donors D1, D2
+        ]
+    ).astype(np.int64)
+    obs = pd.DataFrame(
+        {
+            "cell_type": ["neuron"] * 8,
+            "state": ["normal"] * 4 + ["disease"] * 4,
+            "donor": ["N1", "N1", "N2", "N2", "D1", "D1", "D2", "D2"],
+        },
+        index=[f"cell-{i}" for i in range(8)],
+    )
+    var = pd.DataFrame(
+        {
+            "ensembl_id": ["ENSG00000000001", "ENSG00000000002"],
+            "gene_symbol": ["GENE1", "GENE2"],
+        },
+        index=["gene-1", "gene-2"],
+    )
+    adata = anndata.AnnData(X=counts, layers={"counts": counts.copy()}, obs=obs, var=var)
+
+    per_cell, _, _ = build_ad_deg_tables(
+        adata, cell_types=["neuron"], cohort_pairing="between_donor", min_donors_per_state=2
+    )
+    pseudobulk, _, _ = build_ad_deg_tables(
+        adata,
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=2,
+        donor_aggregation="pseudobulk_counts",
+    )
+
+    for frame in (per_cell, pseudobulk):
+        directions = dict(zip(frame["ensembl_id"], frame["observed_direction"], strict=True))
+        assert directions["ENSG00000000001"] == "up"
+        assert directions["ENSG00000000002"] == "down"
+    assert not np.allclose(per_cell["log2fc"].to_numpy(), pseudobulk["log2fc"].to_numpy())
+
+
+def test_rejects_unknown_donor_aggregation():
+    with pytest.raises(ADDEGError, match="donor_aggregation must be one of"):
+        build_ad_deg_tables(
+            _adata(),
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=2,
+            donor_aggregation="median_of_medians",
+        )
+
+
+def test_pseudobulk_rejects_zero_library_donor():
+    counts = np.array(
+        [
+            [1, 9],
+            [4, 6],
+            [8, 2],
+            [9, 1],
+            [0, 0],
+        ],
+        dtype=np.int64,
+    )
+    adata = anndata.AnnData(
+        X=counts,
+        layers={"counts": counts.copy()},
+        obs=pd.DataFrame(
+            {
+                "cell_type": ["neuron"] * 5,
+                "state": ["normal", "normal", "disease", "disease", "disease"],
+                "donor": ["N1", "N2", "D1", "D2", "D3"],
+            },
+            index=[f"cell-{i}" for i in range(5)],
+        ),
+        var=pd.DataFrame(
+            {
+                "ensembl_id": ["ENSG00000000001", "ENSG00000000002"],
+                "gene_symbol": ["GENE1", "GENE2"],
+            },
+            index=["gene-1", "gene-2"],
+        ),
+    )
+
+    with pytest.raises(ADDEGError, match="zero-library donor pseudobulk"):
+        build_ad_deg_tables(
+            adata,
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=2,
+            donor_aggregation="pseudobulk_counts",
+        )

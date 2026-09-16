@@ -4,19 +4,23 @@
 # cell_types、cohort_h5ad）基于 GSE174367 真实队列冻结；方向语义按方案 §3.1
 # 分字段记录，禁止全局同号/取反。
 #
-# PTM 侧两个资产绑定字段（network_release、ptm_cohort）当前为显式 PENDING
-# 标记：signed network（OmniPath signed signaling / TF regulon 导出）与真实
-# PTM 定量队列尚未到位。资产到位时必须把这两个字段更新为真实 release/队列
-# 标识并重新登记 manifest lineage，之后才允许运行阶段 1–3（方案 §7 停止条件：
-# 缺 site 定量、物种不符、比较轴不明或 donor 语义不可解释）。在 PENDING 状态
-# 下运行 PTM 阶段视为契约违规，不得产出正式 PTM score。
+# PTM 侧资产绑定：network_release 已于 2026-09-16 从 OmniPath REST 导出组装
+# （datasets=dorothea,tf_target、dorothea_levels=A..E；12,878 条 signed TF→gene
+# 边；data/processed/signed_network/signed_network_omnipath_20260916.tsv + manifest）。
+# ptm_cohort（真实 PTM 定量队列）与 KSTAR/PhosR activity 仍为外部输入：在
+# ptm_cohort PENDING 状态下运行阶段 1–2 仍视为契约违规，不得产出正式 PTM score。
 schema_version: ptm2cellnet.ptm-research-config/v1
 research_objective: association
 reference_axis: disease_minus_normal
 contrast: "disease-minus-normal"
 primary_activity_method: KSTAR
 sensitivity_activity_method: PhosR
-network_release: "PENDING_SIGNED_NETWORK_RELEASE"
+# PTM 侧资产绑定：signed network 已于 2026-09-16 从 OmniPath REST 导出组装
+# （datasets=dorothea,tf_target、dorothea_levels=A..E；12,878 条 signed TF→gene
+# 边；data/processed/signed_network/signed_network_omnipath_20260916.tsv + manifest）。
+# ptm_cohort（真实 PTM 定量队列）与 KSTAR/PhosR activity 仍为外部输入：在
+# ptm_cohort PENDING 状态下运行阶段 1–2 仍视为契约违规，不得产出正式 PTM score。
+network_release: "omnipath-2026-09-16"
 cell_types: [EX, INH]
 cohort_h5ad: /home/scu/PTM2CellNet/data/AD/standardized/GSE174367_ad_cohort.h5ad
 cohort_pairing: between_donor
@@ -24,6 +28,12 @@ species: "9606"
 ptm_cohort: PENDING_EXTERNAL_PTM_COHORT
 deg_max_fdr: 0.05
 min_donors_per_state: 3
+# DEG estimand（2026-09-16 冻结，方案 §7.4-U4 方案 A）：donor pseudobulk
+# counts 先聚合再归一化。此前 per_cell_log2_mean 口径（每细胞 log2(CPM+1)
+# 再 donor 平均）在 GSE174367 全队列 117,352 行中最小 FDR 仅 0.0855，observed
+# 三方 gate 数学上不可通过；本冻结为研究口径变更，新表与旧表不得混用，
+# 旧表（20260915_d0）作废。
+deg_donor_aggregation: pseudobulk_counts
 replicate_policy: mean
 propagation:
   max_depth: 3

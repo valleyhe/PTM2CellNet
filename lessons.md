@@ -684,3 +684,125 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
   再变换的口径 min p 可达 ~1e-13。三方 gate observed 方在当前口径下数学上
   不可通过；改口径（pseudobulk counts + 检验选择）是研究设计决策，须与
   deg_max_fdr 语义一起冻结后重算，不得静默更换。
+## L-2026-0916-01｜U2–U7 修复批次：estimand 冻结、context 入口、轴审计与 P40 eager 实测
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0916-01 |
+| 时间戳 | 2026-09-16 |
+| 状态 | U2–U7 工程侧落地；observed gate 阻塞确认为队列统计功效限制，非代码缺陷 |
+
+- **U4 修正**（更正 L-2026-0915-02 发现三的预期）：donor pseudobulk counts
+  口径已实现并冻结（`deg_donor_aggregation`，config + manifest），但 GSE174367
+  EX（7 vs 11 between_donor，donor 文库 15.6 万–2374 万 reads）在 logCPM
+  pseudobulk + Welch 下 min p=1.56e-5、BH 后 min FDR 0.915；表达过滤 universe
+  16k–19k 仍 0.28–0.94；raw counts t（library confound 口径）也仅 1.9e-4。
+  上轮"pseudobulk min p≈1e-13"不可复现，结论作废——**observed 三方 gate 的
+  FDR≤0.05 在本队列任何无偏口径下不可达**，解法只能是扩大队列/预注册小基因
+  面板/修订 gate 语义（研究决策），不得调阈值。
+- **U2**：`src/data/scvi_context.py` + `scripts/prepare_scvi_context.py` 是唯一
+  context 准备入口：missing_gene_policy（zero_fill/fail）、`davf_batch`（必须
+  ∈ route scVI batch registry）、binding rationale 三者显式必填并逐字进
+  manifest；KO context 已真实生成（61,472×4018，33 缺失轴基因零填，batch=
+  DixitRegev2016_K562_TFs_7_days:168）并经 E2E 同款加载路径 encode 验证
+  （(256,64) finite）。KD 无候选消费者时不强行绑定 55-batch 决策。
+- **U3**：轴覆盖审计（`scripts/audit_davf_axis_coverage.py`）：KO={APOE}、
+  KD=∅；APP/PSEN1/BACE1/MAPT 在 PerturbGen vocab 全覆盖但本地 30 个
+  scPerturb 数据集**从未被扰动**——Workflow B 重训无训练输入，本地不可行；
+  4 个 scPerturb h5ad 下载截断损坏（Gasperini at-scale、Lara-Astiaso invivo、
+  Nadig hepg2、Sunshine 2023），manifest 记录，现有 KO/KD 资产不受影响。
+- **U7**：Gate-E vocabulary-migration benchmark 从真实 CPLM Homo sapiens +
+  dbptm Phosphorylation（acc→symbol 用 CPLM 自带配对，symbol→ENSG 用
+  PerturbGen ensembl mapping）组装 60,030 行/25 类；identity 对照 coverage
+  0.9874 / collisions 0 / action agreement 1.0。本机 uniprot 辅助文件
+  （human_proteome.fasta 等）实为酵母数据、idmapping 无 Ensembl 行——不可用。
+- **D3 实测**（替换 40GB 估计）：PerturbGen trainer `compile_model=True` 的
+  triton 后端不支持 Tesla P40（CC 6.1<7.0），`TORCHDYNAMO_DISABLE=1` eager
+  是 P40 唯一路径；750-cell 三阶段探针 8.7/43.0/37.4s、VRAM 峰值 4,359 MiB。
+- 验证：全量 2818 passed/0 failed/22 skipped（771.67s）；mypy 174 files 0
+  errors；触碰文件 ruff/format 通过；requirements 274 pins 一致。
+## L-2026-0916-02｜T1–T6 扩展批次：队列扩充、signed network、Frangieh KO 链与 P40 训练
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0916-02 |
+| 时间戳 | 2026-09-16 |
+| 状态 | T1/T2/T3/T5 完成，T4 下载中，T6 数据供给 blocked；observed gate 两队列不可达结论固化 |
+
+- **T1 队列扩充（GSE157827）**：donor 推导 = sample title 跳号 subject 池编号
+  （AD1,2,4..21/NC3,7..18，每编号一库；与 GSE174367 的"唯一供体协变量向量"
+  证据强度同级，依据记入 provenance）；cell type 无官方注释，用 Leiden(0.5,
+  seed 0)+固定 marker 模块（EX/INH/ASC/ODC/OPC/MG/PER.END）数据驱动注释，
+  177,654 nuclei、7 类全部 12+9 donors、unassigned 仅 1,382（0.8%）。
+  **合并统计三口径实测全败**：157827 单队列 min FDR 0.1365（HES4）、朴素池化
+  min FDR 1.0（队列基线偏移稀释）、per-cohort centering（16N+23D）EX 0.51/
+  INH 0.75——**observed gate FDR≤0.05 在本地两队列任何无偏口径下不可达**；
+  不得调阈值，出路是第三/更大队列或 gate 语义修订（研究决策）。
+- **T2 signed network**：OmniPath REST `datasets=dorothea,tf_target` 默认只回
+  1,258 行——必须显式 `dorothea_levels=A,B,C,D,E`（全量 13,565）；符号语义
+  consensus 优先、is_ 后备、双真/双假剔除；confidence 公式
+  `min(1, 0.5+0.1×(n_unique_resources−1))` 为冻结校准选择；release 12,878 边
+  （761 TF→3,727 target）经 `load_signed_network(expected_release=...)` 验证。
+  本地旧 omnipath/regnetwork/string 表全部无符号列，不可冒充 signed。
+- **T3 Frangieh KO 链**：Frangieh var['ensembl_id'] 5,649 行是 symbol/别名
+  （scPerturb 数据质量），用 ensembl_mapping_dict 重映射（492 成功、5,157 无
+  映射丢弃）+ 重复 ENSG 列 COO 聚合后才能进 prepare；新链 240,646×4,018、
+  216 targets（Dixit-only 仅 10）**含 APOE 真实 KO 扰动信号**；4018 新轴被
+  GSE174367 零缺失覆盖（原链缺 33）。P40 上 scVI(40ep)+pairs+LatentDAVF
+  （best_epoch=4, early stop 19）全链数小时完成；APOE 解码 finite 非零、
+  新正式测试通过。**注意**：新链与旧 KO 轴不同，资产不可混用；
+  context batch 绑定取最大训练份额 batch（frangieh_remapped:batch_0, 82%）。
+- **T4**：Zenodo record 13350497 并发限速会静默 stall——断点续传（curl -C -）
+  + 完成后 size 比对 + SHA256SUMS 校验 + .new 原子替换。
+- **T5**：22 formal + 9 local 环境变量 runbook 入 bridge guide §2.1。
+- **anndata.concat（0.11+）丢弃 var 列**：axis=0 concat 后 var 只剩索引，
+  ensembl_id/gene_symbol 必须在 concat 后从索引重建（两个脚本各踩一次）。
+- argparse `nargs="+"` 重复 flag 会覆盖不追加；列表参数用 `action="append"`。
+
+## L-2026-0916-03｜T4 收尾：scPerturb 重下的并发 append 损坏事故与完整性口径
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0916-03 |
+| 时间戳 | 2026-09-16 |
+| 状态 | Lara/Nadig/Sunshine 完成并通过全量读验证；Gasperini 单写者全新重下中（size 匹配+全量读通过才替换） |
+
+- **后台续传任务的句柄查不到 ≠ 进程已死**：旧续传 shell 在 TaskOutput 报
+  "No task found" 后仍存活，与新任务的两个 curl 以 O_APPEND 并发写同一
+  `.new`，字节区间交错损坏（size 超过期望值是最明显信号；本例 2.02GB >
+  期望 1.87GB）。HDF5 B-tree signature 也损坏时逐 chunk 挖补不可行，只能
+  弃文件全新下载。**长文件下载必须保证唯一写者**：启动前 `pgrep -af`
+  确认无残留写者，并在下载脚本里 size 匹配后内联验证再 mv。
+- **anndata backed 模式读 shape 不是完整性验证**：backed 惰性只读
+  superblock 与部分元数据，X 数据 chunk 损坏（gzip filter 失败）时
+  backed 读照样通过。h5ad 完整性 gate = size 精确匹配 + **非 backed 全量
+  read_h5ad** 成功。本例损坏文件 backed 读出 (200,000+, 40,000+) shape
+  "正常"，全量读才暴露。
+- **Zenodo record 13350497 限流实测**：高并发（16×range 并行）触发惩罚性
+  限流，聚合速度 23–88KB/s 且段反复失败重传；单连接 `curl -C -` 反而稳定
+  ~200KB/s；figshare ndownloader 仅 11KB/s 不可用。大文件从 Zenodo 拉取
+  用单连接 + `--speed-time/--speed-limit` stall 检测 + 外层重试循环。
+- **版本差异口径**：4 个文件实际 SHA256 全部与本地 `SHA256SUMS.txt`
+  （figshare 基准）不一致但 size 与 Zenodo 元数据精确一致——Zenodo 修订版
+  重打包。处理：实际 hash 与基准差异逐文件显式记入
+  `data/raw/scperturb/redownload_verify.json`，不篡改基准、不把版本差异
+  写成下载失败。
+- `pkill -f "curl.*<文件名>"` 会匹配到包含该模式文本的自身命令行而自杀；
+  清理残留进程用 `pgrep -af` 先查 PID 或让模式不含自身命令行文本。
+
+## L-2026-0916-04｜T4 终态与带宽归因修正
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0916-04 |
+| 时间戳 | 2026-09-16 |
+| 状态 | T4 完成：4/4 文件 size 精确一致 + anndata 全量读取通过 |
+
+- **T4 终态**：Lara invivo / Nadig hepg2 / Sunshine 2023 / Gasperini at-scale
+  （207,324 × 13,135）全部完成三重验证（size 对 Zenodo 元数据、SHA256
+  实测记录、非 backed 全量 read_h5ad），实际 hash 与差异逐文件在
+  `data/raw/scperturb/redownload_verify.json`。
+- **归因修正（L-2026-0916-03 的补充）**：用户确认本机出口带宽约 3MB，
+  实测单流 ~200-250KB/s 与之吻合——此前"Zenodo 高并发惩罚性限流"的归因
+  不成立，真实瓶颈是本机带宽；大文件下载直接单连接 + 断点续传即可，
+  并行分片在窄带宽下无收益且引入段管理复杂度。
