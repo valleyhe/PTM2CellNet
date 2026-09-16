@@ -62,7 +62,7 @@ U8 已在 T5 完成：bridge guide 的 §2.1 登记了 22 个 formal `PTM2CELLNE
 | 9 U6/D3 探针 | 重建环境变量 → 三跑：首跑缺 `PYTHON` 变量 → 二跑 train_mask 被 triton CC 硬阻塞 → 三跑（清 failed stage + `TORCHDYNAMO_DISABLE=1` + `--resume`） | 三阶段全部成功；VRAM 峰值 4,359 MiB；resume 契约对 failed stage 的拒绝行为验证正确 |
 | 10 D1/U5/指南 | CURRENT_STATUS 三处指针 + 本批次 Quick Reference；管线指南 §7.1 新命令；U5 接口核实 | 完成 |
 | 11 验证 | U2–U7/T1–T6 全量结果沿用各批次历史记录；本轮按收口要求重新执行 compileall、50 项定向 pytest、ruff、format、mypy 和 requirements consistency | 历史：U2–U7 为 2818 passed，T1–T6 为 2819 passed；本轮定向结果见 §5，为 50 passed / 26 warnings |
-| 12 收口 | 当前代码批次已提交；本报告与综合报告待单独提交并在提交后复核 SHA/状态 | 归档不扩张；biology PASS 仍为 0 |
+| 12 收口 | 当前代码批次及报告状态提交已完成；本次报告修正单独提交并复核 SHA/状态 | 归档不扩张；biology PASS 仍为 0 |
 
 ## 3. 系统性复核：E2E 训练与推理技术要求
 
@@ -108,7 +108,7 @@ U8 已在 T5 完成：bridge guide 的 §2.1 登记了 22 个 formal `PTM2CELLNE
 | 本轮类型检查 | `python -m mypy src/ --ignore-missing-imports` | **174 source files / 0 errors / exit 0** |
 | 本轮编译检查 | `python -m compileall -q src scripts tests` | **exit 0** |
 | 本轮依赖一致性 | `python scripts/check_requirements_consistency.py` | **274 lock pins 一致 / exit 0** |
-| 本轮 VCS | `git fetch origin main`；`git ls-remote origin refs/heads/main`；`git rev-list --left-right --count HEAD...origin/main` | fetch exit 0；远端 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；代码提交 `40f115e0985a6cdbf9406cc94051ab84334a570b`；报告提交 `c78ada1`；报告提交后 `10 0`；无 merge、无 push |
+| 本轮 VCS | `git fetch origin main`；`git ls-remote origin refs/heads/main`；`git rev-list --left-right --count HEAD...origin/main` | fetch exit 0；远端 `219b81fe9d77d1f49cd916989e227ca88a2417d7`；代码提交 `40f115e0985a6cdbf9406cc94051ab84334a570b`；前一份报告批次 `c78ada1`；最终报告状态提交 `61846747d0de854d7ab0035b005e9c52fc515949`；最终报告状态提交后 `11 0`；无 merge、无 push |
 | 本轮空白检查 | `git diff --check` | exit 0 |
 | U2 真实验收 | context 契约字段 + E2E 同款 encode | 61,472×4018 ✓ / (256,64) finite ✓ |
 | U4 真实验收 | pseudobulk 重算 + 4 组功效对照 | 表产出 ✓；min FDR 0.9154（如实记录） |
