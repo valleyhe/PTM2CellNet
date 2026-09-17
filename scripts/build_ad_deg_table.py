@@ -33,6 +33,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cell-type-obs-column", default="cell_type")
     parser.add_argument("--state-obs-column", default="state")
     parser.add_argument("--donor-obs-column", default="donor")
+    parser.add_argument(
+        "--cohort-column",
+        default=None,
+        help="cohort obs column; required by and only consumed with deg_donor_aggregation "
+        "'pseudobulk_counts_centered' (multi-cohort centering)",
+    )
     parser.add_argument("--output-tsv", type=Path, required=True, help="aggregate AD DEG table output")
     parser.add_argument("--donor-level-output", type=Path, required=True, help="donor-level AD DEG table output")
     parser.add_argument("--manifest-output", type=Path, required=True, help="AD DEG manifest output")
@@ -62,6 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             state_column=args.state_obs_column,
             donor_column=args.donor_obs_column,
             donor_aggregation=config.deg_donor_aggregation,
+            cohort_column=args.cohort_column,
         )
         write_ad_deg_tables(aggregate, donor, aggregate_output, donor_output)
         manifest = manifest_payload(
@@ -78,6 +85,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "cell_type": args.cell_type_obs_column,
                     "state": args.state_obs_column,
                     "donor": args.donor_obs_column,
+                    **({"cohort": args.cohort_column} if args.cohort_column is not None else {}),
                 },
                 "cell_types": list(config.cell_types),
                 "cohort_pairing": config.cohort_pairing,

@@ -806,3 +806,148 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
   实测单流 ~200-250KB/s 与之吻合——此前"Zenodo 高并发惩罚性限流"的归因
   不成立，真实瓶颈是本机带宽；大文件下载直接单连接 + 断点续传即可，
   并行分片在窄带宽下无收益且引入段管理复杂度。
+
+## L-2026-0916-05｜M10 driver–target gate 与 U4 多队列 centered 口径的实现边界
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0916-05 |
+| 时间戳 | 2026-09-16（第三修复批次） |
+| 状态 | 已落地：`evaluate_driver_target_gate` + E2E `driver_target_gate` lineage；`pseudobulk_counts_centered` 口径 + 真实合并队列实测 |
+
+- **driver–target gate 的 verdict 是事实分类不是判据**：`driver_target_status`
+  只有 not_evaluable / all_concordant_observed / mixed / none_concordant_observed
+  四值（参照 target 自身 `observed_direction`），无阈值、无发明判据；该记录
+  永不产生 pass/fail——source 三方 gate 仍是 formal 候选唯一准入门，source 无
+  自身 DEG 的候选仍只进 exploratory（方案 §5.5）。E2E 的
+  `--downstream-target-sidecar` 路径同时写
+  `downstream_target_evaluation.driver_target_gate`（schema
+  `ptm2cellnet.driver-target-gate/v1`），pass 候选缺 `direction_gate` 段硬失败。
+- **centered 口径单队列不变性是设计性质**：`pseudobulk_counts_centered` 在单
+  cohort 下与 `pseudobulk_counts` 的 fdr/log2fc 数值一致（减同一基线对 Welch t
+  平移不变）；差异只在多队列——cohort 组成性偏移（library 归一化无法吸收）
+  被移除后方差收缩。构造合成数据验证时偏移必须打在单基因上（打全基因会被
+  library 归一化约掉，测试会假阴）。
+- **centered 真实实测（GSE174367+GSE157827 合并，`dataset` 列）**：min FDR
+  EX 0.5254 / INH 0.7908（vs 朴素池化 1.0），仍无 FDR≤0.05 行——与临时实验
+  结论一致，observed gate 本地不可达不因合并口径改变；工具化的价值是把
+  多队列合并从临时代码固化成正式 CLI（manifest audit 含 cohort_column/
+  cohorts/donor_counts_by_cohort，任一 (cell_type, cohort) 缺 normal donor
+  硬失败）。
+
+## L-2026-0917-01｜外部扰动证据源选型实测与单源 LPM 最简起步
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0917-01 |
+| 时间戳 | 2026-09-17 |
+| 状态 | 契约与脚本已落地；LPM 实际训练/回测待外部环境（figshare 下载受限） |
+
+- **词表覆盖必须实测不能从论文推断**：STATE 论文口径"遗传扰动来自
+  Replogle-Nadig"，实际 HF 发布的 State-Replogle-Filtered 经 on-target 效应
+  过滤后只剩 2,024 个扰动——5 个 AD 候选全部不在（远程 HDF5 range 读 obs
+  categories 直测，19 个 HTTP 请求即可读 30GB h5ad 的词表，不必下载全文件）。
+  GEARS 的 dataverse norman/adamson 数据是组合子集（284/87 conditions），与
+  Norman 原始全量不同源——"训练词表"要看实际加载的文件不是论文名。
+- **LPM 的 Replogle 覆盖是推断链不是直测**：figshare 对本机出口 TLS 不稳定
+  （202 排队 + SSL EOF），无法直接读 perturblib 下载源词表；覆盖结论 =
+  perturblib 源码无过滤加载 + Replogle 全表达基因文库设计 + 本地 Frangieh
+  K562 表达实测（5/5 阳性）。首次外部环境训练时必须再 grep 词表闭环。
+- **单源起步的边界**：LPM 证据永远是"K562 基线 context 的 crispri_kd 外推"，
+  `token_mask_ko` 在契约里被显式拒绝（防语义混同）；Geneformer 第二源只在
+  ①出现 OE 候选（LPM 词表仅 PSEN1 有 OE）或 ②APOE 锚点回测可疑时触发。
+  先证后用：正式消费前必须过 APOE 锚点回测（真实 KO 方向 + mean-shift
+  baseline 对照）。
+- **HDF5 远程 range 读的最小实现**：h5py fileobj driver 要求 file-like 对象
+  实现 readinto 且 read 不允许短读（循环填满），fsspec 的 aiohttp 在本机代理
+  环境会连接失败——requests + 4MB readahead 缓存的 ~40 行实现即可读远端 h5ad
+  的 obs/var 词表。
+
+## L-2026-0917-02｜LPM 执行链的外部数据阻塞与 Nadig 词表修正
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0917-02 |
+| 时间戳 | 2026-09-17 |
+| 状态 | perturblib 环境就绪（torch cu124 下载中）；训练被 figshare 不可达阻塞，移交人工下载 |
+
+- **Nadig 重处理版词表 = 2,024，与 STATE 相同**：HF
+  `arcinstitute/Replogle-Nadig-Preprint/replogle.h5ad`（22.3GB 原始级，GSE264667）
+  的 obs gene categories 远程直读同为 2,024，5 个 AD 候选（含 APOE）全
+  MISS——**2,024 过滤是 Nadig 处理链固有的（low on-target efficacy）**，
+  不是 STATE 的选择；上一轮"STATE 过滤掉候选"的表述据此修正为"Nadig 链
+  过滤掉候选"。LPM 的词表内覆盖推断**只**依赖 figshare 原版
+  （perturblib 无过滤加载 + 全表达基因文库设计 + K562 表达阳性）。
+- **figshare 三路径全阻**：默认代理（202 排队 / SSL EOF）、api.figshare.com
+  （400）、备用代理 192.18.2.170（超时）。无公开镜像：Nadig 生态（GEO/
+  HF）全是 2,024 词表，GWPS 门户是 Dash 应用无静态端点，zenodo 无。**唯一
+  前进路径 = 人工在外网可达环境下载
+  `https://plus.figshare.com/ndownloader/files/35773075`**（Replogle K562
+  处理版，LPM `replogle_k562_paper_lpm` 训练源）。
+- **pip 装 torch 最新版会拉 CUDA 13 全家桶**（cudnn_cu13 等 2GB+），而 P40
+  （sm_61）不被 cu13 支持——对旧卡必须显式
+  `--index-url https://download.pytorch.org/whl/cu124` 装对应版本。
+- `pkill -f "<pip 模式>"` 会匹配含该模式文本的自身命令行而自杀（L-2026-0916-03
+  同款坑，复踩一次）——清理进程先 `pgrep -af` 拿 PID。
+
+## L-2026-0917-03｜LPM 词表直测定案：默认 K562 context 全 MISS，GWPS context 3/5
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0917-03 |
+| 时间戳 | 2026-09-17 |
+| 状态 | 词表争议直测闭环；LPM 本机训练被数据体积结构性阻塞 |
+
+- **下载突破**：figshare 的 202 反爬是 plus.figshare.com 域特有；换
+  **ndownloader.figshare.com 域 + 浏览器 UA + 断点续传**经默认代理实测稳定
+  （~320KB/s）。API v2（api.figshare.com/v2/articles/20029387）不受限，可拿
+  完整文件清单。直连（无代理）403——代理是必经路径。
+- **perturblib 的 K562 context 是 essentialome 不是全基因组**（figshare
+  35773075 = K562_essential_normalized_singlecell，bulk 版直测 2,285 个扰动
+  行，5 个 AD 候选 5/5 MISS）——上一轮"LPM 词表内覆盖 5/5"的推断链**被直接
+  证伪**；论文配置 `replogle_k562_paper_lpm` 训练出的模型对我们的候选无
+  查询入口，该训练不再执行。
+- **GWPS context（全基因组）直测 3/5 命中**：K562_gwps_normalized bulk
+  （35773217，11,258 行）实测 APOE/MAPT/PSEN1 命中、APP/BACE1 未命中
+  （normalized 处理弃掉或文库设计时低表达）。注意 bulk 版只能做词表验证，
+  LPM 训练需 singlecell 版 65.83GB。
+- **本机存储是硬墙**：65.83GB > 根分区空闲 56GB——GWPS 训练数据在本机
+  放不下；曾误启动下载已即时终止并清理（下载前必须先查目标分区空闲）。
+- **.obs 行名格式**：Replogle 处理版为 `{编号}_{SYMBOL}_{P1P2}_{ENSG}`，
+  解析 symbol 是 `split('_')[-3]` 不是 `[-2]`（踩过一次导致假 MISS）。
+- **选型结论修正**："单源 LPM 覆盖大多数"实测为"LPM(GWPS) 3/5，且需先解决
+  65.83GB 获取；APP/BACE1 除 GEARS(GO 通道)/Geneformer 外无任何外部模型
+  词表入口"。策略一（GEARS+Geneformer 双源）重新成为唯一全覆盖选项。
+
+## L-2026-0917-04｜策略 B 执行链闭环：GEARS/Geneformer 资产产出，APOE 锚点回测 fail 且归因于锚点不可比
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0917-04 |
+| 时间戳 | 2026-09-17 |
+| 状态 | 双源资产已冻结；按预注册判据回测 fail，**不接入 lineage**；归因修正为锚点不可比 |
+
+- **执行链全部走通**（外部环境 perturblib conda + torch 2.6 cu124/P40 + cell-gears 0.1.2 +
+  geneformer 官方 HF 版）：GEARS 扩 graph 训练（gene_set 9,978 = 默认 9,976+缺失候选，
+  `gene_set_path` 是官方扩词表通道）→ 5 候选 unseen 预测 → `gears_predictions.h5ad`；
+  Geneformer V2-104M ISP（GSE174367 EX 疾病细胞 250 个，delete）→ `geneformer_isp_EX.h5ad`
+  （cos 影响谱）；两资产均通过主环境 `external-perturbation-prediction/v1` 契约校验。
+- **回测 fail（预注册判据）**：GEARS APOE top-100 方向一致率 0.25（阈 0.59，binom
+  p=5.6e-7 显著**低于随机**）；Spearman −0.04；判据 C1/C2 fail → 不接入。
+- **归因诊断（重要修正）**：B2M/CD59/CTSD 三个独立锚点同管线一致率 0.25/0.32/0.27
+  全部显著反向，mean-shift baseline（与模型无关）也 0.22 反向——**系统性低于随机的
+  模式指向锚点数据集不可比**（Frangieh co-culture 的组成效应/受体-效应细胞混合 vs
+  Norman 单培养 K562 的内在转录响应），而非 GEARS unseen 单独失效。
+- **结构性边界结论**：unseen 候选（APP/BACE1 等无真实扰动数据的基因）的方向证据
+  在本机数据条件下**没有干净的回测 ground truth**——"先证后用"只能挡住不可靠证据，
+  无法为这类证据发可信证明。GEARS 有效性需按其标准口径（Norman 测试集扰动）另行
+  评估，与候选方向证据的可信度是两个问题。
+- **工程坑（外部环境适配实录）**：①cell-gears 0.1.2 为 pandas1.x 代码（`Series.nonzero`
+  /bool-Series 索引 scipy sparse 全崩）——降 pandas<3 + 打两行补丁（gears.py:87 的
+  sparse 掩码 `.to_numpy()`、predict 的 unseen 检查放宽到 node_map_pert）；②GEARS
+  predict 期望 **list of lists**（`[["APOE"]]`），字符串会被逐字符迭代；③Geneformer
+  官方包源在 HF（GitHub 原仓库 2025 下线，jkobject fork 的 main 分支有语法错误勿用）；
+  pip 从 HF clone 安装时包内 pkl 是 **LFS 指针**，需手工用真实字典覆盖 site-packages；
+  ④Geneformer ISP `genes_to_perturb` 用 **Ensembl ID** 键、V2 模型 emb_mode 必须
+  `cls_and_gene`、gene 输出是 **embedding cos 谱无方向语义**（方向证据只剩 GEARS）；
+  ⑤ISP cls_and_gene 显存大（batch 32 OOM 于 P40+并行训练时，batch 8 通过）。

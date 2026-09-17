@@ -26,9 +26,12 @@ VALID_RESEARCH_OBJECTIVES = ("association", "replication", "reversal")
 VALID_REPLICATE_POLICIES = ("fail", "mean")
 #: Frozen donor-level DEG estimands (方案 §7.4-U4): ``per_cell_log2_mean``
 #: normalizes each cell before the donor average; ``pseudobulk_counts`` sums
-#: raw counts within a donor before normalization. Switching estimands is a
-#: research-design decision that must be recorded in the DEG manifest.
-VALID_DONOR_AGGREGATIONS = ("per_cell_log2_mean", "pseudobulk_counts")
+#: raw counts within a donor before normalization;
+#: ``pseudobulk_counts_centered`` is the multi-cohort variant that subtracts
+#: each (cell type, cohort) normal-donor baseline before the test. Switching
+#: estimands is a research-design decision that must be recorded in the DEG
+#: manifest.
+VALID_DONOR_AGGREGATIONS = ("per_cell_log2_mean", "pseudobulk_counts", "pseudobulk_counts_centered")
 #: Direction fields that must stay separate per 方案 §3.1; the config freezes
 #: the *reference axis* used to interpret them, it never merges them.
 VALID_REFERENCE_AXES = (

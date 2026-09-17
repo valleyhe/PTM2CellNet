@@ -25,9 +25,12 @@ class ADDEGError(ValueError):
 
 #: Frozen donor-level estimands. ``per_cell_log2_mean`` normalizes each cell
 #: before averaging within a donor; ``pseudobulk_counts`` sums raw counts
-#: within a donor before normalization. The choice is a research-design
+#: within a donor before normalization; ``pseudobulk_counts_centered`` is the
+#: multi-cohort variant that subtracts each (cell type, cohort) normal-donor
+#: pseudobulk baseline before the disease-vs-normal test so cohort offsets
+#: cannot masquerade as disease effects. The choice is a research-design
 #: decision recorded in the DEG manifest and must not drift between runs.
-VALID_DONOR_AGGREGATIONS = ("per_cell_log2_mean", "pseudobulk_counts")
+VALID_DONOR_AGGREGATIONS = ("per_cell_log2_mean", "pseudobulk_counts", "pseudobulk_counts_centered")
 
 
 _AGGREGATE_COLUMNS = (
@@ -43,20 +46,36 @@ _AGGREGATE_COLUMNS = (
 _DONOR_COLUMNS = ("cell_type", "donor", "ensembl_id", "gene_symbol", "log2fc", "fdr")
 
 
-def _direction_adata(adata: Any, *, cell_type_column: str, state_column: str, donor_column: str) -> Any:
-    if (cell_type_column, state_column, donor_column) == ("cell_type", "state", "donor"):
+def _direction_adata(
+    adata: Any,
+    *,
+    cell_type_column: str,
+    state_column: str,
+    donor_column: str,
+    cohort_column: str | None = None,
+) -> Any:
+    columns = [cell_type_column, state_column, donor_column]
+    names = ["cell_type", "state", "donor"]
+    if cohort_column is not None:
+        columns.append(cohort_column)
+        names.append("cohort")
+    if tuple(columns) == tuple(names):
         return adata
-    missing = [column for column in (cell_type_column, state_column, donor_column) if column not in adata.obs.columns]
+    missing = [column for column in columns if column not in adata.obs.columns]
     if missing:
         raise ADDEGError(f"AnnData is missing required obs columns: {missing}")
-    obs = adata.obs[[cell_type_column, state_column, donor_column]].copy()
-    obs.columns = ["cell_type", "state", "donor"]
+    obs = adata.obs[columns].copy()
+    obs.columns = names
     return SimpleNamespace(layers=adata.layers, shape=adata.shape, var=adata.var, obs=obs)
 
 
-def _clean_obs(obs: pd.DataFrame) -> pd.DataFrame:
+def _clean_obs(obs: pd.DataFrame, *, cohort: bool = False) -> pd.DataFrame:
     cleaned: pd.DataFrame = obs.copy()
-    for column in ("cell_type", "state", "donor"):
+    columns = ("cell_type", "state", "donor", "cohort") if cohort else ("cell_type", "state", "donor")
+    missing_columns = [column for column in columns if column not in cleaned.columns]
+    if missing_columns:
+        raise ADDEGError(f"obs is missing required columns: {missing_columns}")
+    for column in columns:
         values = cleaned[column]
         if values.isna().any():
             raise ADDEGError(f"obs column {column!r} must not contain missing values")
@@ -97,6 +116,7 @@ def build_ad_deg_tables(
     normal_state: str = "normal",
     disease_state: str = "disease",
     donor_aggregation: str = "per_cell_log2_mean",
+    cohort_column: str | None = None,
     direction_epsilon: float = 1e-6,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Build aggregate and disease-donor AD DEG tables."""
@@ -112,6 +132,14 @@ def build_ad_deg_tables(
         if donor_aggregation not in VALID_DONOR_AGGREGATIONS:
             raise ADDEGError(
                 f"donor_aggregation must be one of {', '.join(VALID_DONOR_AGGREGATIONS)}; got {donor_aggregation!r}"
+            )
+        centered = donor_aggregation == "pseudobulk_counts_centered"
+        if centered and cohort_column is None:
+            raise ADDEGError("donor_aggregation 'pseudobulk_counts_centered' requires a cohort_column")
+        if cohort_column is not None and not centered:
+            raise ADDEGError(
+                "cohort_column is only consumed by donor_aggregation 'pseudobulk_counts_centered'; "
+                f"got {donor_aggregation!r}"
             )
         if (
             isinstance(min_donors_per_state, bool)
@@ -129,6 +157,7 @@ def build_ad_deg_tables(
             cell_type_column=cell_type_column,
             state_column=state_column,
             donor_column=donor_column,
+            cohort_column=cohort_column,
         )
         counts, obs, gene_names = _validate_direction_input(direction_adata, counts_layer=counts_layer)
         if "gene_symbol" not in adata.var.columns:
@@ -140,7 +169,7 @@ def build_ad_deg_tables(
         if gene_symbols.eq("").any():
             raise ADDEGError("var['gene_symbol'] must not contain empty values")
 
-        obs = _clean_obs(obs)
+        obs = _clean_obs(obs, cohort=centered)
         requested = _requested_cell_types(cell_types)
         available = set(obs["cell_type"])
         missing_cell_types = sorted(set(requested) - available)
@@ -159,6 +188,8 @@ def build_ad_deg_tables(
         aggregate_rows: list[dict[str, Any]] = []
         donor_rows: list[dict[str, Any]] = []
         donor_counts: dict[str, dict[str, int]] = {}
+        donor_counts_by_cohort: dict[str, dict[str, dict[str, int]]] = {}
+        cohorts_by_cell_type: dict[str, list[str]] = {}
         state_values = obs["state"].to_numpy()
         cell_type_values = obs["cell_type"].to_numpy()
         donor_values = obs["donor"].to_numpy()
@@ -193,6 +224,37 @@ def build_ad_deg_tables(
                         raise ADDEGError(f"donor {donor!r} has no cells for cell type {cell_type!r}")
                     donor_means[(state, str(donor))] = aggregation_fn(counts, indices)
 
+            if centered:
+                donor_cohorts: dict[str, str] = {}
+                cell_cohort_values = obs["cohort"].to_numpy()[cell_mask]
+                for donor, cohort in zip(donor_values[cell_mask], cell_cohort_values, strict=True):
+                    previous = donor_cohorts.setdefault(str(donor), str(cohort))
+                    if previous != str(cohort):
+                        raise ADDEGError(f"donor {donor!r} spans multiple cohorts for cell type {cell_type!r}")
+                cohorts_per_cell_type = sorted(set(cell_cohort_values.tolist()))
+                cohort_reference: dict[str, np.ndarray] = {}
+                for cohort in cohorts_per_cell_type:
+                    baseline = [
+                        donor_means[(normal_state, str(donor))]
+                        for donor in normal_donors
+                        if donor_cohorts[str(donor)] == cohort
+                    ]
+                    if not baseline:
+                        raise ADDEGError(
+                            f"cell type {cell_type!r} cohort {cohort!r} has no {normal_state} donors for centering"
+                        )
+                    cohort_reference[cohort] = np.mean(np.vstack(baseline), axis=0)
+                for (state, donor), profile in list(donor_means.items()):
+                    donor_means[(state, donor)] = profile - cohort_reference[donor_cohorts[str(donor)]]
+                donor_counts_by_cohort[cell_type] = {
+                    cohort: {
+                        "normal": sum(1 for donor in normal_donors if donor_cohorts[str(donor)] == cohort),
+                        "disease": sum(1 for donor in disease_donors if donor_cohorts[str(donor)] == cohort),
+                    }
+                    for cohort in cohorts_per_cell_type
+                }
+                cohorts_by_cell_type[cell_type] = cohorts_per_cell_type
+
             normal_matrix = np.vstack([donor_means[(normal_state, str(donor))] for donor in normal_donors])
             disease_matrix = np.vstack([donor_means[(disease_state, str(donor))] for donor in disease_donors])
             delta = disease_matrix.mean(axis=0) - normal_matrix.mean(axis=0)
@@ -220,26 +282,35 @@ def build_ad_deg_tables(
                     }
                 )
                 for donor in disease_donors:
+                    if centered:
+                        donor_log2fc = float(donor_means[(disease_state, str(donor))][gene_index])
+                    else:
+                        donor_log2fc = float(
+                            donor_means[(disease_state, str(donor))][gene_index] - normal_reference[gene_index]
+                        )
                     donor_rows.append(
                         {
                             "cell_type": cell_type,
                             "donor": str(donor),
                             "ensembl_id": ensembl_id,
                             "gene_symbol": gene_symbol,
-                            "log2fc": float(
-                                donor_means[(disease_state, str(donor))][gene_index] - normal_reference[gene_index]
-                            ),
+                            "log2fc": donor_log2fc,
                             "fdr": float(fdr[gene_index]),
                         }
                     )
 
         aggregate = pd.DataFrame(aggregate_rows, columns=_AGGREGATE_COLUMNS)
         donor = pd.DataFrame(donor_rows, columns=_DONOR_COLUMNS)
-        if donor_aggregation == "pseudobulk_counts":
+        if donor_aggregation == "pseudobulk_counts_centered":
+            normal_reference = (
+                f"per cell type and cohort {normal_state} donor pseudobulk log2(normalized counts) mean "
+                f"(cohort column {cohort_column!r}); donor values are cohort-centered"
+            )
+        elif donor_aggregation == "pseudobulk_counts":
             normal_reference = f"per cell type {normal_state} donor pseudobulk log2(normalized counts)"
         else:
             normal_reference = f"per cell type {normal_state} donor-level log2(normalized counts) mean"
-        audit = {
+        audit: dict[str, Any] = {
             "cell_types": list(requested),
             "counts_layer": counts_layer,
             "donor_aggregation": donor_aggregation,
@@ -253,6 +324,10 @@ def build_ad_deg_tables(
             },
             "donor_counts": donor_counts,
         }
+        if centered:
+            audit["cohort_column"] = cohort_column
+            audit["cohorts"] = cohorts_by_cell_type
+            audit["donor_counts_by_cohort"] = donor_counts_by_cohort
         return aggregate, donor, audit
     except ADDEGError:
         raise

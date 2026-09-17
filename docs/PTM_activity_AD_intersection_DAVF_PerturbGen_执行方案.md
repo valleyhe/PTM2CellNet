@@ -448,7 +448,7 @@ KSTAR/PhosR 输出的是上游 activity 证据，不是下游表达标签。KSTA
 项目文件：
 
 - docs/CURRENT_STATUS.md
-- project_analysis_20260914.md
+- project_analysis_20260917.md
 - docs/guides/davf_perturbgen_e2e.md
 - docs/guides/perturbgen_bridge.md
 - docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md

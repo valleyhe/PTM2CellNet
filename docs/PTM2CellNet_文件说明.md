@@ -5,4 +5,4 @@
 
 当前文件契约以代码、测试、[`guides/data_integration.md`](guides/data_integration.md)、
 [`guides/real_assets_acceptance.md`](guides/real_assets_acceptance.md)以及仓库根目录的
-[`project_analysis_20260914.md`](../project_analysis_20260914.md)为准。
+[`project_analysis_20260917.md`](../project_analysis_20260917.md)为准。

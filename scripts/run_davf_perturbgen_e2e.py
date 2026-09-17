@@ -548,6 +548,8 @@ def _assemble_downstream_target_evaluation(
 
     from src.integration.perturbgen.downstream_target_evaluation import (
         DownstreamTargetSidecar,
+        driver_target_gate_to_payload,
+        evaluate_driver_target_gate,
         evaluate_target_set_deltas,
         evaluation_to_payload,
         load_downstream_target_sidecar,
@@ -603,7 +605,7 @@ def _assemble_downstream_target_evaluation(
     preparations = payload.get("candidates")
     if not isinstance(preparations, list):
         raise ValueError("E2E report candidates must be a list for downstream target evaluation")
-    gated: list[tuple[str, int, dict[str, Any], str]] = []
+    gated: list[tuple[str, int, dict[str, Any], str, Mapping[str, Any]]] = []
     gated_ids: set[str] = set()
     for preparation in preparations:
         if not isinstance(preparation, Mapping):
@@ -613,6 +615,9 @@ def _assemble_downstream_target_evaluation(
         invocation = preparation.get("invocation")
         if not isinstance(invocation, Mapping):
             raise ValueError("passing E2E candidate has no invocation for downstream target evaluation")
+        direction_gate = preparation.get("direction_gate")
+        if not isinstance(direction_gate, Mapping):
+            raise ValueError("passing E2E candidate has no direction_gate for driver-target gate evidence")
         raw_ensembl_id = invocation.get("ensembl_id")
         if not isinstance(raw_ensembl_id, str) or not raw_ensembl_id.strip():
             raise ValueError("passing E2E invocation has no ensembl_id for downstream target evaluation")
@@ -629,7 +634,7 @@ def _assemble_downstream_target_evaluation(
                 f"E2E invocation gene for {ensembl_id} does not match candidate spec: "
                 f"{invocation_gene!r} != {expected_gene!r}"
             )
-        gated.append((ensembl_id, row, candidate, source_activity_id))
+        gated.append((ensembl_id, row, candidate, source_activity_id, direction_gate))
         gated_ids.add(ensembl_id)
     if not gated:
         raise ValueError("downstream target evaluation requires at least one gated candidate")
@@ -664,9 +669,10 @@ def _assemble_downstream_target_evaluation(
         )
 
     evaluation_payload: dict[str, Any] | None = None
+    driver_target_gates: dict[str, dict[str, Any]] = {}
     all_result_paths: list[str] = []
     candidate_lineage: list[dict[str, Any]] = []
-    for ensembl_id, row, candidate, source_activity_id in gated:
+    for ensembl_id, row, candidate, source_activity_id, direction_gate in gated:
         run = runs_by_ensembl[ensembl_id]
         output_root = run.get("output_root")
         if not isinstance(output_root, (str, Path)) or not str(output_root).strip():
@@ -728,10 +734,18 @@ def _assemble_downstream_target_evaluation(
             sources=(source,),
             lineage=sidecar.lineage,
         )
+        evaluations = evaluate_target_set_deltas(delta_frame, candidate_sidecar)
         serialized = evaluation_to_payload(
-            evaluate_target_set_deltas(delta_frame, candidate_sidecar),
+            evaluations,
             cell_type=sidecar.cell_type,
             delta_matrix_source=";".join(item["result_h5ad"] for item in artifact_lineage),
+        )
+        driver_target_gates[ensembl_id] = driver_target_gate_to_payload(
+            evaluate_driver_target_gate(
+                direction_gate,
+                evaluations[ensembl_id],
+                semantic_context=candidate.get("semantic_context"),
+            )
         )
         if evaluation_payload is None:
             evaluation_payload = serialized
@@ -752,6 +766,7 @@ def _assemble_downstream_target_evaluation(
     evaluation_payload["delta_matrix_source"] = ";".join(all_result_paths)
     return {
         "payload": evaluation_payload,
+        "driver_target_gate": driver_target_gates,
         "lineage": {
             "sidecar_path": str(resolved_sidecar_path),
             "sidecar_lineage": to_plain_object(sidecar.lineage),
@@ -760,7 +775,10 @@ def _assemble_downstream_target_evaluation(
             "baseline_layer": "pred_counts",
             "perturbed_layer": "X",
             "candidates": candidate_lineage,
-            "gate_boundary": "source three-way direction gate remains the only pass/fail decision",
+            "gate_boundary": (
+                "source three-way direction gate remains the only pass/fail decision; "
+                "driver_target_gate records supplementary target-set concordance (方案 §5.5/§8.6)"
+            ),
         },
     }
 

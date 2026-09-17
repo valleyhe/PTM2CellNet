@@ -209,9 +209,13 @@ E2E 会读取 sidecar，对每个 source 三方 gate 通过的候选解析 Pertu
 `result.h5ad`，按 donor 聚合 `pred_counts` baseline 与 `X` perturbed，计算
 `X - pred_counts` 的 donor-level delta，并将顶层
 `downstream_target_evaluation`（含 per-target 的
-`matches_predicted`/`matches_observed`）及其 lineage 写入报告。该结果是与 source
-三方 gate 互补的方向一致性证据，不改变 source 三方 gate 的 pass/fail，也不等于
-因果验证或生物学 PASS。
+`matches_predicted`/`matches_observed`）及其 lineage 写入报告。同一节还写入
+`downstream_target_evaluation.driver_target_gate`（per source，schema
+`ptm2cellnet.driver-target-gate/v1`）：source 三方 gate 证据与 target-set
+concordance 分字段记录，`driver_target_status` 为无阈值事实分类，不产生
+pass/fail 决策。该结果是与 source 三方 gate 互补的方向一致性证据，不改变
+source 三方 gate 的 pass/fail（source 无自身 DEG 的候选仍只进 exploratory），
+也不等于因果验证或生物学 PASS。
 
 gate 边界（F-09 的现行约定）：正式 PerturbGen 执行的唯一公开入口是绑定通过
 E2E gate report 的 `scripts/run_perturbgen_pipeline.py --e2e-gate-report` 与

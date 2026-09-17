@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -28,6 +29,10 @@ from src.models.gene_vocabulary import normalize_ensembl_id
 
 DOWNSTREAM_TARGET_SIDECAR_SCHEMA_VERSION = "ptm2cellnet.downstream-target-sidecar/v1"
 TARGET_SET_EVALUATION_SCHEMA_VERSION = "ptm2cellnet.target-set-evaluation/v1"
+DRIVER_TARGET_GATE_SCHEMA_VERSION = "ptm2cellnet.driver-target-gate/v1"
+
+_SOURCE_GATE_STATUSES = {"pass", "fail", "inconclusive"}
+_GATE_DIRECTIONS = {"up", "down"}
 
 
 class DownstreamTargetEvaluationError(ValueError):
@@ -334,14 +339,181 @@ def _normalize_or_none(value: object) -> str:
         raise DownstreamTargetEvaluationError(f"delta matrix contains invalid gene id: {text!r}") from exc
 
 
+@dataclass(frozen=True)
+class DriverTargetGateEvidence:
+    """Source/target-separated evidence for the driver–target gate (方案 §5.5).
+
+    The ``source`` fields re-record the existing source three-way direction
+    gate untouched; the ``target_set`` fields summarise the downstream
+    concordance. The record is supplementary lineage evidence — it never
+    replaces the source three-way gate as the pass/fail decision for formal
+    candidates and it is not causal validation (方案 §8.6).
+    """
+
+    source_ensembl_id: str
+    source_gene_symbol: str
+    source_gate_status: str
+    source_gate_reasons: tuple[str, ...]
+    source_proposed_direction: str | None
+    source_davf_direction: str | None
+    source_observed_direction: str | None
+    source_has_own_deg: bool
+    n_targets: int
+    n_evaluable_targets: int
+    n_missing_targets: int
+    n_with_predicted: int
+    n_with_observed: int
+    n_matching_predicted: int
+    n_matching_observed: int
+    n_indeterminate: int
+    concordance_fraction_predicted: float | None
+    concordance_fraction_observed: float | None
+    driver_target_status: str  # not_evaluable | all_concordant_observed | mixed | none_concordant_observed
+    semantic_context: Mapping[str, Any] | None
+
+
+def evaluate_driver_target_gate(
+    source_gate: Mapping[str, Any],
+    target_evaluation: SourceTargetSetEvaluation,
+    *,
+    semantic_context: Mapping[str, Any] | None = None,
+) -> DriverTargetGateEvidence:
+    """Combine source gate evidence with target-set concordance, field-separated.
+
+    ``source_gate`` is the plain direction-gate mapping as serialized into the
+    E2E report (``DirectionGateResult`` payload) or read back from a report on
+    disk. The verdict is factual and threshold-free: it classifies how the
+    evaluated target deltas relate to the targets' own ``observed_direction``
+    while the counts against ``predicted_gene_direction`` are reported
+    alongside, never merged (方案 §3.1). Missing evidence stays ``not_evaluable``
+    instead of being promoted to concordance.
+    """
+
+    status = str(source_gate.get("status") or "").strip()
+    if status not in _SOURCE_GATE_STATUSES:
+        raise DownstreamTargetEvaluationError(f"source gate status must be one of {sorted(_SOURCE_GATE_STATUSES)}")
+    raw_ensembl = str(source_gate.get("ensembl_id") or "").strip()
+    if not raw_ensembl:
+        raise DownstreamTargetEvaluationError("driver-target gate requires a source ensembl_id")
+    try:
+        source_ensembl = normalize_ensembl_id(raw_ensembl)
+    except ValueError as exc:
+        raise DownstreamTargetEvaluationError(f"source gate ensembl_id is invalid: {raw_ensembl!r}") from exc
+    if source_ensembl != target_evaluation.source_ensembl_id:
+        raise DownstreamTargetEvaluationError(
+            f"driver-target gate source mismatch: {source_ensembl} != {target_evaluation.source_ensembl_id}"
+        )
+    source_gene = str(source_gate.get("gene_symbol") or "").strip().upper()
+    if not source_gene or source_gene != target_evaluation.source_gene_symbol.upper():
+        raise DownstreamTargetEvaluationError(
+            f"driver-target gate source gene mismatch for {source_ensembl}: "
+            f"{source_gene!r} != {target_evaluation.source_gene_symbol!r}"
+        )
+    directions: dict[str, str | None] = {}
+    for field_name in ("proposed_direction", "davf_direction", "observed_direction"):
+        value = source_gate.get(field_name)
+        if value is None:
+            directions[field_name] = None
+            continue
+        text = str(value).strip()
+        if text not in _GATE_DIRECTIONS:
+            raise DownstreamTargetEvaluationError(f"source gate {field_name} must be 'up', 'down' or null")
+        directions[field_name] = text
+    raw_reasons = source_gate.get("reasons") or ()
+    if isinstance(raw_reasons, (str, bytes)) or not isinstance(raw_reasons, Sequence):
+        raise DownstreamTargetEvaluationError("source gate reasons must be a sequence of strings")
+    gate_reasons = tuple(str(reason) for reason in raw_reasons)
+
+    deltas = target_evaluation.deltas
+    n_with_predicted = sum(1 for delta in deltas if delta.predicted_gene_direction)
+    n_with_observed = sum(1 for delta in deltas if delta.observed_direction)
+    if n_with_observed == 0:
+        driver_target_status = "not_evaluable"
+    elif target_evaluation.n_matching_observed == n_with_observed:
+        driver_target_status = "all_concordant_observed"
+    elif target_evaluation.n_matching_observed == 0:
+        driver_target_status = "none_concordant_observed"
+    else:
+        driver_target_status = "mixed"
+
+    return DriverTargetGateEvidence(
+        source_ensembl_id=source_ensembl,
+        source_gene_symbol=target_evaluation.source_gene_symbol,
+        source_gate_status=status,
+        source_gate_reasons=gate_reasons,
+        source_proposed_direction=directions["proposed_direction"],
+        source_davf_direction=directions["davf_direction"],
+        source_observed_direction=directions["observed_direction"],
+        source_has_own_deg=directions["observed_direction"] is not None,
+        n_targets=target_evaluation.n_targets,
+        n_evaluable_targets=len(deltas),
+        n_missing_targets=target_evaluation.n_missing_targets,
+        n_with_predicted=n_with_predicted,
+        n_with_observed=n_with_observed,
+        n_matching_predicted=target_evaluation.n_matching_predicted,
+        n_matching_observed=target_evaluation.n_matching_observed,
+        n_indeterminate=target_evaluation.n_indeterminate,
+        concordance_fraction_predicted=(
+            target_evaluation.n_matching_predicted / n_with_predicted if n_with_predicted else None
+        ),
+        concordance_fraction_observed=(
+            target_evaluation.n_matching_observed / n_with_observed if n_with_observed else None
+        ),
+        driver_target_status=driver_target_status,
+        semantic_context=dict(semantic_context) if semantic_context is not None else None,
+    )
+
+
+def driver_target_gate_to_payload(evidence: DriverTargetGateEvidence) -> dict[str, Any]:
+    """Serialize driver–target gate evidence with the pass/fail boundary explicit."""
+
+    return {
+        "schema_version": DRIVER_TARGET_GATE_SCHEMA_VERSION,
+        "source": {
+            "ensembl_id": evidence.source_ensembl_id,
+            "gene_symbol": evidence.source_gene_symbol,
+            "gate_kind": "source_three_way",
+            "gate_status": evidence.source_gate_status,
+            "gate_reasons": list(evidence.source_gate_reasons),
+            "proposed_direction": evidence.source_proposed_direction,
+            "davf_direction": evidence.source_davf_direction,
+            "observed_direction": evidence.source_observed_direction,
+            "source_has_own_deg": evidence.source_has_own_deg,
+        },
+        "target_set": {
+            "n_targets": evidence.n_targets,
+            "n_evaluable_targets": evidence.n_evaluable_targets,
+            "n_missing_targets": evidence.n_missing_targets,
+            "n_with_predicted": evidence.n_with_predicted,
+            "n_with_observed": evidence.n_with_observed,
+            "n_matching_predicted": evidence.n_matching_predicted,
+            "n_matching_observed": evidence.n_matching_observed,
+            "n_indeterminate": evidence.n_indeterminate,
+            "concordance_fraction_predicted": evidence.concordance_fraction_predicted,
+            "concordance_fraction_observed": evidence.concordance_fraction_observed,
+        },
+        "driver_target_status": evidence.driver_target_status,
+        "semantic_context": dict(evidence.semantic_context) if evidence.semantic_context is not None else None,
+        "note": (
+            "target-set concordance is supplementary lineage evidence only; it never replaces the "
+            "source three-way direction gate as the pass/fail decision for formal candidates and is "
+            "not causal validation (方案 §5.5/§8.6)"
+        ),
+    }
+
+
 __all__ = [
     "DOWNSTREAM_TARGET_SIDECAR_SCHEMA_VERSION",
+    "DRIVER_TARGET_GATE_SCHEMA_VERSION",
     "DownstreamTargetEvaluationError",
     "DownstreamTargetSidecar",
+    "DriverTargetGateEvidence",
     "SourceTargetSetEvaluation",
     "TARGET_SET_EVALUATION_SCHEMA_VERSION",
     "TargetDeltaEvaluation",
     "TargetSetSource",
+    "driver_target_gate_to_payload",
+    "evaluate_driver_target_gate",
     "evaluate_target_set_deltas",
     "evaluation_to_payload",
     "load_downstream_target_sidecar",

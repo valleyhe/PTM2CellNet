@@ -1,9 +1,9 @@
 # PerturbGen 桥接指南（DAVF × PerturbGen 双路径整合）
 
-> **文档版本**：v1.7（2026-09-13，补充研究边界、公共准备生命周期与六阶段入口）
+> **文档版本**：v1.8（2026-09-17，补充策略 B 外部证据边界与 APOE 锚点回测结论）
 > **权威方案**：[`docs/DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md`](../DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)（v2.0）
 > **详细执行方案**：[`docs/guides/davf_ko_kd_training.md`](davf_ko_kd_training.md)
-> **状态基线**：[`project_analysis_20260914.md`](../../project_analysis_20260914.md)（本报告按源码、测试和真实资产边界逐项审计；工程契约与科学验收分开记账）
+> **状态基线**：[`project_analysis_20260917.md`](../../project_analysis_20260917.md)（本报告按源码、测试和真实资产边界逐项审计；工程契约与科学验收分开记账）
 
 本指南面向需要运行 PerturbGen 训练/扰动链路或 DAVF 嵌入底座迁移的操作者，
 给出环境、数据契约、六阶段 pipeline、嵌入资产与评估的入口命令。
@@ -203,17 +203,23 @@ python scripts/run_davf_perturbgen_e2e.py \
 
 # 3. 在第 2 步通过后，先完成真实 matched-null 批跑（GPU；CLI 只提供 --dry-run
 #    计划，执行走 Python API）。下面是一个 candidate × path × mode × seed 组合的
-#    接口骨架；研究代码必须重复覆盖全部 5 × 2 × 3 × 3 组合，并在外部真实数据
-#    绑定完成后写出实际的 null distribution manifest。不得用这个骨架或 synthetic
-#    rescue 分数代替真实输出。
+#    真实绑定入口；研究代码必须重复覆盖全部 5 × 2 × 3 × 3 组合，并在外部真实数据
+#    绑定完成后写出实际的 null distribution manifest。rescue 提取器
+#    build_stage_rescue_extractor 复用与 candidate path 提取完全相同的
+#    pred_counts/X donor 聚合与 held-out DEG signature 打分（排除被扰动的 null
+#    基因本身），并从 stage manifest 登记 result h5ad sha256；DEG 表与
+#    var[var_gene_column] 必须使用同一基因命名空间，不足 3 个可评估 donor 硬失败。
+#    不得用 synthetic rescue 分数代替真实输出。
 python - <<'EOF'
 from src.integration.perturbgen.null_generation import run_matched_null_stages
+from src.integration.perturbgen.null_rescue import build_stage_rescue_extractor
+from src.integration.perturbgen.replay_evaluation import load_deg_table
 
-def study_rescue_extractor(request, stage_result):
-    raise NotImplementedError(
-        "Bind the registered real perturb result h5ad and donor-level DEG table "
-        "to NullStageRecord in study code before running matched-null stages"
-    )
+rescue_extractor = build_stage_rescue_extractor(
+    load_deg_table("outputs/davf_perturbgen/gse174367_ex/deg_table.tsv"),
+    donor_obs_column="donor",
+    var_gene_column="__index__",
+)
 
 result = run_matched_null_stages(
     selection_manifest="outputs/perturbgen/frozen/20260914_gse174367_ex/null_selection/APP.json",
@@ -221,7 +227,7 @@ result = run_matched_null_stages(
     e2e_gate_report="outputs/davf_perturbgen/gse174367_ex/e2e_report.json",
     path="source_intervention", mode="mask", seed=0,
     output_root="outputs/perturbgen/nulls/APP",
-    rescue_extractor=study_rescue_extractor,
+    rescue_extractor=rescue_extractor,
     output_path="outputs/perturbgen/nulls/APP/source_intervention_mask_seed0.json",
 )
 EOF
@@ -463,6 +469,20 @@ python scripts/benchmark_perturbgen.py \
 
 # Gate-4 发布证据校验（单次运行自洽，不接受多次残缺 benchmark 的并集）
 python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [--benchmark-json <bench.json>] [--mode formal|smoke]
+
+# 统一 formal Workflow A 验收编排（Gate-4/5）：一次消费 E2E gate report、
+# frozen cohort manifest、matched-null distribution manifest、未扰动质量与
+# dual-path eval input/report manifest，输出单一 verdict（pass/fail/blocked）
+# 与缺失项清单；blocked 表示输入尚未提供，绝不静默跳过或降级为 pass。
+# 退出码：0=pass，1=fail，2=blocked。质量可由 --quality-json 显式给出，
+# 或省略并从 --eval-input 候选的 unperturbed_quality 字段读取。
+python scripts/verify_formal_workflow_a.py \
+    --e2e-report <e2e-report.json> \
+    --frozen-manifest <frozen-manifest.json> \
+    --null-distribution-manifest <null-distribution.json> \
+    --eval-input <dual-path-eval-input.json> \
+    --report-manifest <dual-path-report-manifest.json> \
+    --output <formal-verification.json>
 ```
 
 `engineering` 入口允许 uniform 或外部表格 p，只能标记 synthetic；`formal` 入口
@@ -490,6 +510,153 @@ python scripts/check_perturbgen_release_evidence.py --evidence <evidence.json> [
 要求 `extract_unperturbed_quality_from_h5ad` 产物，以及
 `conservative_max_required_runs` 聚合后的 empirical p。pathway/GSEA 是次级证据，
 不写入 dual-path 硬 PASS；单路通过只支持相应 path 的研究场景。
+
+## 6a. 外部扰动证据源（LPM，历史/关闭）
+
+> **状态：已关闭，不是当前执行路径。** 2026-09-17 对 perturblib 默认 K562
+> essentialome（2,285 行）和 GWPS 词表的直测推翻了早期 5/5 覆盖推断；当前外部证据
+> 源切换到 §6b 的 GEARS + Geneformer。以下命令仅保留作历史实验记录，不能作为
+> 当前候选证据或 lineage 输入。
+
+历史背景与选型（2026-09-17 早期实测）：四个候选模型中，STATE 的遗传扰动词表
+（State-Replogle-Filtered，2,024 个）不含任何 AD 候选（5/5 MISS，实测）；
+GEARS GO 通道与 Geneformer 全部可查但分别是外推/反事实语义；**LPM
+（[perturblib](https://github.com/perturblib/perturblib)，Apache-2.0）的
+Replogle CRISPRi 通道对 5 候选全部 in-vocab**（推断链：perturblib 加载原始
+未过滤 figshare 数据 + Replogle 全表达基因文库设计 + 本地 Frangieh K562
+表达实测 5/5 阳性）。当时决策为**单源 LPM 最简起步**，随后被 §6b 的策略 B
+取代；Geneformer 作为条件触发的第二源、GEARS/STATE 暂不投入均为历史状态。
+
+### 环境搭建（独立环境，不进 requirements-core）
+
+```bash
+python -m venv ~/.venvs/perturblib && source ~/.venvs/perturblib/bin/activate
+git clone https://github.com/perturblib/perturblib && cd perturblib
+pip install poetry && poetry install          # 或 pip install -e .
+```
+
+注意：perturblib 不在 PyPI；其 Replogle 数据从 figshare 下载，本机出口对
+figshare TLS 不稳定（lessons L-2026-0916-03）——首次下载数据时如遇 SSL/202
+排队，需走代理或镜像下载后放入 perturblib 缓存目录。
+
+### 训练（一次性，按论文配置 5 seeds）
+
+```bash
+python -m perturb_gym.training train_from_config_file \
+    --config_file_id_or_path=replogle_k562_paper_lpm
+```
+
+产物为 5 个 seed 的 checkpoint 目录；记录 perturblib git commit。
+
+### 推理与冻结资产导出（外部环境）
+
+```bash
+python scripts/run_lpm_predictions.py \
+  --candidates-tsv candidates.tsv \            # ensembl_id/gene_symbol 两列
+  --trained-model-dir <5-seed-checkpoint 目录> \
+  --context HumanCellLine_K562_10xChromium3-scRNA-seq_Replogle22 \
+  --perturbation-semantics crispri_kd \
+  --output-h5ad outputs/external_evidence/lpm_predictions.h5ad \
+  --manifest-output outputs/external_evidence/lpm_predictions.manifest.json \
+  --perturblib-commit <commit>
+```
+
+输出 manifest（`ptm2cellnet.lpm-prediction/v1`）绑定 h5ad sha256、训练
+配置、context、seeds 与聚合语义。候选不在 LPM 扰动词表时硬失败并列出缺失
+清单。首次运行时如 perturblib 的 PlibData 布局与脚本假设不符，按其教程
+（`docs/source/notebook_tutorials/01_data.ipynb`）适配构造部分——这是外部
+环境适配点，不是主环境契约变更。
+
+### 主环境消费（校验 + evidence payload）
+
+```bash
+python scripts/assemble_external_evidence.py \
+  --prediction-manifest outputs/external_evidence/lpm_predictions.manifest.json \
+  --candidates-tsv candidates.tsv \
+  --output outputs/external_evidence/external_evidence.json
+```
+
+契约（[`src/integration/perturbgen/external_perturbation_evidence.py`](../../src/integration/perturbgen/external_perturbation_evidence.py)）：
+readout 词表必须 canonical Ensembl；候选重复、非 finite delta、语义枚举外
+值（`token_mask_ko` 被显式拒绝）、hash 漂移、context 不一致全部硬失败；候选
+自身 readout 行缺失时 `self_delta/predicted_direction` 记 None，不零填。
+
+### 边界（与方案 §5.5/§8.6 一致）
+
+- 证据语义是 **K562 基线 context 上的 CRISPRi 扰动外推**，不是疾病 context
+  干预；`crispri_kd` 近似但不等于主线 `token_mask_ko`，分字段记录、永不与
+  DAVF/PerturbGen 证据合并，不构成 pass/fail、因果验证或 biology PASS。
+- **Geneformer 第二源触发条件**（满足其一即启动接入）：① 出现
+  `observed_direction=down` 的 pass 候选（OE 路径，LPM 词表仅 PSEN1 有 OE）；
+  ② APOE 锚点回测显示 LPM 方向可疑。触发前不搭建。
+- **先证后用**：LPM 资产正式进入任何 gate/lineage 消费前，必须先过 APOE
+  锚点回测（本地 Frangieh 真实 KO 方向对照 + mean-shift baseline 对照）。
+- MAPT 注意：K562 检出率仅 0.6%，其 LPM 训练信号可能接近零——MAPT 的方向
+  证据使用时要携带该前缀评估。
+
+## 6b. 外部扰动证据源（当前策略 B：GEARS + Geneformer，2026-09-17 起）
+
+2026-09-17 词表实测定案（lessons L-2026-0917-02/03）：STATE 遗传词表（2,024）
+与 perturblib 默认 K562 context（essentialome 2,285）均不含任何 AD 候选；
+GWPS context 覆盖 3/5（APOE/MAPT/PSEN1）但训练数据 65.83GB 超本机磁盘。
+**LPM/STATE 路径关闭，当前证据源为策略 B 双源**。两源资产虽通过
+`external-perturbation-prediction/v1` 输入契约，但 APOE 预注册锚点回测为
+`verdict=fail`（top-100 方向一致率 0.25、Spearman -0.0428），因此两源均**不接入
+主线 lineage**，也不构成 biology PASS：
+
+| 源 | 通道 | 候选覆盖 | evidence_kind | 语义边界 |
+|---|---|---|---|---|
+| [GEARS](https://github.com/snap-stanford/GEARS)（cell-gears，MIT） | GO 图谱 unseen 查询（gene2go 5/5，GO terms 45–147） | 5/5 | `go_extrapolation` | 训练模态混合的 GO 外推，K562 基线 context |
+| [Geneformer](https://huggingface.co/ctheodoris/Geneformer)（V2-104M，MIT） | 疾病细胞 in-silico perturbation（token 词表 5/5） | 5/5 | `network_counterfactual` | 掩码基因网络反事实，非训练扰动响应 |
+
+### 环境（复用 perturblib conda env 作外部模型环境）
+
+```bash
+conda activate perturblib
+pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124  # P40 需 cu124，勿装 cu13
+pip install cell-gears geneformer
+```
+
+本地资产：GEARS Norman 语料与 GO 图谱在 `data/raw/gears/`；Geneformer V2-104M
+权重与字典在 `checkpoints/geneformer/`（`legacy_v1_davf_base/` 是 2026-08 已废弃
+的 DAVF 嵌入底座遗留，勿复用）；symbol→Ensembl 映射表
+`data/processed/gene_symbol_ensembl_map.tsv`（自 GSE174367 var 生成，58,676 行）。
+
+### GEARS 训练与 unseen 预测（外部环境）
+
+```bash
+python scripts/run_gears_predictions.py \
+  --candidates-tsv candidates.tsv \
+  --gears-data-dir data/raw/gears/norman \
+  [--model-ckpt <ckpt> | --train-epochs 10] \
+  --output-h5ad outputs/external_evidence/gears_predictions.h5ad \
+  --manifest-output outputs/external_evidence/gears_predictions.manifest.json
+```
+
+### Geneformer ISP（疾病细胞反事实，外部环境）
+
+```bash
+python scripts/run_geneformer_isp.py \
+  --candidates-tsv candidates.tsv \
+  --input-h5ad data/AD/standardized/GSE174367_ad_cohort.h5ad \
+  --cell-type-obs-value EX \
+  --model-dir checkpoints/geneformer \
+  --median-file checkpoints/geneformer/gene_median_dictionary_gc104M.pkl \
+  --token-dict checkpoints/geneformer/token_dictionary_gc104M.pkl \
+  --perturb-mode delete \
+  --output-h5ad outputs/external_evidence/geneformer_isp_EX.h5ad \
+  --manifest-output outputs/external_evidence/geneformer_isp_EX.manifest.json
+```
+
+两源资产同为 `external-perturbation-prediction/v1`（candidates × canonical-Ensembl
+readouts delta 矩阵），主环境消费与 §6a 相同（`assemble_external_evidence.py`）。
+脚本对 cell-gears/geneformer 具体版本 API 的假设在首跑时可能需要适配（报错信息
+指向其官方文档），属外部环境适配点，不是主环境契约变更。
+
+**先证后用不变**：两源资产正式进入任何 gate/lineage 消费前，必须先过 APOE 锚点
+回测（本地 Frangieh 真实 KO 方向对照 + mean-shift baseline 对照，判据预注册）。
+LPM 脚本 `run_lpm_predictions.py` 保留：若未来获取 GWPS 65.83GB 数据（外部硬盘），
+`trained_response` 证据源可按 §6a 命令重新启用（覆盖 APOE/MAPT/PSEN1 三候选）。
 
 ## 7. 门禁状态历史快照（截至 2026-09-10）
 

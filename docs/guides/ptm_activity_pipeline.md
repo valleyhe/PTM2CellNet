@@ -38,7 +38,9 @@ ptm_cohort: CPTAC_AD_BRAIN
 deg_max_fdr: 0.05
 min_donors_per_state: 3
 replicate_policy: mean               # mean | fail（重复位点登记规则）
-deg_donor_aggregation: pseudobulk_counts  # per_cell_log2_mean | pseudobulk_counts（2026-09-16 冻结）
+deg_donor_aggregation: pseudobulk_counts  # per_cell_log2_mean | pseudobulk_counts（2026-09-16 冻结）| pseudobulk_counts_centered
+                                    # centered 为多队列合并口径：每个 (cell_type, cohort) 减各自 normal donor 基线后再检验，
+                                    # 需在 CLI 提供 --cohort-column（如 dataset）；单队列时与 pseudobulk_counts 数值一致
 propagation:
   max_depth: 3                       # 简单路径深度上限
   decay: 0.5                         # 每跳权重衰减
@@ -106,6 +108,38 @@ python scripts/build_ptm_global_gene_scores.py \
 - 输出 `ptm_global_gene_scores.tsv`（方案 §4.4 十二列）：一行一个
   (source_activity, target_gene) 对，不聚合成 per-gene 单值。
   sensitivity 方法需要单独跑一遍本命令再对比，不得平均。
+
+## 4a. AD DEG 表生成（阶段 4 输入准备）
+
+```bash
+python scripts/build_ad_deg_table.py \
+  --config ptm_research_config.yaml \
+  --cohort-h5ad data/AD/standardized/GSE174367_ad_cohort.h5ad \
+  --output-tsv ad_deg.tsv \
+  --donor-level-output ad_deg_donor_level.tsv \
+  --manifest-output ad_deg_manifest.json
+```
+
+estimand 由 config 的 `deg_donor_aggregation` 冻结。多队列合并时用
+`pseudobulk_counts_centered` 并显式提供队列列：
+
+```bash
+python scripts/build_ad_deg_table.py \
+  --config ptm_research_config_centered.yaml \
+  --cohort-h5ad data/AD/standardized/GSE174367_GSE157827_combined.h5ad \
+  --cohort-column dataset \
+  --output-tsv ad_deg_centered_aggregate.tsv \
+  --donor-level-output ad_deg_centered_donor_level.tsv \
+  --manifest-output ad_deg_centered_manifest.json
+```
+
+centering 语义：每个 (cell_type, cohort) 的 normal donor pseudobulk 基线被从
+该组所有 donor 值中减去，disease-vs-normal Welch t 在 cohort 内偏移去除后执行；
+manifest audit 记录 `cohort_column`、per cell type 的 cohort 清单与
+`donor_counts_by_cohort`。任一 (cell_type, cohort) 缺 normal donor 即硬失败。
+实测（2026-09-16，GSE174367+GSE157827 合并）：centered 口径 min FDR
+EX 0.5254 / INH 0.7908，仍无 FDR≤0.05 行——多队列合并不改变 observed gate
+本地不可达的结论，该口径的价值是为后续新队列提供无 cohort 偏移的合并工具。
 
 ## 5. 阶段 4：AD cell type 交集
 
@@ -192,7 +226,8 @@ E2E 运行方式不变，见 `docs/guides/davf_perturbgen_e2e.md` 与
 
 ```python
 from src.integration.perturbgen.downstream_target_evaluation import (
-    evaluate_target_set_deltas, evaluation_to_payload, load_downstream_target_sidecar,
+    evaluate_driver_target_gate, evaluate_target_set_deltas,
+    driver_target_gate_to_payload, evaluation_to_payload, load_downstream_target_sidecar,
 )
 
 sidecar = load_downstream_target_sidecar("specs/downstream_targets_EX.json")
@@ -200,6 +235,15 @@ sidecar = load_downstream_target_sidecar("specs/downstream_targets_EX.json")
 # 值=上游产出的带符号表达 delta（DAVF decode delta 或 PerturbGen 预测差分）。
 evaluations = evaluate_target_set_deltas(delta_frame, sidecar)
 payload = evaluation_to_payload(evaluations, cell_type="EX", delta_matrix_source="...")
+
+# driver–target gate（方案 §5.5）：source gate 证据与 target-set concordance
+# 分字段合并成补充 lineage 证据；source_gate 取 E2E report 的 direction_gate 段。
+evidence = evaluate_driver_target_gate(
+    report["candidates"][0]["direction_gate"],
+    evaluations["ENSG00000082701"],
+    semantic_context={"cohort": "GSE174367"},
+)
+gate_payload = driver_target_gate_to_payload(evidence)
 ```
 
 E2E 只有在显式提供 `--downstream-target-sidecar path/to/downstream_targets_EX.json`
@@ -213,6 +257,30 @@ per-target 的 `matches_predicted` / `matches_observed` 分字段记录，不合
 missing target 显式列出，不填零；一致计数只是方向一致性（concordance），
 是与 source 三方 gate 互补的方向一致性证据，不改变 source 三方 gate 的
 pass/fail，也不是因果验证或生物学 PASS（方案 §8.6）。
+
+提供 sidecar 时，E2E 报告同时写入 `downstream_target_evaluation.driver_target_gate`
+（per source，schema `ptm2cellnet.driver-target-gate/v1`）：source 段原样记录
+source 三方 gate 的 status/reasons/三方方向与 `source_has_own_deg`，target 段
+记录分字段 concordance 计数与比例，`driver_target_status` 是无阈值的事实分类
+（`not_evaluable` / `all_concordant_observed` / `mixed` / `none_concordant_observed`，
+参照 target 自身的 `observed_direction`）。该记录不产生 pass/fail 决策：
+source 三方 gate 仍是 formal 候选的唯一准入门（方案 §5.5）；source 无自身
+DEG 的候选仍只进 exploratory 清单，本接口只让这类候选的方向一致性可被
+显式记录与复核，不改变准入边界。
+
+### 7.3 外部扰动模型证据源（当前策略 B：GEARS + Geneformer，2026-09-17 起）
+
+方向证据允许引入外部模型作为**并列、分字段记录的补充来源**。当前登记的
+两类资产均使用 `external-perturbation-prediction/v1` manifest，由
+[`src/integration/perturbgen/external_perturbation_evidence.py`](../../src/integration/perturbgen/external_perturbation_evidence.py)
+校验并产出 `ptm2cellnet.external-perturbation-evidence/v1` payload；命令与环境见
+[bridge guide §6b](perturbgen_bridge.md)。GEARS 声明 `go_extrapolation`，Geneformer
+声明 `network_counterfactual`；二者都不是疾病 context 的因果干预，也不与
+DAVF/PerturbGen 证据字段合并，不构成 pass/fail 或 biology PASS。
+
+2026-09-17 的 APOE 预注册锚点回测 `verdict=fail`（GEARS top-100 方向一致率
+0.25、Spearman -0.0428），因此两源资产当前均**不接入主线 lineage**。早期 LPM
+路径保留为历史脚本/文档记录，已被 bridge guide §6b 的策略 B 取代。
 
 ## 8. 验证与测试
 

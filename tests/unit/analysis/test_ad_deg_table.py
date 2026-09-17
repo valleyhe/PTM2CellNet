@@ -391,3 +391,166 @@ def test_pseudobulk_rejects_zero_library_donor():
             min_donors_per_state=2,
             donor_aggregation="pseudobulk_counts",
         )
+
+
+def _cohort_adata(n_donors_per_state: int = 3) -> "anndata.AnnData":
+    """Two cohorts whose donors share one deterministic per-donor profile pattern."""
+
+    rows: list[list[int]] = []
+    obs_rows: list[dict[str, str]] = []
+    for cohort, boost in (("A", 1.0), ("B", 8.0)):
+        for state, effect in (("normal", 1.0), ("disease", 4.0)):
+            for donor in range(n_donors_per_state):
+                for replicate in range(3):
+                    gene1 = int(2000 * effect * (1.0 + 0.01 * donor + 0.01 * replicate))
+                    gene2 = int(4000 * boost * (1.0 + 0.01 * donor + 0.01 * replicate))
+                    rows.append([gene1, gene2])
+                    obs_rows.append(
+                        {
+                            "cell_type": "neuron",
+                            "state": state,
+                            "donor": f"{cohort}-{state[0]}{donor}",
+                            "cohort": cohort,
+                        }
+                    )
+    counts = np.array(rows, dtype=np.int64)
+    return anndata.AnnData(
+        X=counts,
+        layers={"counts": counts.copy()},
+        obs=pd.DataFrame(obs_rows),
+        var=pd.DataFrame(
+            {
+                "ensembl_id": ["ENSG00000000001", "ENSG00000000002"],
+                "gene_symbol": ["GENE1", "GENE2"],
+            },
+            index=["gene-1", "gene-2"],
+        ),
+    )
+
+
+def test_centered_single_cohort_equals_pseudobulk_statistics():
+    adata = _cohort_adata()
+    single = adata[adata.obs["cohort"] == "A"].copy()
+    pooled_agg, pooled_donor, pooled_audit = build_ad_deg_tables(
+        single,
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=3,
+        donor_aggregation="pseudobulk_counts",
+    )
+    centered_agg, centered_donor, centered_audit = build_ad_deg_tables(
+        single,
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=3,
+        donor_aggregation="pseudobulk_counts_centered",
+        cohort_column="cohort",
+    )
+    # Subtracting the single shared cohort baseline shifts every donor by the
+    # same vector: the disease-vs-normal test and the aggregate table are
+    # shift-invariant, so both estimands must agree numerically.
+    assert np.allclose(pooled_agg["log2fc"], centered_agg["log2fc"])
+    assert np.allclose(pooled_agg["fdr"], centered_agg["fdr"])
+    assert list(pooled_agg["observed_direction"]) == list(centered_agg["observed_direction"])
+    assert np.allclose(pooled_donor["log2fc"], centered_donor["log2fc"])
+    assert centered_audit["donor_aggregation"] == "pseudobulk_counts_centered"
+    assert centered_audit["cohort_column"] == "cohort"
+    assert centered_audit["cohorts"] == {"neuron": ["A"]}
+    assert centered_audit["donor_counts_by_cohort"] == {"neuron": {"A": {"normal": 3, "disease": 3}}}
+
+
+def test_centered_removes_cohort_offset_and_recovers_the_disease_effect():
+    adata = _cohort_adata()
+    pooled_agg, _, _ = build_ad_deg_tables(
+        adata,
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=3,
+        donor_aggregation="pseudobulk_counts",
+    )
+    centered_agg, centered_donor, _ = build_ad_deg_tables(
+        adata,
+        cell_types=["neuron"],
+        cohort_pairing="between_donor",
+        min_donors_per_state=3,
+        donor_aggregation="pseudobulk_counts_centered",
+        cohort_column="cohort",
+    )
+    # Cohort B carries a x8 compositional offset on GENE2 that library
+    # normalization cannot absorb; pooling lets that offset inflate the donor
+    # variance on GENE1 while centering removes it, so the fixed disease effect
+    # on GENE1 must become far more significant.
+    pooled_gene1 = pooled_agg.loc[pooled_agg["ensembl_id"] == "ENSG00000000001"].iloc[0]
+    centered_gene1 = centered_agg.loc[centered_agg["ensembl_id"] == "ENSG00000000001"].iloc[0]
+    assert centered_gene1["observed_direction"] == "up"
+    assert centered_gene1["fdr"] < pooled_gene1["fdr"]
+    # Donor-level rows are relative to each donor's own cohort baseline.
+    cohort_b_donors = centered_donor["donor"].str.startswith("B-")
+    assert np.isfinite(centered_donor.loc[cohort_b_donors, "log2fc"]).all()
+
+
+def test_centered_requires_cohort_column():
+    with pytest.raises(ADDEGError, match="requires a cohort_column"):
+        build_ad_deg_tables(
+            _cohort_adata(),
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=3,
+            donor_aggregation="pseudobulk_counts_centered",
+        )
+
+
+def test_cohort_column_without_centered_aggregation_is_rejected():
+    with pytest.raises(ADDEGError, match="only consumed by donor_aggregation"):
+        build_ad_deg_tables(
+            _cohort_adata(),
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=3,
+            donor_aggregation="pseudobulk_counts",
+            cohort_column="cohort",
+        )
+
+
+def test_centered_cohort_without_normal_donors_fails():
+    adata = _cohort_adata()
+    mask = ~((adata.obs["cohort"] == "B") & (adata.obs["state"] == "normal"))
+    disease_only_cohort_b = adata[mask].copy()
+    with pytest.raises(ADDEGError, match="has no normal donors for centering"):
+        build_ad_deg_tables(
+            disease_only_cohort_b,
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=3,
+            donor_aggregation="pseudobulk_counts_centered",
+            cohort_column="cohort",
+        )
+
+
+def test_centered_donor_spanning_cohorts_fails():
+    adata = _cohort_adata()
+    conflicting = adata.obs["donor"] == "A-n0"
+    adata.obs.loc[conflicting, "donor"] = "B-n0"  # B already has B-n0
+    with pytest.raises(ADDEGError, match="spans multiple cohorts"):
+        build_ad_deg_tables(
+            adata,
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=3,
+            donor_aggregation="pseudobulk_counts_centered",
+            cohort_column="cohort",
+        )
+
+
+def test_centered_missing_cohort_obs_column_fails():
+    adata = _cohort_adata()
+    adata.obs = adata.obs.drop(columns=["cohort"])
+    with pytest.raises(ADDEGError, match="missing required columns"):
+        build_ad_deg_tables(
+            adata,
+            cell_types=["neuron"],
+            cohort_pairing="between_donor",
+            min_donors_per_state=3,
+            donor_aggregation="pseudobulk_counts_centered",
+            cohort_column="cohort",
+        )

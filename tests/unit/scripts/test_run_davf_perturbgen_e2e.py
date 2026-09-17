@@ -683,6 +683,7 @@ def _build_downstream_fixture(tmp_path: Path, *, include_target: bool = True) ->
         "ensembl_id": source_id,
         "cell_type": "EX",
         "source_activity_id": "SRC_ACTIVITY",
+        "semantic_context": {"cohort": "GSE174367", "intervention": "KO"},
     }
     sidecar_path = tmp_path / "downstream_targets_EX.json"
     sidecar_path.write_text(
@@ -725,6 +726,16 @@ def _build_downstream_fixture(tmp_path: Path, *, include_target: bool = True) ->
             {
                 "status": "pass",
                 "invocation": {"gene_symbol": "SRC", "ensembl_id": source_id},
+                "direction_gate": {
+                    "status": "pass",
+                    "gene_symbol": "SRC",
+                    "ensembl_id": source_id,
+                    "proposed_direction": "up",
+                    "davf_direction": "up",
+                    "observed_direction": "up",
+                    "corrective_action": "ko",
+                    "reasons": [],
+                },
             }
         ],
         "perturbgen_runs": [
@@ -760,6 +771,33 @@ def test_downstream_target_evaluation_writes_payload_and_lineage(tmp_path):
     assert result["lineage"]["perturbed_layer"] == "X"
     assert len(result["lineage"]["candidates"][0]["result_h5ad"]) == 2
     assert all(Path(item["result_h5ad"]).is_absolute() for item in result["lineage"]["candidates"][0]["result_h5ad"])
+    driver_gate = result["driver_target_gate"]["ENSG00000100001"]
+    assert driver_gate["schema_version"] == "ptm2cellnet.driver-target-gate/v1"
+    assert driver_gate["source"]["gate_kind"] == "source_three_way"
+    assert driver_gate["source"]["gate_status"] == "pass"
+    assert driver_gate["source"]["source_has_own_deg"] is True
+    # The only evaluable target moves up while its own observed direction is
+    # down: factual none-concordance, recorded without touching the gate.
+    assert driver_gate["driver_target_status"] == "none_concordant_observed"
+    assert driver_gate["target_set"]["n_evaluable_targets"] == 1
+    assert driver_gate["target_set"]["n_missing_targets"] == 1
+    assert driver_gate["target_set"]["concordance_fraction_observed"] == 0.0
+    assert driver_gate["semantic_context"] == {"cohort": "GSE174367", "intervention": "KO"}
+    assert "never replaces" in driver_gate["note"]
+    assert "driver_target_gate" in result["lineage"]["gate_boundary"]
+
+
+def test_downstream_target_evaluation_requires_direction_gate(tmp_path):
+    payload, sidecar_path, candidates = _build_downstream_fixture(tmp_path)
+    del payload["candidates"][0]["direction_gate"]
+
+    with pytest.raises(ValueError, match="no direction_gate for driver-target gate evidence"):
+        e2e._assemble_downstream_target_evaluation(
+            payload,
+            sidecar_path=sidecar_path,
+            raw_candidates=candidates,
+            donor_obs_column="donor",
+        )
 
 
 def test_downstream_target_evaluation_rejects_sidecar_spec_mismatch(tmp_path):
