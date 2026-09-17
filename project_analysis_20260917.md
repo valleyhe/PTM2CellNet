@@ -61,7 +61,7 @@ README、PTM activity 执行方案、E2E/bridge/PTM 指南、20260916 分析与�
 | 本轮开始 HEAD | `3bd4d6552a23753c00d7d183a7b95030e0477e91` |
 | 本轮开始远程 | `origin/main=219b81fe9d77d1f49cd916989e227ca88a2417d7`（`git ls-remote`） |
 | 开始时工作树 | 15 个 tracked 文件修改、12 个未跟踪文件；均保留并纳入本轮核验 |
-| ZMemory | `zmemory resume` 返回无 active run；本会话注册为 `codex-f3e286`；开始编辑前目标文件均 `who=[]` 后 claim |
+| ZMemory | `zmemory resume` 返回无 active run；本轮主会话注册为 `codex-comprehensive-20260917`；开始编辑前目标文件均 `who=[]` 后 claim |
 | CodeGraph | 544 files、11,395 nodes、21,128 edges；索引健康，仅用于结构导航，结论仍由源码/测试验证 |
 
 ### 2.2 当前证据入口
@@ -346,31 +346,35 @@ anchor fail 与不接入 lineage。更早的 20260914/15 报告保留为有日�
 
 ### 9.2 提交后
 
-已完成首个交付提交并核验：
+已完成两笔本轮本地提交并核验：
 
-- 提交：`ae3b0a6e01ea9450927a514c2df55b1ba9149671`，消息为
+- 首个交付提交：`ae3b0a6e01ea9450927a514c2df55b1ba9149671`，消息为
   `chore: finalize 20260917 audit and evidence contracts`。
-- 提交后 `HEAD` 与上述提交一致；`git status --short --branch` 为 `## main`，无未提交路径。
-- `git rev-list --left-right --count HEAD...origin/main` 为 `17 0`；远端查询仍为
+- 后续报告事实纠错提交：`8bcbc8126792ba003f9b840c5390c89ff70886ee`，消息为
+  `docs: record post-commit verification`。
+- 当前最终 `HEAD`：`8bcbc8126792ba003f9b840c5390c89ff70886ee`；
+  `git status --short --branch` 为 `## main`，工作树 clean。
+- `git rev-list --left-right --count HEAD...origin/main` 为 `18 0`；远端查询仍为
   `219b81fe9d77d1f49cd916989e227ca88a2417d7 refs/heads/main`。因此本轮未合并、未 push，
   也没有声称远端已同步。
-- 提交后 `python -m compileall -q src scripts tests` 与 `git diff --check` 均 exit 0。
+- 最终提交后 `python -m compileall -q src scripts tests` 与 `git diff --check` 均 exit 0。
 
-本节的事实回写会形成后续仅文档元数据提交；最终 `HEAD` 和提交链同时记录在最终交付回复中。
+两笔提交均属于本轮本地交付；第二笔只记录提交后核验事实。
 
 ## 10. 本轮子代理统计
 
 ### 10.1 调用统计
 
-按用户要求，本轮实际子代理调用数记录为 **1**，不再派生新的子代理。ZMemory 中可观测
-到的会话是 `codex-gpt-5.6-luna / codex-comprehensive-20260917`，开始时间
-`2026-09-17T15:46:25.298Z`。
+本轮实际子代理调用数为 **2**：第一次完成综合执行，第二次仅恢复并纠正本报告事实。
+ZMemory 主会话为 `codex-comprehensive-20260917`；`codex-gpt-5.6-luna` 是代理名称，
+不与主会话 ID 混用。
 
 | 智能体名称 | 调用次数 | 主要执行任务 | 平均执行时长 |
 |---|---:|---|---|
-| `codex-gpt-5.6-luna` | 1 | 本轮综合审计、外部证据策略 B、报告/归档核查 | 不可得：ZMemory 只暴露开始时间，没有完成事件；不虚构 wall time |
+| `codex-gpt-5.6-luna` | 1 | 综合审计、外部证据策略 B、报告/归档核查 | 不可得：工具未提供可靠完成时间，不虚构 wall time |
+| `codex-gpt-5.6-luna` | 1 | 仅纠正本报告的主会话、两笔提交、最终 HEAD 和调用统计事实 | 不可得：工具未提供可靠完成时间，不虚构 wall time |
 
-该统计不是把历史 agents 列表中的旧会话重复计入；历史 session 只作为协作背景。
+合计 2 次。该统计不是把历史 agents 列表中的旧会话重复计入；历史 session 只作为协作背景。
 
 ## 11. 结论与后续顺序
 
