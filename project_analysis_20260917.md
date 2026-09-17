@@ -346,11 +346,17 @@ anchor fail 与不接入 lineage。更早的 20260914/15 报告保留为有日�
 
 ### 9.2 提交后
 
-本轮提交后将以 `git rev-parse HEAD`、`git status --short --branch`、
-`git rev-list --left-right --count HEAD...origin/main` 和 `git ls-remote origin refs/heads/main`
-逐项核验。最终提交号不在提交前猜测或写入，避免报告产生自引用；本轮最终命令输出和
-交付提交号同时记录在最终交付回复中。若远端在检查期间前进，将按实际命令输出报告，
-不声明已同步或已合并。
+已完成首个交付提交并核验：
+
+- 提交：`ae3b0a6e01ea9450927a514c2df55b1ba9149671`，消息为
+  `chore: finalize 20260917 audit and evidence contracts`。
+- 提交后 `HEAD` 与上述提交一致；`git status --short --branch` 为 `## main`，无未提交路径。
+- `git rev-list --left-right --count HEAD...origin/main` 为 `17 0`；远端查询仍为
+  `219b81fe9d77d1f49cd916989e227ca88a2417d7 refs/heads/main`。因此本轮未合并、未 push，
+  也没有声称远端已同步。
+- 提交后 `python -m compileall -q src scripts tests` 与 `git diff --check` 均 exit 0。
+
+本节的事实回写会形成后续仅文档元数据提交；最终 `HEAD` 和提交链同时记录在最终交付回复中。
 
 ## 10. 本轮子代理统计
 
