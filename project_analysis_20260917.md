@@ -344,28 +344,29 @@ anchor fail 与不接入 lineage。更早的 20260914/15 报告保留为有日�
   DEG centered、driver-target、formal/rescue、GEARS/Geneformer/LPM producer 与测试；
   移除 external assembler 的 missing-candidate 绕过开关。
 
-### 9.2 提交后
+### 9.2 可复核提交检查点
 
-已完成两笔本轮本地提交并核验：
+本节只记录已存在、可由 Git 复核的历史检查点，不把任何此前提交误写为本次纠错后的
+当前 HEAD：
 
-- 首个交付提交：`ae3b0a6e01ea9450927a514c2df55b1ba9149671`，消息为
-  `chore: finalize 20260917 audit and evidence contracts`。
-- 后续报告事实纠错提交：`8bcbc8126792ba003f9b840c5390c89ff70886ee`，消息为
-  `docs: record post-commit verification`。
-- 当前最终 `HEAD`：`8bcbc8126792ba003f9b840c5390c89ff70886ee`；
-  `git status --short --branch` 为 `## main`，工作树 clean。
-- `git rev-list --left-right --count HEAD...origin/main` 为 `18 0`；远端查询仍为
-  `219b81fe9d77d1f49cd916989e227ca88a2417d7 refs/heads/main`。因此本轮未合并、未 push，
-  也没有声称远端已同步。
-- 最终提交后 `python -m compileall -q src scripts tests` 与 `git diff --check` 均 exit 0。
+| 检查点 | 完整提交 | 消息 | 当时作用 |
+|---|---|---|---|
+| 首个交付 | `ae3b0a6e01ea9450927a514c2df55b1ba9149671` | `chore: finalize 20260917 audit and evidence contracts` | 代码、文档和 20260917 归档的首个本地交付 |
+| 后续验证 | `8bcbc8126792ba003f9b840c5390c89ff70886ee` | `docs: record post-commit verification` | 记录首个交付后的 compileall、diff-check、分支/远端核验 |
+| 报告事实纠错 | `e98a35f12da309dac6c083586dd89da1392f3f0b` | `docs: correct 20260917 report facts` | 修正本报告的主会话、原交付终态和子代理统计事实 |
 
-两笔提交均属于本轮本地交付；第二笔只记录提交后核验事实。
+- `e98a35f` 是本次最终报告纠错提交前的基线；当时 `HEAD...origin/main=19 0`，
+  `origin/main=219b81fe9d77d1f49cd916989e227ca88a2417d7`，工作树为 clean。
+- 本次最终报告纠错提交：即包含本报告的当前本地 `main` 提交；精确 hash 由最终交付
+  回执中的 `git rev-parse HEAD` 给出。本节不预写该自引用 hash，也不伪造该提交后的
+  ahead/behind 数字。
 
 ## 10. 本轮子代理统计
 
 ### 10.1 调用统计
 
-本轮实际子代理调用数为 **2**：第一次完成综合执行，第二次仅恢复并纠正本报告事实。
+本轮实际子代理调用数为 **3**：第一次完成综合执行，第二次恢复并纠正本报告事实，
+第三次仅解决报告提交 hash 自引用问题。
 ZMemory 主会话为 `codex-comprehensive-20260917`；`codex-gpt-5.6-luna` 是代理名称，
 不与主会话 ID 混用。
 
@@ -373,8 +374,9 @@ ZMemory 主会话为 `codex-comprehensive-20260917`；`codex-gpt-5.6-luna` 是�
 |---|---:|---|---|
 | `codex-gpt-5.6-luna` | 1 | 综合审计、外部证据策略 B、报告/归档核查 | 不可得：工具未提供可靠完成时间，不虚构 wall time |
 | `codex-gpt-5.6-luna` | 1 | 仅纠正本报告的主会话、两笔提交、最终 HEAD 和调用统计事实 | 不可得：工具未提供可靠完成时间，不虚构 wall time |
+| `codex-gpt-5.6-luna` | 1 | 仅解决本报告提交 hash 自引用，改为历史 checkpoint 表述 | 不可得：工具未提供可靠完成时间，不虚构 wall time |
 
-合计 2 次。该统计不是把历史 agents 列表中的旧会话重复计入；历史 session 只作为协作背景。
+合计 3 次。该统计不是把历史 agents 列表中的旧会话重复计入；历史 session 只作为协作背景。
 
 ## 11. 结论与后续顺序
 
