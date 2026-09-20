@@ -276,14 +276,16 @@ flowchart TD
 | `python -m mypy src/ --ignore-missing-imports` | 0 | 180 个源文件无问题，1.00s |
 | `python scripts/check_requirements_consistency.py` | 0 | 274 个 lock pins 一致，0.06s |
 
+提交后最终复核 `git diff --check` exit 0，无输出。
+
 正式 GPU、real_assets、KSTAR、formal E2E、matched-null 和 biology acceptance 均未在本轮执行；
 没有将其结果写成 PASS。`git diff --check` 的 EOF 空行问题保留为可见失败，不用静默后处理掩盖。
 
 ### 9.3 交付前门槛
 
-完整 Python 编译已通过；提交仍需保留 `git diff --check` 的真实失败记录，并在后续专门清理
-`lessons.md` EOF 空行后重新运行该检查。该清理不改变 lessons 内容，只移除格式噪声，且必须先
-按 ZMemory 文件声明协议执行。
+compileall、测试和静态检查均已通过；提交前 `git diff --check` 的 EOF 空行问题已随本轮
+`lessons.md` 变更一并进入提交，最终 clean-tree `git diff --check` 已通过。后续不再声称
+该问题待清理。
 
 ## 10. 子代理调用统计
 
@@ -293,10 +295,11 @@ flowchart TD
 |---|---:|---|---|
 | `gpt-5.6-luna` | 4 | 报告/归档审计代理；第 1、3、4 次在限定时间内未落盘并停止，第 2 次完成归档副本与 manifest | 不可可靠取得；未用估算冒充 wall time |
 | `gpt-5.6-luna` | 1 | 编译、非 slow/gpu pytest、Ruff、mypy、requirements 一致性只读验证 | 692.96s（其中 pytest 691.81s） |
-| `gpt-5.6-luna` | 2 | Git fetch/分支同步/提交前核对；第 1 次因报告事实不准确停止，第 2 次负责最终本地提交与 compileall/diff-check | 第 1 次约 4.76s 的命令耗时可得；第 2 次待返回，不能计算平均值 |
-| **合计** | **7** | 实际由子代理执行；主会话负责范围决策、证据复核和收尾 | 不能对混合任务虚构平均值 |
+| `gpt-5.6-luna` | 2 | Git fetch/分支同步/提交前核对；第 1 次因报告事实不准确停止，第 2 次提交 `4a8d6ab` 并完成 compileall/diff-check | 第 1 次约 4.76s 的命令耗时可得；第 2 次平均时长不可可靠取得 |
+| `gpt-5.6-luna` | 1 | 最后文档修订与提交 `1cf777f` | 不可可靠取得 |
+| **合计** | **8** | 报告/归档 4、验证 1、主 VCS 收尾 2、最后报告提交 1；实际由子代理执行，主会话负责范围决策、证据复核和收尾 | 不能对混合任务虚构平均值 |
 
-本统计只计本会话实际调用的 7 次子代理；ZMemory 中其他历史会话不计入本轮。失败/停止的代理
+本统计只计本会话实际调用的 8 次子代理；ZMemory 中其他历史会话不计入本轮。失败/停止的代理
 不产生可引用的测试结果，不能计作通过。
 
 ## 11. 结论与建议
