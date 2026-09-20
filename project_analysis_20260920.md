@@ -69,10 +69,7 @@ Smoke、synthetic、mock、bridge、外部资产契约验证和单元测试均�
 | 工作树 | 24 个 tracked 修改 + 17 个 untracked 路径，共 41 个路径 |
 | 合并状态 | 尚未发生新的本地主分支合并；远程头已被本地包含 |
 
-最终收口核验：`HEAD=0700eab`；主代码/文档/归档提交为 `4a8d6ab`，验证报告提交为
-`1cf777f`，后续报告核验/统计提交依次为 `40c349f`、`1f380ff`、`0700eab`。最终工作树
-干净，`main` 相对远程为 `25 ahead / 0 behind`。由于本来就在 `main` 且远程头为祖先，
-没有新的 merge commit。
+代码/文档/归档首个交付检查点：HEAD=4a8d6ab；后续提交仅修订审计报告与版本记录。最终工作树干净，main 相对远程为 27 ahead/0 behind；由于本来就在 main 且远程头为祖先，没有新的 merge commit。
 
 关键修改点：PTM smoke/KSTAR 边界、observed gate/KD policy、candidate routing/external
 evidence isolation、两份过时材料归档。
