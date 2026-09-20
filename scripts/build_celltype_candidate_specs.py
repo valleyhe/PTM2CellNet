@@ -230,7 +230,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if observed_direction not in {"up", "down"}:
                 gate_failures.append("observed_direction must be 'up' or 'down'")
             observed_fdr = float(deg_row["fdr"])
-            if observed_fdr > config.deg_max_fdr:
+            observed_significant = observed_fdr <= config.deg_max_fdr
+            if config.observed_admission_rule == "fdr_cutoff" and not observed_significant:
                 gate_failures.append("fdr exceeds config.deg_max_fdr")
             normal_donors = int(deg_row["n_normal_donors"])
             if normal_donors < config.min_donors_per_state:
@@ -267,6 +268,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "observed_log2fc": float(deg_row["log2fc"]),
                     "observed_fdr": observed_fdr,
                     "observed_direction": observed_direction,
+                    "observed_significant": observed_significant,
+                    "observed_admission_rule": config.observed_admission_rule,
                     "direction_evidence_donor_counts": {
                         "normal": normal_donors,
                         "disease": disease_donors,
@@ -298,6 +301,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             spec_payload = {
                 "schema_version": "ptm2cellnet.candidate-spec/v1",
                 "context_h5ad": str(context_h5ad),
+                "observed_admission_rule": config.observed_admission_rule,
+                "kd_policy": config.kd_policy,
+                "public_perturbation_policy": config.public_perturbation_policy,
                 "candidates": candidates,
                 "build_summary": {
                     "cell_type": cell_type,

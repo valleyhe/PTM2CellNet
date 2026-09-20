@@ -38,6 +38,12 @@ VALID_REFERENCE_AXES = (
     "disease_minus_normal",
     "contrast_specific",
 )
+#: Observed-arm *admission* (2026-09-18 option 3) is independent of the frozen
+#: BH reporting cutoff ``deg_max_fdr``. Legacy configs omit the field and keep
+#: FDR as both label and admission rule.
+VALID_OBSERVED_ADMISSION_RULES = ("fdr_cutoff", "signed_direction_without_fdr_cutoff")
+VALID_KD_POLICIES = ("separate_routes", "merged_into_ko_out_of_scope")
+VALID_PUBLIC_PERTURBATION_POLICIES = ("inventory_optional", "out_of_scope")
 
 
 class PTMResearchConfigError(ValueError):
@@ -98,6 +104,9 @@ class PTMResearchConfig:
     propagation: PropagationConfig
     sensitivity_activity_method: str | None = None
     deg_donor_aggregation: str = "per_cell_log2_mean"
+    observed_admission_rule: str = "fdr_cutoff"
+    kd_policy: str = "separate_routes"
+    public_perturbation_policy: str = "inventory_optional"
     semantic_context: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -139,6 +148,16 @@ class PTMResearchConfig:
             raise PTMResearchConfigError(
                 f"deg_donor_aggregation must be one of {', '.join(VALID_DONOR_AGGREGATIONS)}; "
                 f"got {self.deg_donor_aggregation!r}"
+            )
+        if self.observed_admission_rule not in VALID_OBSERVED_ADMISSION_RULES:
+            raise PTMResearchConfigError(
+                f"observed_admission_rule must be one of {', '.join(VALID_OBSERVED_ADMISSION_RULES)}"
+            )
+        if self.kd_policy not in VALID_KD_POLICIES:
+            raise PTMResearchConfigError(f"kd_policy must be one of {', '.join(VALID_KD_POLICIES)}")
+        if self.public_perturbation_policy not in VALID_PUBLIC_PERTURBATION_POLICIES:
+            raise PTMResearchConfigError(
+                "public_perturbation_policy must be one of " + ", ".join(VALID_PUBLIC_PERTURBATION_POLICIES)
             )
         if not isinstance(self.propagation, PropagationConfig):
             raise PTMResearchConfigError("propagation must be a PropagationConfig")
@@ -253,5 +272,8 @@ def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
         propagation=propagation,
         sensitivity_activity_method=payload.get("sensitivity_activity_method"),
         deg_donor_aggregation=str(payload.get("deg_donor_aggregation", "per_cell_log2_mean")).strip(),
+        observed_admission_rule=str(payload.get("observed_admission_rule", "fdr_cutoff")).strip(),
+        kd_policy=str(payload.get("kd_policy", "separate_routes")).strip(),
+        public_perturbation_policy=str(payload.get("public_perturbation_policy", "inventory_optional")).strip(),
         semantic_context=dict(semantic_context),
     )

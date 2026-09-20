@@ -60,6 +60,47 @@ def test_direction_gate_passes_for_three_agreeing_directions() -> None:
     assert result.reasons == ()
 
 
+def test_direction_gate_fdr_cutoff_blocks_nonsignificant_observed() -> None:
+    result = evaluate_direction_gate(
+        _proposal("up"),
+        _davf("up"),
+        observed_direction="up",
+        observed_fdr=0.52,
+    )
+    assert result.status == "inconclusive"
+    assert "observed_expression_not_significant" in result.reasons
+    assert result.corrective_action is None
+
+
+def test_direction_gate_signed_admission_keeps_fdr_without_blocking() -> None:
+    result = evaluate_direction_gate(
+        _proposal("up"),
+        _davf("up"),
+        observed_direction="up",
+        observed_fdr=0.52,
+        observed_significance_required=False,
+    )
+    assert result.status == "pass"
+    assert result.corrective_action == "ko"
+    assert result.reasons == ()
+
+
+def test_build_direction_gated_candidate_signed_admission_records_nonsignificant_fdr() -> None:
+    gate, candidate = build_direction_gated_candidate(
+        _proposal("up"),
+        _davf("up"),
+        cell_type="CD14 Monocyte",
+        ptm_context="AKT1:S473",
+        observed_log2fc=1.2,
+        observed_fdr=0.52,
+        observed_direction="up",
+        observed_significance_required=False,
+    )
+    assert gate.status == "pass"
+    assert candidate is not None
+    assert candidate.observed_fdr == pytest.approx(0.52)
+
+
 @pytest.mark.parametrize(
     ("proposal_direction", "davf_direction", "observed_direction"),
     [

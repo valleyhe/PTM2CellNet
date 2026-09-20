@@ -658,6 +658,21 @@ readouts delta 矩阵），主环境消费与 §6a 相同（`assemble_external_e
 LPM 脚本 `run_lpm_predictions.py` 保留：若未来获取 GWPS 65.83GB 数据（外部硬盘），
 `trained_response` 证据源可按 §6a 命令重新启用（覆盖 APOE/MAPT/PSEN1 三候选）。
 
+## 6c. AD 五候选分流（方案 §6，2026-09-18）
+
+主环境用 `scripts/route_ad_candidates.py` 执行方案第 6 章的路线选择。它消费
+轴审计、optional DEG/GRN/external evidence 与 APOE 锚点回测，写出
+exploratory sidecar。2026-09-18 起默认决策为：observed 准入 =
+signed-direction（FDR 0.05 只作报告标签）、KD 并入 KO、公共 Perturb-seq
+out of scope。约束与产物见
+[`ptm_activity_pipeline.md` §7.4](ptm_activity_pipeline.md)。
+
+这条路径**不是** E2E 入口：`formal_invocation_allowed` 恒为 false；当前 fail
+的 GEARS/Geneformer 资产保持 `lineage_boundary=supplementary_only`，即使未来
+锚点 pass 也要等独立 formal consumer 获批。Geneformer `network_counterfactual`
+只报告 `influence_score`，不能写入 `predicted_direction`。不得把 FDR>0.05
+改标成显著，也不得从 KO 推导 KD。
+
 ## 7. 门禁状态历史快照（截至 2026-09-10）
 
 > 下表保留 2026-09-10 的工程快照，表内旧测试日期不代表 2026-09-13 本次验证。

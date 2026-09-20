@@ -163,9 +163,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             "scperturb_dir": str(args.scperturb_dir) if args.scperturb_dir.is_dir() else None,
             "scperturb_unreadable_files": unreadable,
             "axis_covered_per_route": per_route_covered,
-            "formal_candidate_eligible": sorted(set.intersection(*(set(genes) for genes in per_route_covered.values())))
-            if per_route_covered
-            else [],
+            "formal_candidate_eligible": (
+                sorted(set.intersection(*(set(genes) for genes in per_route_covered.values())))
+                if per_route_covered
+                else []
+            ),
+            "formal_candidate_eligible_note": (
+                "axis membership is not formal eligibility; KO and KD are independent routes; "
+                "formal invocation still requires observed FDR<=0.05, a real target-specific "
+                "z0/z1 pair, and the three-way gate. Use scripts/route_ad_candidates.py."
+            ),
+            "route_specific_axis_covered": per_route_covered,
         }
         args.manifest_output.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

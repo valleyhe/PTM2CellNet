@@ -46,6 +46,7 @@ def evaluate_davf_perturbgen_candidate(
     q_value: float | None = None,
     unperturbed_quality_status: str = "inconclusive",
     max_observed_fdr: float = 0.05,
+    observed_significance_required: bool = True,
     formal_null_min: int = 99,
     smoke_null_count: int = 20,
     expected_seed_count: int = 3,
@@ -69,6 +70,7 @@ def evaluate_davf_perturbgen_candidate(
         observed_fdr=observed_fdr,
         observed_direction=observed_direction,
         max_observed_fdr=max_observed_fdr,
+        observed_significance_required=observed_significance_required,
     )
     if gate.status != "pass":
         return MainlineDecision(

@@ -55,6 +55,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.analysis.ad_research_decision import observed_significance_required  # noqa: E402
 from src.integration.perturbgen.config_builder import load_pipeline_config  # noqa: E402
 from src.integration.perturbgen.orchestrator import (  # noqa: E402
     DAVFPerturbGenOrchestrator,
@@ -106,7 +107,7 @@ def _load_davf_config(path: str | Path) -> DAVFInferenceConfig:
     return DAVFInferenceConfig(**values)
 
 
-def _load_candidate_spec(path: str | Path) -> tuple[Path, tuple[dict[str, Any], ...]]:
+def _load_candidate_spec(path: str | Path) -> tuple[Path, tuple[dict[str, Any], ...], dict[str, Any]]:
     """Load and validate the explicit candidate/context specification."""
 
     spec_path = Path(path).expanduser().resolve(strict=True)
@@ -131,7 +132,7 @@ def _load_candidate_spec(path: str | Path) -> tuple[Path, tuple[dict[str, Any], 
         if isinstance(index, bool) or not isinstance(index, int) or index < 0:
             raise ValueError(f"candidate {row} context_cell_index must be a non-negative integer")
         candidates.append(dict(candidate))
-    return context_path, tuple(candidates)
+    return context_path, tuple(candidates), payload
 
 
 def _build_proposal(candidate: dict[str, Any], row: int) -> PTMSiteDirectionProposal:
@@ -785,7 +786,16 @@ def _assemble_downstream_target_evaluation(
 
 def _run(args: argparse.Namespace) -> dict[str, Any]:
     davf_config = _load_davf_config(args.davf_config)
-    context_path, raw_candidates = _load_candidate_spec(args.candidate_spec)
+    context_path, raw_candidates, spec_payload = _load_candidate_spec(args.candidate_spec)
+    admission_rule = spec_payload.get("observed_admission_rule")
+    if not admission_rule:
+        admission_rule = raw_candidates[0].get("observed_admission_rule")
+    significance_required = observed_significance_required(
+        None if admission_rule in {None, ""} else str(admission_rule)
+    )
+    kd_policy = spec_payload.get("kd_policy") or raw_candidates[0].get("kd_policy")
+    if kd_policy == "merged_into_ko_out_of_scope" and str(davf_config.intervention_type).strip().upper() == "KD":
+        raise ValueError("frozen AD kd_policy merged_into_ko_out_of_scope refuses a KD E2E route")
     proposals = tuple(_build_proposal(candidate, row) for row, candidate in enumerate(raw_candidates))
     downstream_required = (
         "cell_type",
@@ -864,12 +874,16 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         scvi_context=selected_context,
         perturbgen_config_path=args.perturbgen_config,
         seed=perturbgen_pipeline_seed,
+        observed_significance_required=significance_required,
     )
 
     payload: dict[str, Any] = {
         "schema_version": "davf_perturbgen_e2e/v1",
         "davf_config": str(Path(args.davf_config).expanduser().resolve()),
         "intervention_type": davf_config.intervention_type,
+        "observed_admission_rule": admission_rule or "fdr_cutoff",
+        "observed_significance_required": significance_required,
+        "kd_policy": kd_policy,
         "context_h5ad": str(context_path),
         "candidates": [preparation.to_dict() for preparation in preparations],
         "merged_gated_routes": merge_route_preparations(preparations),

@@ -34,26 +34,26 @@ EDGE_COLUMNS = (
 )
 
 
-def _config():
-    return parse_ptm_research_config(
-        {
-            "schema_version": "ptm2cellnet.ptm-research-config/v1",
-            "research_objective": "association",
-            "reference_axis": "disease_minus_normal",
-            "contrast": "disease-minus-normal",
-            "primary_activity_method": "KSTAR",
-            "network_release": "2026-08",
-            "cell_types": ["EX", "IN"],
-            "cohort_h5ad": "data/AD/standardized/GSE174367_ad_cohort.h5ad",
-            "cohort_pairing": "between_donor",
-            "species": "9606",
-            "ptm_cohort": "CPTAC_TEST",
-            "deg_max_fdr": 0.05,
-            "min_donors_per_state": 3,
-            "replicate_policy": "mean",
-            "propagation": {"max_depth": 3, "decay": 0.5, "gene_edge_types": ["tf_regulation"]},
-        }
-    )
+def _config(**overrides):
+    payload = {
+        "schema_version": "ptm2cellnet.ptm-research-config/v1",
+        "research_objective": "association",
+        "reference_axis": "disease_minus_normal",
+        "contrast": "disease-minus-normal",
+        "primary_activity_method": "KSTAR",
+        "network_release": "2026-08",
+        "cell_types": ["EX", "IN"],
+        "cohort_h5ad": "data/AD/standardized/GSE174367_ad_cohort.h5ad",
+        "cohort_pairing": "between_donor",
+        "species": "9606",
+        "ptm_cohort": "CPTAC_TEST",
+        "deg_max_fdr": 0.05,
+        "min_donors_per_state": 3,
+        "replicate_policy": "mean",
+        "propagation": {"max_depth": 3, "decay": 0.5, "gene_edge_types": ["tf_regulation"]},
+    }
+    payload.update(overrides)
+    return parse_ptm_research_config(payload)
 
 
 def _propagation_result(tmp_path, decay: float = 0.5):
@@ -243,6 +243,7 @@ class TestIntersections:
         assert len(concordant) == 1
         assert concordant.iloc[0]["target_ensembl_id"] == "ENSG00000000001"
         assert concordant.iloc[0]["evidence_tier"] == "formal"
+        assert concordant.iloc[0]["observed_significant"]
         assert ex_summary.n_formal_concordant == 1
         ad_only = ex_frame[ex_frame["membership"] == "AD_only"]
         assert len(ad_only) == 1
@@ -253,6 +254,24 @@ class TestIntersections:
         discordant = in_frame[in_frame["membership"] == "discordant"]
         assert len(discordant) == 1
         assert discordant.iloc[0]["evidence_tier"] == "exploratory"  # fdr 0.2 > 0.05
+        assert not bool(discordant.iloc[0]["observed_significant"])
+
+    def test_signed_admission_keeps_concordant_nonsignificant_as_formal(self, tmp_path):
+        score_frame = _score_frame(tmp_path)
+        deg = _deg_frame(
+            [
+                ["EX", "ENSG00000000001", "GENEA", -0.7, 0.52, "down", 4, 8],
+                ["IN", "ENSG00000000001", "GENEA", -0.7, 0.52, "down", 3, 3],
+            ]
+        )
+        config = _config(observed_admission_rule="signed_direction_without_fdr_cutoff")
+        intersections = intersect_gene_scores_with_deg(score_frame, deg, config=config)
+        ex_frame, ex_summary = intersections["EX"]
+        concordant = ex_frame[ex_frame["membership"] == "concordant"]
+        assert len(concordant) == 1
+        assert concordant.iloc[0]["evidence_tier"] == "formal"
+        assert not bool(concordant.iloc[0]["observed_significant"])
+        assert ex_summary.n_formal_concordant == 1
 
     def test_ptm_only_rows_are_kept(self, tmp_path):
         score_frame = _score_frame(tmp_path)
@@ -303,6 +322,7 @@ class TestIntersections:
         assert (output_dir / "ptm_ad_intersection_IN.tsv").is_file()
         summary = json.loads(outputs["summary"].read_text(encoding="utf-8"))
         assert summary["cell_types"]["EX"]["n_formal_concordant"] == 1
+        assert summary["thresholds"]["observed_admission_rule"] == "fdr_cutoff"
         assert summary["n_cell_types_supported"]["ENSG00000000001|GENEA"]["n_cell_types"] == 1
         manifest = json.loads(outputs["target_set_manifest"].read_text(encoding="utf-8"))
         ex_sources = manifest["cell_types"]["EX"]["sources"]

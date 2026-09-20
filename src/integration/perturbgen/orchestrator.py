@@ -269,6 +269,7 @@ class DAVFPerturbGenOrchestrator:
         perturbgen_config_path: str | Path | None = None,
         output_root: str | Path | None = None,
         seed: int = 0,
+        observed_significance_required: bool = True,
     ) -> tuple[DAVFPerturbGenPreparation, ...]:
         """Infer DAVF directions and gate a batch of PTM candidates.
 
@@ -326,6 +327,7 @@ class DAVFPerturbGenOrchestrator:
                 observed_log2fc=log2fcs[row],
                 observed_fdr=fdrs[row],
                 observed_direction=directions[row],
+                observed_significance_required=observed_significance_required,
                 semantic_context=semantic_contexts[row],
             )
             invocation = None

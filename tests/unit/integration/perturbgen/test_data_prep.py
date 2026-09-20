@@ -217,3 +217,14 @@ def test_screen_candidate_requires_significant_observed_direction():
     result = screen_candidate_for_perturbation(prepared, _candidate(observed_fdr=0.2), _resolver())
     assert result.status == "inconclusive"
     assert result.reason_codes == ("observed_expression_not_significant",)
+
+
+def test_screen_candidate_signed_admission_does_not_block_on_fdr():
+    prepared = prepare_perturbgen_anndata(_make_adata(), cell_type="Mono")
+    result = screen_candidate_for_perturbation(
+        prepared,
+        _candidate(observed_fdr=0.2),
+        _resolver(),
+        observed_significance_required=False,
+    )
+    assert "observed_expression_not_significant" not in result.reason_codes

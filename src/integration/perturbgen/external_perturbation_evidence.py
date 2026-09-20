@@ -77,6 +77,7 @@ class ExternalCandidatePrediction:
     perturbation_semantics: str
     self_delta: float | None
     predicted_direction: str | None  # 'up' | 'down' | None when self row absent
+    influence_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -217,17 +218,29 @@ def load_external_prediction_asset(manifest_path: str | Path) -> ExternalPerturb
 
     predictions: list[ExternalCandidatePrediction] = []
     for row_index, (canonical, gene_symbol) in enumerate(canonical_rows):
+        matrix_value: float | None
         if canonical in readout_index:
-            self_delta = float(delta_matrix[row_index, readout_index[canonical]])
+            matrix_value = float(delta_matrix[row_index, readout_index[canonical]])
+        else:
+            matrix_value = None
+        if evidence_kind == "network_counterfactual":
+            # Influence / embedding shift is not an expression direction.
+            self_delta = None
+            direction = None
+            influence_score = matrix_value
+        elif matrix_value is None:
+            self_delta = None
+            direction = None
+            influence_score = None
+        else:
+            self_delta = matrix_value
             if self_delta > 0:
                 direction = "up"
             elif self_delta < 0:
                 direction = "down"
             else:
                 direction = "indeterminate"
-        else:
-            self_delta = None
-            direction = None
+            influence_score = None
         predictions.append(
             ExternalCandidatePrediction(
                 ensembl_id=canonical,
@@ -236,6 +249,7 @@ def load_external_prediction_asset(manifest_path: str | Path) -> ExternalPerturb
                 perturbation_semantics=semantics,
                 self_delta=self_delta,
                 predicted_direction=direction,
+                influence_score=influence_score,
             )
         )
 
@@ -295,9 +309,14 @@ def _boundary_for_kind(evidence_kind: str) -> str:
     )
 
 
-def external_evidence_to_payload(evidence: ExternalPerturbationEvidence) -> dict[str, Any]:
-    """Serialize the evidence with provenance and the boundary note explicit."""
+def external_evidence_to_payload(
+    evidence: ExternalPerturbationEvidence,
+    *,
+    anchor_verdict: str | None = None,
+) -> dict[str, Any]:
+    """Serialize the evidence with provenance, boundary, and lineage isolation."""
 
+    lineage_boundary = "supplementary_only"
     return {
         "schema_version": EXTERNAL_PERTURBATION_EVIDENCE_SCHEMA_VERSION,
         "source": {
@@ -325,10 +344,14 @@ def external_evidence_to_payload(evidence: ExternalPerturbationEvidence) -> dict
                 "perturbation_semantics": prediction.perturbation_semantics,
                 "self_delta": prediction.self_delta,
                 "predicted_direction": prediction.predicted_direction,
+                "influence_score": prediction.influence_score,
             }
             for prediction in sorted(evidence.predictions, key=lambda item: item.ensembl_id)
         },
         "boundary": _boundary_for_kind(evidence.evidence_kind),
+        "lineage_boundary": lineage_boundary,
+        "may_enter_lineage": False,
+        "anchor_verdict": anchor_verdict or "not_provided",
     }
 
 

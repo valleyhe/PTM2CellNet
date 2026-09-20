@@ -42,6 +42,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="TSV with columns ensembl_id and gene_symbol requested for this evidence payload",
     )
     parser.add_argument("--output", type=Path, required=True, help="evidence JSON output path")
+    parser.add_argument(
+        "--anchor-backtest",
+        type=Path,
+        default=None,
+        help="optional APOE anchor backtest JSON; fail or pass still stays supplementary_only",
+    )
     return parser.parse_args(argv)
 
 
@@ -66,7 +72,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"external prediction asset does not cover requested candidates: {list(missing)}; "
                 "extend the asset in the external environment before assembly"
             )
-        payload = external_evidence_to_payload(evidence)
+        anchor_verdict = None
+        if args.anchor_backtest is not None:
+            anchor_payload = json.loads(
+                args.anchor_backtest.expanduser().resolve(strict=True).read_text(encoding="utf-8")
+            )
+            if not isinstance(anchor_payload, dict):
+                raise ExternalPerturbationEvidenceError("anchor backtest JSON root must be an object")
+            anchor_verdict = str(anchor_payload.get("verdict") or "").strip().lower() or None
+        payload = external_evidence_to_payload(evidence, anchor_verdict=anchor_verdict)
         payload["requested_candidates"] = {ensembl_id: requested[ensembl_id] for ensembl_id in sorted(requested)}
         payload["missing_candidates"] = list(missing)
         payload["candidates_tsv"] = str(candidates_path)

@@ -9,7 +9,11 @@
 - PTM 阶段不区分 cell type，输出全局 activity 和 gene score；AD 阶段保留
   cell type，交集按 cell type 与 canonical Ensembl 独立生成（方案 §1）。
 - KSTAR/PhosR 在独立环境运行，主环境只消费其标准表输出（`ptm_activity.tsv`），
-  不把重型依赖加入 core（方案 §6.2）。
+  不把重型依赖加入 core（方案 §6.2）。执行合同见
+  [`kstar_activity_plan.md`](kstar_activity_plan.md)（2026-09-18 方案冻结，**未执行**）。
+- PTM smoke（`scripts/generate_ptm_smoke.py`）只证明阶段 1/3/4/5 表契约。
+  `method=KSTAR` 且 `method_version=smoke-stub-*` **不是** KSTAR 运行结果，
+  不得写入 formal lineage，也不是 biology PASS。
 - signed network 是外部冻结资产（OmniPath signed signaling / TF regulon 导出）；
   本管线只做读取、过滤、传播。`src/models/signaling_network.py` 的硬编码路径
   不参与正式传播（方案 §5.3）。
@@ -76,11 +80,30 @@ python scripts/run_ptm_activity.py \
 原值并计数（无 canonical Ensembl 的行不进传播）。重复位点由
 `replicate_policy` 处理：`fail` 硬失败，`mean` 聚合并记录。
 
+无真实 phosphoproteome 时，用确定性 smoke 资产先测阶段 1 契约（以及跳过
+KSTAR 后的 3/4/5）：
+
+```bash
+python scripts/generate_ptm_smoke.py \
+  --output-dir outputs/ptm_activity/20260918_ptm_smoke \
+  --run-pipeline
+```
+
+Smoke 自带一张 `release=smoke-2026-09-18` 的 kinase→TF→gene 小网，**不是**
+`omnipath-2026-09-16`（后者只有 `tf_regulation`，激酶 activity 无法在其上传播）。
+生成器另写 `kstar_evidence_from_sites.tsv`，形状给未来 KSTAR adapter 用，
+本身不是 KSTAR 输出。
+
 ## 3. 阶段 2：Activity inference（外部）
 
 KSTAR/PhosR 在独立环境运行，产出 `ptm_activity.tsv`（方案 §4.2 十三列）。
 该表在本管线由阶段 3 的读取点校验（方向与分数符号一致、q 值范围、
 per (regulator, contrast, method) 唯一）。本仓库没有运行 KSTAR/PhosR 的入口。
+
+独立环境、二元位点证据、PhosphoSitePlus freeze、kinase–substrate 传播网缺口
+与验收顺序见 [`kstar_activity_plan.md`](kstar_activity_plan.md)。在该方案
+§7 benchmark 过线前，`may_enter_lineage` 必须为 false。禁止把 smoke stub
+的 `method=KSTAR` 回标成真 KSTAR。
 
 ## 4. 阶段 3：Signed network 传播与 global gene score
 
@@ -282,10 +305,42 @@ DAVF/PerturbGen 证据字段合并，不构成 pass/fail 或 biology PASS。
 0.25、Spearman -0.0428），因此两源资产当前均**不接入主线 lineage**。早期 LPM
 路径保留为历史脚本/文档记录，已被 bridge guide §6b 的策略 B 取代。
 
+### 7.4 五候选分流（方案 §6，2026-09-18）
+
+`scripts/route_ad_candidates.py` 把方案第 6 章的主路线/备选路线编成可重复的
+路由报告。它复用已有轴审计与 DEG 表，不重新发明覆盖口径，也**不**生成
+E2E invocation 或改写 fail 的 GEARS/Geneformer 资产。
+
+```bash
+python scripts/route_ad_candidates.py \
+  --axis-audit-tsv outputs/ptm_activity/20260916_d1/davf_axis_coverage_audit.tsv \
+  --deg-table outputs/ptm_activity/20260916_d2/ad_deg_centered_aggregate.tsv \
+  --anchor-backtest outputs/external_evidence/apoe_anchor_backtest.json \
+  --output-dir outputs/ptm_activity/20260918_research_decision
+```
+
+当前真实跑通结论（工程分流，不是 biology PASS）：
+
+- APOE KO → `APOE_KO_ENGINEERING` / `engineering_verification`
+- APP/PSEN1/BACE1/MAPT KO → `B2` / `direction_only`（无同机制公共 inventory）
+- KD 不再单独输出（2026-09-18：`kd_policy=merged_into_ko_out_of_scope`）
+- observed **显著**行 = 0（min FDR = 0.52538，报告阈值仍为 0.05），但 signed
+  方向准入可以通过；`n_formal_invocations = 0`
+- `--public-inventory-tsv` 在冻结决策下硬失败；不要再找公共 Perturb-seq
+
+冻结决策写在 `observed_gate_decision.json`
+（schema `ptm2cellnet.ad-research-decision/v1`）。可选 `--grn-support-tsv`
+只在有可追溯 TF 路径时把 KO 候选升到 B4；缺失因子不会被填成高分。
+`--contract-to-apoe-ko` 启用 B6 收缩，且不得再声称覆盖五候选。
+
 ## 8. 验证与测试
 
 - 单元契约：`tests/unit/analysis/test_ptm_research_config.py`、
   `test_ptm_activity.py`、`test_signed_network.py`、`test_ptm_gene_score.py`、
-  `tests/unit/integration/perturbgen/test_downstream_target_evaluation.py`。
+  `test_ad_candidate_routing.py`、
+  `tests/unit/integration/perturbgen/test_downstream_target_evaluation.py`、
+  `tests/unit/scripts/test_route_ad_candidates.py`。
 - 四阶段 CLI 全链（合成数据）：`tests/integration/test_ptm_activity_pipeline.py`。
-- 合成数据只证明契约与管线接通，不构成生物学 PASS（方案 §2.3/§12）。
+- PTM smoke 生成器与 CLI：`tests/unit/analysis/test_ptm_smoke.py`、
+  `tests/unit/scripts/test_generate_ptm_smoke.py`。
+- 合成数据与 smoke 只证明契约与管线接通，不构成生物学 PASS（方案 §2.3/§12）。

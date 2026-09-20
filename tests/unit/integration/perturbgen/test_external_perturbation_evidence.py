@@ -165,6 +165,31 @@ class TestLoadLpmPredictionAsset:
         payload = external_evidence_to_payload(evidence)
         assert "GO-graph extrapolation" in payload["boundary"]
 
+    def test_network_counterfactual_does_not_emit_expression_direction(self, tmp_path):
+        def to_counterfactual(manifest):
+            manifest = dict(manifest)
+            manifest["evidence_kind"] = "network_counterfactual"
+            manifest["perturbation_semantics"] = "in_silico_perturbation"
+            return manifest
+
+        def obs_to_counterfactual(obs):
+            obs = obs.copy()
+            obs["perturbation_semantics"] = "in_silico_perturbation"
+            return obs
+
+        evidence = load_external_prediction_asset(
+            _write_asset(tmp_path, manifest_modifier=to_counterfactual, obs_modifier=obs_to_counterfactual)
+        )
+        by_id = {prediction.ensembl_id: prediction for prediction in evidence.predictions}
+        assert by_id["ENSG00000130203"].self_delta is None
+        assert by_id["ENSG00000130203"].predicted_direction is None
+        assert by_id["ENSG00000130203"].influence_score == pytest.approx(0.50)
+        payload = external_evidence_to_payload(evidence, anchor_verdict="fail")
+        assert payload["candidates"]["ENSG00000130203"]["predicted_direction"] is None
+        assert payload["lineage_boundary"] == "supplementary_only"
+        assert payload["may_enter_lineage"] is False
+        assert payload["anchor_verdict"] == "fail"
+
     def test_context_mismatch_between_manifest_and_h5ad_fails(self, tmp_path):
         def rename(obs):
             obs = obs.copy()
@@ -189,6 +214,9 @@ class TestPayloadAndCoverage:
         assert payload["candidates"]["ENSG00000186318"]["predicted_direction"] is None
         assert "trained perturbation response" in payload["boundary"]
         assert "never a pass/fail decision" in payload["boundary"]
+        assert payload["lineage_boundary"] == "supplementary_only"
+        assert payload["may_enter_lineage"] is False
+        assert payload["anchor_verdict"] == "not_provided"
 
     def test_missing_candidates_are_explicit(self, tmp_path):
         evidence = load_external_prediction_asset(_write_asset(tmp_path))

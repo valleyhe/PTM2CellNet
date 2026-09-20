@@ -27,6 +27,12 @@ cohort_pairing: between_donor
 species: "9606"
 ptm_cohort: PENDING_EXTERNAL_PTM_COHORT
 deg_max_fdr: 0.05
+# 2026-09-18：observed 准入改为 signed disease−normal 方向一致；deg_max_fdr
+# 仍是 BH 报告阈值，不得把 FDR>0.05 改标成显著。KD 并入 KO（本 AD 候选只做
+# loss-of-function KO）。公共 Perturb-seq / B1 转移不再检索。
+observed_admission_rule: signed_direction_without_fdr_cutoff
+kd_policy: merged_into_ko_out_of_scope
+public_perturbation_policy: out_of_scope
 min_donors_per_state: 3
 # DEG estimand（2026-09-16 冻结，方案 §7.4-U4 方案 A）：donor pseudobulk
 # counts 先聚合再归一化。此前 per_cell_log2_mean 口径（每细胞 log2(CPM+1)

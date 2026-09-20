@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+import pytest
 
 from scripts import build_celltype_candidate_specs as script
 
 
-def _config(path):
+def _config(path, extra_lines=()):
     path.write_text(
         "\n".join(
             [
@@ -39,6 +40,7 @@ def _config(path):
                 '  research_objective: "association"',
                 '  evidence_source: "test"',
                 '  cohort: "TEST"',
+                *extra_lines,
                 "",
             ]
         ),
@@ -46,10 +48,18 @@ def _config(path):
     )
 
 
-def _inputs(tmp_path, *, observed_direction="neutral", fdr=0.01, normal_donors=3, disease_donors=3):
+def _inputs(
+    tmp_path,
+    *,
+    observed_direction="neutral",
+    fdr=0.01,
+    normal_donors=3,
+    disease_donors=3,
+    extra_config=(),
+):
     ensembl_id = "ENSG00000000001"
     config = tmp_path / "config.yaml"
-    _config(config)
+    _config(config, extra_lines=extra_config)
     proposals = tmp_path / "proposals.tsv"
     pd.DataFrame(
         [
@@ -130,3 +140,46 @@ def test_source_deg_gate_keeps_failed_source_exploratory_even_with_target_set(tm
     assert len(cell_summary["exploratory_sources"]) == 1
     assert "formal gate" in cell_summary["exploratory_sources"][0]["reason"]
     assert not (output_dir / "candidate_spec_EX.json").exists()
+
+
+def test_signed_admission_emits_candidate_without_relabeling_fdr(tmp_path, monkeypatch):
+    config, proposals, deg, target_manifest, context = _inputs(
+        tmp_path,
+        observed_direction="up",
+        fdr=0.52,
+        extra_config=(
+            "observed_admission_rule: signed_direction_without_fdr_cutoff",
+            "kd_policy: merged_into_ko_out_of_scope",
+            "public_perturbation_policy: out_of_scope",
+        ),
+    )
+    monkeypatch.setattr(script, "_first_cell_index_per_type", lambda *_args: {"EX": 0})
+    output_dir = tmp_path / "specs"
+
+    assert (
+        script.main(
+            [
+                "--config",
+                str(config),
+                "--source-proposals-tsv",
+                str(proposals),
+                "--deg-table",
+                str(deg),
+                "--target-set-manifest",
+                str(target_manifest),
+                "--context-h5ad",
+                str(context),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+
+    spec = json.loads((output_dir / "candidate_spec_EX.json").read_text(encoding="utf-8"))
+    assert spec["observed_admission_rule"] == "signed_direction_without_fdr_cutoff"
+    assert spec["kd_policy"] == "merged_into_ko_out_of_scope"
+    candidate = spec["candidates"][0]
+    assert candidate["observed_direction"] == "up"
+    assert candidate["observed_fdr"] == pytest.approx(0.52)
+    assert candidate["observed_significant"] is False

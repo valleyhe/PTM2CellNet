@@ -241,6 +241,7 @@ def screen_candidate_for_perturbation(
     resolver: GeneVocabularyResolver,
     *,
     max_observed_fdr: float = 0.05,
+    observed_significance_required: bool = True,
 ) -> CandidateScreeningResult:
     """Screen one candidate against validated AnnData and vocabulary.
 
@@ -251,7 +252,7 @@ def screen_candidate_for_perturbation(
 
     if not 0.0 <= max_observed_fdr <= 1.0:
         raise ValueError("max_observed_fdr must be within [0, 1]")
-    if candidate.observed_fdr > max_observed_fdr:
+    if observed_significance_required and candidate.observed_fdr > max_observed_fdr:
         return CandidateScreeningResult(
             candidate=candidate,
             status="inconclusive",

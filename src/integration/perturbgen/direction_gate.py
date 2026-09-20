@@ -43,6 +43,7 @@ def evaluate_direction_gate(
     observed_direction: ObservedDirection | None,
     observed_fdr: float | None,
     max_observed_fdr: float = 0.05,
+    observed_significance_required: bool = True,
 ) -> DirectionGateResult:
     """Require agreement between PTM proposal, DAVF, and independent data.
 
@@ -51,6 +52,9 @@ def evaluate_direction_gate(
     - missing evidence is ``inconclusive``;
     - a configured fallback/random DAVF result is not scientific evidence;
     - disagreement among complete directions is ``fail``;
+    - FDR≤``max_observed_fdr`` is the default admission rule (legacy);
+    - when ``observed_significance_required`` is false, FDR is still required
+      and recorded but does not block signed-direction concordance;
     - only complete three-way agreement returns ``pass``.
     """
 
@@ -75,7 +79,7 @@ def evaluate_direction_gate(
         reasons.append("missing_observed_direction")
     if observed_fdr is None:
         reasons.append("missing_observed_fdr")
-    elif observed_fdr > max_observed_fdr:
+    elif observed_significance_required and observed_fdr > max_observed_fdr:
         reasons.append("observed_expression_not_significant")
 
     if proposal is not None and davf_evidence is not None:
@@ -138,6 +142,7 @@ def build_direction_gated_candidate(
     observed_fdr: float,
     observed_direction: ObservedDirection | None,
     max_observed_fdr: float = 0.05,
+    observed_significance_required: bool = True,
     semantic_context: SemanticContext | Mapping[str, Any] | None = None,
 ) -> tuple[DirectionGateResult, CandidateEvidence | None]:
     """Build ``CandidateEvidence`` only after the direction gate passes."""
@@ -148,6 +153,7 @@ def build_direction_gated_candidate(
         observed_direction=observed_direction,
         observed_fdr=observed_fdr,
         max_observed_fdr=max_observed_fdr,
+        observed_significance_required=observed_significance_required,
     )
     if gate.status != "pass":
         return gate, None

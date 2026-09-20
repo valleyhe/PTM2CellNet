@@ -13,7 +13,10 @@ Two responsibilities:
    (§4.6/§5.4): canonical Ensembl keys, per-cell-type independent joins,
    direction-match flag, explicit PTM_only/AD_only/concordant/discordant
    membership and a formal/exploratory evidence tier driven by the frozen
-   AD FDR and donor-support thresholds.
+   AD donor-support threshold and, unless ``observed_admission_rule`` is
+   ``signed_direction_without_fdr_cutoff``, the reporting FDR cutoff.
+   FDR≤``deg_max_fdr`` is always recorded as ``observed_significant`` and is
+   never relabelled when admission ignores the cutoff.
 """
 
 from __future__ import annotations
@@ -287,8 +290,10 @@ def intersect_gene_scores_with_deg(
     ``membership`` column (concordant / discordant / PTM_only / AD_only) and
     an ``evidence_tier`` column (formal / exploratory). The formal
     intersection set ``I_c`` is ``membership=concordant AND
-    evidence_tier=formal``; without a calibrated PTM-side null no joint
-    significance is claimed (方案 §4.6).
+    evidence_tier=formal``. Under ``signed_direction_without_fdr_cutoff``,
+    formal admission is donor support plus signed direction concordance;
+    FDR≤``deg_max_fdr`` remains the significance label. Without a calibrated
+    PTM-side null no joint significance is claimed (方案 §4.6).
     """
 
     summaries: dict[str, tuple[pd.DataFrame, IntersectionSummary]] = {}
@@ -330,7 +335,10 @@ def intersect_gene_scores_with_deg(
                     and int(record["n_disease_donors"]) >= config.min_donors_per_state
                 )
                 fdr_ok = fdr is not None and not pd.isna(fdr) and float(fdr) <= config.deg_max_fdr
-                tier = "formal" if donor_ok and fdr_ok else "exploratory"
+                if config.observed_admission_rule == "signed_direction_without_fdr_cutoff":
+                    tier = "formal" if donor_ok else "exploratory"
+                else:
+                    tier = "formal" if donor_ok and fdr_ok else "exploratory"
             direction_match = membership == "concordant"
             if direction_match and tier == "formal":
                 n_formal += 1
@@ -347,6 +355,9 @@ def intersect_gene_scores_with_deg(
                     "observed_log2fc": record.get("log2fc"),
                     "observed_fdr": fdr,
                     "observed_direction": "" if observed is None or pd.isna(observed) else observed,
+                    "observed_significant": bool(
+                        fdr is not None and not pd.isna(fdr) and float(fdr) <= config.deg_max_fdr
+                    ),
                     "n_normal_donors": record.get("n_normal_donors"),
                     "n_disease_donors": record.get("n_disease_donors"),
                     "direction_match": direction_match,
@@ -389,6 +400,7 @@ def write_intersection_outputs(
         "thresholds": {
             "deg_max_fdr": config.deg_max_fdr,
             "min_donors_per_state": config.min_donors_per_state,
+            "observed_admission_rule": config.observed_admission_rule,
         },
         "cell_types": {},
         "note": (

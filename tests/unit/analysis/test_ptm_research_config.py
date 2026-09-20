@@ -139,6 +139,9 @@ class TestPTMResearchConfig:
         payload = _base_payload()
         config = parse_ptm_research_config(payload)
         assert config.deg_donor_aggregation == "per_cell_log2_mean"
+        assert config.observed_admission_rule == "fdr_cutoff"
+        assert config.kd_policy == "separate_routes"
+        assert config.public_perturbation_policy == "inventory_optional"
 
         payload["deg_donor_aggregation"] = "pseudobulk_counts"
         config = parse_ptm_research_config(payload)
@@ -146,4 +149,14 @@ class TestPTMResearchConfig:
 
         payload["deg_donor_aggregation"] = "median_of_medians"
         with pytest.raises(PTMResearchConfigError, match="deg_donor_aggregation"):
+            parse_ptm_research_config(payload)
+
+        payload = _base_payload()
+        payload["observed_admission_rule"] = "signed_direction_without_fdr_cutoff"
+        payload["kd_policy"] = "merged_into_ko_out_of_scope"
+        payload["public_perturbation_policy"] = "out_of_scope"
+        config = parse_ptm_research_config(payload)
+        assert config.observed_admission_rule == "signed_direction_without_fdr_cutoff"
+        payload["observed_admission_rule"] = "relax_fdr"
+        with pytest.raises(PTMResearchConfigError, match="observed_admission_rule"):
             parse_ptm_research_config(payload)

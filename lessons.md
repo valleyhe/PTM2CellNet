@@ -951,3 +951,132 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
   ④Geneformer ISP `genes_to_perturb` 用 **Ensembl ID** 键、V2 模型 emb_mode 必须
   `cls_and_gene`、gene 输出是 **embedding cos 谱无方向语义**（方向证据只剩 GEARS）；
   ⑤ISP cls_and_gene 显存大（batch 32 OOM 于 P40+并行训练时，batch 8 通过）。
+
+## L-2026-0918-01｜方案 §6 五候选分流编码为确定性路由契约，不接入 formal lineage
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0918-01 |
+| 时间戳 | 2026-09-18 11:30 |
+| 条目版本 | v2.1.0（模块级：候选分流/证据隔离） |
+| 决策级别 | **模块级**（把 observed-gate 方案第 6 章编成可测试代码，不改变 formal gate） |
+| 决策来源 | 用户指令执行 `docs/guides/observed_gate_davf_no_perturbation_execution_plan.md` §6 |
+| 状态 | 已落地代码与定向测试；真实分流跑通；**formal biology PASS 仍为 0** |
+
+### 1. 决策内容
+
+- 新增 `src/analysis/ad_candidate_routing.py` + `scripts/route_ad_candidates.py` 作为
+  五候选 × KO/KD 的唯一分流入口。复用已有
+  `davf_axis_coverage_audit.tsv` 与 d2 centered DEG 表，不重算覆盖、不改 FDR。
+- 硬约束写入代码而非文档：词表命中不是训练轴；本地 scPerturb 扰动列表不是 KD
+  机制；KO 不得取反成 KD；本 CLI `formal_invocation_allowed` 恒为 false；锚点
+  pass 或 fail 都不得把外部资产写入 formal lineage（方案 §6.4 明确不为当前
+  GEARS/Geneformer 新增 formal consumer）。
+- 外部 evidence payload 增加 `lineage_boundary=supplementary_only` 与
+  `may_enter_lineage=false`；`network_counterfactual` 的矩阵值只进
+  `influence_score`，`predicted_direction` 保持 null。
+
+### 2. 当前真实跑通事实
+
+输入：`outputs/ptm_activity/20260916_d1/davf_axis_coverage_audit.tsv`、
+`outputs/ptm_activity/20260916_d2/ad_deg_centered_aggregate.tsv`、
+`outputs/external_evidence/apoe_anchor_backtest.json`（verdict=fail）。
+产物：`outputs/ptm_activity/20260918_candidate_routing/`。
+
+- observed 显著行 = 0，min FDR = 0.52538（与 d2 EX 记录一致）
+- APOE KO = `engineering_verification`；APP/PSEN1/BACE1/MAPT KO = `B2` /
+  `direction_only`；五者 KD = `unavailable`
+- `n_formal_invocations = 0`，`biology_pass = false`
+
+### 3. 明确不做
+
+- 不重跑 K562 GEARS / Geneformer 以期待锚点自动通过
+- 不创建虚拟 KD 轴或伪 z0/z1
+- 不把本次 sidecar 送入 `run_davf_perturbgen_e2e.py --run-perturbgen`
+- 公共 Perturb-seq inventory 仍为空，B1/B3 只在提供机制可追溯 TSV 后才会启用
+
+## L-2026-0918-02｜observed gate 选分支 3；KD 并入 KO；不再检索公共 Perturb-seq
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0918-02 |
+| 时间戳 | 2026-09-18 13:00 |
+| 条目版本 | v2.2.0（模块级：准入语义/干预范围） |
+| 决策级别 | **模块级**（修订 AD observed 准入语义与候选范围，不宣称 biology PASS） |
+| 决策来源 | 用户正式指令（observed gate 选 3；KD 不再单独做；不再找公共 Perturb-seq） |
+| 状态 | 已冻结为 `ptm2cellnet.ad-research-decision/v1`；**formal biology PASS 仍为 0** |
+
+### 1. 决策内容
+
+1. **observed gate = 分支 3（修订语义）**，不是加 donor、不是预注册小 panel、
+   也不是放宽 FDR/raw p/universe。donor-level Welch+BH 与 `deg_max_fdr=0.05`
+   继续作为报告/显著性标签；准入与三方 gate 的 observed 臂改为 signed
+   disease−normal 方向一致。FDR>0.05 **不得**改标成显著。
+2. **KD 并入 KO**：本 AD 五候选只做 KO loss-of-function。DAVF 干预标签 0/1
+   仍分离；不得从 KO 取反、不得把 KO checkpoint 当 KD 用。
+3. **不再检索公共 Perturb-seq**。B1/B3 transfer 为 out of scope；分流 CLI
+   遇到非空 inventory 硬失败。
+
+### 2. 落地
+
+- schema / 默认冻结：`src/analysis/ad_research_decision.py`、
+  `configs/research/ptm_research_config.yaml`
+- 消费方：`ad_candidate_routing`、`direction_gate`（`observed_significance_required`）、
+  `build_celltype_candidate_specs`、`ptm_gene_score` 交集 `I_c`、E2E candidate spec
+- 未完成：真实 PTM/KSTAR 仍缺，E2E 仍不能宣称 biology PASS；分流 CLI 仍不发
+  formal invocation
+
+### 3. 明确不做
+
+- 不把 FDR 0.52 写成显著
+- 不恢复 KD 独立工作流
+- 不开始公共 Perturb-seq 盘点或下载
+- 不把本次决策写成 formal biology PASS
+
+## L-2026-0918-03｜PTM smoke 契约测试；KSTAR 保持独立环境方案
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0918-03 |
+| 时间戳 | 2026-09-18 13:20 |
+| 条目版本 | v2.3.0（模块级：阶段 2 前置契约 / 外部工具边界） |
+| 决策级别 | **模块级**（用确定性 PTM fixture 测阶段 1/3/4/5；KSTAR 只出方案不进 core） |
+| 决策来源 | 用户正式指令（PTM 由助手生成 smoke 数据先测试；KSTAR 给出方案） |
+| 状态 | smoke 已落地并跑通；KSTAR 方案冻结、**未执行**；**formal biology PASS 仍为 0** |
+
+### 1. 决策内容
+
+1. **PTM 先用 smoke**。`src/analysis/ptm_smoke.py` + `scripts/generate_ptm_smoke.py`
+   写出 §4.1 十三列位点表（3+3 donor、1 个 replicate、1 个未映射蛋白、1 行无 donor）、
+   二元 KSTAR evidence 形状、activity 占位和一张 kinase→TF→gene 小网
+   （`release=smoke-2026-09-18`）。`--run-pipeline` 调用已有阶段 1/3/4/5 CLI，
+   **不调用 KSTAR**。
+2. **activity 占位的 `method=KSTAR` 只满足 `primary_activity_method` 过滤**；
+   `method_version=smoke-stub-20260918` 与 `kstar_ran=false` 禁止把它当成激酶推断。
+3. **KSTAR 给出方案、不实现 runner**。合同为 `docs/guides/kstar_activity_plan.md`：
+   独立 conda、PhosphoSitePlus freeze、standardized PTM → 二元 evidence →
+   `ptm_activity.tsv` adapter；kinase–substrate 传播网与 2026-09-16 TF-only
+   OmniPath freeze 分离。不把 `kstar` 写入 `requirements-core.txt`。
+
+### 2. 当前跑通事实
+
+产物：`outputs/ptm_activity/20260918_ptm_smoke/`。
+
+- 阶段 1：51 行输入、1 个 replicate 组、1 个未映射蛋白、6 donor
+- 阶段 3：7 条 (source, target) gene score，全部 `prediction_status=direction_only`
+- 阶段 4：EX `n_formal_concordant=4`（signed admission，FDR 全 >0.05）
+- 阶段 5：EX 3 个候选（GSK3B/CDK5/AKT1），`observed_significant=false`；INH 0 候选，
+  source 无本 cell type DEG 进 exploratory
+- `biology_pass=false`，`kstar_ran=false`
+
+测试：`tests/unit/analysis/test_ptm_smoke.py`、
+`tests/unit/scripts/test_generate_ptm_smoke.py`。
+
+### 3. 明确不做
+
+- 不把 smoke 位点表或 stub activity 写成真实 phosphoproteome / KSTAR
+- 不在 core 环境 `import kstar` 或新增 PhosR R 依赖
+- 不把 2026-09-16 OmniPath TF-only 网改成激酶传播网
+- 不把本次 EX 三候选送入 `run_davf_perturbgen_e2e.py --run-perturbgen`
+- 不宣称 biology PASS
+
