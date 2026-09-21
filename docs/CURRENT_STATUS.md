@@ -1,19 +1,37 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-09-21（修复轮：KSTAR 双方向 metrics、activity 准入 gate、严格 network verifier、combined release 绑定；formal biology PASS 仍为 0）**
+**Last updated: 2026-09-22（综合处理轮：0921 修复轮成果三语义提交并推送、历史报告归档至 archive/20260922/、对抗复核确认修复全部落地；formal biology PASS 仍为 0）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260921.md`](../project_analysis_20260921.md)，本轮修复记录见
-[`project_repair_report_20260921.md`](../project_repair_report_20260921.md)；上一份 20260917
-分析与修复快照已移入 [`archive/20260917/`](../archive/20260917/)，更早报告仍按日期
-保留为历史证据。报告明确区分源码/测试事实、历史记录和未验证外部资产，正式 biology
-PASS 仍为 0。
+[`project_analysis_20260922.md`](../project_analysis_20260922.md)；上一份 20260921 分析与
+修复报告已移入 [`archive/20260922/`](../archive/20260922/)（同批归档 0920、滞留根目录的
+0915/0914/0913 修复报告及三份无引用笔记；根目录 0917 为 archive/20260920/ 正本的逐字节
+冗余副本，已删），更早报告仍按日期保留为历史证据。报告明确区分源码/测试事实、历史记录和
+未验证外部资产，正式 biology PASS 仍为 0。
 2026-09-13 综合分析、2026-09-10 综合分析与修复日志、2026-09-01 及更早报告、根目录 2026-08 stub 已归档：
 `archive/20260914/`（含 20260913 权威报告与 task_plan）、`archive/20260913/`（含 20260910 权威报告）、`archive/20260910/reports/`（含 20260901）、
 `archive/20260901/reports/`、`archive/20260827/reports/` 等；各批次清单见对应
 `archive/YYYYMMDD/MANIFEST.md` 或 `ARCHIVE_MANIFEST.md`。
 
 ## Quick Reference
+
+- **2026-09-22 综合处理轮（版本控制+归档+对抗复核；非 biology PASS）**：0921
+  修复轮全部修改以 3 个语义提交落 main（`95b315f` feat KSTAR 方向化
+  metrics/admission gate/formal mode/release 绑定、`c078cc8` test slow 分层、
+  `25c0ab3` docs 同步）并 push（main...origin/main = 0 0）；`compileall` 通过；
+  全目录 fast 口径 **2,922 passed / 0 failed / 464.63s**（含 e2e 42 项；0921
+  遗留的 188 项超时问题已由分层消除）。对抗复核确认修复轮 11 项债务全部落地
+  无旁路（旧传播入口删净、formal 拒绝 PENDING、binding 校验 CLI 强制、
+  verifier 50+50 双 ID pin），主线加权完成度 62.1%→**71.0%**。新识别 ND-01
+  （scripts 无 `__init__.py` 但 `setup.py` console_scripts 引 `scripts.train:main`
+  且 `ptm_smoke.py:506-509` src→scripts 反向 import——pip 安装即坏，中）与
+  ND-02（CHANGELOG 漏记 0921 修复轮，回归漂移，中）。TD-03 状态变化：pip check
+  仅剩 PyNaCl 平台警告，但 ptm2cellnet/ssh-unit/scgpt 发行版元数据已不在当前
+  环境——冲突"消失"是元数据脱节而非修复。归档 `archive/20260922/`
+  （9 文件 + MANIFEST，含滞留根目录的 0914/0915/0913修复与三份无引用笔记）。
+  子代理系统本环境不可用（5 次调用全部启动失败），分析由主会话完成。详见
+  [`project_analysis_20260922.md`](../project_analysis_20260922.md)。lessons
+  L-2026-0922-01。
 
 - **2026-09-21 技术债修复轮（TD-01/02/04/05/06/07/12/13/14/16/17；非 biology PASS）**：
   依据 `project_analysis_20260921.md` §6/§7 完成的代码修复——(1) TD-01 KSTAR 双方向
@@ -108,9 +126,9 @@ PASS 仍为 0。
 
 本节只记录 2026-09-13 的源码审计、修复和检查；上方 2026-09-10 的回归数字与
 历史检查日期不因本轮未运行真实资产而改写。修复细节见
-[`project_repair_report_20260913.md`](../project_repair_report_20260913.md)（已归档）；
-综合对抗分析见 [`project_analysis_20260914.md`](../project_analysis_20260914.md)（历史），
-当前状态以 [`project_analysis_20260917.md`](../project_analysis_20260917.md) 为准。
+[`project_repair_report_20260913.md`](../archive/20260922/project_repair_report_20260913.md)（已归档）；
+综合对抗分析见 [`project_analysis_20260914.md`](../archive/20260922/project_analysis_20260914.md)（历史），
+当前状态以 [`project_analysis_20260922.md`](../project_analysis_20260922.md) 为准。
 
 - `scripts/run_perturbgen_pipeline.py` 现要求通过的 E2E report invocation 与当前
   base YAML 的 gene、mode、声明的 Ensembl ID/route、`pipeline.random_seed` 和授权
@@ -166,7 +184,7 @@ PASS 仍为 0。
 
 - [安装指南](guides/installation.md)、[数据接入指南](guides/data_integration.md)、[训练指南](guides/training.md)、[部署指南](guides/deployment.md)、[真实资产验收](guides/real_assets_acceptance.md)
 - [PTM activity → AD 交集执行方案（v1.0，2026-09-14 当前主线）](PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md)、[PTM activity 管线指南](guides/ptm_activity_pipeline.md)
-- [项目代码与文档综合分析（2026-09-17，当前权威）](../project_analysis_20260917.md)、[2026-09-16 分析/修复快照归档](../archive/20260917/ARCHIVE_MANIFEST.md)、[上一份核实证据（2026-09-15）](../project_analysis_20260915.md)、[归档清单（2026-09-16）](../archive/20260916/ARCHIVE_MANIFEST.md)、[归档清单（2026-09-14）](../archive/20260914/ARCHIVE_MANIFEST.md)、[归档清单（2026-09-13）](../archive/20260913/ARCHIVE_MANIFEST.md)
+- [项目代码与文档综合分析（2026-09-22，当前权威）](../project_analysis_20260922.md)、[2026-09-21 分析/修复归档](../archive/20260922/MANIFEST.md)、[2026-09-16 分析/修复快照归档](../archive/20260917/ARCHIVE_MANIFEST.md)、[归档清单（2026-09-16）](../archive/20260916/ARCHIVE_MANIFEST.md)、[归档清单（2026-09-14）](../archive/20260914/ARCHIVE_MANIFEST.md)、[归档清单（2026-09-13）](../archive/20260913/ARCHIVE_MANIFEST.md)
 - [PerturbGen 双路径整合方案（v2.0，现行需求基线）](DAVF_PerturbGen_双路径整合方案与测试方案_2026-08-21.md)
 - [测试覆盖率治理](TEST_COVERAGE.md)
 

@@ -1226,3 +1226,34 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
    口径 26 包/96 条唯一记录）——修复须隔离环境重建+全量回归，不得在当前可用
    环境上盲动；TD-08 Workflow B 编排、TD-09 复杂度拆分、TD-10/11 异常与安全
    分流为专项工作。策略见 `project_repair_report_20260921.md`。
+
+## L-2026-0922-01 综合处理轮：修复轮成果入库 + 归档治理 + 对抗复核结论
+
+日期：2026-09-22。执行记录与证据见 `project_analysis_20260922.md`。
+
+1. 0921 修复轮全部修改以 3 个语义提交落 main 并 push（`95b315f` feat /
+   `c078cc8` test / `25c0ab3` docs；push 后 main...origin/main = 0 0）；
+   `compileall` 通过；全目录 fast 口径 **2,922 passed / 0 failed / 464.63s**
+   （含 e2e 42 项；slow 分层修复后 0921 的 188 项超时遗留消除）。
+2. 对抗复核确认 11 项修复全部落地无旁路：旧 `activities_for_propagation` 全仓
+   删净（唯一残留为新模块 docstring 说明）；formal 模式拒绝 `PENDING*`
+   （`ptm_research_config.py:218-225`）；`verify_network_release_binding` 在
+   传播 CLI 启动强制执行；KSTAR verifier 钉 50+50 文件与双 Network ID。主线
+   加权完成度 62.1%→71.0%（模型与 0921 附录 C 一致，未触碰模块不涨分）。
+3. 新债（TD-01~19 未登记）：**ND-01** `scripts/` 无 `__init__.py` 但
+   `setup.py:139-140` console_scripts 引 `scripts.train:main`，且
+   `src/analysis/ptm_smoke.py:506-509` src→scripts 反向 import——pip 安装后
+   CLI 入口与 ptm_smoke pipeline 模式即坏（中级，修复 0.5 天：scripts 加包身份）；
+   **ND-02** CHANGELOG `[Unreleased]` 漏记整个 0921 修复轮（09-14 刚修过同类
+   漂移，属回归；TD-16 修复清单不含 CHANGELOG）。
+4. **TD-03 状态变化（非修复）**：0922 复测 `pip check` 仅剩 PyNaCl 平台警告，
+   但 `ptm2cellnet`/`ssh-unit`/`scgpt` 三个发行版元数据已不在当前环境（pip
+   show/list 均无）——3 组冲突"消失"是元数据脱节不是约束被满足；隔离重建
+   五步计划（修复报告 §5.1）不变，判定维持"严重"且复杂度上升。
+5. 归档治理：`archive/20260922/`（0921 分析+修复、0920、滞留根目录的
+   0915/0914/0913修复、三份无引用笔记 + MANIFEST）；根目录 0917 与
+   archive/20260920/ 正本逐字节相同（冗余副本已删）。CURRENT_STATUS 两处
+   归档声明漂移（"0913 修复已归档"实滞留根目录；"20260917 已移入
+   archive/20260917" 实为 0916 报告移入）一并闭合。
+6. 子代理系统本环境不可用（5 次调用全部因"未选择思考档位"启动失败），
+   对抗审查由主会话完成，统计如实记录于报告 §8。

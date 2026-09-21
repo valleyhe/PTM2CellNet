@@ -91,8 +91,9 @@ in the 24-item v2.1/v2.2 acceptance set above. Its M0--M7 gates remain separatel
 tracked because Gate-0 needs owner-supplied donor data and Gate-E/Gate-4/Gate-5
 need real assets and scientific acceptance. The dated status and evidence are
 maintained in `docs/CURRENT_STATUS.md` and the repository-root
-`project_analysis_20260913.md`; the older `project_analysis_20260901.md` reference
-is historical and is not an active execution source.
+`project_analysis_20260922.md`; the older `project_analysis_20260913.md` /
+`project_analysis_20260901.md` references
+are historical (archived under `archive/`) and are not an active execution source.
 
 ## Active DAVF × PerturbGen acceptance track (2026-09-13)
 
