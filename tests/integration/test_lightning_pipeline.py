@@ -261,6 +261,7 @@ class TestConfigIntegration:
         assert config.get("training.max_epochs") != original_epochs
 
 
+@pytest.mark.slow
 def test_train_lightning_script_smoke():
     """Smoke test the Lightning training script entrypoint."""
     data_path = Path("data/raw/sample_data.csv")

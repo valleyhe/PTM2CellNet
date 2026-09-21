@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+import pytest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -109,6 +111,7 @@ def test_update_manifest_preserves_distinct_snapshot_entries(tmp_path):
     assert {str(first_snapshot.resolve()), str(second_snapshot.resolve())}.issubset(registered_paths)
 
 
+@pytest.mark.slow
 def test_validate_manifest_cli_profile_standard_training_passes():
     """--profile standard_training 应通过（pmads 有本地快照）"""
     completed = subprocess.run(
@@ -172,6 +175,7 @@ def test_validate_manifest_cli_unknown_profile_fails():
     assert any("is not declared" in error for error in report["errors"])
 
 
+@pytest.mark.slow
 def test_validate_manifest_cli_without_profile_keeps_legacy_pass():
     """不带 --profile 时默认校验仍通过（向后兼容）"""
     completed = subprocess.run(

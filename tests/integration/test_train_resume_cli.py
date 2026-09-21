@@ -8,6 +8,9 @@
 """
 
 import subprocess
+import pytest
+
+pytestmark = pytest.mark.slow  # each resume round-trip trains a small model (~12s)
 import sys
 from pathlib import Path
 

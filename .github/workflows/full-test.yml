@@ -41,12 +41,12 @@ jobs:
         run: |
           python -m pip check || echo "KNOWN_DEPENDENCY_CONFLICTS=1" >> $GITHUB_ENV
 
-      - name: Run all tests (skip GPU)
+      - name: Run all tests (skip GPU, include slow)
         env:
           HF_ENDPOINT: https://hf-mirror.com
           TRANSFORMERS_CACHE: /tmp/hf_cache
         run: >-
-          pytest -m "not slow and not gpu"
+          pytest -m "not gpu"
           --timeout=300
           --cov=src
           --cov-branch

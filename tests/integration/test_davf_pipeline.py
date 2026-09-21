@@ -51,6 +51,7 @@ def davf_config_dict():
 class TestDAVFPipelineIntegration:
     """Tests for end-to-end DAVF pipeline integration."""
 
+    @pytest.mark.slow
     def test_mapper_to_inference_flow(self, davf_config_dict):
         """PTMDirectionMapper → DAVFInferenceModule produces [B, 128] features."""
         # Create mapper
@@ -100,6 +101,7 @@ class TestDAVFPipelineIntegration:
         # Verify logits shape [B, num_classes]
         assert output["logits"].shape == (2, 4)
 
+    @pytest.mark.slow
     def test_multiple_ptm_types_batch(self, davf_config_dict):
         """Batch with multiple PTM types processes correctly with correct direction codes."""
         mapper = PTMDirectionMapper()
@@ -124,6 +126,7 @@ class TestDAVFPipelineIntegration:
         # Ubiquitination → 0 (KO)
         assert output.directions[1, 0].item() == 0
 
+    @pytest.mark.slow
     def test_batch_processing_with_mixed_samples(self, davf_config_dict):
         """Batch with mixed samples (some with PTM, some without) works correctly."""
         model = PTM2CellNet(
@@ -173,6 +176,7 @@ class TestDAVFPipelineIntegration:
 class TestDAVFGracefulDegradation:
     """Tests for graceful degradation when resources unavailable."""
 
+    @pytest.mark.slow
     def test_forward_without_checkpoint(self):
         """Forward without checkpoint returns zero features, not crash."""
         model = PTM2CellNet(

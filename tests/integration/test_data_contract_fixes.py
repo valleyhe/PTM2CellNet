@@ -35,6 +35,7 @@ def _dataset(manifest, dataset_id: str) -> dict:
     raise AssertionError(f"dataset {dataset_id} not in manifest")
 
 
+@pytest.mark.slow
 class TestScperturbRegistration:
     @pytest.fixture(autouse=True)
     def _require_snapshots(self):
