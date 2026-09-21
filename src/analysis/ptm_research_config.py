@@ -14,7 +14,9 @@ stages (方案 §8.7: PTM-side thresholds must not be tuned on AD DEG results).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import hashlib
+import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -44,6 +46,10 @@ VALID_REFERENCE_AXES = (
 VALID_OBSERVED_ADMISSION_RULES = ("fdr_cutoff", "signed_direction_without_fdr_cutoff")
 VALID_KD_POLICIES = ("separate_routes", "merged_into_ko_out_of_scope")
 VALID_PUBLIC_PERTURBATION_POLICIES = ("inventory_optional", "out_of_scope")
+#: Formal/exploratory intake boundary (TD-04): ``formal`` rejects every
+#: ``PENDING*`` placeholder asset; ``exploratory`` keeps the sentinel and the
+#: downstream lineage boundaries stay ``may_enter_lineage=false``.
+VALID_MODES = ("exploratory", "formal")
 
 
 class PTMResearchConfigError(ValueError):
@@ -84,6 +90,46 @@ class PropagationConfig:
 
 
 @dataclass(frozen=True)
+class ActivityAdmissionPolicy:
+    """Frozen activity-admission thresholds executed before signed propagation.
+
+    方案 §4.4/§5.2 要求 PTM score 侧使用*预先冻结*的 activity q-value /
+    substrate / coverage 阈值，且阈值一经登记不得在结果上事后调整
+    (方案 §8.7)。默认值是显式登记的宽松阈值：在独立 kinase-perturbation
+    benchmark 校准前 PTM 侧保持 direction_only，不按 q/coverage 隐式收紧；
+    研究负责人在 frozen config 中显式收紧后此 gate 立即生效。
+    """
+
+    max_activity_qvalue: float = 1.0
+    min_substrates: int = 0
+    min_network_coverage: float = 0.0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_activity_qvalue, bool) or not isinstance(self.max_activity_qvalue, (int, float)):
+            raise PTMResearchConfigError("activity_admission.max_activity_qvalue must be numeric")
+        if not 0.0 < float(self.max_activity_qvalue) <= 1.0:
+            raise PTMResearchConfigError("activity_admission.max_activity_qvalue must be within (0, 1]")
+        if isinstance(self.min_substrates, bool) or not isinstance(self.min_substrates, int) or self.min_substrates < 0:
+            raise PTMResearchConfigError("activity_admission.min_substrates must be an integer >= 0")
+        if isinstance(self.min_network_coverage, bool) or not isinstance(self.min_network_coverage, (int, float)):
+            raise PTMResearchConfigError("activity_admission.min_network_coverage must be numeric")
+        if not 0.0 <= float(self.min_network_coverage) <= 1.0:
+            raise PTMResearchConfigError("activity_admission.min_network_coverage must be within [0, 1]")
+        object.__setattr__(self, "max_activity_qvalue", float(self.max_activity_qvalue))
+        object.__setattr__(self, "min_network_coverage", float(self.min_network_coverage))
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @property
+    def policy_hash(self) -> str:
+        """Stable content hash so a score manifest can pin the exact policy."""
+
+        payload = json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
 class PTMResearchConfig:
     """Frozen stage-0 research design (方案 §7 阶段 0)."""
 
@@ -108,6 +154,12 @@ class PTMResearchConfig:
     kd_policy: str = "separate_routes"
     public_perturbation_policy: str = "inventory_optional"
     semantic_context: Mapping[str, str] = field(default_factory=dict)
+    activity_admission: ActivityAdmissionPolicy = field(default_factory=ActivityAdmissionPolicy)
+    mode: str = "exploratory"
+    #: Optional path to the signed-network release manifest that pins the exact
+    #: asset (sha256/rows) behind ``network_release`` (TD-07); when set, the
+    #: propagation CLI must pass ``verify_network_release_binding`` before use.
+    network_release_manifest: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != PTM_RESEARCH_CONFIG_SCHEMA_VERSION:
@@ -161,6 +213,23 @@ class PTMResearchConfig:
             )
         if not isinstance(self.propagation, PropagationConfig):
             raise PTMResearchConfigError("propagation must be a PropagationConfig")
+        if not isinstance(self.activity_admission, ActivityAdmissionPolicy):
+            raise PTMResearchConfigError("activity_admission must be an ActivityAdmissionPolicy")
+        if self.mode not in VALID_MODES:
+            raise PTMResearchConfigError(f"mode must be one of {', '.join(VALID_MODES)}")
+        if self.mode == "formal":
+            for name in ("ptm_cohort", "cohort_h5ad"):
+                value = str(getattr(self, name)).strip()
+                if value.upper().startswith("PENDING"):
+                    raise PTMResearchConfigError(
+                        f"formal mode rejects placeholder {name}={value!r}; a real registered asset is required "
+                        "(exploratory runs keep the sentinel)"
+                    )
+        if self.network_release_manifest is not None:
+            manifest_value = str(self.network_release_manifest).strip()
+            if not manifest_value:
+                raise PTMResearchConfigError("network_release_manifest must be a non-empty path or omitted")
+            object.__setattr__(self, "network_release_manifest", manifest_value)
         if self.semantic_context:
             required = (
                 "context",
@@ -254,6 +323,18 @@ def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
     semantic_context = payload.get("semantic_context") or {}
     if not isinstance(semantic_context, Mapping):
         raise PTMResearchConfigError("semantic_context must be a mapping")
+    admission_payload = payload.get("activity_admission")
+    if admission_payload is None:
+        admission = ActivityAdmissionPolicy()
+    elif isinstance(admission_payload, Mapping):
+        unknown = sorted(set(admission_payload) - {"max_activity_qvalue", "min_substrates", "min_network_coverage"})
+        if unknown:
+            raise PTMResearchConfigError(f"activity_admission has unknown keys: {', '.join(unknown)}")
+        admission = ActivityAdmissionPolicy(
+            **{key: value for key, value in admission_payload.items() if value is not None},
+        )
+    else:
+        raise PTMResearchConfigError("activity_admission must be a mapping")
     return PTMResearchConfig(
         schema_version=payload["schema_version"],
         research_objective=str(payload["research_objective"]).strip(),
@@ -276,4 +357,11 @@ def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
         kd_policy=str(payload.get("kd_policy", "separate_routes")).strip(),
         public_perturbation_policy=str(payload.get("public_perturbation_policy", "inventory_optional")).strip(),
         semantic_context=dict(semantic_context),
+        activity_admission=admission,
+        mode=str(payload.get("mode", "exploratory")).strip(),
+        network_release_manifest=(
+            str(payload["network_release_manifest"]).strip()
+            if payload.get("network_release_manifest") is not None
+            else None
+        ),
     )

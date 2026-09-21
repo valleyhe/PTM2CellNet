@@ -5,7 +5,7 @@
 """
 
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.data.schemas import PTMSite as DataPTMSite
 
@@ -82,7 +82,8 @@ class BatchPredictionRequest(BaseModel):
 
     samples: List[PredictionRequest] = Field(..., description="样本列表")
 
-    @validator("samples")
+    @field_validator("samples")
+    @classmethod
     def limit_samples(cls, v):
         if len(v) > 1000:
             raise ValueError("Batch size cannot exceed 1000 samples")
@@ -133,13 +134,14 @@ class PredictionResponse(BaseModel):
     is_demo_model: bool = Field(False, description="Trained on synthetic data (not for real biology)")
     processing_time_ms: Optional[float] = Field(None, description="处理时间（毫秒）")
 
-    @validator("predicted_cell_state", always=True)
-    def fill_predicted_cell_state(cls, value, values):
-        """Legacy alias for ``cell_state`` (kept for backward compatibility)."""
-        return value or values.get("cell_state")
+    model_config = ConfigDict(populate_by_name=True)
 
-    class Config:
-        allow_population_by_field_name = True
+    @model_validator(mode="after")
+    def fill_predicted_cell_state(self) -> "PredictionResponse":
+        """Legacy alias for ``cell_state`` (kept for backward compatibility)."""
+        if not self.predicted_cell_state:
+            self.predicted_cell_state = self.cell_state
+        return self
 
 
 class BatchPredictionResponse(BaseModel):

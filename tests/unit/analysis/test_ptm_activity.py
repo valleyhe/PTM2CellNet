@@ -9,13 +9,13 @@ import pytest
 
 from src.analysis.ptm_activity import (
     PTMActivityContractError,
-    activities_for_propagation,
     load_gene_map,
     load_ptm_activity_table,
     load_ptm_site_quantification,
     standardize_ptm_input,
     write_ptm_input_manifest,
 )
+from src.analysis.ptm_activity_admission import select_activities_for_propagation
 from src.analysis.ptm_research_config import parse_ptm_research_config
 
 INPUT_COLUMNS = (
@@ -313,18 +313,21 @@ class TestActivitiesForPropagation:
             ],
             ignore_index=True,
         )
-        activities = activities_for_propagation(frame, method="KSTAR", condition_or_contrast="disease-minus-normal")
-        assert set(activities) == {"GSK3B"}
+        selection = select_activities_for_propagation(
+            frame, method="KSTAR", condition_or_contrast="disease-minus-normal"
+        )
+        assert set(selection.admitted) == {"GSK3B"}
+        assert selection.rejected.empty
 
     def test_unknown_method_fails(self):
         frame = _activity_frame()
         with pytest.raises(PTMActivityContractError, match="no rows for primary method"):
-            activities_for_propagation(frame, method="PhosR")
+            select_activities_for_propagation(frame, method="PhosR")
 
     def test_unknown_contrast_fails(self):
         frame = _activity_frame()
         with pytest.raises(PTMActivityContractError, match="no rows for contrast"):
-            activities_for_propagation(frame, method="KSTAR", condition_or_contrast="missing")
+            select_activities_for_propagation(frame, method="KSTAR", condition_or_contrast="missing")
 
 
 class TestLoadGeneMap:

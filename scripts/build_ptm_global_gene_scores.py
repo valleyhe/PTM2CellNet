@@ -27,9 +27,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.analysis.ptm_activity import (  # noqa: E402
     PTMActivityContractError,
-    activities_for_propagation,
     load_ptm_activity_table,
 )
+from src.analysis.ptm_activity_admission import select_activities_for_propagation  # noqa: E402
 from src.analysis.ptm_gene_score import (  # noqa: E402
     PTMGeneScoreError,
     build_gene_score_table,
@@ -41,6 +41,7 @@ from src.analysis.signed_network import (  # noqa: E402
     SignedNetworkContractError,
     load_signed_network,
     propagate_signed_scores,
+    verify_network_release_binding,
 )
 
 
@@ -81,16 +82,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         frozen_contrast = config.contrast
         activity_frame = load_ptm_activity_table(args.activity_tsv)
-        activities = activities_for_propagation(
+        selection = select_activities_for_propagation(
             activity_frame,
             method=config.primary_activity_method,
             condition_or_contrast=frozen_contrast,
+            policy=config.activity_admission,
         )
+        activities = dict(selection.admitted)
         network = load_signed_network(
             args.network_tsv,
             expected_species=config.species,
             expected_release=config.network_release,
         )
+        release_binding: dict | None = None
+        if config.network_release_manifest is not None:
+            release_binding = verify_network_release_binding(
+                args.network_tsv,
+                config.network_release_manifest,
+                expected_release=config.network_release,
+            )
         network_id_map = load_network_id_map(args.network_id_map)
         propagation = propagate_signed_scores(network, activities, config=config.propagation)
         provenance = (
@@ -121,10 +131,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "sha256": _sha256_file(args.activity_tsv.expanduser().resolve()),
                 "primary_method": config.primary_activity_method,
                 "condition_or_contrast": frozen_contrast,
+                "admission": selection.as_dict(),
             },
             "signed_network": {
                 "file": str(args.network_tsv.expanduser().resolve()),
                 "sha256": _sha256_file(args.network_tsv.expanduser().resolve()),
+                "release_binding": release_binding,
                 "audit": {
                     "n_rows_input": network.audit.n_rows_input,
                     "n_unsigned_rows": network.audit.n_unsigned_rows,

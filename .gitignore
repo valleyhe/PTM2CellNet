@@ -27,6 +27,13 @@
 !src/
 !tests/
 !configs/
+!environments/
+environments/*
+!environments/kstar/
+environments/kstar/*
+!environments/kstar/environment.yml
+!environments/kstar/resource_hashes.json
+!environments/kstar/requirements-lock.txt
 !docs/
 !Dockerfile
 !docker-compose.yml

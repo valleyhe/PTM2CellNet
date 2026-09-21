@@ -29,7 +29,7 @@ import json
 import pickle
 from pathlib import Path
 import sys
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
@@ -67,7 +67,7 @@ def _truthy(value: object) -> bool:
     return str(value).strip().lower() == "true"
 
 
-def _edge_sign(row: pd.Series) -> int | None:
+def _edge_sign(row: Mapping[Any, Any]) -> int | None:
     consensus_up = _truthy(row.get("consensus_stimulation", False))
     consensus_down = _truthy(row.get("consensus_inhibition", False))
     if consensus_up and consensus_down:

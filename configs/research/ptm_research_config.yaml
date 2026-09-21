@@ -4,28 +4,30 @@
 # cell_types、cohort_h5ad）基于 GSE174367 真实队列冻结；方向语义按方案 §3.1
 # 分字段记录，禁止全局同号/取反。
 #
-# PTM 侧资产绑定：network_release 已于 2026-09-16 从 OmniPath REST 导出组装
-# （datasets=dorothea,tf_target、dorothea_levels=A..E；12,878 条 signed TF→gene
-# 边；data/processed/signed_network/signed_network_omnipath_20260916.tsv + manifest）。
-# ptm_cohort（真实 PTM 定量队列）与 KSTAR/PhosR activity 仍为外部输入：在
-# ptm_cohort PENDING 状态下运行阶段 1–2 仍视为契约违规，不得产出正式 PTM score。
+# PTM 侧资产绑定（2026-09-21 起，TD-07）：network_release 升级为 combined
+# kinase+TF release `omnipath-kinase+tf-2026-09-21`（kinase_substrate:signaling
+# 15,133 边 + tf_regulation 12,878 边，共 28,011 行；由
+# data/manifests/kstar_signed_network_release_20260921.json 登记 sha256/行数，
+# 传播 CLI 启动时执行 verify_network_release_binding 校验）。旧 TF-only
+# `omnipath-2026-09-16` 文件未改动、未删除；在此绑定变更前生成的 score 与
+# 新 release 结果不得混用。
+# ptm_cohort（真实 PTM 定量队列）与 KSTAR/PhosR activity 仍为外部输入：
+# mode 保持 exploratory（formal 模式会拒绝 PENDING_* sentinel）；exploratory
+# 运行不得产出正式 PTM score 或进入正式 lineage。
 schema_version: ptm2cellnet.ptm-research-config/v1
 research_objective: association
 reference_axis: disease_minus_normal
 contrast: "disease-minus-normal"
 primary_activity_method: KSTAR
 sensitivity_activity_method: PhosR
-# PTM 侧资产绑定：signed network 已于 2026-09-16 从 OmniPath REST 导出组装
-# （datasets=dorothea,tf_target、dorothea_levels=A..E；12,878 条 signed TF→gene
-# 边；data/processed/signed_network/signed_network_omnipath_20260916.tsv + manifest）。
-# ptm_cohort（真实 PTM 定量队列）与 KSTAR/PhosR activity 仍为外部输入：在
-# ptm_cohort PENDING 状态下运行阶段 1–2 仍视为契约违规，不得产出正式 PTM score。
-network_release: "omnipath-2026-09-16"
+network_release: "omnipath-kinase+tf-2026-09-21"
+network_release_manifest: data/manifests/kstar_signed_network_release_20260921.json
 cell_types: [EX, INH]
 cohort_h5ad: /home/scu/PTM2CellNet/data/AD/standardized/GSE174367_ad_cohort.h5ad
 cohort_pairing: between_donor
 species: "9606"
 ptm_cohort: PENDING_EXTERNAL_PTM_COHORT
+mode: exploratory
 deg_max_fdr: 0.05
 # 2026-09-18：observed 准入改为 signed disease−normal 方向一致；deg_max_fdr
 # 仍是 BH 报告阈值，不得把 FDR>0.05 改标成显著。KD 并入 KO（本 AD 候选只做
@@ -41,10 +43,20 @@ min_donors_per_state: 3
 # 旧表（20260915_d0）作废。
 deg_donor_aggregation: pseudobulk_counts
 replicate_policy: mean
+# Activity 传播准入（2026-09-21 登记冻结，TD-02/方案 §4.4/§5.2）：当前无独立
+# kinase-perturbation benchmark 校准，登记为宽松阈值（等于不做 q/coverage 过滤），
+# PTM 侧保持 direction_only；阈值一经冻结不得在 AD 结果上事后收紧/放宽
+# （方案 §8.7）。研究负责人校准 benchmark 后须显式修订本段。
+activity_admission:
+  max_activity_qvalue: 1.0
+  min_substrates: 0
+  min_network_coverage: 0.0
 propagation:
   max_depth: 3
   decay: 0.5
-  gene_edge_types: [tf_regulation]
+  # 2026-09-21：kinase activity 主线要求 kinase→substrate 边终止于基因
+  # （TD-07 绑定 combined release 后新增 gene-terminating edge type）。
+  gene_edge_types: [tf_regulation, "kinase_substrate:signaling"]
   max_paths_per_seed: null
 semantic_context:
   context: "GSE174367 {cell_type} cells"

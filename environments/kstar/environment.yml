@@ -1,0 +1,16 @@
+name: kstar
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12.14
+  - pip
+  - pip:
+      - kstar==1.2.0
+      - pandas==3.0.6
+      - numpy==2.5.3
+      - scipy==1.18.1
+      - matplotlib==3.11.2
+      - seaborn==0.13.2
+      - requests==2.34.2
+      - fpdf2==2.8.8
+      - tqdm==4.70.1

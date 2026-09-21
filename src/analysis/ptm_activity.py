@@ -386,46 +386,6 @@ def load_gene_map(path: str | Path) -> dict[str, tuple[str, str]]:
     return mapping
 
 
-def activities_for_propagation(
-    activity_frame: pd.DataFrame,
-    *,
-    method: str,
-    condition_or_contrast: str | None = None,
-) -> dict[str, float]:
-    """Extract signed regulator activities for one method/contrast.
-
-    The propagation input is the *primary* method's scores; a sensitivity
-    method (方案 §4.2) must be propagated separately and compared, never
-    averaged into one truth.
-    """
-
-    selected = activity_frame[activity_frame["method"].astype(str).str.strip() == method]
-    if selected.empty:
-        raise PTMActivityContractError(
-            f"activity table has no rows for primary method {method!r}; available: "
-            f"{sorted(set(activity_frame['method'].astype(str)))}"
-        )
-    if condition_or_contrast is not None:
-        selected = selected[selected["condition_or_contrast"].astype(str).str.strip() == condition_or_contrast]
-        if selected.empty:
-            raise PTMActivityContractError(
-                f"activity table has no rows for contrast {condition_or_contrast!r} under method {method!r}"
-            )
-    activities: dict[str, float] = {}
-    for record in selected.to_dict("records"):
-        regulator_id = str(record["regulator_id"]).strip()
-        if not regulator_id:
-            raise PTMActivityContractError("regulator_id must not be empty")
-        if regulator_id in activities and activities[regulator_id] != float(record["activity_score"]):
-            raise PTMActivityContractError(
-                f"regulator {regulator_id} has conflicting activity scores for method {method!r}"
-            )
-        activities[regulator_id] = float(record["activity_score"])
-    if not activities:
-        raise PTMActivityContractError("no activities selected for propagation")
-    return activities
-
-
 __all__ = [
     "ACTIVITY_REQUIRED_COLUMNS",
     "PTMActivityContractError",
@@ -434,7 +394,6 @@ __all__ = [
     "PTM_INPUT_SCHEMA_VERSION",
     "PTMStandardizationAudit",
     "SUPPORTED_VALUE_SCALES",
-    "activities_for_propagation",
     "load_gene_map",
     "load_ptm_activity_table",
     "load_ptm_site_quantification",

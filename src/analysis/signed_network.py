@@ -375,6 +375,76 @@ def iter_seed_target_pairs(result: PropagationResult) -> Iterable[tuple[str, str
         yield score.source_id, score.target_id
 
 
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_network_release_binding(
+    network_tsv: str | Path,
+    manifest_path: str | Path,
+    *,
+    expected_release: str,
+) -> dict[str, JSONValue]:
+    """Bind the config's free-text release to a verified manifest + asset (TD-07).
+
+    The frozen research config must not just *say* a release name: the release
+    manifest must record that same release, and the network file actually fed
+    to propagation must hash to the manifest's ``combined`` entry.  Any drift
+    (config text, manifest record, or the on-disk asset) fails fast.
+    """
+
+    import json
+
+    try:
+        resolved_manifest = Path(manifest_path).expanduser().resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:
+        raise SignedNetworkContractError(f"network release manifest does not exist: {manifest_path}") from exc
+    try:
+        payload = json.loads(resolved_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SignedNetworkContractError(f"network release manifest is not valid JSON: {resolved_manifest}") from exc
+    if not isinstance(payload, Mapping):
+        raise SignedNetworkContractError("network release manifest must contain a JSON object")
+    release = str(payload.get("release", "")).strip()
+    if release != str(expected_release).strip():
+        raise SignedNetworkContractError(
+            f"network release manifest records release {release!r} but the frozen config binds {expected_release!r}"
+        )
+    combined = payload.get("combined", payload.get("output"))
+    if not isinstance(combined, Mapping):
+        raise SignedNetworkContractError(
+            f"network release manifest {resolved_manifest} has neither a combined nor an output entry"
+        )
+    expected_sha = str(combined.get("sha256", "")).strip().lower()
+    expected_rows = combined.get("rows")
+    if len(expected_sha) != 64 or expected_rows is None:
+        raise SignedNetworkContractError("network release manifest combined entry needs sha256 and rows")
+    try:
+        resolved_network = Path(network_tsv).expanduser().resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:
+        raise SignedNetworkContractError(f"signed network file does not exist: {network_tsv}") from exc
+    actual_sha = _sha256_file(resolved_network)
+    with resolved_network.open("rb") as handle:
+        actual_rows = sum(1 for _ in handle) - 1  # data rows, header excluded
+    if actual_sha != expected_sha:
+        raise SignedNetworkContractError(
+            f"signed network file {resolved_network} sha256 {actual_sha} does not match the release "
+            f"manifest {expected_sha}; the config binding and the asset have drifted"
+        )
+    if int(expected_rows) != actual_rows:
+        raise SignedNetworkContractError(
+            f"signed network file {resolved_network} has {actual_rows} rows but the release manifest "
+            f"records {expected_rows}"
+        )
+    return {"release": release, "sha256": actual_sha, "rows": actual_rows, "manifest": str(resolved_manifest)}
+
+
 __all__ = [
     "NetworkEdge",
     "PropagationResult",
@@ -383,6 +453,8 @@ __all__ = [
     "SignedNetworkContractError",
     "SIGNED_NETWORK_REQUIRED_COLUMNS",
     "TargetPropagationScore",
+    "iter_seed_target_pairs",
     "load_signed_network",
     "propagate_signed_scores",
+    "verify_network_release_binding",
 ]

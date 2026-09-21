@@ -1,0 +1,44 @@
+{
+  "schema_version": "ptm2cellnet.kstar-resource-hashes/v1",
+  "kstar_version": "1.2.0",
+  "python": "3.12.14",
+  "unique_reference_id": "a7dfa119afa4f833375dfaf0c503ee1bca28c9fe7d868e4249907442d7821c64",
+  "provenance": {
+    "package_files": "kstar==1.2.0 RESOURCE_FILES",
+    "proteomescout_download_date": "2020-02-26",
+    "swissprot_download_date": "2025-10-20",
+    "reference_update_date": "2025-11-17",
+    "num_proteins": 17279,
+    "num_st_sites": 203520,
+    "num_y_sites": 41298,
+    "note": "These files are the KSTAR 1.2.0 PhosphoSitePlus-derived phosphoproteome shipped with the package (ProteomeScout 2020-02-26 / KinPred human proteome). They are not a live PhosphoSitePlus Kinase_Substrate_Dataset dump."
+  },
+  "files": {
+    "HumanPhosphoProteome.csv": {
+      "sha256": "c2ebbcac778940558b2af94bfcc14715c71f0bde8d734f9cc1cc0fe319828cdd",
+      "bytes": 17801616
+    },
+    "humanProteome.fasta": {
+      "sha256": "3cad7d136351123971901fc090869e71279e222bac5f7bb34c32e0bc76bef9a8",
+      "bytes": 13665992
+    },
+    "reference_info.json": {
+      "sha256": "2a0e87f9820c2572ce52225582b2069dbb4ddf12d3a4ba6bfae7b7c92071fa72",
+      "bytes": 323
+    },
+    "citations_compendia.txt": {
+      "sha256": "de41ee41c639d45a02da23036d569e7852e261a514b4403e139d9a57352b9fac",
+      "bytes": 1644
+    },
+    "readme.txt": {
+      "sha256": "d23154091563c20b8212c3c1d3dba2b12e4ec745207b89466c8d3658d788064b",
+      "bytes": 584
+    }
+  },
+  "network": {
+    "official_url": "https://figshare.com/ndownloader/files/60883384",
+    "required_layout": ["ST/Default/RUN_INFORMATION.txt", "Y/Default/RUN_INFORMATION.txt"],
+    "required_unique_reference_id": "a7dfa119afa4f833375dfaf0c503ee1bca28c9fe7d868e4249907442d7821c64",
+    "note": "Official KSTAR 1.2.0 ST/Y networks must match unique_reference_id. HTTP 202/empty bodies are not a network asset."
+  }
+}

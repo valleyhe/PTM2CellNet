@@ -12,6 +12,7 @@ from src.analysis.signed_network import (
     SignedNetworkContractError,
     load_signed_network,
     propagate_signed_scores,
+    verify_network_release_binding,
 )
 
 EDGE_COLUMNS = (
@@ -542,3 +543,69 @@ class TestPropagateSignedScores:
                 "confidence": 0.6,
             },
         ]
+
+
+def _release_binding_fixture(tmp_path, *, rows: int = 3, sha: str | None = None, release: str = "test-release-2026"):
+    import hashlib
+
+    header = "\t".join(EDGE_COLUMNS) + "\n"
+    body = "".join(
+        f"KIN{index}\tGENE_{index}\tkinase_substrate:signaling\t+1\t\t9606\ttest\t0.8\t{release}\n"
+        for index in range(rows)
+    )
+    network = tmp_path / "network.tsv"
+    network.write_text(header + body, encoding="utf-8")
+    digest = sha or hashlib.sha256(network.read_bytes()).hexdigest()
+    manifest = tmp_path / "release_manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "ptm2cellnet.signed-network-release/v1",
+                "release": release,
+                "combined": {"path": str(network), "rows": rows, "sha256": digest},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return network, manifest, release
+
+
+def test_network_release_binding_passes_on_three_way_match(tmp_path):
+    network, manifest, release = _release_binding_fixture(tmp_path)
+    result = verify_network_release_binding(network, manifest, expected_release=release)
+    assert result["release"] == release
+    assert result["rows"] == 3
+
+
+def test_network_release_binding_rejects_drift(tmp_path):
+    network, manifest, release = _release_binding_fixture(tmp_path)
+    # config text drift
+    with pytest.raises(SignedNetworkContractError, match="frozen config binds"):
+        verify_network_release_binding(network, manifest, expected_release="other-release")
+    # asset drift: rewrite the network without refreshing the manifest hash
+    drifted = tmp_path / "drifted.tsv"
+    drifted.write_text(network.read_text(encoding="utf-8") + network.read_text(encoding="utf-8").splitlines()[1] + "\n")
+    with pytest.raises(SignedNetworkContractError, match="drifted"):
+        verify_network_release_binding(drifted, manifest, expected_release=release)
+    # manifest records a different row count
+    bad_rows_manifest = tmp_path / "bad_rows.json"
+    import hashlib
+
+    bad_rows_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "ptm2cellnet.signed-network-release/v1",
+                "release": release,
+                "combined": {
+                    "path": str(network),
+                    "rows": 999,
+                    "sha256": hashlib.sha256(network.read_bytes()).hexdigest(),
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SignedNetworkContractError, match="rows"):
+        verify_network_release_binding(network, bad_rows_manifest, expected_release=release)

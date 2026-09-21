@@ -1,0 +1,46 @@
+{
+ "schema_version": "ptm2cellnet.signed-network-release/v1",
+ "release": "omnipath-kinase+tf-2026-09-21",
+ "biology_pass": false,
+ "may_enter_lineage": false,
+ "note": "New kinase+TF freeze. The 2026-09-16 TF-only file was not modified.",
+ "tf_only_freeze": {
+  "path": "data/processed/signed_network/signed_network_omnipath_20260916.tsv",
+  "release": "omnipath-2026-09-16",
+  "rows": 12878,
+  "sha256": "ba500f61502e52c3bcb55e4607295868712296e499374b73dacff38bdd4b74b7"
+ },
+ "kinase_input": {
+  "path": "data/processed/signed_network/signed_network_omnipath_kinase_20260921.tsv",
+  "release": "omnipath-kinase-2026-09-21",
+  "edge_type": "kinase_substrate:signaling",
+  "rows": 15133,
+  "activating": 10643,
+  "inhibiting": 4490,
+  "sha256": "c7debad72e5df142980bacbd21ef8f27b9be916a7b2dd8979bdcf8dd009410ce",
+  "omnipath_export": "data/raw/omnipath/interactions_omnipath_kinaseextra_20260921.tsv",
+  "omnipath_sha256": "618c166ce6139166d3e7b637a1f2f2d2a60c62f008afadd8f78fd0f46cc5ef31",
+  "omnipath_query": "https://omnipathdb.org/interactions?datasets=omnipath,kinaseextra&genesymbols=1&fields=sources,evidences&organisms=9606",
+  "enzyme_source_tsv": "data/processed/kinase_substrate/kinase_substrate_edges.tsv"
+ },
+ "combined": {
+  "path": "data/processed/signed_network/signed_network_omnipath_kinase_tf_20260921.tsv",
+  "rows": 28011,
+  "sha256": "9483f613cff328122a2c4d623c3a140f3de454eb6555ce3828227494d29a52d7"
+ },
+ "kstar_resources": {
+  "manifest": "environments/kstar/resource_hashes.json",
+  "kstar_version": "1.2.0",
+  "python": "3.12.14",
+  "unique_reference_id": "a7dfa119afa4f833375dfaf0c503ee1bca28c9fe7d868e4249907442d7821c64"
+ },
+ "kstar_networks": {
+  "archive": "NETWORKS.tar.gz shipped beside the kstar 1.2.0 package",
+  "archive_sha256": "2fb054e6905f4b693e7a1df7fc3eda0121020122ecb4613c7138a0874279321a",
+  "archive_bytes": 213639737,
+  "st_unique_network_id": "0c85777e396f8931cc6662138fef6e6273acf706ec3503c178cd31e40ec04810",
+  "y_unique_network_id": "23ce4b6c19d912d314e6893a993c48ad18129e9d88766b994ca5fc6f8fd2e8b5",
+  "individual_network_files_per_type": 50,
+  "restore": "scripts/setup_kstar_env.sh rebuilds the conda env, verifies resource hashes, downloads/reuses the official archive (figshare URLs pinned in src/analysis/kstar_resources.py) and passes the strict ST/Y verifier"
+ }
+}
