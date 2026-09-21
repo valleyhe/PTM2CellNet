@@ -6,7 +6,7 @@ status: complete
 # `status` records the completed v2.2 milestone; the active follow-up is tracked below.
 active_track: PTM activity → AD intersection × DAVF/PerturbGen acceptance
 active_track_status: contract layer landed; external assets and real runs pending
-active_next_action: supply 方案 §10 external PTM/network/benchmark/DEG assets, then wire downstream-target evaluation into E2E lineage
+active_next_action: supply 方案 §10 external PTM cohort/benchmark/DEG assets, then run the real activity→propagation→candidate chain (downstream-target E2E lineage wiring landed 2026-09-21)
 stopped_at: none
 last_updated: "2026-09-14T00:00:00+08:00"
 last_activity: 2026-09-14 — PTM activity → AD intersection mainline contract layer landed (5 modules + 4 CLIs + 84 tests, synthetic contract pass only); documentation synced to the new guide
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (active contract updated 2026-09-13)
 
 **Core Value**: 提供端到端的蛋白质 PTM 分析与细胞状态预测能力，集成DAVF方向感知模型实现PTM→信号通路效应预测。
 
-**Current Focus**: v2.2 complete；active track is the PTM activity → AD intersection mainline feeding the existing DAVF × PerturbGen acceptance path. Stage 0–5 command/data contracts are code-complete (synthetic validation only); real PTM quantification, signed-network and activity-benchmark assets, the AD donor-level DEG table, downstream-target lineage wiring and the GPU six-stage/null runs remain open.
+**Current Focus**: v2.2 complete；active track is the PTM activity → AD intersection mainline feeding the existing DAVF × PerturbGen acceptance path. Stage 0–5 command/data contracts are code-complete (synthetic validation only); the downstream-target E2E lineage wiring landed (2026-09-21), the frozen config now binds the combined kinase+TF release with an activity-admission gate (2026-09-21 repair round). Still open: real PTM quantification cohort, activity benchmark, the AD donor-level DEG table freeze, and the GPU six-stage/null runs.
 
 **Key Constraints**:
 
@@ -66,7 +66,7 @@ REQUIREMENTS.md Traceability for the criterion revisions.
 
 Phase: 20 of 20 (historical v2.2 complete)
 Active track: PTM activity → AD intersection × DAVF/PerturbGen acceptance (stage 0–5 contract layer landed 2026-09-14; Gate-0 compliant real cohort: GSE174367 between_donor preflight + M6 freeze, formal runs pending)
-Status: 主线上游契约层与 E2E 统计接续/公共 prepare 已落地；外部 PTM/网络/benchmark 资产、AD donor-level DEG 表、downstream lineage 接线与真实 GPU 六阶段/null/Gate-E 仍未执行。
+Status: 主线上游契约层与 E2E 统计接续/公共 prepare/downstream lineage 接线已落地；KSTAR 双方向 metrics、activity 准入 gate、KSTAR 网络 verifier、combined release 绑定已于 2026-09-21 修复。外部 PTM cohort/benchmark 资产、AD donor-level DEG 表与真实 GPU 六阶段/null/Gate-E 仍未执行。
 Progress: v2.2 [██████████] 100%；active track：契约层完成、正式证据 pending
 
 ---
@@ -108,13 +108,13 @@ the current automated acceptance boundary:
 - The local 2026-09-13 Gate-0 audit covered 30 scPerturb H5AD files; 26 were readable and 0 satisfied the formal donor/state/Ensembl contract. Evidence: `outputs/perturbgen/spike/20260913_donor_audit/evidence.json`.
 - DatlingerBock2021 real-data preflight was rejected because `state` and `donor` are absent. It remains an engineering smoke dataset, not formal utility evidence.
 - Existing matched-null generation, candidate empirical-p aggregation, formal input isolation, unperturbed-quality extraction, donor split and dual-path AND interfaces are code-complete; E2E auto-continues them behind `--assemble-statistical-evidence` (2026-09-13 round 4), while matched-null batch execution stays in `run_matched_null_stages.py`.
-- Next order is: supply 方案 §10 external assets → freeze the AD donor-level DEG table → wire downstream-target evaluation into E2E lineage and define the driver–target gate contract → run the GPU six-stage/null runbook and M6 `--verify` → real Gate-E/Gate-4/Gate-5 evidence. Retraining or rerunning on existing cell-line files would not close the scientific gate.
+- Next order is: supply 方案 §10 external assets (real PTM cohort, activity benchmark) → freeze the AD donor-level DEG table → run the real activity→propagation→candidate chain (downstream lineage wiring landed) → run the GPU six-stage/null runbook and M6 `--verify` → real Gate-E/Gate-4/Gate-5 evidence. Retraining or rerunning on existing cell-line files would not close the scientific gate.
 
 ### PTM activity → AD intersection mainline status (2026-09-14)
 
 - Stage 0–5 contracts of `docs/PTM_activity_AD_intersection_DAVF_PerturbGen_执行方案.md` §6.2 are code-complete: `src/analysis/ptm_research_config.py`, `ptm_activity.py`, `signed_network.py`, `ptm_gene_score.py`, `src/integration/perturbgen/downstream_target_evaluation.py`, plus the four stage CLIs; guide at `docs/guides/ptm_activity_pipeline.md`; 84 new tests pass on synthetic data.
 - The generated candidate specs are the existing `ptm2cellnet.candidate-spec/v1` and are consumed by the unchanged E2E entry; the six-stage chain is not a second PTM inference entry.
-- Open: the six 方案 §10 external inputs (real PTM quantification, KSTAR/PhosR activity tables, OmniPath signed-network export, network id map, activity benchmark, AD donor-level DEG table), downstream-target evaluation lineage wiring, and the driver–target gate contract. Synthetic contract pass is not a biology PASS.
+- Landed since 2026-09-21: downstream-target evaluation lineage wiring (`_assemble_downstream_target_evaluation`) and the driver–target gate contract; KSTAR execution boundary with directional-metrics binding; strict KSTAR network verifier; activity-admission gate; frozen config bound to `omnipath-kinase+tf-2026-09-21` with `network_release_manifest`. Still open: real PTM quantification, PhosR sensitivity output, independent activity benchmark, AD donor-level DEG table. Synthetic contract pass is not a biology PASS.
 
 ---
 

@@ -53,12 +53,17 @@ Formal acceptance requires all of the following:
 The six stages are `tokenise`, `train_mask`, `train_decoder`, `perturb`,
 `export_gene_embeddings`, and `report`. `report` only aggregates manifests and
 never establishes a biological PASS. The E2E command runs only gate/invocation
-by default; `--run-perturbgen` is required to call the external stages. The
-current implementation repeats the common preparation stages per candidate and
-has no cross-candidate reuse CLI; fixed public preparation is a research target,
-not an available command. The 2026-09-13 cohort audit has zero formal candidates,
-so existing smoke, synthetic, bridge, and checkpoint checks remain engineering
-evidence only.
+by default; `--run-perturbgen` is required to call the external stages. With
+`--run-perturbgen`, each route executes the common preparation once under
+`<output_root>/<KO|KD>/_prepare/`: `tokenise → train_mask → train_decoder`,
+planned by `build_shared_prepare_plans`. The candidate loop sets
+`skip_prepare_stages=True` and uses `resolve_prepare_artifact_references` to
+resolve shared `@artifact` inputs; a missing reference is a hard failure. Each
+candidate then runs only `perturb → export_gene_embeddings → report` in its own
+output directory. `--resume` resumes completed stages from manifests in the
+same output directory; it is not a separate cross-candidate reuse entry point.
+The 2026-09-13 cohort audit has zero formal candidates, so existing smoke,
+synthetic, bridge, and checkpoint checks remain engineering evidence only.
 
 ## How to run them
 

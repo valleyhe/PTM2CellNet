@@ -1,9 +1,10 @@
 # PTM2CellNet Current Status
 
-**Last updated: 2026-09-18（PTM smoke 契约跑通 + KSTAR 独立环境方案冻结；formal biology PASS 仍为 0）**
+**Last updated: 2026-09-21（修复轮：KSTAR 双方向 metrics、activity 准入 gate、严格 network verifier、combined release 绑定；formal biology PASS 仍为 0）**
 
 当前权威分析是仓库根目录的
-[`project_analysis_20260917.md`](../project_analysis_20260917.md)；上一份 20260916
+[`project_analysis_20260921.md`](../project_analysis_20260921.md)，本轮修复记录见
+[`project_repair_report_20260921.md`](../project_repair_report_20260921.md)；上一份 20260917
 分析与修复快照已移入 [`archive/20260917/`](../archive/20260917/)，更早报告仍按日期
 保留为历史证据。报告明确区分源码/测试事实、历史记录和未验证外部资产，正式 biology
 PASS 仍为 0。
@@ -14,6 +15,39 @@ PASS 仍为 0。
 
 ## Quick Reference
 
+- **2026-09-21 技术债修复轮（TD-01/02/04/05/06/07/12/13/14/16/17；非 biology PASS）**：
+  依据 `project_analysis_20260921.md` §6/§7 完成的代码修复——(1) TD-01 KSTAR 双方向
+  metrics：删除 runner 全表相等断言，`convert_kstar_outputs` 显式接收
+  `increased_metrics`/`decreased_metrics` 并按胜出方向（较小 p 值）绑定，两方向
+  metrics 落盘并入 manifest（schema 升 `kstar-adapter-manifest/v2`）；(2) TD-02
+  activity 准入：新增 `ActivityAdmissionPolicy`（config `activity_admission` 段冻结，
+  带 policy hash）与 `select_activities_for_propagation`（admitted/rejected 逐行原因），
+  旧无门禁 `activities_for_propagation` 删除，传播 CLI 强制消费；(3) TD-04
+  formal/exploratory `mode` 字段：formal 拒绝一切 `PENDING_*`；KSTAR 输入 manifest
+  必须是结构化 stage-1 manifest（schema/source.sha256/standardization），空 JSON
+  硬失败；`--min-donors-per-state` donor 下限；(4) TD-05 KSTAR network verifier
+  严格化：ST/Y 各 50 个非空网络文件 + per-type Unique Network ID pin + inventory
+  审计入 manifest；(5) TD-07 config 绑定 `omnipath-kinase+tf-2026-09-21` +
+  `network_release_manifest`，传播启动执行 `verify_network_release_binding`
+  （release 名/manifest sha256/实际网络文件三向一致）；(6) TD-06 release manifest
+  登记 KSTAR archive sha256 与 network IDs；(7) TD-12 slow marker 分层（17 项重型
+  integration 测试标记 slow，full-test.yml 改为承接 slow）；(8) TD-13 builder mypy
+  4 错误清零；(9) TD-14 Pydantic v1 API 迁移 v2；(10) TD-16 文档同步（REQUIREMENTS
+  P-04/05/06、STATE、KSTAR guide、pipeline guide、API 指针）；(11) TD-17 根目录
+  pip 残留垃圾清理。验证：fast 口径 2,868 passed / slow 17 passed / e2e 42 passed /
+  ruff+format+mypy+依赖一致性全绿。TD-03（环境依赖冲突）、TD-08（Workflow B 编排）、
+  TD-09/10/11（复杂度/异常/安全分流）本轮未动，策略见修复报告。真实 PTM cohort、
+  activity benchmark、正式六阶段证据仍缺；`biology_pass=false`。lessons L-2026-0921-02。
+- **2026-09-21 KSTAR 任务 1–3（非 biology PASS）**：独立 conda `kstar` 钉
+  Python 3.12.14 + `kstar==1.2.0` 及直接依赖；PhosphoSitePlus 衍生
+  `RESOURCE_FILES` hash 冻结于 `environments/kstar/resource_hashes.json`
+  （`unique_reference_id=a7dfa119…`）。Adapter 从阶段 1 标准化表生成 τ=1.2
+  二元 evidence，并把成对 KSTAR 结果写成十三列 `ptm_activity.tsv`（analysis 强制
+  Ensembl `regulator_id`）。kinase+TF 网另冻为 `omnipath-kinase+tf-2026-09-21`
+  （15,133 条 `kinase_substrate:signaling` + 12,878 条只读 2026-09-16
+  `tf_regulation`，合计 28,011；TF-only sha256 仍为 `ba500f61…`）。官方 KSTAR
+  ST/Y network 仍须匹配同一 proteome hash，缺文件硬失败、不伪造。
+  `biology_pass=false`。lessons L-2026-0921-01。
 - **2026-09-18 PTM smoke + KSTAR 方案（非 biology PASS）**：确定性 PTM 工程 fixture
   `scripts/generate_ptm_smoke.py`（`src/analysis/ptm_smoke.py`）写出 §4.1 位点表、
   KSTAR evidence 形状、`method=KSTAR` 且 `method_version=smoke-stub-20260918` 的

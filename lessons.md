@@ -1080,3 +1080,149 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
 - 不把本次 EX 三候选送入 `run_davf_perturbgen_e2e.py --run-perturbgen`
 - 不宣称 biology PASS
 
+## L-2026-0920-01｜TD-20-01：KSTAR 环境与映射工程已验证，网络未完成不得冒充正式分析
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0920-01 |
+| 时间戳 | 2026-09-20 |
+| 条目版本 | v2.4.0（模块级：KSTAR 独立环境 / 入口 / lineage 边界） |
+| 决策级别 | **模块级**（同步当前真实源码、测试和代理核验结果；不宣称生物学完成） |
+| 决策来源 | TD-20-01 文档同步指令与当前仓库实现 |
+| 状态 | Python 3.12.14 + KSTAR 1.2.0 环境、adapter/CLI/setup、network release assembler 已落地；Figshare network installer 仍 HTTP 202 且无 `Location`/`Retry-After`，正式 KSTAR activity、kinase→TF propagation 与 biology PASS 仍未完成 |
+
+### 1. 可复用决策与证据
+
+1. 独立解释器 `/home/scu/anaconda3/envs/kstar/bin/python` 的 `sys.prefix`、
+   `sys.executable`、Python 版本和 `kstar==1.2.0` 校验通过；官方
+   `kstar.mapping.ExperimentMapper` smoke 得到 7 mapped rows。
+2. `scripts/setup_kstar_env.sh` 对缺失的官方 ST/Y network 调用 installer；本次官方
+   返回 HTTP 202，且响应没有 `Location`/`Retry-After`，所需 network assets 未完成，因此
+   setup 硬失败，不伪造 network。
+3. `kstar_adapter` 的 signed score 必须来自成对 increased/decreased p-value 比较；
+   q-value 是两路 p-value 合并后统一 BH，不是全局取反。正式输出的
+   `method_version` 使用真实 KSTAR 1.2.x（当前 `1.2.0`），不使用 smoke-stub。
+4. `scripts/run_kstar_activity.py` 在两次官方 `run_kstar_analysis` 后严格检查
+   `activities_mann_whitney`/`fpr_mann_whitney` 的索引（含两张结果索引一致性）、directional data 列以及空/重复 kinase；
+   空索引名只规范为 `KSTAR_KINASE`，再经官方 `save_kstar` 重写 TSV 并由 `from_kstar` 重载。
+   根因是 KSTAR 1.2.0 新 `run_kstar` 路径返回未命名索引，导致 `save_kstar` 写出空首列表头，而
+   `from_kstar` 硬编码 `index_col=KSTAR_KINASE`。
+5. post-fix 临时 synthetic smoke 的两路结果首行已分别含 `KSTAR_KINASE` 与 directional data 列，
+   CLI 内部两次 `from_kstar` 均成功；但 test-only synthetic 网络两路 p 值没有方向性证据，CLI
+   以 `paired KSTAR outputs contain no directional kinase evidence` 退出 1，未生成
+   `ptm_activity.tsv`。这是预期硬失败契约，不是完整 CLI 十三列表 smoke，也不是正式 biology PASS；
+   不添加 fallback。
+
+### 2. 边界
+
+- smoke fixture、ExperimentMapper mapping 和 HTTP 202 都只能证明工程边界，不能当作
+  KSTAR activity、formal lineage、正式 kinase→TF propagation 或 biology PASS。
+- 本轮不改变既有 shared prepare/reuse、独立环境、no-hash 和正式验收约束；不把上述
+  handover smoke 或 mapping 结果写成正式结果。
+- adapter manifest 保持 `biology_pass=false`、`may_enter_lineage=false`；正式验收仍需
+  真实 PTM、可用且冻结的 kinase/TF network、预注册 kinase benchmark，以及真实 AD
+  队列前置条件。
+
+## L-2026-0920-02｜官方 KSTAR network file 60883384 入口诊断
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0920-02 |
+| 时间戳 | 2026-09-20 |
+| 条目版本 | v1.0.0（模块级：官方 network 下载入口诊断） |
+| 决策级别 | **模块级**（记录入口响应，不构成 network 或生物学结果） |
+| 状态 | setup 使用的 canonical `figshare.com` 请求此前安装诊断曾返回 HTTP 202；本轮受控 `curl` 在同一 URL 得到 403 HTML（520 bytes），`ndownloader.figshare.com` 同 file ID 得到 HTTP 202 空响应（`Content-Length: 0`）；两者均无 `Location`，且都不是 tar.gz |
+
+### 可复用事实
+
+- 官方 KSTAR network file `60883384` 的两个入口响应都不能提供可用 network 资产；这只是网络入口诊断，不是 biology PASS。
+- 未修改安装脚本，也未安装伪造资产；正式 network 仍需用户或外部可用资产。
+
+## L-2026-0921-01｜KSTAR 钉包与 PhosphoSitePlus 衍生资源 hash；adapter Ensembl 交接；另冻 kinase+TF 网
+
+| 属性 | 值 |
+|---|---|
+| 记录编号 | L-2026-0921-01 |
+| 时间戳 | 2026-09-21 09:30 |
+| 条目版本 | v2.5.0（模块级：KSTAR 环境 pin / adapter Ensembl / kinase+TF freeze） |
+| 决策级别 | **模块级**（工程资产与交接契约；不宣称生物学完成） |
+| 决策来源 | 用户指令执行 2026-09-18 建议任务 1–3，按当前源码独立落地 |
+| 状态 | 钉包与 RESOURCE_FILES hash 已冻结；adapter 可从 standardized_ptm 写出 KSTAR 二元 evidence 并在成对 directional 结果上生成十三列 `ptm_activity.tsv`（Ensembl `regulator_id`）；`omnipath-kinase+tf-2026-09-21` 已另冻；官方 ST/Y network 仍须匹配 `unique_reference_id`；**formal biology PASS 仍为 0** |
+
+### 1. 决策与证据
+
+1. **独立环境钉包**。正式环境名仍为 `kstar`，与 `perturbgen` 分离。冻结
+   `environments/kstar/environment.yml`（`python=3.12.14`、`kstar==1.2.0` 及直接依赖）
+   与 `environments/kstar/requirements-lock.txt`。不写入 `requirements-core.txt`。
+2. **PhosphoSitePlus 衍生资源 hash**。KSTAR 1.2.0 随包 `RESOURCE_FILES` 来自
+   ProteomeScout 2020-02-26 / KinPred 人类蛋白组，不是 live PSP dump。
+   `unique_reference_id=a7dfa119afa4f833375dfaf0c503ee1bca28c9fe7d868e4249907442d7821c64`。
+   `HumanPhosphoProteome.csv` sha256
+   `c2ebbcac778940558b2af94bfcc14715c71f0bde8d734f9cc1cc0fe319828cdd`。
+   setup 与 `run_kstar_activity.py` 均校验；HTTP 202 / HTML / 过小响应不得当作
+   ST/Y network。
+3. **Adapter**。`build_kstar_input` 只用 `has_donor` 且有限 `ptm_value_normalized`，
+   τ=1.2 与 smoke evidence 口径一致，列名为 `data:{contrast}:increased/decreased`。
+   `convert_kstar_outputs` 成对比较 unsigned p 值后写十三列；`--mode analysis` 必须
+   `--ensembl-mapping`，symbol 缺失或一对多硬失败。`method_version` 必须是真实
+   `1.2.x`，禁止 `smoke-stub-*`。
+4. **kinase+TF 新 release**。`scripts/build_kinase_signed_edges.py` 从 OmniPath
+   `datasets=omnipath,kinaseextra`（102,397 行，sha256 `618c166c…`）生成
+   15,133 条 `kinase_substrate:signaling` 边（+10,643 / −4,490），release
+   `omnipath-kinase-2026-09-21`。再与只读的 `omnipath-2026-09-16` TF 表
+   （12,878 边，sha256 `ba500f61…`，组装前后不变）合成
+   `omnipath-kinase+tf-2026-09-21`（28,011 行，sha256 `9483f613…`）。
+   GSK3B `ENSG00000082701` 在该网上不再是 `seeds_without_node`（2,281 个 gene
+   score / 4,806 条路径，工程连通）。`biology_pass=false`。
+5. 定向测试 21 passed；主环境 mypy 目标文件 0 errors；kstar 环境 RESOURCE_FILES
+   hash 实装校验通过。
+
+### 2. 边界
+
+- 不把本次 freeze、mapping smoke 或 hash pin 写成 KSTAR activity 或 biology PASS。
+- 不改 2026-09-16 TF-only 文件；正式传播须显式切换 `network_release`。
+- 官方 KSTAR ST/Y network 仍须与冻结 `unique_reference_id` 一致；缺文件继续硬失败。
+- 真实 PTM、kinase benchmark 与 AD 队列前置条件不变。
+
+
+## L-2026-0921-02 技术债修复轮（TD-01 方向 metrics + 严重/高/中债）
+
+日期：2026-09-21。依据 `project_analysis_20260921.md` §6/§7，本地修复并验证。
+
+1. **TD-01 KSTAR 双方向 metrics（严重）**。两方向 evidence 集不同 →
+   `n_substrates`/`network_coverage` 合理不同，全表相等断言在真实数据上必失败。
+   修复：`convert_kstar_outputs` 改收 `increased_metrics`/`decreased_metrics`
+   （必须成对），每个 kinase 按胜出方向（较小 p 值）绑定该方向 metrics；
+   runner 落盘两方向 metrics TSV 并写入 manifest（schema
+   `ptm2cellnet.kstar-adapter-manifest/v2`）。单 `metrics=` 参数已删除。
+2. **TD-02 activity 准入（严重）**。`activities_for_propagation`（method/contrast
+   之外全选）已删除；唯一入口 `src/analysis/ptm_activity_admission.py::
+   select_activities_for_propagation`，消费 config `activity_admission` 冻结
+   `ActivityAdmissionPolicy`（q/substrates/coverage 三阈值 + policy hash）；
+   rejected 行带原因进 gene-score manifest。无独立 benchmark 时
+   `benchmark_gate.available=false`，admitted 仅 exploratory。config 默认登记
+   宽松阈值（1.0/0/0.0），收紧属研究决策，须显式修订 config。
+3. **TD-04 formal/exploratory mode（高）**。`PTMResearchConfig.mode` 默认
+   `exploratory`；`formal` 拒绝 `ptm_cohort`/`cohort_h5ad` 的 `PENDING*`。KSTAR
+   `_require_manifest` 要求结构化 stage-1 manifest（schema_version 匹配
+   `ptm2cellnet.ptm-input-manifest/v1` + source.sha256 + standardization），
+   空 `{}` 硬失败；`build_kstar_input(min_donors_per_state=)` donor 下限
+   （runner `--min-donors-per-state`，默认 1，正式运行显式提高）。
+4. **TD-05 network verifier（高）**。`verify_kstar_network_dir` 返回
+   `KSTARNetworkAudit`；ST/Y 各须恰 50 个非空文件，Unique Network ID 双双 pin
+   （`0c85777e…`/`23ce4b6c…`）；缺文件/空文件/ID 漂移硬失败；audit 入 runner
+   manifest。
+5. **TD-07 release 绑定（高）**。config `network_release` →
+   `omnipath-kinase+tf-2026-09-21` + `network_release_manifest`；
+   `verify_network_release_binding` 三向校验（config release 名 / manifest
+   combined sha256+rows / 实际 --network-tsv），传播 CLI 启动执行；
+   `gene_edge_types` 增加 `kinase_substrate:signaling`。
+6. **TD-12 marker 分层（中）**。2,959 项测试此前 0 项带 slow/gpu marker（分层
+   形同虚设）。17 项重型 integration（train_resume/davf 重型/lightning/
+   manifest CLI/scperturb 注册）标记 slow；full-test.yml 改 `not gpu`（承接
+   slow），CI fast job 语义不变。fast 2,868 项 275 秒完成（此前 188 项超时）。
+7. **未动项**：TD-03 环境依赖冲突（`pip check` 3 组：numpy 2.4.3 vs <2、
+   scvi-tools 1.4.3 vs <1.0、torchaudio 2.4.1 vs >=2.5；pip-audit 2026-09-21
+   口径 26 包/96 条唯一记录）——修复须隔离环境重建+全量回归，不得在当前可用
+   环境上盲动；TD-08 Workflow B 编排、TD-09 复杂度拆分、TD-10/11 异常与安全
+   分流为专项工作。策略见 `project_repair_report_20260921.md`。

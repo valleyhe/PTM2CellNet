@@ -10,7 +10,18 @@
   cell type，交集按 cell type 与 canonical Ensembl 独立生成（方案 §1）。
 - KSTAR/PhosR 在独立环境运行，主环境只消费其标准表输出（`ptm_activity.tsv`），
   不把重型依赖加入 core（方案 §6.2）。执行合同见
-  [`kstar_activity_plan.md`](kstar_activity_plan.md)（2026-09-18 方案冻结，**未执行**）。
+  [`kstar_activity_plan.md`](kstar_activity_plan.md)。截至 2026-09-21，
+  `/home/scu/anaconda3/envs/kstar` 已钉 Python 3.12.14 + `kstar==1.2.0` 及
+  PhosphoSitePlus 衍生资源 hash；adapter 可写出十三列 `ptm_activity.tsv` 且
+  `regulator_id` 映射到 canonical Ensembl；kinase+TF 网已另冻为
+  `omnipath-kinase+tf-2026-09-21`（**未改** 2026-09-16 TF-only 文件）。正式
+  KSTAR analysis 仍需匹配 `unique_reference_id` 的 ST/Y network。这不等于
+  biology PASS。
+- 工程入口已固定为 `bash scripts/setup_kstar_env.sh` 与
+  `scripts/run_kstar_activity.py`。主环境不 import KSTAR；CLI 的 `mapping`/`analysis`
+  都必须在 `kstar` 环境运行并显式提供存在的 `--network-dir`。`--mode analysis` 还必须
+  提供 `--ensembl-mapping`。setup 或 analysis 缺少与冻结 `unique_reference_id` 一致的
+  network 时硬失败，不伪造 ST/Y 资产。
 - PTM smoke（`scripts/generate_ptm_smoke.py`）只证明阶段 1/3/4/5 表契约。
   `method=KSTAR` 且 `method_version=smoke-stub-*` **不是** KSTAR 运行结果，
   不得写入 formal lineage，也不是 biology PASS。
@@ -33,12 +44,21 @@ reference_axis: disease_minus_normal # 或 contrast_specific；禁止全局取�
 contrast: "disease-minus-normal"
 primary_activity_method: KSTAR       # sensitivity 方法另行传播，不平均
 sensitivity_activity_method: PhosR
-network_release: "2026-08"
+network_release: "omnipath-kinase+tf-2026-09-21"   # 2026-09-21 起绑定 combined kinase+TF release
+network_release_manifest: data/manifests/kstar_signed_network_release_20260921.json
+                                    # 可选；设置后阶段 3 启动时执行 verify_network_release_binding
+                                    # （release 名 + combined sha256/行数三向一致，漂移硬失败）
 cell_types: [EX, IN]                 # 预先冻结的主要 cell type 列表
 cohort_h5ad: data/AD/standardized/GSE174367_ad_cohort.h5ad
 cohort_pairing: between_donor
 species: "9606"
 ptm_cohort: CPTAC_AD_BRAIN
+mode: exploratory                    # exploratory | formal（2026-09-21 新增）
+                                    # formal 拒绝一切 PENDING_* 占位资产；exploratory 保持 may_enter_lineage=false
+activity_admission:                 # 2026-09-21 新增：传播前 activity 准入（方案 §4.4/§5.2 预冻结阈值）
+  max_activity_qvalue: 1.0          # 当前无独立 benchmark 校准，登记宽松值；一经冻结不得事后调整
+  min_substrates: 0
+  min_network_coverage: 0.0
 deg_max_fdr: 0.05
 min_donors_per_state: 3
 replicate_policy: mean               # mean | fail（重复位点登记规则）
@@ -48,7 +68,8 @@ deg_donor_aggregation: pseudobulk_counts  # per_cell_log2_mean | pseudobulk_coun
 propagation:
   max_depth: 3                       # 简单路径深度上限
   decay: 0.5                         # 每跳权重衰减
-  gene_edge_types: [tf_regulation]   # 终止于基因的边类型
+  gene_edge_types: [tf_regulation, "kinase_substrate:signaling"]   # 终止于基因的边类型
+                                    # 2026-09-21 绑定 combined release 后 kinase→substrate 边亦终止于基因
   max_paths_per_seed: null           # 可选；设置时须为正整数的逐 seed 上限
 semantic_context:                    # 七字段模板，{cell_type} 占位符逐类型替换
   context: "GSE174367 {cell_type} cells"
@@ -94,11 +115,51 @@ Smoke 自带一张 `release=smoke-2026-09-18` 的 kinase→TF→gene 小网，**
 生成器另写 `kstar_evidence_from_sites.tsv`，形状给未来 KSTAR adapter 用，
 本身不是 KSTAR 输出。
 
-## 3. 阶段 2：Activity inference（外部）
+## 3. 阶段 2：Activity inference（独立 KSTAR/PhosR 环境）
 
 KSTAR/PhosR 在独立环境运行，产出 `ptm_activity.tsv`（方案 §4.2 十三列）。
 该表在本管线由阶段 3 的读取点校验（方向与分数符号一致、q 值范围、
-per (regulator, contrast, method) 唯一）。本仓库没有运行 KSTAR/PhosR 的入口。
+per (regulator, contrast, method) 唯一）。本仓库现有 KSTAR 入口如下：
+
+```bash
+bash scripts/setup_kstar_env.sh
+
+# 从项目根目录运行；以下参数值必须由实际 manifest / network asset 提供
+CONDA_DEFAULT_ENV=kstar \
+CONDA_PREFIX=/home/scu/anaconda3/envs/kstar \
+/home/scu/anaconda3/envs/kstar/bin/python scripts/run_kstar_activity.py \
+  --mode mapping \
+  --standardized-ptm <standardized_ptm.tsv> \
+  --input-manifest <ptm_input_manifest.json> \
+  --output <mapped.tsv> \
+  --adapter-manifest <adapter_manifest.json> \
+  --case-condition disease \
+  --reference-condition normal \
+  --contrast disease-minus-normal \
+  --network-dir <existing_kstar_network_dir> \
+  --kstar-output-dir <kstar_output_dir> \
+  --phospho-type <ST_or_Y>
+
+# analysis 另需 --ensembl-mapping，写出十三列 ptm_activity.tsv
+# CONDA_DEFAULT_ENV=kstar CONDA_PREFIX=... python scripts/run_kstar_activity.py \
+#   --mode analysis --ensembl-mapping data/processed/gene_symbol_ensembl_map.tsv ...
+```
+
+`--mode analysis` 使用同一组必填参数，另外由 CLI 分别执行 increased/decreased
+官方 KSTAR analysis，并写出标准 `ptm_activity.tsv`（`regulator_id` 为 canonical
+Ensembl）；`mapping` 只验证并写出 ExperimentMapper handover，不推断 kinase activity。
+CLI 在隔离环境、钉包、资源 hash 校验和显式 `--network-dir` 检查通过后才 import
+KSTAR。缺 environment、解释器不匹配、hash 漂移、或缺匹配 `unique_reference_id`
+的 network 均硬失败。当前已核实环境钉包、PhosphoSitePlus 衍生资源 hash、官方
+ExperimentMapper smoke（7 mapped rows）以及 kinase+TF 新 release；KSTAR activity、
+formal lineage 和 biology PASS 尚未完成。
+
+KSTAR 1.2.0 handover 的 post-fix 临时 synthetic smoke 中，两路结果首行已分别为
+`KSTAR_KINASE` 加对应 directional data 列，CLI 内部两次 `from_kstar` 均成功；但 test-only
+synthetic 网络的两路 p 值没有方向性激酶证据，CLI 按预期以
+`paired KSTAR outputs contain no directional kinase evidence` 退出 1，未生成
+`ptm_activity.tsv`。这是当前硬失败契约，不是完整 CLI 十三列表 smoke 通过，不是正式 biology PASS，
+也不添加 fallback。
 
 独立环境、二元位点证据、PhosphoSitePlus freeze、kinase–substrate 传播网缺口
 与验收顺序见 [`kstar_activity_plan.md`](kstar_activity_plan.md)。在该方案
@@ -119,7 +180,9 @@ python scripts/build_ptm_global_gene_scores.py \
 
 - `signed_network.tsv`（方案 §4.3 九列）：`effect_sign` 为 `+1`/`-1`；
   无符号边只进 coverage 统计、不进传播；符号冲突的平行边整体剔除并计数；
-  `confidence` 缺省按 1.0 计并登记。
+  `confidence` 缺省按 1.0 计并登记。kinase activity 传播必须用
+  `omnipath-kinase+tf-2026-09-21`（或后续新 id），**不得**把
+  `omnipath-2026-09-16` TF-only 文件原地加点边。
 - 传播：有符号简单路径枚举（`max_depth` 内），路径在 `gene_edge_types`
   边终止于基因；每条路径贡献 `activity × Π(sign×confidence) × decay^length`，
   per (source, target) 求和（方案 §5.3）。
@@ -128,6 +191,16 @@ python scripts/build_ptm_global_gene_scores.py \
   `per_seed_path_counts` 和 `path_count_distribution` diagnostics。
 - `network_id_map.tsv` 三列（`network_id/gene_symbol/ensembl_id`）：网络 id
   到 canonical Ensembl 的显式映射，作者负责；未映射 target 不进正式 score 表。
+- **Activity 准入（2026-09-21 起硬门禁）**：传播前每个 activity 行必须通过 config
+  `activity_admission` 冻结阈值（`max_activity_qvalue`/`min_substrates`/
+  `min_network_coverage`，方案 §4.4/§5.2 预冻结）；被拒行带逐行原因进
+  manifest `sources.activity_table.admission.rejected`，policy hash 一并记录。
+  旧 `activities_for_propagation`（method/contrast 之外全选）已删除，不存在绕过
+  admission 的传播入口。无独立 benchmark 校准前 admitted 结果仍只有 exploratory
+  效力（manifest `benchmark_gate.available=false`），`may_enter_lineage=false`。
+- config 设置 `network_release_manifest` 时，启动即执行
+  `verify_network_release_binding`：release 名、manifest 记录与实际
+  `--network-tsv` 的 sha256/行数三向一致，任何漂移硬失败。
 - 输出 `ptm_global_gene_scores.tsv`（方案 §4.4 十二列）：一行一个
   (source_activity, target_gene) 对，不聚合成 per-gene 单值。
   sensitivity 方法需要单独跑一遍本命令再对比，不得平均。
