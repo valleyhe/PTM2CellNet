@@ -169,6 +169,7 @@ def load_local_sequences():
 
 
 def fetch_uniprot_batch(uniprot_ids, batch_size=500):
+    failed_single_fetches = 0
     """从 UniProt REST API 批量获取序列
 
     使用 UniProt 的 ID mapping 端点进行批量获取
@@ -237,8 +238,10 @@ def fetch_uniprot_batch(uniprot_ids, batch_size=500):
                                         seq = row[seq_idx].strip()
                                         if seq and len(seq) > 10:
                                             sequences[acc] = seq
-                    except Exception:
-                        pass
+                    except Exception as exc:  # noqa: BLE001 - single-id fetch failure, counted not fatal
+                        failed_single_fetches += 1
+                        if failed_single_fetches <= 5:
+                            print(f"[uniprot] single-id fetch failed: {exc}")
 
         fetched = min(i + batch_size, total)
         if (i // batch_size + 1) % 20 == 0 or fetched >= total:

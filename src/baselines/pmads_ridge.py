@@ -155,7 +155,7 @@ def _stratify_or_none(values: pd.Series) -> Optional[np.ndarray]:
     counts = values.value_counts(dropna=False)
     if len(counts) < 2 or int(counts.min()) < 2:
         return None
-    return values.to_numpy()
+    return cast(np.ndarray, values.to_numpy())
 
 
 def _indices_to_frame(frame: pd.DataFrame, indices: Sequence[int]) -> pd.DataFrame:
@@ -380,7 +380,7 @@ class PMADSRidgeBaseline:
             values = pd.to_numeric(series, errors="coerce")
             if values.isna().any():
                 raise ValueError("Regression target must be numeric and finite")
-            return values.to_numpy(dtype=np.float64)
+            return cast(np.ndarray, values.to_numpy(dtype=np.float64))
 
         if fit:
             unique = list(pd.unique(series))

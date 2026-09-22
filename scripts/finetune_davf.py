@@ -308,8 +308,8 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
         try:
             if y_prob.shape[1] == 2:
                 metrics["auc_roc"] = float(calculate_auc_roc(y_true, y_prob[:, 1]))
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - single-class folds have no AUC; keep the rest
+            print(f"[metrics] auc_roc unavailable for this batch: {exc}")
     return metrics
 
 

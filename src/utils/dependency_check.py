@@ -124,7 +124,7 @@ def check_dependency(import_name: str, extra: str = "", install_name: Optional[s
             extra=extra,
             install_name=install_name,
         )
-    except BaseException as exc:  # ImportError *and* broken-install errors
+    except Exception as exc:  # noqa: BLE001 - probe: ImportError *and* broken-install errors
         return DependencyStatus(
             import_name=import_name,
             available=False,

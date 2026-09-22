@@ -23,10 +23,12 @@ RequestsHTTPError: Any = None
 REQUESTS_AVAILABLE = False
 
 try:
-    import requests  # noqa: F811, F401
-    from requests.exceptions import ConnectionError as RequestsConnectionError  # noqa: F811, F401
-    from requests.exceptions import Timeout as RequestsTimeout  # noqa: F811, F401
-    from requests.exceptions import HTTPError as RequestsHTTPError  # noqa: F811, F401
+    import requests  # type: ignore[no-redef]  # noqa: F811, F401
+    from requests.exceptions import (  # type: ignore[no-redef]  # noqa: F811, F401
+        ConnectionError as RequestsConnectionError,
+    )
+    from requests.exceptions import Timeout as RequestsTimeout  # type: ignore[no-redef]  # noqa: F811, F401
+    from requests.exceptions import HTTPError as RequestsHTTPError  # type: ignore[no-redef]  # noqa: F811, F401
 
     REQUESTS_AVAILABLE = True
 except ImportError:

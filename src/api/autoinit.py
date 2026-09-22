@@ -346,7 +346,7 @@ def _try_auto_initialize() -> None:
             logger.warning("Variant workflow initialization failed: %s", e)
 
         logger.info("Auto-initialized model from %s on %s", checkpoint_path, device)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - API must start without the model
         STATE.initialization_failed = True
         logger.error(
             "Auto-initialization failed: %s. API starts without model. "

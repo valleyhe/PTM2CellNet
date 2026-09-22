@@ -269,7 +269,11 @@ def build_spec_candidates(
             )
         n_normal = row.get("n_normal_donors")
         n_disease = row.get("n_disease_donors")
-        donor_warning = bool(pd.notna(n_normal) and pd.notna(n_disease) and (int(n_normal) < 3 or int(n_disease) < 3))
+        n_normal_value = int(n_normal) if n_normal is not None and pd.notna(n_normal) else None
+        n_disease_value = int(n_disease) if n_disease is not None and pd.notna(n_disease) else None
+        donor_warning = bool(
+            n_normal_value is not None and n_disease_value is not None and (n_normal_value < 3 or n_disease_value < 3)
+        )
         if donor_warning:
             n_low_donor_support += 1
 
@@ -289,8 +293,8 @@ def build_spec_candidates(
                 "observed_fdr": float(row["fdr"]),
                 "observed_direction": row["observed_direction"],
                 "direction_evidence_donor_counts": {
-                    "normal": int(n_normal) if pd.notna(n_normal) else None,
-                    "disease": int(n_disease) if pd.notna(n_disease) else None,
+                    "normal": n_normal_value,
+                    "disease": n_disease_value,
                 },
                 "low_donor_support": donor_warning,
             }

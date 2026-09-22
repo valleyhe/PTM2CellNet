@@ -174,7 +174,8 @@ def _call_external_mapper(
     def run() -> None:
         try:
             result.append(mapper.get(ids=ids, from_db=from_db, to_db=to_db))
-        except Exception as exc:  # Re-raise the dependency's error in the caller.
+        except Exception as exc:  # noqa: BLE001 - re-raised in the caller
+            # Re-raise the dependency's error in the caller.
             error.append(exc)
         finally:
             completed.set()

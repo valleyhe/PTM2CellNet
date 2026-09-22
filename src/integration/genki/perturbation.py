@@ -237,8 +237,8 @@ class PerturbationExecutor:
         if progress_callback is not None:
             try:
                 progress_callback(gene_symbol=request.gene_symbol, step="scoring", progress=0.5)
-            except Exception:
-                pass  # Don't let callback errors break the pipeline
+            except Exception:  # noqa: BLE001 - callbacks must not break the pipeline
+                pass
 
         if self.scoring_method == "latent_vgae":
             # Build a torch_geometric Data equivalent to the wild-type graph so
@@ -313,7 +313,7 @@ class PerturbationExecutor:
         # Pre-load reference data once for the entire batch.
         try:
             reference = self._ref_loader.load_reference_data()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - batch must report per-request errors
             logger.error("run_batch: failed to load reference data: %s", exc)
             # Return error results for all requests
             return [
@@ -336,7 +336,7 @@ class PerturbationExecutor:
             try:
                 result = self._run_with_shared_reference(request, reference)
                 results.append(result)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one request must not kill the batch
                 logger.error("run_batch: request %s failed: %s", request.gene_symbol, exc)
                 results.append(
                     PerturbationResult(
@@ -350,7 +350,7 @@ class PerturbationExecutor:
             if progress_callback is not None:
                 try:
                     progress_callback(completed=i + 1, total=len(requests))
-                except Exception:
+                except Exception:  # noqa: BLE001 - callbacks must not break the pipeline
                     pass
         return results
 
@@ -470,7 +470,7 @@ class PerturbationExecutor:
                 idx = future_to_idx[future]
                 try:
                     results[idx] = future.result()
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - one request must not kill the batch
                     logger.error(
                         "run_batch parallel: request %s failed: %s",
                         requests[idx].gene_symbol,
@@ -487,7 +487,7 @@ class PerturbationExecutor:
                     try:
                         completed = sum(1 for r in results if r is not None)
                         progress_callback(completed=completed, total=len(requests))
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - callbacks must not break the pipeline
                         pass
 
         return [

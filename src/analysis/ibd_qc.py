@@ -494,7 +494,7 @@ def _run_scrublet_by_sample(adata: Any) -> str:
             adata.obs.iloc[indices, adata.obs.columns.get_loc("predicted_doublet")] = predicted
             adata.obs.iloc[indices, adata.obs.columns.get_loc("doublet_pass")] = ~predicted
             statuses[str(sample_id)] = "ok"
-        except Exception as exc:  # pragma: no cover - algorithm/data dependent
+        except Exception as exc:  # noqa: BLE001, pragma: no cover - algorithm/data dependent
             LOGGER.warning("Scrublet failed for %s: %s", sample_id, exc)
             statuses[str(sample_id)] = f"error:{type(exc).__name__}"
     adata.uns["doublet_detection"] = {"status": "completed", "method": "Scrublet", "samples": statuses}
