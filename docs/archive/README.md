@@ -82,7 +82,7 @@
 - **当前覆盖率基线**: [`../TEST_COVERAGE.md`](../TEST_COVERAGE.md)
 - **历史系统性复核最终版本**: [`systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md`](systematic_review_reports/项目代码现状系统性复核报告_2026-07-06_v19.md)
 - **项目状态总览**: `../CURRENT_STATUS.md`
-- **项目/技术/文件说明入口**: `../PTM2CellNet_项目文档.md`、`../PTM2CellNet_技术文档.md`、`../PTM2CellNet_文件说明.md`（原文已归档至根目录 `archive/20260808/docs/`）
+- **项目/技术/文件说明入口**: 三个入口 stub 已于 2026-09-22 归档至根目录 `archive/20260922/`（其原文更早已归档至 `archive/20260808/docs/`）
 - **用户指南**: `../guides/`
 - **API 文档（Sphinx 源）**: `../api/`（由 `generate_api_docs.sh` 生成）
 

@@ -52,9 +52,6 @@ perturbations at single-cell resolution.
 
    CURRENT_STATUS
    DATA_UPDATE_WORKFLOW
-   PTM2CellNet_技术文档
-   PTM2CellNet_文件说明
-   PTM2CellNet_项目文档
    TEST_COVERAGE
    guides/real_assets_acceptance
 

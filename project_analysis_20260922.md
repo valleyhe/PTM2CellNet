@@ -202,8 +202,8 @@ flowchart TD
 | ND-06 | 可维护性 > CI 门禁盲区 | **中** | lint.yml 仅 `ruff check src/ tests/`：scripts/ 下 90+ 脚本（含 train.py 796 行改动等核心入口）不受 lint/format 约束；mypy 同样只查 src/ | `.github/workflows/lint.yml:33`；本地口径 lint 已含 scripts（AGENTS.md 验证节），仅 CI 缺 | CI 与本地口径不一致，scripts 回归无门禁 |
 | ND-07 | 可靠性 > 测试布局 | **中** | `tests/ci/test_esm3_ci_smoke.py` 的 Tier1 无依赖健康检查不在 ci.yml 收集路径（ci.yml 只收 tests/unit、tests/integration、tests/test_*.py），只在 nightly full-test.yml 跑——文件名与用途错位，PR 期 esm3 依赖健康永不被检查 | `ci.yml:34`；`tests/ci/test_esm3_ci_smoke.py` | 依赖漂移在 PR 期不可见，只能等 nightly 发现 |
 | ND-08 | 文档 > 双头权威 | 中 | CLAUDE.md 自称"AI Project-Specific Guidelines"但零仓库专属内容（无路径/命令/约定），5 个月未更新，实际权威是 AGENTS.md——双头权威对协作代理产生歧义 | 根目录 `CLAUDE.md`（4/14 mtime）vs `AGENTS.md`（9/21） | 新会话可能按过时指南行动 |
-| ND-09 | 文档 > 断链 | 低 | docs/ 三个 stub（PTM2CellNet_项目文档/文件说明/技术文档.md，各约 500B）指向已被 git rm 的根目录 `project_analysis_20260917.md`（正本在 archive/20260920/） | 三文件链接目标核查 | 断链入口文档 |
-| ND-10 | 文档 > 零引用 | 低 | `docs/DATA_UPDATE_WORKFLOW.md` 全仓 .md 零引用，内容未被 REQUIREMENTS/指南消费 | 全仓 grep | 疑似孤儿文档（需复核 datasets.yaml 消费方后归档或修订） |
+| ND-09 | 文档 > 断链 | 低 | docs/ 三个 stub（PTM2CellNet_项目文档/文件说明/技术文档.md，各约 500B）指向已被 git rm 的根目录 `project_analysis_20260917.md`（正本在 archive/20260920/）——**本轮已闭合**：三文件 `git mv` 入 `archive/20260922/`（MANIFEST 补记） | 三文件链接目标核查；本轮归档提交 | 断链入口文档已清除 |
+| ND-10 | 文档 > 零引用 | 低 | `docs/DATA_UPDATE_WORKFLOW.md` 活文档零 .md 引用——**本轮复核判定保留**：它是 `data/manifests/datasets.yaml`（schema `ptm2cellnet.data-manifest.v1`）的操作性伴随文档，且为 REQUIREMENTS BASE-03 完成证据；0816/0824 归档审查均维持保留 | 文件头声明 + datasets.yaml 契约比对 + `update_data_manifest.py` 命令一致 | 非孤儿文档，不归档 |
 | ND-11 | 配置卫生 | 低 | pytest.ini 定义 `gpu` 标记但全仓 0 处使用（死标记）；`benchmark` 标记 2 处使用但 requirements-dev 无 pytest-benchmark 插件 | `pytest.ini`；全仓 grep | 配置噪音；`-m "not gpu"` 恒空转 |
 | ND-12 | CI 透明度 | 低 | full-test.yml 将 pip check 失败降级为环境变量（`|| echo KNOWN_DEPENDENCY_CONFLICTS=1`），注释标 TD-M05——该编号不在 TD-01~19 登记册内，登记断层 | `full-test.yml:44` | 已知冲突的存在性靠注释而非登记册追溯 |
 
@@ -256,7 +256,8 @@ ND-09/10（文档归档/复核）随下一轮归档治理顺带（0.5 天）；N
 | 文件 | 处理 | 说明 |
 |---|---|---|
 | `project_analysis_20260922.md`（0922b 环境隔离轮权威报告，155 行） | `mv` → `archive/20260922/project_analysis_20260922_env_isolation.md` | 被本报告（0922c）取代为根目录权威报告；改名映射登记于 MANIFEST"综合处理轮第二轮"段 |
-| `archive/20260922/MANIFEST.md` | 追加"综合处理轮第二轮"段 | 保留原修改记录（git 历史）+ 改名原因 |
+| `docs/PTM2CellNet_项目文档.md`、`docs/PTM2CellNet_文件说明.md`、`docs/PTM2CellNet_技术文档.md`（断链 stub，ND-09） | `git mv` → `archive/20260922/` | 三文件均指向已归档的根目录 0917 报告；权威入口职能由 CURRENT_STATUS 与根目录权威报告承担 |
+| `archive/20260922/MANIFEST.md` | 追加"综合处理轮第二轮"段 | 保留原修改记录（git 历史）+ 改名原因 + DATA_UPDATE_WORKFLOW 复核保留判定 |
 
 归档文件均保留 git 历史（tracked 文件 git mv 语义；0922b 虽本轮才首次入库，但其前身上轮已在 git status 追踪视野内，入库即带完整内容快照与日期标识——文件名内嵌 `20260922` + `_env_isolation` 语义标签）。
 
@@ -267,7 +268,8 @@ ND-09/10（文档归档/复核）随下一轮归档治理顺带（0.5 天）；N
 | 根目录/docs >30 天报告类文件 | **清零**（project_analysis_*、project_repair_*、audit 类全部在 archive/） |
 | CURRENT_STATUS"已归档"声明 vs 实际 | 属实（0913 修复/0920/0921 报告均在 archive/20260922/，0917 正本在 archive/20260920/） |
 | README.md / CONTRIBUTING.md / API_DOCUMENTATION.md | 现行（README 无 SSH_unit 残留；CONTRIBUTING 命令与 CI 一致；API 合同节与 contracts/orchestrator/runner 相符）——API_DOCUMENTATION L11 与 CURRENT_STATUS 4 处指向根目录权威报告的链接随本报告发布自动恢复有效 |
-| 建议归档（下一轮） | `docs/PTM2CellNet_{项目文档,文件说明,技术文档}.md`（断链 stub）、`docs/DATA_UPDATE_WORKFLOW.md`（复核后） |
+| 本轮已归档 | `docs/PTM2CellNet_{项目文档,文件说明,技术文档}.md` 三个断链 stub → `archive/20260922/`（`git mv`，ND-09 闭合，MANIFEST"综合处理轮第二轮"段补记） |
+| 复核保留 | `docs/DATA_UPDATE_WORKFLOW.md`——datasets.yaml 操作性伴随文档 + BASE-03 完成证据，契约一致，不归档 |
 | 建议修订 | CLAUDE.md（ND-08）、CONTRIBUTING.md 可选补 conda env 说明 |
 
 ---

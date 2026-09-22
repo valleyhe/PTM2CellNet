@@ -47,3 +47,6 @@
 | 文件 | 处理 | 归档原因 |
 |---|---|---|
 | `project_analysis_20260922_env_isolation.md`（原名根目录 `project_analysis_20260922.md`，环境隔离轮权威报告 0922b） | `mv`（当时未入库，随本批次首次入库） | 被本轮综合处理报告（0922c）取代为根目录权威报告；lessons L-2026-0922-03/04 引用的"本轮报告"即此本，改名映射在此登记 |
+| `PTM2CellNet_项目文档.md`、`PTM2CellNet_文件说明.md`、`PTM2CellNet_技术文档.md`（原 `docs/` 下三个入口 stub） | `git mv` | 断链入口：均指向已被 `git rm` 的根目录 `project_analysis_20260917.md`（正本在 `archive/20260920/`）；其宣称的权威入口职能由 `docs/CURRENT_STATUS.md` 与根目录权威分析报告承担（ND-09 闭合） |
+
+**复核保留**：`docs/DATA_UPDATE_WORKFLOW.md` 经本轮复核**不归档**——它是 `data/manifests/datasets.yaml` 的操作性伴随文档（schema `ptm2cellnet.data-manifest.v1` 契约一致），且为 REQUIREMENTS BASE-03（数据刷新与基线维护工作流，2026-08-08 完成）的文档证据；0816/0824 两轮归档审查亦维持保留判定。
