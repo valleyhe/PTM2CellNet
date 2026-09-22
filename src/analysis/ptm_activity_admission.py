@@ -21,6 +21,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from src.analysis.ptm_activity import PTMActivityContractError
+from src.analysis.ptm_activity_benchmark import ActivityBenchmarkReport
 from src.analysis.ptm_research_config import ActivityAdmissionPolicy
 
 _ADMISSION_COLUMNS = ("activity_qvalue", "n_substrates", "network_coverage")
@@ -36,9 +37,35 @@ class ActivitySelectionResult:
     method: str
     condition_or_contrast: str | None
     n_selected_rows: int
+    #: Optional verdict from ``evaluate_activity_benchmark``; when present the
+    #: manifest's ``benchmark_gate`` reflects it, otherwise the gate stays
+    #: ``available=false`` and admitted activities remain exploratory-only.
+    benchmark_report: ActivityBenchmarkReport | None = None
 
     def as_dict(self) -> dict[str, Any]:
         rejected = self.rejected
+        if self.benchmark_report is None:
+            benchmark_gate: dict[str, Any] = {
+                # 方案 §5.2：无独立 kinase-perturbation benchmark 校准时，
+                # admitted 结果仍只有 exploratory 效力；这里显式登记该边界，
+                # 不伪造 benchmark PASS。
+                "available": False,
+                "requirement": "independent kinase perturbation benchmark (方案 §5.2)",
+                "effect": "admitted activities are exploratory only; may_enter_lineage stays false",
+            }
+        else:
+            report = self.benchmark_report
+            benchmark_gate = {
+                "available": True,
+                "passed": report.passed,
+                "verdict": report.verdict,
+                "effect": (
+                    "benchmark PASS: admitted activities may enter formal lineage"
+                    if report.passed
+                    else "benchmark FAIL: admitted activities are exploratory only; may_enter_lineage stays false"
+                ),
+                "report": report.as_dict(),
+            }
         return {
             "policy": self.policy.as_dict(),
             "policy_hash": self.policy.policy_hash,
@@ -48,14 +75,7 @@ class ActivitySelectionResult:
             "n_admitted": len(self.admitted),
             "n_rejected": int(len(rejected)),
             "rejected": rejected.to_dict("records") if not rejected.empty else [],
-            "benchmark_gate": {
-                # 方案 §5.2：无独立 kinase-perturbation benchmark 校准时，
-                # admitted 结果仍只有 exploratory 效力；这里显式登记该边界，
-                # 不伪造 benchmark PASS。
-                "available": False,
-                "requirement": "independent kinase perturbation benchmark (方案 §5.2)",
-                "effect": "admitted activities are exploratory only; may_enter_lineage stays false",
-            },
+            "benchmark_gate": benchmark_gate,
         }
 
 
@@ -76,6 +96,7 @@ def select_activities_for_propagation(
     method: str,
     condition_or_contrast: str | None = None,
     policy: ActivityAdmissionPolicy | None = None,
+    benchmark_report: ActivityBenchmarkReport | None = None,
 ) -> ActivitySelectionResult:
     """Select signed regulator activities for one method/contrast under a frozen policy.
 
@@ -83,7 +104,9 @@ def select_activities_for_propagation(
     method (方案 §4.2) must be propagated separately and compared, never
     averaged into one truth.  Every selected row is checked against the
     frozen ``ActivityAdmissionPolicy``; rejected rows keep their reason and
-    never reach the signed network.
+    never reach the signed network.  ``benchmark_report`` (from
+    ``evaluate_activity_benchmark``) only annotates the manifest gate — a
+    FAIL keeps outputs exploratory, it never silently drops regulators.
     """
 
     frozen_policy = policy if policy is not None else ActivityAdmissionPolicy()
@@ -139,6 +162,7 @@ def select_activities_for_propagation(
         method=method,
         condition_or_contrast=condition_or_contrast,
         n_selected_rows=len(selected),
+        benchmark_report=benchmark_report,
     )
 
 

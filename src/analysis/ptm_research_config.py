@@ -130,6 +130,61 @@ class ActivityAdmissionPolicy:
 
 
 @dataclass(frozen=True)
+class ActivityBenchmarkCriteria:
+    """Pre-registered thresholds for the independent activity benchmark (方案 §5.2 第 4–5 条).
+
+    与 ``ActivityAdmissionPolicy`` 同级冻结在 config 中，但三个判据阈值
+    *没有宽松默认*：必须由研究负责人显式预注册 (方案 §8.7)，未注册时
+    ``activity_benchmark`` 段为空，传播 CLI 拒绝 benchmark 评估而不是替
+    用户挑阈值。``perturbation_effect`` 语义：kinase 扰动后活性的真实
+    变化，正=升高、负=降低。
+    """
+
+    min_paired_regulators: int
+    min_direction_concordance: float
+    min_abs_spearman: float
+    bootstrap_iterations: int = 2000
+    ci_level: float = 0.95
+    seed: int = 0
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.min_paired_regulators, bool)
+            or not isinstance(self.min_paired_regulators, int)
+            or self.min_paired_regulators < 1
+        ):
+            raise PTMResearchConfigError("activity_benchmark.min_paired_regulators must be an integer >= 1")
+        if isinstance(self.min_direction_concordance, bool) or not isinstance(
+            self.min_direction_concordance, (int, float)
+        ):
+            raise PTMResearchConfigError("activity_benchmark.min_direction_concordance must be numeric")
+        if not 0.0 < float(self.min_direction_concordance) <= 1.0:
+            raise PTMResearchConfigError("activity_benchmark.min_direction_concordance must be within (0, 1]")
+        if isinstance(self.min_abs_spearman, bool) or not isinstance(self.min_abs_spearman, (int, float)):
+            raise PTMResearchConfigError("activity_benchmark.min_abs_spearman must be numeric")
+        if not 0.0 <= float(self.min_abs_spearman) <= 1.0:
+            raise PTMResearchConfigError("activity_benchmark.min_abs_spearman must be within [0, 1]")
+        if (
+            isinstance(self.bootstrap_iterations, bool)
+            or not isinstance(self.bootstrap_iterations, int)
+            or self.bootstrap_iterations < 0
+        ):
+            raise PTMResearchConfigError("activity_benchmark.bootstrap_iterations must be an integer >= 0")
+        if isinstance(self.ci_level, bool) or not isinstance(self.ci_level, (int, float)):
+            raise PTMResearchConfigError("activity_benchmark.ci_level must be numeric")
+        if not 0.0 < float(self.ci_level) < 1.0:
+            raise PTMResearchConfigError("activity_benchmark.ci_level must be within (0, 1)")
+        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+            raise PTMResearchConfigError("activity_benchmark.seed must be an integer >= 0")
+        object.__setattr__(self, "min_direction_concordance", float(self.min_direction_concordance))
+        object.__setattr__(self, "min_abs_spearman", float(self.min_abs_spearman))
+        object.__setattr__(self, "ci_level", float(self.ci_level))
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class PTMResearchConfig:
     """Frozen stage-0 research design (方案 §7 阶段 0)."""
 
@@ -155,6 +210,9 @@ class PTMResearchConfig:
     public_perturbation_policy: str = "inventory_optional"
     semantic_context: Mapping[str, str] = field(default_factory=dict)
     activity_admission: ActivityAdmissionPolicy = field(default_factory=ActivityAdmissionPolicy)
+    #: Optional pre-registered benchmark thresholds; ``None`` keeps
+    #: ``benchmark_gate.available=false`` (exploratory-only, 方案 §5.2 第 5 条).
+    activity_benchmark: ActivityBenchmarkCriteria | None = None
     mode: str = "exploratory"
     #: Optional path to the signed-network release manifest that pins the exact
     #: asset (sha256/rows) behind ``network_release`` (TD-07); when set, the
@@ -215,6 +273,8 @@ class PTMResearchConfig:
             raise PTMResearchConfigError("propagation must be a PropagationConfig")
         if not isinstance(self.activity_admission, ActivityAdmissionPolicy):
             raise PTMResearchConfigError("activity_admission must be an ActivityAdmissionPolicy")
+        if self.activity_benchmark is not None and not isinstance(self.activity_benchmark, ActivityBenchmarkCriteria):
+            raise PTMResearchConfigError("activity_benchmark must be an ActivityBenchmarkCriteria or omitted")
         if self.mode not in VALID_MODES:
             raise PTMResearchConfigError(f"mode must be one of {', '.join(VALID_MODES)}")
         if self.mode == "formal":
@@ -335,6 +395,34 @@ def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
         )
     else:
         raise PTMResearchConfigError("activity_admission must be a mapping")
+    benchmark_payload = payload.get("activity_benchmark")
+    if benchmark_payload is None:
+        benchmark = None
+    elif isinstance(benchmark_payload, Mapping):
+        required = ("min_paired_regulators", "min_direction_concordance", "min_abs_spearman")
+        missing_benchmark = [key for key in required if benchmark_payload.get(key) is None]
+        if missing_benchmark:
+            raise PTMResearchConfigError(
+                "activity_benchmark requires pre-registered values for " + ", ".join(missing_benchmark) + " (方案 §8.7)"
+            )
+        unknown_benchmark = sorted(
+            set(benchmark_payload)
+            - {
+                "min_paired_regulators",
+                "min_direction_concordance",
+                "min_abs_spearman",
+                "bootstrap_iterations",
+                "ci_level",
+                "seed",
+            }
+        )
+        if unknown_benchmark:
+            raise PTMResearchConfigError(f"activity_benchmark has unknown keys: {', '.join(unknown_benchmark)}")
+        benchmark = ActivityBenchmarkCriteria(
+            **{key: value for key, value in benchmark_payload.items() if value is not None}
+        )
+    else:
+        raise PTMResearchConfigError("activity_benchmark must be a mapping")
     return PTMResearchConfig(
         schema_version=payload["schema_version"],
         research_objective=str(payload["research_objective"]).strip(),
@@ -358,6 +446,7 @@ def parse_ptm_research_config(payload: Mapping[str, Any]) -> PTMResearchConfig:
         public_perturbation_policy=str(payload.get("public_perturbation_policy", "inventory_optional")).strip(),
         semantic_context=dict(semantic_context),
         activity_admission=admission,
+        activity_benchmark=benchmark,
         mode=str(payload.get("mode", "exploratory")).strip(),
         network_release_manifest=(
             str(payload["network_release_manifest"]).strip()

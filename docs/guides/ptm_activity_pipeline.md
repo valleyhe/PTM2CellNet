@@ -198,6 +198,18 @@ python scripts/build_ptm_global_gene_scores.py \
   旧 `activities_for_propagation`（method/contrast 之外全选）已删除，不存在绕过
   admission 的传播入口。无独立 benchmark 校准前 admitted 结果仍只有 exploratory
   效力（manifest `benchmark_gate.available=false`），`may_enter_lineage=false`。
+- **独立 benchmark 评估（2026-09-22 起 opt-in）**：`--activity-benchmark <tsv>`
+  提供已知 kinase perturbation phosphoproteomics 表（两列契约
+  `regulator_id` + signed `perturbation_effect`，regulator 唯一）时，CLI 执行
+  `evaluate_activity_benchmark`（paired 集方向 concordance + Spearman 秩相关
+  + bootstrap CI），并把 manifest `benchmark_gate` 升为 `available=true` 与
+  真实 PASS/FAIL verdict。判据阈值必须先在 config `activity_benchmark` 段
+  预注册（三个必填：`min_paired_regulators`/`min_direction_concordance`/
+  `min_abs_spearman`，可选 `bootstrap_iterations`/`ci_level`/`seed`；方案
+  §8.7 不得事后挑选）——未注册而给 `--activity-benchmark` 直接硬失败。
+  FAIL 不阻断输出：gene score 照常生成但只有 exploratory 效力；formal
+  mode 下 FAIL 硬失败。评估范围是 primary method + frozen contrast 的全量
+  activity 行（校准方法本身，与 admission 阈值正交）。
 - config 设置 `network_release_manifest` 时，启动即执行
   `verify_network_release_binding`：release 名、manifest 记录与实际
   `--network-tsv` 的 sha256/行数三向一致，任何漂移硬失败。

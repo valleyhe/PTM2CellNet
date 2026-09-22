@@ -30,6 +30,10 @@ from src.analysis.ptm_activity import (  # noqa: E402
     load_ptm_activity_table,
 )
 from src.analysis.ptm_activity_admission import select_activities_for_propagation  # noqa: E402
+from src.analysis.ptm_activity_benchmark import (  # noqa: E402
+    evaluate_activity_benchmark,
+    load_activity_benchmark_table,
+)
 from src.analysis.ptm_gene_score import (  # noqa: E402
     PTMGeneScoreError,
     build_gene_score_table,
@@ -50,6 +54,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", type=Path, required=True, help="frozen ptm_research_config.yaml")
     parser.add_argument(
         "--activity-tsv", type=Path, required=True, help="ptm_activity.tsv (§4.2, external tool output)"
+    )
+    parser.add_argument(
+        "--activity-benchmark",
+        type=Path,
+        default=None,
+        help=(
+            "optional kinase-perturbation benchmark TSV (方案 §5.2); requires pre-registered "
+            "activity_benchmark criteria in the frozen config; FAIL keeps outputs exploratory"
+        ),
     )
     parser.add_argument("--network-tsv", type=Path, required=True, help="signed network edge table (§4.3)")
     parser.add_argument("--network-id-map", type=Path, required=True, help="network_id/gene_symbol/ensembl_id TSV")
@@ -82,11 +95,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         frozen_contrast = config.contrast
         activity_frame = load_ptm_activity_table(args.activity_tsv)
+        benchmark_report = None
+        if args.activity_benchmark is not None:
+            if config.activity_benchmark is None:
+                raise PTMActivityContractError(
+                    "--activity-benchmark requires pre-registered activity_benchmark criteria in the frozen "
+                    "config (方案 §8.7 阈值不得事后挑选); refusing to invent thresholds"
+                )
+            benchmark_table = load_activity_benchmark_table(args.activity_benchmark)
+            benchmark_report = evaluate_activity_benchmark(
+                activity_frame,
+                benchmark_table,
+                criteria=config.activity_benchmark,
+                method=config.primary_activity_method,
+                condition_or_contrast=frozen_contrast,
+            )
+            if config.mode == "formal" and not benchmark_report.passed:
+                raise PTMActivityContractError(
+                    f"formal mode rejects a benchmark {benchmark_report.verdict} verdict; "
+                    "outputs stay exploratory (方案 §5.2 第 5 条)"
+                )
         selection = select_activities_for_propagation(
             activity_frame,
             method=config.primary_activity_method,
             condition_or_contrast=frozen_contrast,
             policy=config.activity_admission,
+            benchmark_report=benchmark_report,
         )
         activities = dict(selection.admitted)
         network = load_signed_network(
@@ -153,6 +187,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "file": str(args.network_id_map.expanduser().resolve()),
                 "sha256": _sha256_file(args.network_id_map.expanduser().resolve()),
             },
+            **(
+                {
+                    "activity_benchmark": {
+                        "file": str(args.activity_benchmark.expanduser().resolve()),
+                        "sha256": _sha256_file(args.activity_benchmark.expanduser().resolve()),
+                    }
+                }
+                if args.activity_benchmark is not None
+                else {}
+            ),
         },
         "propagation": {
             "max_depth": config.propagation.max_depth,

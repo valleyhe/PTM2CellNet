@@ -51,6 +51,17 @@ activity_admission:
   max_activity_qvalue: 1.0
   min_substrates: 0
   min_network_coverage: 0.0
+# 独立 kinase-perturbation benchmark 判据（方案 §5.2 第 4–5 条，U-01）。
+# benchmark 数据到位并预注册后取消注释（阈值由研究负责人显式登记，方案
+# §8.7 不得事后挑选）；未注册时 benchmark_gate.available=false，admitted
+# activity 只有 exploratory 效力，传播 CLI 拒绝 --activity-benchmark。
+# activity_benchmark:
+#   min_paired_regulators: 5
+#   min_direction_concordance: 0.7
+#   min_abs_spearman: 0.3
+#   bootstrap_iterations: 2000
+#   ci_level: 0.95
+#   seed: 0
 propagation:
   max_depth: 3
   decay: 0.5
