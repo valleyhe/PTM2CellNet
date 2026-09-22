@@ -1257,3 +1257,116 @@ prepare（F-02）与 runner 边界（F-09）仍未实现，E2E report 显式写
    archive/20260917" 实为 0916 报告移入）一并闭合。
 6. 子代理系统本环境不可用（5 次调用全部因"未选择思考档位"启动失败），
    对抗审查由主会话完成，统计如实记录于报告 §8。
+
+## L-2026-0922-02：0922 修复轮关键决策（ND-01/02、TD-03/08/09/10/11/15）
+
+1. **多解释器错位是 TD-03"冲突消失"的根因**（证据：修复报告 §TD-03）：本机
+   `pip`（~/.local，Python 3.10 用户目录）与 `python3`（conda SSH_unit 3.12）
+   指向不同环境；0921/0922 审计用 3.10 pip 检查，得出"发行版元数据不在环境/
+   冲突消失"的错误结论。SSH_unit 内 `pip check` 实报 scgpt↔scvi-tools 与
+   ssh-unit↔torchaudio 两组冲突，均源于用户另一项目 ssh-unit 的 editable 混居
+   （ssh-unit 依赖 scgpt）。**教训：一切本地 pip 操作必须 `conda env 的
+   python -m pip`，裸 `pip` 会装错环境。**
+2. **transformers 不得越过 4.48.1**：esm 3.2.3 钉 `transformers<4.48.2`，
+   4.53.0 触发新 pip check 冲突；esm 3.4.1 会拖入 torch 2.11 + CUDA13 全栈
+   （不可接受）。22 条 transformers advisory 登记为上游阻塞，不强行升级。
+3. **ND-01 采方案 A**（scripts 加 `__init__.py`）：`tools/`、`experimental/`
+   有意不进发行版（开发工具不是安装入口）；验证口径是"repo 外反向 import +
+   console_scripts + `python -m scripts.train --help`"三件套。
+4. **TD-08 run_workflow_b 的不可变契约**：run 目录非空即硬失败；Gate-E 是
+   显式 opt-in 阶段（外部 benchmark 前不得声称）；非 PASS verdict = 退出码 2
+   + `run_status=gate_failed`（verdict 不是错误，不隐藏也不伪造）。
+5. **TD-09 拆分纪律**：外部签名不变；RNG 构造与调用顺序逐处保持（确定性输出
+   不变）；拆分靠提取阶段化私有 helper + dataclass context，不引入抽象层。
+   拆分中两次被"锚点文本在 helper 定义体内先命中"咬到（export 块被替换成
+   自递归）——**大块文本替换必须 assert 唯一命中后再替换，且替换后立即跑
+   护栏测试。**
+6. **TD-10 分流结论**：BaseException 收窄为 Exception（吞 KeyboardInterrupt
+   是真 bug）；静默 pass 必须记录；正当降级点（API 无模型启动/线程转发/
+   per-sample 失败/batch 逐请求/callback 不阻断）以 `noqa: BLE001` 显式声明
+   而非伪装成具体异常。
+
+## L-2026-0922-03：环境隔离轮关键决策（conda env、U-01 evaluator、TD-09 次批）
+
+1. **PTM2CellNet 独立 conda env 装配口径**：`conda create -n ptm2cellnet
+   python=3.12` 后从 `requirements-lock.txt` 全量装配（保真复刻 SSH_unit
+   数值栈），extra-index 三源：PyPI（默认）+ `download.pytorch.org/whl/cu118`
+   （torch/torchvision/torchaudio 的 `+cu118` local version）+
+   `data.pyg.org/whl/torch-2.4.1+cu118.html`（torch_cluster/scatter/sparse
+   的 `+pt24cu118`）。lock 里的 ssh-unit/scgpt 不在清单内，新环境天然无
+   混居冲突。mamba-ssm/causal-conv1d 两包 SSH_unit 是 `/tmp` 源码编译装
+   （P40=sm_61 预编译 wheel 不支持），tmp 源码已清，需按安装指南从 sdist
+   重编（TORCH_CUDA_ARCH_LIST=6.1 + setup.py 追加 gencode）。
+2. **本机 3Mbps 带宽下大文件装配纪律**：pip 对 PyPI 大 wheel（>500MB）会
+   无提示 stall（连接挂起不重试），必须 curl `-C -`（断点续传）+
+   `--speed-time/--speed-limit`（低速自动断开重试）串行下载到本地目录再
+   `--find-links` 安装；总带宽瓶颈下并行无益（用户确认 3Mbps）。
+3. **PyTorch/PyG index 的 wheel 命名陷阱**：pytorch.org 的 cu118 wheel
+   platform tag 是 `linux_x86_64`（写 `manylinux1_x86_64` 返回 403 错误页，
+   curl 仍 exit 0——下载后必须 `unzip -tq` 验 zip 完整性，否则把错误页当
+   wheel 装）；PyG 的 data.pyg.org 索引目录按 `torch-2.4.0+cu118` 组织
+   （`pt24cu118` 扩展兼容 torch 2.4.1），不是 `torch-2.4.1+cu118`。
+4. **setuptools <81 pin 不放宽**（advisory CVE-2025-47273 处置决策）：
+   lightning_utilities/pandas/scipy/numpy 等核心依赖运行时 `import
+   pkg_resources`（setuptools 81 起移除），放宽 pin 直接破坏训练栈；该
+   advisory 的暴露面是 `package_index` 远程获取（easy_install 场景），本项目
+   构建不触达。维持 pin + 登记，属时限化风险接受而非机械升级。
+5. **U-01 evaluator 契约**：`ActivityBenchmarkCriteria` 三判据必填、无宽松
+   默认（预注册纪律，方案 §8.7），config `activity_benchmark` 段可选——未
+   注册时 CLI 给 `--activity-benchmark` 硬失败而不是替用户挑阈值；benchmark
+   FAIL 只把 lineage 降级为 exploratory（输出保留），formal mode + FAIL 才
+   硬失败；评估范围是 method+contrast 过滤后的全量 activity（与 admission
+   policy 正交，校准的是方法而非 admitted 子集）。
+
+## L-2026-0922-04：ptm2cellnet 独立环境落地过程中的三个实测发现
+
+1. **nvidia cu11/cu12 包共享 `nvidia/cudnn/lib` 目录，文件级互相覆盖**：
+   lock 同时含 `nvidia-cudnn-cu11==9.1.0.70` 与 `nvidia-cudnn-cu12==9.19.0.56`，
+   pip 按安装顺序落盘——cu12 后装时 torch 2.4.1+cu118（RPATH 硬链
+   `libcudnn.so.9`）加载到 9.19 的文件，sm_61 (P40) 上 conv1d 报
+   "FIND/GET was unable to find an engine"。SSH_unit 当时能跑通是文件态
+   恰好 cu11 后装（lock 快照无法表达这种覆盖序）。**修复：装配完显式
+   重装 `nvidia-cudnn-cu11==9.1.0.70` 保证 cu11 文件终态；验证口径
+   `torch.backends.cudnn.version()==90100` + `F.conv1d` fwd/bwd on GPU。**
+   环境重建 runbook 必含此步。
+2. **0922 lock 存在两处 fresh-resolver 不可自洽的钉扎**（SSH_unit 增量
+   安装历史掩盖）：`anyio==4.15.1` 要求 `typing_extensions>=4.16.0` 而
+   lock 钉 4.15.0（已修 lock → 4.16.0）；`transformers==4.48.1` 要求
+   `tokenizers<0.22` 而 lock 钉 0.22.2（已修 lock → 0.21.1）。教训：
+   lock 的自洽性必须用 fresh env 装配验证，增量环境的 pip check 不是
+   充分证据。
+3. **SSH_unit 的 mypy "0 错误" 含增量缓存成分**：新环境干净跑 mypy 2.1.0
+   报 9 个存量错误（candidate_spec int(None)、pmads_ridge Returning Any、
+   external_tools requests 重定义），本轮已全部修复（184 文件 0 错误）。
+   mamba-ssm/causal-conv1d 的 PyPI sdist 不含 csrc，sm_61 编译必须从
+   GitHub tag 源码（`/home/scu/.cache/mamba-build/` 留有打好 sm_61 补丁
+   的副本）。
+
+## L-2026-0922-05：综合处理第二轮关键结论（入库、对抗复核、新债 ND-05~12）
+
+1. **入库与验证**：0922 修复轮+环境隔离轮全部工作区成果（36 文件 +3748/−1985、
+   9 新文件）经全量验证（fast 2,968 passed / 0 failed / 462.77s、ruff+format
+   543 文件、mypy 184 文件 0 错、compileall、274 pins OK）后以 8 个语义提交落
+   main 并 push（6be0441/1673e4c/58f4e3a/962e9e9/64efaa3/f8baea3/3767002 +
+   docs 提交）；提交前 main...origin/main = 0 0，无合并冲突。
+2. **对抗复核零漂移**：4 个 Explore 子代理核查 REQUIREMENTS A-01~A-08 与
+   P-01~P-06 全部状态声明 vs 代码事实，无"声明落地但代码缺失"或"声明 open
+   但已实现"漂移；主线加权完成度 71.0%→75.4%（五维模型同 0921 附录 C，
+   仅 Workflow B 35→69、benchmark 55→73、FastAPI 88→92、治理 80→88 四模块
+   重估，正式证据 9%×15% 未动，与 biology PASS=0 自洽）。
+3. **新债 ND-05~12**（TD-01~19/ND-01~04 之外）：ND-05
+   `src/data/homology_splitter/`（similarity+splitter）零测试覆盖——同源
+   train/test 划分泄漏防线缺失，唯一科学防线类新债（高，修复 1~1.5 天）；
+   ND-06 lint.yml 只查 src/tests 不含 scripts/（CI 与本地口径不一致）；
+   ND-07 `tests/ci/test_esm3_ci_smoke.py` 不在 ci.yml PR 收集路径（Tier1
+   健康检查只在 nightly 跑）；ND-08 CLAUDE.md 零项目内容双头权威；ND-09
+   docs 三个 stub 断链指向已归档 0917；ND-10 DATA_UPDATE_WORKFLOW.md 零引用；
+   ND-11 pytest.ini gpu 死标记；ND-12 full-test.yml pip check 降级注释的
+   TD-M05 编号不在登记册。代码卫生干净：TODO/FIXME=0、裸 except=0、
+   BLE001 全部受控豁免。
+4. **子代理系统恢复可用**：本轮 4 次 Explore 调用全部成功（平均 ~172s），
+   0922a 记录的"5 次启动失败（思考档位缺失）"已不复现；调用策略为调查只读
+   分流、写入集中于主会话。
+5. **根目录杂物（gitignored 非版本对象）**：scaling.log 119MB、
+   data_preparation.log、braf_v600e_prediction.json、omp-session-*.html 为
+   2026-03/08 产物，建议用户确认后物理清理（braf 产物若有效先移 outputs/）。

@@ -7,8 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Version control & archive (2026-09-22 comprehensive round 2)
+- 0922 修复轮+环境隔离轮全部工作区成果（36 文件 +3748/−1985、9 新文件）验证全绿后以 8 个语义提交落 main 并 push（`6be0441` ND-01 / `1673e4c` TD-08 / `58f4e3a` U-01 / `962e9e9` TD-09 / `64efaa3` TD-10/11+TD-M08 / `f8baea3` TD-15 / `3767002` TD-03 / docs 提交）；提交前 main...origin/main = 0 0
+- 对抗复核（4 个 Explore 子代理）：REQUIREMENTS A/P 轨道声明与代码零漂移；主线加权完成度 71.0%→75.4%；新债 ND-05~ND-12（最重 ND-05 homology_splitter 零测试）
+- 归档：环境隔离轮报告改名 `archive/20260922/project_analysis_20260922_env_isolation.md`（0922b，被 0922c 取代为根目录权威报告），MANIFEST 补记
+
+### Added (2026-09-22 environment-isolation round)
+- U-01 独立 activity benchmark evaluator（方案 §5.2 第 4–5 条）：新模块 `src/analysis/ptm_activity_benchmark.py`——`load_activity_benchmark_table`（kinase-perturbation 表契约：regulator 唯一 + signed `perturbation_effect`）与 `evaluate_activity_benchmark`（paired regulator 集上的方向 concordance、Spearman 秩相关、bootstrap CI、PASS/FAIL、输入内容 hash）；`ActivityBenchmarkCriteria` 冻结于 `ptm_research_config.yaml` 可选 `activity_benchmark` 段，三个判据阈值必填、无宽松默认（方案 §8.7 预注册纪律；未注册时 CLI 拒绝评估而不是替用户挑阈值）；`select_activities_for_propagation` 新增可选 `benchmark_report`，manifest `benchmark_gate` 由恒 `available=false` 变为反映真实 verdict（FAIL 显式降级 exploratory，不伪造 PASS）；传播 CLI `--activity-benchmark` opt-in（无预注册 criteria 硬失败；exploratory FAIL 保留输出；formal mode + FAIL 硬失败）。测试 `tests/unit/analysis/test_ptm_activity_benchmark.py`（28 项）+ CLI 集成 4 项
+
+### Changed (2026-09-22 environment-isolation round)
+- TD-09 次批六大复杂度热点拆分（外部签名不变、RNG/调用顺序逐处保持，同 0922 首批纪律）：`data_manifest.validate_manifest` 38→<10（`_activate_profile`/`_validate_dataset_fields`/`_check_single_file_entry`/`_check_file_hash` + `_FileCheckContext`）；`cross_scale_dataset._validate` 38→<10（schema/required/embeddings/graph/optional/targets 六段校验函数）；`ad_deg_table.build_ad_deg_tables` 35→<10（request 校验/矩阵载入/逐 cell-type donor 集/donor 均值/cohort 居中/逐 cell-type 行追加）；`run_davf_perturbgen_e2e._run` 35→<10（候选校验/context 载入与 prepare/payload 初始化/donor split 绑定/perturbgen 执行/sidecar 与统计证据绑定）；`evaluators.evaluate` 33→<10（`_run_eval_batches`/`_resolve_model_outputs`/`_enrich_classification_metrics`）；`frozen_cohort._validate_report_against_eval_input` 32→<10（eval/report 候选索引 + 候选/run 逐层比对）。C901 总量 178→172，榜首由 38 降至 32（`_load_and_validate_metadata`）；护栏测试 1033 项全绿
+- setuptools advisory（CVE-2025-47273）处置为维持 `<81` pin：lightning_utilities/pandas/scipy 运行时依赖 `pkg_resources`（81 起移除），advisory 暴露面（`package_index` 远程获取）在本项目构建中不可达；登记为时限化风险接受（见 lessons L-2026-0922-03 第 4 条）
+- 独立 conda env `ptm2cellnet`（Python 3.12）落地并成为唯一主环境：从 `requirements-lock.txt` 全量装配（三源 extra-index），`pip check` 无任何冲突（SSH_unit 混居的 scgpt/ssh-unit 不在新环境）；mamba-ssm 2.2.2 / causal-conv1d 1.4.0 从 GitHub tag 源码按 sm_61 编译（P40 kernel 实测跑通）；torch 2.4.1+cu118 GPU 训练确定性抽查通过（同 seed 两次训练 `best_model.pt` 逐字节一致）；run_workflow_b 真实冻结 embedding asset verify_assets PASS 复现
+- lock 自洽性修复两处（fresh resolver 实测矛盾，SSH_unit 增量安装历史掩盖）：`typing_extensions` 4.15.0→4.16.0（anyio 4.15.1 要求 ≥4.16.0）；`tokenizers` 0.22.2→0.21.1（transformers 4.48.1 要求 <0.22）；一致性检查 274 pins OK 维持
+
+### Fixed (2026-09-22 environment-isolation round)
+- 新环境首跑暴露的 cuDNN 文件覆盖缺陷（nvidia cu11/cu12 包共享 `nvidia/cudnn/lib`，cu12 后装时 torch 在 sm_61 上 conv 无 engine，9 failed+12 errors）：装配收尾显式重装 `nvidia-cudnn-cu11==9.1.0.70` 保证文件终态；修复后全量 fast 2,968 passed / 0 failed（runbook 见 lessons L-2026-0922-04）
+- 存量 mypy 债 9 项清零（SSH_unit 增量缓存掩盖）：`candidate_spec.py` donor 计数 `int(None)` 类型收窄、`pmads_ridge.py` 两处 Returning Any 加 cast、`external_tools/base.py` requests 重导入加 `type: ignore[no-redef]`；新环境干净跑 `mypy src/` 184 文件 0 错误
+
+### Added (2026-09-22 repair round)
+- Workflow B 统一可重放生命周期（TD-08）：`scripts/run_workflow_b.py` 以固定顺序编排 `verify_assets → build_pairs → train → evaluate → gate_e`（复用既有四件套 CLI），产出不可变 `run_manifest.json`（每阶段 argv/退出码/输出 sha256/环境快照/donor split）+ `run_manifest.sha256` 封存；run 目录非空即硬失败；Gate-E 为显式 opt-in 阶段，非 PASS verdict 以退出码 2 与 `run_status=gate_failed` 记录；`--dry-run` 只写计划。测试 `tests/unit/scripts/test_run_workflow_b.py`（23 项）
+- Versioned OpenAPI golden（TD-15）：`tests/api/openapi_golden.json`（OpenAPI 3.1.0 快照）+ 对比测试 `tests/unit/test_openapi_golden.py`（path 集合与 schema 全量 diff，故意变更经 `scripts/update_openapi_golden.py` 重生成并 review）
+- CI 依赖 job 新增 pip-audit advisory 可见性扫描（TD-03；`continue-on-error` 至无 fix 项清零，之后转硬门禁）
+- `scripts/__init__.py` 包身份（ND-01 方案 A）：`find_packages()` 收集 scripts，console_scripts（`ptm2cellnet-train/predict`）与 `src/analysis/ptm_smoke.py` 的 `from scripts.* import` 在 pip 安装后均可用（SSH_unit editable 实测：repo 外 import/console 入口/`python -m scripts.train --help` 全通过）；`scripts/tools/`、`scripts/experimental/` 有意留在发行版外
+
+### Changed (2026-09-22 repair round)
+- TD-09 六大复杂度热点拆分（外部签名不变、RNG 调用顺序保持）：`build_scperturb_latent_pairs` 69→<10（12 个私有 helper + `_SplitExportContext`）；`scripts/train.py::main` 56→<10（11 个 helper：seeds/数据加载/质量门禁/balanced loader/精确 resume/推理导出/manifest 门禁/通路分析）；`check_release_evidence` 44→<10；`_assemble_downstream_target_evaluation` 41→<10；`_validate_frozen_run` 40→<10；`build_eval_input_payload` 40→<10。护栏测试全程绿色（davf_scperturb 17、train resume+artifacts 28、release evidence 6、e2e 20、frozen 32、perturbgen 294）
+- TD-03 依赖治理（主环境 conda SSH_unit）：ptm2cellnet 发行版元数据以 editable 恢复在位（`pip check` 恢复真实检测能力）；安全升级 13 包（aiohttp/anyio/idna/msgpack/pillow/pypdf/sqlparse/urllib3/lightning/pytorch-lightning/hydra-core/pip/uv），advisory 面 18 包/152 条 → 5 包/41 条；`requirements-lock.txt` 同步 11 项钉扎并过一致性检查（274 pins OK）；transformers 保持 4.48.1（esm 3.2.3 钉 `transformers<4.48.2`，22 条 advisory 登记为上游阻塞；esm 3.4.1 需 torch 2.11+CUDA13 不可行）
+- TD-10 broad exception 分流（41→27 findings）：`dependency_check` 的 `except BaseException` 收窄为 `Exception`（不再吞 KeyboardInterrupt）；`finetune_davf` AUC 静默 pass 与 `integrate_data_v2` 单条 fetch 静默 pass 改为记录；10 处正当降级点（API 无模型启动、线程转发、Scrublet per-sample、batch 逐请求、callback 不阻断）补 `noqa: BLE001` 显式声明
+
+### Fixed (2026-09-22 repair round)
+- ND-02 CHANGELOG 回归闭合：0921 修复轮 11 项（TD-01/02/04/05/06/07/12/13/14/16/17）补记入 `[Unreleased]`（见上方 2026-09-21 backlogged 分节）
+- 多解释器环境错位澄清（TD-03 根因之一）：0921/0922 审计报告所称"冲突消失/元数据不在环境"实为审计用了 `~/.local` 的 Python 3.10 pip 而主环境是 conda SSH_unit（3.12）；SSH_unit 内 `pip check` 实报 scgpt↔scvi-tools 与 ssh-unit↔torchaudio 两组混居冲突（ssh-unit 是另一项目的 editable 安装，依赖 scgpt；不动用户另一项目，登记隔离建议）
+
 ### Versioning note
 - Package metadata (`setup.py` / `src/__version__` / API `version` fields, all `1.0.0`) intentionally trails this changelog (`2.1.0` released 2026-08-24): they will be unified at the next real release rather than bumped just to match (analysis 2026-09-14 §6.2 TD-14-01).
+
+### Added (2026-09-21 repair round, backlogged 2026-09-22 — ND-02)
+- Activity admission gate（TD-02）：新模块 `src/analysis/ptm_activity_admission.py`（`ActivityAdmissionPolicy` 冻结阈值 + policy hash、`select_activities_for_propagation` 逐行 admitted/rejected 原因、`benchmark_gate.available=false` 显式登记不伪造 PASS）；旧全选入口 `activities_for_propagation` 全仓删除，传播 CLI（`build_ptm_global_gene_scores.py`）强制消费该唯一入口
+- Formal PTM intake 契约（TD-04）：`PTMResearchConfig.mode: exploratory|formal`，formal 拒绝一切 `PENDING*` 输入（`ptm_research_config.py`）；KSTAR 输入强制结构化 stage-1 manifest（schema 精确匹配 + `source.sha256` + `standardization`，空 `{}` 硬失败）与 `--min-donors-per-state` donor 下限
+- KSTAR signed network release manifest 登记（TD-06 最小增量）：`data/manifests/kstar_signed_network_release_20260921.json` 登记 KSTAR archive sha256、ST/Y Unique Network ID 与恢复指引；`scripts/setup_kstar_env.sh` 恢复链（conda env → hash 校验 → 官方 URL/本地 archive → 严格 verifier）验证通过；完整 `resolve_signed_network_release` resolver 待对象存储决策
+
+### Changed (2026-09-21 repair round, backlogged 2026-09-22)
+- KSTAR 双方向 metrics 按胜出方向绑定（TD-01）：删除 increased/decreased 全表 `equals` 错误断言（两次分析消费不同 evidence column，metrics 合法不同）；`convert_kstar_outputs` 显式接收成对方向化 metrics 并绑定胜出方向；runner 落盘两方向 metrics，KSTAR run manifest 升级 v2
+- Active research config 绑定 combined kinase+TF signed network release（TD-07）：`configs/research/ptm_research_config.yaml` 切换 `omnipath-kinase+tf-2026-09-21`；`verify_network_release_binding` 三向校验（config ↔ release manifest ↔ 实体文件 sha256）在传播 CLI 启动时强制执行（实测 PASS，28,011 行 sha 一致）；builder output 段补 sha256
+- 测试分层（TD-12）：17 项重型 integration 测试加 `slow` marker；`full-test.yml` 以 `not gpu` 口径承接 slow 层；分层后全目录 fast 层 2,922 passed / 0 failed（0921 曾因 300s 超时遗留 188 项未完成，分层后消除）
+
+### Fixed (2026-09-21 repair round, backlogged 2026-09-22)
+- KSTAR network verifier 不再接受空网络目录（TD-05）：`verify_kstar_network_dir` 强制 ST/Y 各 50 个非空 INDIVIDUAL_NETWORKS 文件 + 双 Unique Network ID pin，audit 结果写入 run manifest；旧"空目录通过"测试预期同步反转
+- KSTAR/network builder 4 个 mypy 错误清零（TD-13）：`_edge_sign` 参数注解 `Mapping[Any, Any]`、manifest 返回注解 `dict[str, Any]`
+- Pydantic v1 deprecated API 清零（TD-14）：`src/api/schemas.py` `@validator` → `@field_validator`、`@model_validator(mode="after")`、`model_config = ConfigDict(populate_by_name=True)`；API 测试 108 passed，剩余警告均为第三方（TD-18）
+- 文档与根目录治理（TD-16/TD-17）：8 份文档（REQUIREMENTS/STATE/CURRENT_STATUS/3 guides/API/lessons）按 0921 漂移清单同步；根目录 pip 残留与滞留报告清理（`archive/20260922/`，含 MANIFEST）
 
 ### Added
 - 2026-09-18 PTM smoke 契约 + KSTAR 独立环境方案：`src/analysis/ptm_smoke.py` 与

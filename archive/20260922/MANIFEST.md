@@ -34,3 +34,16 @@
 
 `README.md`、`CONTRIBUTING.md`、`CHANGELOG.md`、`API_DOCUMENTATION.md`、`lessons.md`、
 `AGENTS.md`/`CLAUDE.md`（本仓协作配置）、`project_analysis_20260922.md`（新权威报告）。
+
+## 追加归档（2026-09-22 环境隔离轮）
+
+| 文件 | 处理 | 归档原因 |
+|---|---|---|
+| `project_analysis_20260922.md`（旧本，修复轮依据） | `git mv` | 被环境隔离轮新写的同名权威报告取代（报告链 0922a→0922b） |
+| `project_repair_report_20260922.md` | `mv`（原 untracked） | 修复轮语义已由代码、测试、lessons L-2026-0922-02 与新报告引用；本轮已消费其 §4 未解决项清单 |
+
+## 追加归档（2026-09-22 综合处理轮第二轮）
+
+| 文件 | 处理 | 归档原因 |
+|---|---|---|
+| `project_analysis_20260922_env_isolation.md`（原名根目录 `project_analysis_20260922.md`，环境隔离轮权威报告 0922b） | `mv`（当时未入库，随本批次首次入库） | 被本轮综合处理报告（0922c）取代为根目录权威报告；lessons L-2026-0922-03/04 引用的"本轮报告"即此本，改名映射在此登记 |
