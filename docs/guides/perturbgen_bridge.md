@@ -360,6 +360,34 @@ python scripts/train_latent_davf.py \
 `donor_split_status=unspecified`，不能声称训练/验证未泄漏。`OE` 可用于独立模型
 训练，但当前串联 E2E orchestrator 的正式 route 是 `KO`/`KD`。
 
+**统一生命周期入口（TD-08，2026-09-22）**：上述组件链的单一编排入口是
+`scripts/run_workflow_b.py`，固定阶段顺序
+`verify_assets → build_pairs → train → evaluate → gate_e`（`--stages` 可选子集或
+`all`），把每阶段的 argv、退出码、输出 sha256 与环境快照写入一次性 run 目录的
+`run_manifest.json`，并以 `run_manifest.sha256` 封存。要点：
+
+- run 目录必须不存在或为空（不可变生命周期；复用目录直接硬失败）；
+- `verify_assets` 先做 embedding asset hash/schema 校验、scVI 目录与显式 donor
+  split 检查，`--require-donor-split` 下无显式 donor 列表硬失败；
+- `gate_e` 是显式 opt-in 阶段（需要外部冻结的 ≥200 条方向 benchmark），无
+  benchmark 时不得声称 Gate-E；其非 PASS verdict 以退出码 2 与
+  `run_status=gate_failed` 记录，不隐藏也不伪造；
+- `--dry-run` 只写计划 manifest，不执行任何阶段。
+
+```bash
+python scripts/run_workflow_b.py \
+  --scvi-model checkpoints/scvi/ibd_norman_model \
+  --embedding-asset outputs/perturbgen/embedding_asset_20260822 \
+  --output-root outputs/workflow_b/<date>_run/ \
+  --intervention-type KO \
+  --norman-dir <GSE133344 目录> \
+  --train-donors <d1,d2> --held-out-donors <d3,d4,d5> \
+  --require-donor-split
+```
+
+真实同坐标系 latent pairs、冻结旧 checkpoint 与 ≥200 条方向 benchmark 仍是外部
+资产；编排器只保证执行链与证据的可重放性，不产生正式 verdict。
+
 `latent-pair-*.npz` 必须包含 `metadata_json` 以及
 `z_0[N,64]`、`z_1[N,64]`、`gene_ids[N,K]`、`directions[N,K]`、
 `attention_mask[N,K]`。`metadata_json` 必须记录数据 schema、生成所用 scVI
