@@ -73,6 +73,43 @@ PTM2CellNet 把依赖按能力分组（见 `setup.py` 的 `extras_require`）。
 
 CLI 入口在能力不可用时会打印带安装提示的警告，不会抛晦涩堆栈。
 
+### 2a. 从 `requirements-lock.txt` 重建独立环境（2026-09-22 起，权威口径）
+
+项目专用 conda 环境 `ptm2cellnet`（Python 3.12）按以下顺序重建；SSH_unit
+混居环境已于 2026-09-22 淘汰。带宽受限（~3Mbps）时大 wheel 建议 curl
+断点续传到本地目录再 `--find-links` 安装：
+
+```bash
+conda create -n ptm2cellnet python=3.12 -y
+PY=$(conda info --base)/envs/ptm2cellnet/bin/python
+
+# 1) torch cu118 栈（本地 wheel 优先）
+$PY -m pip install -r requirements-lock.txt \
+  --extra-index-url https://download.pytorch.org/whl/cu118 \
+  --extra-index-url https://data.pyg.org/whl/torch-2.4.1+cu118.html
+
+# 2) 【必须】显式重装 cu11 cudnn 保证文件终态：
+#    nvidia-cudnn-cu11 与 nvidia-cudnn-cu12 共享 nvidia/cudnn/lib，
+#    cu12 后装会覆盖 cu11 文件，P40 (sm_61) 上 conv1d 将无 engine。
+$PY -m pip install --force-reinstall --no-deps nvidia-cudnn-cu11==9.1.0.70
+$PY -c "import torch; assert torch.backends.cudnn.version()==90100, torch.backends.cudnn.version()"
+
+# 3) mamba-ssm / causal-conv1d 源码编译（PyPI sdist 不含 csrc；sm_61 需
+#    在 setup.py 的 gencode 列表追加 arch=compute_61,code=sm_61；打过补丁
+#    的源码副本在 ~/.cache/mamba-build/）
+export CUDA_HOME=/usr/local/cuda-11.8; export PATH=$CUDA_HOME/bin:$PATH
+export TORCH_CUDA_ARCH_LIST="6.1"; export MAX_JOBS=8
+CAUSAL_CONV1D_FORCE_BUILD=TRUE $PY -m pip install --no-build-isolation --no-deps \
+  ~/.cache/mamba-build/causal_conv1d-1.4.0
+MAMBA_FORCE_BUILD=TRUE $PY -m pip install --no-build-isolation --no-deps \
+  ~/.cache/mamba-build/mamba-2.2.2
+
+# 4) 项目本体 + 验证
+$PY -m pip install -e . --no-deps
+$PY -m pip check   # 预期：No broken requirements found
+$PY -m pytest -m "not slow and not gpu" --timeout=300
+```
+
 ### 3. 验证安装
 
 ```bash

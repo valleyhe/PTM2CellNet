@@ -92,6 +92,14 @@ jobs:
       - name: pip check (installed metadata must be conflict-free)
         run: pip check
 
+      - name: Security advisory scan (pip-audit, TD-03 visibility gate)
+        # Non-blocking while no-fix advisories remain (triage table in the
+        # repair reports); flip to a hard gate once that backlog is empty.
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --skip-editable
+
       - name: Requirements vs lock pin consistency (TD-N-32/34)
         run: python scripts/check_requirements_consistency.py
 
