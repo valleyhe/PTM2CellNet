@@ -110,6 +110,334 @@ def _require_positive_quantiles(
             )
 
 
+def _check_evidence_identity(
+    args: argparse.Namespace,
+    evidence_payload: dict[str, Any],
+    failures: list[dict[str, str]],
+) -> None:
+    """Check evidence test name, outcome and timestamp freshness."""
+
+    if evidence_payload.get("test") != "test_real_perturbgen_smoke":
+        _record_failure(
+            failures,
+            "evidence_test_mismatch",
+            "evidence.test must equal test_real_perturbgen_smoke",
+        )
+    outcome = evidence_payload.get("outcome")
+    if outcome != "pass":
+        _record_failure(
+            failures,
+            "evidence_outcome_not_pass",
+            f"expected outcome=pass, got {outcome!r}",
+        )
+
+    timestamp_unix = evidence_payload.get("timestamp_unix")
+    now_ts = datetime.now(timezone.utc).timestamp()
+    age_hours = None
+    if not isinstance(timestamp_unix, int):
+        _record_failure(
+            failures,
+            "evidence_timestamp_missing",
+            "timestamp_unix must be an integer unix timestamp",
+        )
+    else:
+        age_seconds = now_ts - float(timestamp_unix)
+        age_hours = round(age_seconds / 3600.0, 3)
+        if age_seconds < -_FUTURE_SKEW_SECONDS:
+            _record_failure(
+                failures,
+                "evidence_timestamp_future",
+                f"timestamp_unix={timestamp_unix} is unexpectedly in the future",
+            )
+        elif age_seconds > float(args.max_age_hours) * 3600.0:
+            _record_failure(
+                failures,
+                "evidence_expired",
+                f"evidence age {age_hours}h exceeds limit {args.max_age_hours}h",
+            )
+    evidence_payload["_age_hours"] = age_hours
+
+
+def _resolve_evidence_paths(
+    args: argparse.Namespace,
+    evidence_path: Path,
+    evidence_payload: dict[str, Any],
+    failures: list[dict[str, str]],
+) -> Path | None:
+    """Resolve the benchmark JSON path and validate the listed .h5ad artifacts."""
+
+    extra = evidence_payload.get("extra")
+    if not isinstance(extra, dict):
+        _record_failure(
+            failures,
+            "evidence_extra_missing",
+            "evidence.extra must be a JSON object",
+        )
+        extra = {}
+
+    benchmark_path = args.benchmark_json
+    if benchmark_path is None:
+        benchmark_path = _resolve_path(
+            extra.get("benchmark_json"),
+            base_dir=evidence_path.parent,
+        )
+    else:
+        benchmark_path = benchmark_path.expanduser().resolve()
+    if benchmark_path is None:
+        _record_failure(
+            failures,
+            "benchmark_path_missing",
+            "benchmark JSON path not provided and evidence.extra.benchmark_json missing",
+        )
+
+    validated_h5ad = [
+        _resolve_path(item, base_dir=evidence_path.parent) for item in _as_str_list(extra.get("validated_h5ad"))
+    ]
+    validated_h5ad = [path for path in validated_h5ad if path is not None]
+    if not validated_h5ad:
+        _record_failure(
+            failures,
+            "validated_h5ad_missing",
+            "evidence.extra.validated_h5ad must contain at least one real .h5ad path",
+        )
+    for path in validated_h5ad:
+        if path.suffix != ".h5ad":
+            _record_failure(
+                failures,
+                "validated_h5ad_invalid_suffix",
+                f"validated artifact is not .h5ad: {path}",
+            )
+        elif not path.is_file():
+            _record_failure(
+                failures,
+                "validated_h5ad_missing_file",
+                f"validated .h5ad not found: {path}",
+            )
+
+    if args.mode == "formal" and len(validated_h5ad) < 2:
+        _record_failure(
+            failures,
+            "dual_path_h5ad_required",
+            "formal mode requires at least two validated real .h5ad outputs",
+        )
+    return benchmark_path
+
+
+def _validate_evidence_payload(
+    args: argparse.Namespace,
+    evidence_path: Path,
+    evidence_payload: dict[str, Any],
+    failures: list[dict[str, str]],
+) -> Path | None:
+    """Check evidence identity/freshness and resolve the benchmark JSON path."""
+
+    _check_evidence_identity(args, evidence_payload, failures)
+    return _resolve_evidence_paths(args, evidence_path, evidence_payload, failures)
+
+
+def _check_sample_h5ad_outputs(
+    args: argparse.Namespace,
+    benchmark_path: Path,
+    index: int,
+    sample: dict[str, Any],
+    benchmark_h5ad_paths: set[Path],
+    failures: list[dict[str, str]],
+) -> list[Path]:
+    """Resolve and validate one sample's perturb h5ad outputs."""
+
+    sample_h5ad = [
+        _resolve_path(item, base_dir=benchmark_path.parent) for item in _as_str_list(sample.get("perturb_output_h5ad"))
+    ]
+    sample_h5ad = [path for path in sample_h5ad if path is not None]
+    if not sample_h5ad:
+        _record_failure(
+            failures,
+            "benchmark_h5ad_missing",
+            f"sample[{index}] missing perturb_output_h5ad entries",
+        )
+    elif args.mode == "formal" and len(set(sample_h5ad)) < 2:
+        _record_failure(
+            failures,
+            "dual_path_h5ad_missing_in_sample",
+            f"sample[{index}] requires at least two distinct perturb h5ad outputs",
+        )
+    for path in sample_h5ad:
+        benchmark_h5ad_paths.add(path)
+    return sample_h5ad
+
+
+def _check_sample_formal_requirements(
+    index: int,
+    sample: dict[str, Any],
+    stage_status: dict[str, Any],
+    failures: list[dict[str, str]],
+) -> None:
+    """Formal-mode per-sample checks: dual-path stages and GPU sampling."""
+
+    sample_success = {stage for stage, status in stage_status.items() if isinstance(stage, str) and status == "success"}
+    missing_sample_paths = sorted(set(FORMAL_REQUIRED_PATHS) - sample_success)
+    if missing_sample_paths:
+        _record_failure(
+            failures,
+            "dual_path_stage_missing_in_sample",
+            f"sample[{index}] missing successful stages {missing_sample_paths}",
+        )
+
+    gpu_sample_count = sample.get("gpu_memory_sample_count")
+    if not isinstance(gpu_sample_count, int) or isinstance(gpu_sample_count, bool) or gpu_sample_count <= 0:
+        _record_failure(
+            failures,
+            "gpu_memory_samples_missing",
+            f"sample[{index}] must contain positive gpu_memory_sample_count",
+        )
+
+
+def _audit_benchmark_samples(
+    args: argparse.Namespace,
+    benchmark_path: Path,
+    samples: list[Any],
+    failures: list[dict[str, str]],
+) -> tuple[set[str], set[Path], list[dict[str, Any]]]:
+    """Validate per-sample stage status and h5ad outputs; return the audit trail."""
+
+    successful_stage_names: set[str] = set()
+    benchmark_h5ad_paths: set[Path] = set()
+    sample_audit: list[dict[str, Any]] = []
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            _record_failure(
+                failures,
+                "benchmark_sample_invalid",
+                f"sample[{index}] must be a JSON object",
+            )
+            continue
+        stage_status = sample.get("stage_status")
+        if not isinstance(stage_status, dict) or not stage_status:
+            _record_failure(
+                failures,
+                "benchmark_stage_status_missing",
+                f"sample[{index}] missing non-empty stage_status",
+            )
+            continue
+        non_success = {
+            stage: status for stage, status in stage_status.items() if not isinstance(stage, str) or status != "success"
+        }
+        if non_success:
+            _record_failure(
+                failures,
+                "benchmark_stage_not_success",
+                f"sample[{index}] has non-success stage status: {non_success}",
+            )
+        successful_stage_names.update(
+            stage for stage, status in stage_status.items() if isinstance(stage, str) and status == "success"
+        )
+        if args.mode == "formal":
+            _check_sample_formal_requirements(index, sample, stage_status, failures)
+
+        sample_h5ad = _check_sample_h5ad_outputs(args, benchmark_path, index, sample, benchmark_h5ad_paths, failures)
+
+        sample_audit.append(
+            {
+                "index": index,
+                "output_root": sample.get("output_root"),
+                "stage_status": stage_status,
+                "perturb_output_h5ad": [str(path) for path in sample_h5ad],
+            }
+        )
+    return successful_stage_names, benchmark_h5ad_paths, sample_audit
+
+
+def _check_benchmark_header(
+    args: argparse.Namespace,
+    benchmark_payload: dict[str, Any],
+    failures: list[dict[str, str]],
+) -> list[Any]:
+    """Check benchmark header fields; returns the (possibly empty) sample list."""
+
+    if benchmark_payload.get("ok") is not True:
+        _record_failure(
+            failures,
+            "benchmark_not_ok",
+            f"expected benchmark ok=true, got {benchmark_payload.get('ok')!r}",
+        )
+    if benchmark_payload.get("fixture_type") != "real":
+        _record_failure(
+            failures,
+            "benchmark_not_real_fixture",
+            "benchmark fixture_type must be 'real'",
+        )
+
+    samples = benchmark_payload.get("samples")
+    if not isinstance(samples, list) or not samples:
+        _record_failure(
+            failures,
+            "benchmark_samples_missing",
+            "benchmark JSON must contain at least one sample",
+        )
+        samples = []
+
+    summary = benchmark_payload.get("summary")
+    if not isinstance(summary, dict):
+        _record_failure(
+            failures,
+            "benchmark_summary_missing",
+            "benchmark summary must be a JSON object",
+        )
+        summary = {}
+    if args.mode == "formal":
+        for metric in (
+            "wall_elapsed_seconds",
+            "rss_mb",
+            "peak_gpu_memory_mb",
+            "total_output_bytes",
+        ):
+            _require_positive_quantiles(summary, metric, failures)
+    return samples
+
+
+def _validate_benchmark_payload(
+    args: argparse.Namespace,
+    benchmark_path: Path,
+    benchmark_payload: dict[str, Any],
+    evidence_payload: dict[str, Any],
+    evidence_path: Path,
+    failures: list[dict[str, str]],
+) -> None:
+    """Check benchmark header fields, per-sample stages and cross-path coverage."""
+
+    samples = _check_benchmark_header(args, benchmark_payload, failures)
+
+    successful_stage_names, benchmark_h5ad_paths, sample_audit = _audit_benchmark_samples(
+        args, benchmark_path, samples, failures
+    )
+
+    if args.mode == "formal":
+        missing_paths = sorted(set(FORMAL_REQUIRED_PATHS) - successful_stage_names)
+        if missing_paths:
+            _record_failure(
+                failures,
+                "dual_path_stage_missing",
+                f"formal mode requires successful stages {missing_paths}",
+            )
+
+    validated_paths = set()
+    extra = evidence_payload.get("extra", {})
+    if isinstance(extra, dict):
+        for item in _as_str_list(extra.get("validated_h5ad")):
+            path = _resolve_path(item, base_dir=evidence_path.parent)
+            if path is not None:
+                validated_paths.add(path)
+    if validated_paths and benchmark_h5ad_paths:
+        missing_from_benchmark = sorted(str(path) for path in validated_paths if path not in benchmark_h5ad_paths)
+        if missing_from_benchmark:
+            _record_failure(
+                failures,
+                "validated_h5ad_not_in_benchmark",
+                "validated .h5ad missing from benchmark sample outputs: " + ", ".join(missing_from_benchmark),
+            )
+    benchmark_payload["_sample_audit"] = sample_audit
+
+
 def check_release_evidence(args: argparse.Namespace) -> dict[str, Any]:
     checked_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     failures: list[dict[str, str]] = []
@@ -130,100 +458,7 @@ def check_release_evidence(args: argparse.Namespace) -> dict[str, Any]:
     except ValueError as exc:
         _record_failure(failures, "evidence_missing_or_invalid", str(exc))
     else:
-        if evidence_payload.get("test") != "test_real_perturbgen_smoke":
-            _record_failure(
-                failures,
-                "evidence_test_mismatch",
-                "evidence.test must equal test_real_perturbgen_smoke",
-            )
-        outcome = evidence_payload.get("outcome")
-        if outcome != "pass":
-            _record_failure(
-                failures,
-                "evidence_outcome_not_pass",
-                f"expected outcome=pass, got {outcome!r}",
-            )
-
-        timestamp_unix = evidence_payload.get("timestamp_unix")
-        now_ts = datetime.now(timezone.utc).timestamp()
-        age_hours = None
-        if not isinstance(timestamp_unix, int):
-            _record_failure(
-                failures,
-                "evidence_timestamp_missing",
-                "timestamp_unix must be an integer unix timestamp",
-            )
-        else:
-            age_seconds = now_ts - float(timestamp_unix)
-            age_hours = round(age_seconds / 3600.0, 3)
-            if age_seconds < -_FUTURE_SKEW_SECONDS:
-                _record_failure(
-                    failures,
-                    "evidence_timestamp_future",
-                    f"timestamp_unix={timestamp_unix} is unexpectedly in the future",
-                )
-            elif age_seconds > float(args.max_age_hours) * 3600.0:
-                _record_failure(
-                    failures,
-                    "evidence_expired",
-                    f"evidence age {age_hours}h exceeds limit {args.max_age_hours}h",
-                )
-        evidence_payload["_age_hours"] = age_hours
-
-        extra = evidence_payload.get("extra")
-        if not isinstance(extra, dict):
-            _record_failure(
-                failures,
-                "evidence_extra_missing",
-                "evidence.extra must be a JSON object",
-            )
-            extra = {}
-
-        benchmark_path = args.benchmark_json
-        if benchmark_path is None:
-            benchmark_path = _resolve_path(
-                extra.get("benchmark_json"),
-                base_dir=evidence_path.parent,
-            )
-        else:
-            benchmark_path = benchmark_path.expanduser().resolve()
-        if benchmark_path is None:
-            _record_failure(
-                failures,
-                "benchmark_path_missing",
-                "benchmark JSON path not provided and evidence.extra.benchmark_json missing",
-            )
-
-        validated_h5ad = [
-            _resolve_path(item, base_dir=evidence_path.parent) for item in _as_str_list(extra.get("validated_h5ad"))
-        ]
-        validated_h5ad = [path for path in validated_h5ad if path is not None]
-        if not validated_h5ad:
-            _record_failure(
-                failures,
-                "validated_h5ad_missing",
-                "evidence.extra.validated_h5ad must contain at least one real .h5ad path",
-            )
-        for path in validated_h5ad:
-            if path.suffix != ".h5ad":
-                _record_failure(
-                    failures,
-                    "validated_h5ad_invalid_suffix",
-                    f"validated artifact is not .h5ad: {path}",
-                )
-            elif not path.is_file():
-                _record_failure(
-                    failures,
-                    "validated_h5ad_missing_file",
-                    f"validated .h5ad not found: {path}",
-                )
-
-        if args.mode == "formal" and len(validated_h5ad) < 2:
-            _record_failure(
-                failures,
-                "dual_path_h5ad_required",
-                "formal mode requires at least two validated real .h5ad outputs",
-            )
+        benchmark_path = _validate_evidence_payload(args, evidence_path, evidence_payload, failures)
 
     if benchmark_path is not None:
         try:
@@ -231,161 +466,9 @@ def check_release_evidence(args: argparse.Namespace) -> dict[str, Any]:
         except ValueError as exc:
             _record_failure(failures, "benchmark_missing_or_invalid", str(exc))
         else:
-            if benchmark_payload.get("ok") is not True:
-                _record_failure(
-                    failures,
-                    "benchmark_not_ok",
-                    f"expected benchmark ok=true, got {benchmark_payload.get('ok')!r}",
-                )
-            if benchmark_payload.get("fixture_type") != "real":
-                _record_failure(
-                    failures,
-                    "benchmark_not_real_fixture",
-                    "benchmark fixture_type must be 'real'",
-                )
-
-            samples = benchmark_payload.get("samples")
-            if not isinstance(samples, list) or not samples:
-                _record_failure(
-                    failures,
-                    "benchmark_samples_missing",
-                    "benchmark JSON must contain at least one sample",
-                )
-                samples = []
-
-            summary = benchmark_payload.get("summary")
-            if not isinstance(summary, dict):
-                _record_failure(
-                    failures,
-                    "benchmark_summary_missing",
-                    "benchmark summary must be a JSON object",
-                )
-                summary = {}
-            if args.mode == "formal":
-                for metric in (
-                    "wall_elapsed_seconds",
-                    "rss_mb",
-                    "peak_gpu_memory_mb",
-                    "total_output_bytes",
-                ):
-                    _require_positive_quantiles(summary, metric, failures)
-
-            successful_stage_names: set[str] = set()
-            benchmark_h5ad_paths: set[Path] = set()
-            sample_audit: list[dict[str, Any]] = []
-            for index, sample in enumerate(samples):
-                if not isinstance(sample, dict):
-                    _record_failure(
-                        failures,
-                        "benchmark_sample_invalid",
-                        f"sample[{index}] must be a JSON object",
-                    )
-                    continue
-                stage_status = sample.get("stage_status")
-                if not isinstance(stage_status, dict) or not stage_status:
-                    _record_failure(
-                        failures,
-                        "benchmark_stage_status_missing",
-                        f"sample[{index}] missing non-empty stage_status",
-                    )
-                    continue
-                non_success = {
-                    stage: status
-                    for stage, status in stage_status.items()
-                    if not isinstance(stage, str) or status != "success"
-                }
-                if non_success:
-                    _record_failure(
-                        failures,
-                        "benchmark_stage_not_success",
-                        f"sample[{index}] has non-success stage status: {non_success}",
-                    )
-                successful_stage_names.update(
-                    stage for stage, status in stage_status.items() if isinstance(stage, str) and status == "success"
-                )
-                if args.mode == "formal":
-                    sample_success = {
-                        stage
-                        for stage, status in stage_status.items()
-                        if isinstance(stage, str) and status == "success"
-                    }
-                    missing_sample_paths = sorted(set(FORMAL_REQUIRED_PATHS) - sample_success)
-                    if missing_sample_paths:
-                        _record_failure(
-                            failures,
-                            "dual_path_stage_missing_in_sample",
-                            f"sample[{index}] missing successful stages {missing_sample_paths}",
-                        )
-
-                sample_h5ad = [
-                    _resolve_path(item, base_dir=benchmark_path.parent)
-                    for item in _as_str_list(sample.get("perturb_output_h5ad"))
-                ]
-                sample_h5ad = [path for path in sample_h5ad if path is not None]
-                if not sample_h5ad:
-                    _record_failure(
-                        failures,
-                        "benchmark_h5ad_missing",
-                        f"sample[{index}] missing perturb_output_h5ad entries",
-                    )
-                elif args.mode == "formal" and len(set(sample_h5ad)) < 2:
-                    _record_failure(
-                        failures,
-                        "dual_path_h5ad_missing_in_sample",
-                        f"sample[{index}] requires at least two distinct perturb h5ad outputs",
-                    )
-                for path in sample_h5ad:
-                    benchmark_h5ad_paths.add(path)
-
-                if args.mode == "formal":
-                    gpu_sample_count = sample.get("gpu_memory_sample_count")
-                    if (
-                        not isinstance(gpu_sample_count, int)
-                        or isinstance(gpu_sample_count, bool)
-                        or gpu_sample_count <= 0
-                    ):
-                        _record_failure(
-                            failures,
-                            "gpu_memory_samples_missing",
-                            f"sample[{index}] must contain positive gpu_memory_sample_count",
-                        )
-
-                sample_audit.append(
-                    {
-                        "index": index,
-                        "output_root": sample.get("output_root"),
-                        "stage_status": stage_status,
-                        "perturb_output_h5ad": [str(path) for path in sample_h5ad],
-                    }
-                )
-
-            if args.mode == "formal":
-                missing_paths = sorted(set(FORMAL_REQUIRED_PATHS) - successful_stage_names)
-                if missing_paths:
-                    _record_failure(
-                        failures,
-                        "dual_path_stage_missing",
-                        f"formal mode requires successful stages {missing_paths}",
-                    )
-
-            validated_paths = set()
-            extra = evidence_payload.get("extra", {})
-            if isinstance(extra, dict):
-                for item in _as_str_list(extra.get("validated_h5ad")):
-                    path = _resolve_path(item, base_dir=evidence_path.parent)
-                    if path is not None:
-                        validated_paths.add(path)
-            if validated_paths and benchmark_h5ad_paths:
-                missing_from_benchmark = sorted(
-                    str(path) for path in validated_paths if path not in benchmark_h5ad_paths
-                )
-                if missing_from_benchmark:
-                    _record_failure(
-                        failures,
-                        "validated_h5ad_not_in_benchmark",
-                        "validated .h5ad missing from benchmark sample outputs: " + ", ".join(missing_from_benchmark),
-                    )
-            benchmark_payload["_sample_audit"] = sample_audit
+            _validate_benchmark_payload(
+                args, benchmark_path, benchmark_payload, evidence_payload, evidence_path, failures
+            )
 
     report = {
         "ok": not failures,

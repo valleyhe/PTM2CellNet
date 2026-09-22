@@ -18,7 +18,7 @@ import json
 import math
 from pathlib import Path
 import re
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from .null_selection import load_null_distribution_manifest
 from .contracts import VALID_COHORT_PAIRINGS
@@ -346,6 +346,305 @@ def _validate_quality_payload(payload: Any, *, label: str) -> dict[str, Any]:
     return dict(payload)
 
 
+class _EvalModeConfig(NamedTuple):
+    """Mode-dependent validation results shared by candidate assembly."""
+
+    mode: str
+    quality_payload: Mapping[str, Any] | None
+    quality_status: str
+    pvalue_source: Mapping[str, float] | None
+    pvalue_kind: str
+    evidence_class: str
+
+
+def _validate_eval_mode_inputs(
+    *,
+    null_distribution_path: str | Path | None,
+    null_distribution_manifest_path: str | Path | None,
+    cohort_pairing: str | None,
+    unperturbed_quality: Mapping[str, Any] | None,
+    candidate_unperturbed_quality: Mapping[str, Mapping[str, Any]] | None,
+    unperturbed_quality_status: str,
+    evaluation_mode: str,
+    candidate_pvalues: Mapping[str, float] | None,
+    uniform_candidate_pvalue: float | None,
+) -> _EvalModeConfig:
+    """Validate the mode-sensitive inputs and derive the evidence configuration."""
+
+    if null_distribution_path is None and null_distribution_manifest_path is None:
+        raise EvalAssemblyError("null_distribution_path or null_distribution_manifest_path must be supplied")
+    if null_distribution_path is not None and null_distribution_manifest_path is not None:
+        raise EvalAssemblyError("provide only one null distribution source")
+    if cohort_pairing is not None and str(cohort_pairing).strip() not in VALID_COHORT_PAIRINGS:
+        raise EvalAssemblyError(f"cohort_pairing must be one of {VALID_COHORT_PAIRINGS}")
+    if unperturbed_quality is not None and candidate_unperturbed_quality is not None:
+        raise EvalAssemblyError("provide either unperturbed_quality or candidate_unperturbed_quality, not both")
+    if candidate_unperturbed_quality is not None:
+        for ensembl_id, payload in candidate_unperturbed_quality.items():
+            _validate_quality_payload(payload, label=f"candidate_unperturbed_quality[{ensembl_id}]")
+    mode = str(evaluation_mode).strip().lower()
+    if mode not in _VALID_EVALUATION_MODES:
+        raise EvalAssemblyError(f"evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}")
+    quality_payload: Mapping[str, Any] | None = None
+    status = unperturbed_quality_status
+    if unperturbed_quality is not None:
+        quality_payload = _validate_quality_payload(unperturbed_quality, label="unperturbed_quality")
+        status = str(quality_payload["status"])
+    if status not in _VALID_QUALITY:
+        raise EvalAssemblyError(f"unperturbed_quality_status must be one of {_VALID_QUALITY}")
+    if mode == "formal":
+        if uniform_candidate_pvalue is not None or candidate_pvalues is not None:
+            raise EvalAssemblyError(
+                "formal evaluation_mode rejects uniform_candidate_pvalue and external candidate_pvalues; "
+                "candidate p must be aggregated from empirical null runs after extraction"
+            )
+        if quality_payload is None and candidate_unperturbed_quality is None:
+            raise EvalAssemblyError(
+                "formal evaluation_mode requires unperturbed_quality extracted from h5ad; "
+                "hand-filled unperturbed_quality_status is not accepted"
+            )
+        return _EvalModeConfig(mode, quality_payload, status, None, "empirical_pending_extraction", "empirical_null")
+
+    pvalue_source = candidate_pvalues
+    if pvalue_source is None:
+        if uniform_candidate_pvalue is None:
+            raise EvalAssemblyError(
+                "engineering evaluation_mode still needs candidate p-values (table or uniform); "
+                "the E2E report does not carry empirical null calibration"
+            )
+        if not math.isfinite(uniform_candidate_pvalue) or not 0.0 <= uniform_candidate_pvalue <= 1.0:
+            raise EvalAssemblyError("uniform candidate p-value must be within [0, 1]")
+        pvalue_kind = "uniform"
+    else:
+        pvalue_kind = "external_table"
+    return _EvalModeConfig(mode, quality_payload, status, pvalue_source, pvalue_kind, "synthetic")
+
+
+def _resolve_eval_paths(
+    deg_table_path: str | Path,
+    null_distribution_path: str | Path | None,
+    null_distribution_manifest_path: str | Path | None,
+) -> tuple[str, str | None, str | None]:
+    """Resolve the DEG/null paths and validate the legacy null distribution."""
+
+    deg_path = str(Path(deg_table_path).expanduser().resolve(strict=True))
+    null_path = (
+        None if null_distribution_path is None else str(Path(null_distribution_path).expanduser().resolve(strict=True))
+    )
+    null_manifest_path = (
+        None
+        if null_distribution_manifest_path is None
+        else str(Path(null_distribution_manifest_path).expanduser().resolve(strict=True))
+    )
+    if null_path is not None:
+        try:
+            load_null_distribution_manifest(null_path, required_count=1)
+        except (OSError, ValueError) as exc:
+            raise EvalAssemblyError(
+                f"legacy null_distribution_path must contain non-empty finite values: {null_path}: {exc}"
+            ) from exc
+    return deg_path, null_path, null_manifest_path
+
+
+def _build_candidate_run_records(
+    ensembl_id: str,
+    artifacts: Mapping[str, Any],
+    *,
+    deg_path: str,
+    null_path: str | None,
+    null_manifest_path: str | None,
+    donor_obs_column: str,
+    var_gene_column: str,
+    deg_donor_column: str,
+    deg_gene_column: str,
+    deg_effect_column: str,
+    deg_fdr_column: str,
+    fdr_threshold: float,
+    min_training_donors: int,
+    min_evaluable_donors: int,
+    top_k: int,
+    bootstrap_iterations: int,
+    bootstrap_seed: int | None,
+    gene_symbol: str,
+) -> list[dict[str, Any]]:
+    """Materialize one run record per resolved perturb artifact, bound to its nulls."""
+
+    run_records: list[dict[str, Any]] = []
+    for path_kind, path_artifacts in artifacts.items():
+        for artifact in path_artifacts:
+            run_records.append(
+                {
+                    "path": path_kind,
+                    "mode": artifact.mode,
+                    "seed": artifact.seed,
+                    "output_h5ad": artifact.path,
+                    "h5ad_provenance": {
+                        "stage_manifest": artifact.stage_manifest,
+                        "tokenise_stage_manifest": artifact.tokenise_stage_manifest,
+                        "sha256": artifact.sha256,
+                        "stage": path_kind,
+                        "fingerprint": artifact.fingerprint,
+                    },
+                    "donor_obs_column": donor_obs_column,
+                    "var_gene_column": var_gene_column,
+                    "deg_table_path": deg_path,
+                    "target_gene": gene_symbol,
+                    "deg_donor_column": deg_donor_column,
+                    "deg_gene_column": deg_gene_column,
+                    "deg_effect_column": deg_effect_column,
+                    "deg_fdr_column": deg_fdr_column,
+                    "fdr_threshold": fdr_threshold,
+                    "min_training_donors": min_training_donors,
+                    "min_evaluable_donors": min_evaluable_donors,
+                    "top_k": top_k,
+                    "bootstrap_iterations": bootstrap_iterations,
+                    # The perturb artifact seed is the only reproducible
+                    # default available from N-05's manifest-bound run;
+                    # an explicit caller override remains deterministic
+                    # and is recorded as the actual extractor input.
+                    "bootstrap_seed": artifact.seed if bootstrap_seed is None else bootstrap_seed,
+                }
+            )
+            if null_path is not None:
+                run_records[-1]["null_distribution_path"] = null_path
+                continue
+            if null_manifest_path is None:
+                raise EvalAssemblyError("null distribution manifest path is missing")
+            try:
+                distribution = load_null_distribution_manifest(
+                    null_manifest_path,
+                    candidate_ensembl_id=ensembl_id,
+                    path_name=path_kind,
+                    mode=artifact.mode,
+                    seed=artifact.seed,
+                )
+            except (OSError, ValueError) as exc:
+                raise EvalAssemblyError(
+                    f"null distribution manifest does not match {ensembl_id}/{path_kind}/"
+                    f"{artifact.mode}/{artifact.seed}: {exc}"
+                ) from exc
+            run_records[-1]["null_distribution"] = list(distribution["values"])
+            run_records[-1]["null_distribution_manifest_path"] = null_manifest_path
+    return run_records
+
+
+def _assemble_eval_candidate(
+    e2e_report: Mapping[str, Any],
+    run: Mapping[str, Any],
+    config: _EvalModeConfig,
+    uniform_candidate_pvalue: float | None,
+    candidate_unperturbed_quality: Mapping[str, Mapping[str, Any]] | None,
+    *,
+    deg_path: str,
+    null_path: str | None,
+    null_manifest_path: str | None,
+    donor_obs_column: str,
+    var_gene_column: str,
+    deg_donor_column: str,
+    deg_gene_column: str,
+    deg_effect_column: str,
+    deg_fdr_column: str,
+    fdr_threshold: float,
+    min_training_donors: int,
+    min_evaluable_donors: int,
+    top_k: int,
+    bootstrap_iterations: int,
+    bootstrap_seed: int | None,
+) -> dict[str, Any]:
+    """Assemble one eval candidate entry from a passing gated perturbgen run."""
+
+    gene_symbol = str(run.get("gene_symbol", "")).strip()
+    ensembl_id = str(run.get("ensembl_id", "")).strip()
+    output_root = run.get("output_root")
+    if not gene_symbol or not ensembl_id or not output_root:
+        raise EvalAssemblyError("each perturbgen run needs gene_symbol, ensembl_id and output_root")
+    prepare_root = run.get("prepare_root")
+    if not isinstance(prepare_root, (str, Path)) or not str(prepare_root).strip():
+        raise EvalAssemblyError(f"PerturbGen run for {ensembl_id} must declare prepare_root")
+    artifacts = resolve_run_artifacts(
+        output_root,
+        gene_symbol,
+        prepare_root=prepare_root,
+    )
+    # Recover the observed direction recorded by the passing direction gate.
+    invocation = _passing_invocation(e2e_report, ensembl_id)
+    observed_direction = invocation.get("candidate", {}).get("observed_direction")
+    if observed_direction not in ("up", "down"):
+        raise EvalAssemblyError(f"invocation for {ensembl_id} has no recorded observed_direction")
+    invocation_route = str(invocation.get("intervention_type", "")).strip().upper()
+    if invocation_route not in _VALID_INTERVENTION_TYPES:
+        raise EvalAssemblyError(f"invocation for {ensembl_id} must declare intervention_type KO or KD")
+    run_route = str(run.get("intervention_type", "")).strip().upper()
+    if run_route not in _VALID_INTERVENTION_TYPES:
+        raise EvalAssemblyError(f"PerturbGen run for {ensembl_id} must declare intervention_type KO or KD")
+    if run_route != invocation_route:
+        raise EvalAssemblyError(
+            f"PerturbGen run route does not match passing invocation for {ensembl_id}: "
+            f"{run_route} != {invocation_route}"
+        )
+    if config.pvalue_source is not None:
+        if ensembl_id not in config.pvalue_source:
+            raise EvalAssemblyError(f"no candidate p-value provided for {ensembl_id} ({gene_symbol})")
+        candidate_pvalue: float | None = float(config.pvalue_source[ensembl_id])
+    elif config.mode == "formal":
+        candidate_pvalue = None
+    else:
+        assert uniform_candidate_pvalue is not None
+        candidate_pvalue = float(uniform_candidate_pvalue)
+    candidate_quality: Mapping[str, Any] | None = None
+    if candidate_unperturbed_quality is not None:
+        if ensembl_id not in candidate_unperturbed_quality:
+            raise EvalAssemblyError(f"candidate_unperturbed_quality is missing {ensembl_id} ({gene_symbol})")
+        candidate_quality = candidate_unperturbed_quality[ensembl_id]
+
+    run_records = _build_candidate_run_records(
+        ensembl_id,
+        artifacts,
+        deg_path=deg_path,
+        null_path=null_path,
+        null_manifest_path=null_manifest_path,
+        donor_obs_column=donor_obs_column,
+        var_gene_column=var_gene_column,
+        deg_donor_column=deg_donor_column,
+        deg_gene_column=deg_gene_column,
+        deg_effect_column=deg_effect_column,
+        deg_fdr_column=deg_fdr_column,
+        fdr_threshold=fdr_threshold,
+        min_training_donors=min_training_donors,
+        min_evaluable_donors=min_evaluable_donors,
+        top_k=top_k,
+        bootstrap_iterations=bootstrap_iterations,
+        bootstrap_seed=bootstrap_seed,
+        gene_symbol=gene_symbol,
+    )
+    candidate_entry: dict[str, Any] = {
+        "candidate": {
+            "gene_symbol": gene_symbol,
+            "ensembl_id": ensembl_id,
+            "intervention_type": invocation_route,
+            "davf_provenance": _davf_provenance_from_run(e2e_report, ensembl_id),
+        },
+        "observed_direction": observed_direction,
+        "unperturbed_quality_status": (
+            candidate_quality["status"] if candidate_quality is not None else config.quality_status
+        ),
+        "unperturbed_quality_source": (
+            "extract_unperturbed_quality_from_h5ad"
+            if candidate_quality is not None or config.quality_payload is not None
+            else "hand_filled"
+        ),
+        "pvalue_source": config.pvalue_kind,
+        "runs": run_records,
+    }
+    if candidate_pvalue is not None:
+        candidate_entry["candidate_pvalue"] = candidate_pvalue
+    if candidate_quality is not None:
+        candidate_entry["unperturbed_quality"] = dict(candidate_quality)
+    elif config.quality_payload is not None:
+        candidate_entry["unperturbed_quality"] = dict(config.quality_payload)
+    return candidate_entry
+
+
 def build_eval_input_payload(
     e2e_report: Mapping[str, Any],
     *,
@@ -383,215 +682,61 @@ def build_eval_input_payload(
     lineage so formal reports can prove which design the statistics used.
     """
 
-    if null_distribution_path is None and null_distribution_manifest_path is None:
-        raise EvalAssemblyError("null_distribution_path or null_distribution_manifest_path must be supplied")
-    if null_distribution_path is not None and null_distribution_manifest_path is not None:
-        raise EvalAssemblyError("provide only one null distribution source")
-    if cohort_pairing is not None and str(cohort_pairing).strip() not in VALID_COHORT_PAIRINGS:
-        raise EvalAssemblyError(f"cohort_pairing must be one of {VALID_COHORT_PAIRINGS}")
-    if unperturbed_quality is not None and candidate_unperturbed_quality is not None:
-        raise EvalAssemblyError("provide either unperturbed_quality or candidate_unperturbed_quality, not both")
-    if candidate_unperturbed_quality is not None:
-        for ensembl_id, payload in candidate_unperturbed_quality.items():
-            _validate_quality_payload(payload, label=f"candidate_unperturbed_quality[{ensembl_id}]")
-    mode = str(evaluation_mode).strip().lower()
-    if mode not in _VALID_EVALUATION_MODES:
-        raise EvalAssemblyError(f"evaluation_mode must be one of {sorted(_VALID_EVALUATION_MODES)}")
-    quality_payload: Mapping[str, Any] | None = None
-    if unperturbed_quality is not None:
-        quality_payload = _validate_quality_payload(unperturbed_quality, label="unperturbed_quality")
-        unperturbed_quality_status = str(quality_payload["status"])
-    if unperturbed_quality_status not in _VALID_QUALITY:
-        raise EvalAssemblyError(f"unperturbed_quality_status must be one of {_VALID_QUALITY}")
-    if mode == "formal":
-        if uniform_candidate_pvalue is not None or candidate_pvalues is not None:
-            raise EvalAssemblyError(
-                "formal evaluation_mode rejects uniform_candidate_pvalue and external candidate_pvalues; "
-                "candidate p must be aggregated from empirical null runs after extraction"
-            )
-        if quality_payload is None and candidate_unperturbed_quality is None:
-            raise EvalAssemblyError(
-                "formal evaluation_mode requires unperturbed_quality extracted from h5ad; "
-                "hand-filled unperturbed_quality_status is not accepted"
-            )
-        pvalue_source = None
-        pvalue_kind = "empirical_pending_extraction"
-        evidence_class = "empirical_null"
-    else:
-        pvalue_source = candidate_pvalues
-        if pvalue_source is None:
-            if uniform_candidate_pvalue is None:
-                raise EvalAssemblyError(
-                    "engineering evaluation_mode still needs candidate p-values (table or uniform); "
-                    "the E2E report does not carry empirical null calibration"
-                )
-            if not math.isfinite(uniform_candidate_pvalue) or not 0.0 <= uniform_candidate_pvalue <= 1.0:
-                raise EvalAssemblyError("uniform candidate p-value must be within [0, 1]")
-            pvalue_kind = "uniform"
-        else:
-            pvalue_kind = "external_table"
-        evidence_class = "synthetic"
-
-    deg_path = str(Path(deg_table_path).expanduser().resolve(strict=True))
-    null_path = (
-        None if null_distribution_path is None else str(Path(null_distribution_path).expanduser().resolve(strict=True))
+    config = _validate_eval_mode_inputs(
+        null_distribution_path=null_distribution_path,
+        null_distribution_manifest_path=null_distribution_manifest_path,
+        cohort_pairing=cohort_pairing,
+        unperturbed_quality=unperturbed_quality,
+        candidate_unperturbed_quality=candidate_unperturbed_quality,
+        unperturbed_quality_status=unperturbed_quality_status,
+        evaluation_mode=evaluation_mode,
+        candidate_pvalues=candidate_pvalues,
+        uniform_candidate_pvalue=uniform_candidate_pvalue,
     )
-    null_manifest_path = (
-        None
-        if null_distribution_manifest_path is None
-        else str(Path(null_distribution_manifest_path).expanduser().resolve(strict=True))
+    deg_path, null_path, null_manifest_path = _resolve_eval_paths(
+        deg_table_path, null_distribution_path, null_distribution_manifest_path
     )
-    if null_path is not None:
-        try:
-            load_null_distribution_manifest(null_path, required_count=1)
-        except (OSError, ValueError) as exc:
-            raise EvalAssemblyError(
-                f"legacy null_distribution_path must contain non-empty finite values: {null_path}: {exc}"
-            ) from exc
 
     candidates: list[dict[str, Any]] = []
     for run in e2e_report.get("perturbgen_runs", []):
-        gene_symbol = str(run.get("gene_symbol", "")).strip()
-        ensembl_id = str(run.get("ensembl_id", "")).strip()
-        output_root = run.get("output_root")
-        if not gene_symbol or not ensembl_id or not output_root:
-            raise EvalAssemblyError("each perturbgen run needs gene_symbol, ensembl_id and output_root")
-        prepare_root = run.get("prepare_root")
-        if not isinstance(prepare_root, (str, Path)) or not str(prepare_root).strip():
-            raise EvalAssemblyError(f"PerturbGen run for {ensembl_id} must declare prepare_root")
-        artifacts = resolve_run_artifacts(
-            output_root,
-            gene_symbol,
-            prepare_root=prepare_root,
-        )
-        # Recover the observed direction recorded by the passing direction gate.
-        invocation = _passing_invocation(e2e_report, ensembl_id)
-        observed_direction = invocation.get("candidate", {}).get("observed_direction")
-        if observed_direction not in ("up", "down"):
-            raise EvalAssemblyError(f"invocation for {ensembl_id} has no recorded observed_direction")
-        invocation_route = str(invocation.get("intervention_type", "")).strip().upper()
-        if invocation_route not in _VALID_INTERVENTION_TYPES:
-            raise EvalAssemblyError(f"invocation for {ensembl_id} must declare intervention_type KO or KD")
-        run_route = str(run.get("intervention_type", "")).strip().upper()
-        if run_route not in _VALID_INTERVENTION_TYPES:
-            raise EvalAssemblyError(f"PerturbGen run for {ensembl_id} must declare intervention_type KO or KD")
-        if run_route != invocation_route:
-            raise EvalAssemblyError(
-                f"PerturbGen run route does not match passing invocation for {ensembl_id}: "
-                f"{run_route} != {invocation_route}"
-            )
-        if pvalue_source is not None:
-            if ensembl_id not in pvalue_source:
-                raise EvalAssemblyError(f"no candidate p-value provided for {ensembl_id} ({gene_symbol})")
-            candidate_pvalue = float(pvalue_source[ensembl_id])
-        elif mode == "formal":
-            candidate_pvalue = None
-        else:
-            assert uniform_candidate_pvalue is not None
-            candidate_pvalue = float(uniform_candidate_pvalue)
-        candidate_quality: Mapping[str, Any] | None = None
-        if candidate_unperturbed_quality is not None:
-            if ensembl_id not in candidate_unperturbed_quality:
-                raise EvalAssemblyError(f"candidate_unperturbed_quality is missing {ensembl_id} ({gene_symbol})")
-            candidate_quality = candidate_unperturbed_quality[ensembl_id]
-
-        run_records: list[dict[str, Any]] = []
-        for path_kind, path_artifacts in artifacts.items():
-            for artifact in path_artifacts:
-                run_records.append(
-                    {
-                        "path": path_kind,
-                        "mode": artifact.mode,
-                        "seed": artifact.seed,
-                        "output_h5ad": artifact.path,
-                        "h5ad_provenance": {
-                            "stage_manifest": artifact.stage_manifest,
-                            "tokenise_stage_manifest": artifact.tokenise_stage_manifest,
-                            "sha256": artifact.sha256,
-                            "stage": path_kind,
-                            "fingerprint": artifact.fingerprint,
-                        },
-                        "donor_obs_column": donor_obs_column,
-                        "var_gene_column": var_gene_column,
-                        "deg_table_path": deg_path,
-                        "target_gene": gene_symbol,
-                        "deg_donor_column": deg_donor_column,
-                        "deg_gene_column": deg_gene_column,
-                        "deg_effect_column": deg_effect_column,
-                        "deg_fdr_column": deg_fdr_column,
-                        "fdr_threshold": fdr_threshold,
-                        "min_training_donors": min_training_donors,
-                        "min_evaluable_donors": min_evaluable_donors,
-                        "top_k": top_k,
-                        "bootstrap_iterations": bootstrap_iterations,
-                        # The perturb artifact seed is the only reproducible
-                        # default available from N-05's manifest-bound run;
-                        # an explicit caller override remains deterministic
-                        # and is recorded as the actual extractor input.
-                        "bootstrap_seed": artifact.seed if bootstrap_seed is None else bootstrap_seed,
-                    }
-                )
-                if null_path is not None:
-                    run_records[-1]["null_distribution_path"] = null_path
-                else:
-                    if null_manifest_path is None:
-                        raise EvalAssemblyError("null distribution manifest path is missing")
-                    try:
-                        distribution = load_null_distribution_manifest(
-                            null_manifest_path,
-                            candidate_ensembl_id=ensembl_id,
-                            path_name=path_kind,
-                            mode=artifact.mode,
-                            seed=artifact.seed,
-                        )
-                    except (OSError, ValueError) as exc:
-                        raise EvalAssemblyError(
-                            f"null distribution manifest does not match {ensembl_id}/{path_kind}/"
-                            f"{artifact.mode}/{artifact.seed}: {exc}"
-                        ) from exc
-                    run_records[-1]["null_distribution"] = list(distribution["values"])
-                    run_records[-1]["null_distribution_manifest_path"] = null_manifest_path
         candidates.append(
-            {
-                "candidate": {
-                    "gene_symbol": gene_symbol,
-                    "ensembl_id": ensembl_id,
-                    "intervention_type": invocation_route,
-                    "davf_provenance": _davf_provenance_from_run(e2e_report, ensembl_id),
-                },
-                "observed_direction": observed_direction,
-                "unperturbed_quality_status": (
-                    candidate_quality["status"] if candidate_quality is not None else unperturbed_quality_status
-                ),
-                "unperturbed_quality_source": (
-                    "extract_unperturbed_quality_from_h5ad"
-                    if candidate_quality is not None or quality_payload is not None
-                    else "hand_filled"
-                ),
-                "pvalue_source": pvalue_kind,
-                "runs": run_records,
-            }
+            _assemble_eval_candidate(
+                e2e_report,
+                run,
+                config,
+                uniform_candidate_pvalue,
+                candidate_unperturbed_quality,
+                deg_path=deg_path,
+                null_path=null_path,
+                null_manifest_path=null_manifest_path,
+                donor_obs_column=donor_obs_column,
+                var_gene_column=var_gene_column,
+                deg_donor_column=deg_donor_column,
+                deg_gene_column=deg_gene_column,
+                deg_effect_column=deg_effect_column,
+                deg_fdr_column=deg_fdr_column,
+                fdr_threshold=fdr_threshold,
+                min_training_donors=min_training_donors,
+                min_evaluable_donors=min_evaluable_donors,
+                top_k=top_k,
+                bootstrap_iterations=bootstrap_iterations,
+                bootstrap_seed=bootstrap_seed,
+            )
         )
-        if candidate_pvalue is not None:
-            candidates[-1]["candidate_pvalue"] = candidate_pvalue
-        if candidate_quality is not None:
-            candidates[-1]["unperturbed_quality"] = dict(candidate_quality)
-        elif quality_payload is not None:
-            candidates[-1]["unperturbed_quality"] = dict(quality_payload)
 
     if not candidates:
         raise EvalAssemblyError("no evaluable perturbgen runs found in the E2E report")
     eval_root: dict[str, Any] = {
         "schema_version": EVAL_INPUT_SCHEMA_VERSION,
         "run_id": run_id or f"e2e-{len(candidates)}-candidates",
-        "evaluation_mode": mode,
-        "evidence_class": evidence_class,
-        "pvalue_source": pvalue_kind,
+        "evaluation_mode": config.mode,
+        "evidence_class": config.evidence_class,
+        "pvalue_source": config.pvalue_kind,
         "contract": {
             "schema_version": EVAL_INPUT_SCHEMA_VERSION,
-            "evaluation_mode": mode,
-            "evidence_class": evidence_class,
-            "pvalue_source": pvalue_kind,
+            "evaluation_mode": config.mode,
+            "evidence_class": config.evidence_class,
+            "pvalue_source": config.pvalue_kind,
         },
         "candidates": candidates,
     }

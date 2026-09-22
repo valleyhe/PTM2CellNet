@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
 
@@ -101,6 +102,199 @@ def _iter_files(dataset: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
                 yield item
 
 
+@dataclass(frozen=True)
+class _FileCheckContext:
+    """Immutable bundle of the validate_manifest options used per file entry."""
+
+    manifest_path: Optional[Union[str, Path]]
+    root_dir: Optional[Union[str, Path]]
+    check_files: bool
+    verify_hashes: bool
+    profile: Optional[str]
+    profile_required_ids: frozenset
+
+
+def _activate_profile(
+    profiles_raw: Any,
+    profile: Optional[str],
+    errors: List[str],
+) -> set:
+    """Resolve the P1-04 profile block into the set of required dataset ids."""
+
+    if profile is None:
+        return set()
+    if not isinstance(profiles_raw, Mapping):
+        errors.append(f"manifest has no profiles declared; cannot activate profile {profile!r}")
+        return set()
+    profile_spec = profiles_raw.get(profile)
+    if not isinstance(profile_spec, Mapping):
+        errors.append(
+            f"profile {profile!r} is not declared in manifest.profiles; "
+            f"available: {sorted(str(k) for k in profiles_raw.keys())}"
+        )
+        return set()
+    profile_required_ids: set = set()
+    required_ids = profile_spec.get("required_datasets")
+    if not isinstance(required_ids, list) or not all(isinstance(item, str) for item in required_ids):
+        errors.append(f"profile {profile!r}.required_datasets must be a non-empty list of dataset ids")
+    else:
+        profile_required_ids = set(required_ids)
+    optional_ids = profile_spec.get("optional_datasets", [])
+    if not isinstance(optional_ids, list) or not all(isinstance(item, str) for item in optional_ids):
+        errors.append(f"profile {profile!r}.optional_datasets must be a list of dataset ids")
+    else:
+        overlap = profile_required_ids.intersection(optional_ids)
+        if overlap:
+            errors.append(f"profile {profile!r} lists the same dataset as required and optional: {sorted(overlap)}")
+    return profile_required_ids
+
+
+def _validate_dataset_fields(
+    index: int,
+    dataset: Mapping[str, Any],
+    context: str,
+    errors: List[str],
+) -> str:
+    """Validate one dataset entry's structure and return its resolved id."""
+
+    missing = [key for key in DATASET_REQUIRED_KEYS if key not in dataset]
+    if missing:
+        errors.append(f"{context} missing required keys: {', '.join(missing)}")
+
+    dataset_id = dataset.get("id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        errors.append(f"{context}.id must be a non-empty string")
+        dataset_id = f"<index:{index}>"
+    status = dataset.get("status")
+    if status not in VALID_STATUSES:
+        errors.append(f"{context}.status={status!r} is invalid; expected one of {sorted(VALID_STATUSES)}")
+    _validate_dataset_metadata(dataset, context, errors)
+    return dataset_id
+
+
+def _validate_dataset_metadata(dataset: Mapping[str, Any], context: str, errors: List[str]) -> None:
+    """Validate the source/formats/schema/quality documentation fields."""
+
+    source = _as_mapping(dataset.get("source"), f"{context}.source", errors)
+    if source is not None:
+        for key in ("provider", "access", "license"):
+            if key not in source or not str(source.get(key, "")).strip():
+                errors.append(f"{context}.source.{key} must be documented")
+
+    formats = dataset.get("formats")
+    if not isinstance(formats, list) or not formats or not all(isinstance(item, str) for item in formats):
+        errors.append(f"{context}.formats must be a non-empty list of strings")
+
+    schema = _as_mapping(dataset.get("canonical_schema"), f"{context}.canonical_schema", errors)
+    if schema is not None:
+        required_columns = schema.get("required_columns")
+        if not isinstance(required_columns, list) or not required_columns:
+            errors.append(f"{context}.canonical_schema.required_columns must be a non-empty list")
+
+    quality = _as_mapping(
+        dataset.get("quality_requirements"),
+        f"{context}.quality_requirements",
+        errors,
+    )
+    if quality is not None and ("checks" not in quality or not isinstance(quality.get("checks"), list)):
+        errors.append(f"{context}.quality_requirements.checks must be a list")
+
+
+def _check_dataset_files(
+    ctx: _FileCheckContext,
+    dataset: Mapping[str, Any],
+    dataset_id: str,
+    context: str,
+    errors: List[str],
+    warnings: List[str],
+) -> List[Dict[str, Any]]:
+    """Check one dataset's file entries and build their per-file report rows."""
+
+    file_report: List[Dict[str, Any]] = []
+    # P1-04: profile 激活时，required dataset 的每个文件按 required 语义强制，
+    # 无论 manifest 中的 per-file required 标志如何。
+    profile_forced = dataset_id in ctx.profile_required_ids
+    for file_index, file_entry in enumerate(_iter_files(dataset)):
+        file_context = f"{context}.files[{file_index}]"
+        file_report.append(_check_single_file_entry(ctx, file_entry, file_context, profile_forced, errors, warnings))
+    return file_report
+
+
+def _check_single_file_entry(
+    ctx: _FileCheckContext,
+    file_entry: Mapping[str, Any],
+    file_context: str,
+    profile_forced: bool,
+    errors: List[str],
+    warnings: List[str],
+) -> Dict[str, Any]:
+    """Check one file entry and return its report row (path → presence → hash)."""
+
+    relative_path = file_entry.get("path")
+    required = bool(file_entry.get("required", False)) or profile_forced
+    entry_report: Dict[str, Any] = {
+        "path": relative_path,
+        "required": required,
+        "status": "not_registered",
+    }
+    if relative_path in (None, ""):
+        if required and ctx.check_files:
+            errors.append(f"{file_context} is required but has no path")
+            entry_report["status"] = "missing_path"
+        elif profile_forced:
+            # P1-04: profile 激活时要求本地快照路径存在——无路径即失败，
+            # 不依赖 --check-files（这是"资产齐备"的机器可判定条件）。
+            errors.append(f"{file_context} is required by profile {ctx.profile!r} but has no registered path")
+            entry_report["status"] = "missing_path"
+        else:
+            entry_report["status"] = "not_available"
+        return entry_report
+    if not isinstance(relative_path, str):
+        errors.append(f"{file_context}.path must be a string or null")
+        entry_report["status"] = "invalid_path"
+        return entry_report
+
+    resolved = _resolve_snapshot_path(ctx.manifest_path, ctx.root_dir, relative_path)
+    entry_report["resolved_path"] = str(resolved)
+    if not ctx.check_files:
+        entry_report["status"] = "registered"
+        return entry_report
+    if not resolved.is_file():
+        entry_report["status"] = "missing"
+        message = f"{file_context} snapshot not found: {relative_path}"
+        (errors if required else warnings).append(message)
+        return entry_report
+
+    actual_hash = sha256_file(resolved)
+    entry_report["status"] = "present"
+    entry_report["sha256_actual"] = actual_hash
+    expected_hash = file_entry.get("sha256")
+    _check_file_hash(file_context, expected_hash, actual_hash, ctx.verify_hashes, entry_report, errors, warnings)
+    return entry_report
+
+
+def _check_file_hash(
+    file_context: str,
+    expected_hash: Any,
+    actual_hash: str,
+    verify_hashes: bool,
+    entry_report: Dict[str, Any],
+    errors: List[str],
+    warnings: List[str],
+) -> None:
+    """Compare a present snapshot against its recorded sha256 entry."""
+
+    if verify_hashes:
+        if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+            errors.append(f"{file_context}.sha256 must be a 64-character hash when verifying")
+            entry_report["status"] = "missing_hash"
+        elif expected_hash.lower() != actual_hash:
+            errors.append(f"{file_context} SHA-256 mismatch: expected {expected_hash}, got {actual_hash}")
+            entry_report["status"] = "hash_mismatch"
+    elif expected_hash and str(expected_hash).lower() != actual_hash:
+        warnings.append(f"{file_context} SHA-256 differs from the recorded snapshot")
+
+
 def validate_manifest(
     manifest: Mapping[str, Any],
     *,
@@ -143,35 +337,17 @@ def validate_manifest(
         datasets = datasets_raw
 
     # --- P1-04: profile activation -----------------------------------------
-    profiles_raw = manifest.get("profiles")
-    profile_spec: Optional[Mapping[str, Any]] = None
-    profile_required_ids: set = set()
-    if profile is not None:
-        if not isinstance(profiles_raw, Mapping):
-            errors.append(f"manifest has no profiles declared; cannot activate profile {profile!r}")
-        else:
-            profile_spec = profiles_raw.get(profile)
-            if not isinstance(profile_spec, Mapping):
-                errors.append(
-                    f"profile {profile!r} is not declared in manifest.profiles; "
-                    f"available: {sorted(str(k) for k in profiles_raw.keys())}"
-                )
-            else:
-                required_ids = profile_spec.get("required_datasets")
-                if not isinstance(required_ids, list) or not all(isinstance(item, str) for item in required_ids):
-                    errors.append(f"profile {profile!r}.required_datasets must be a non-empty list of dataset ids")
-                else:
-                    profile_required_ids = set(required_ids)
-                optional_ids = profile_spec.get("optional_datasets", [])
-                if not isinstance(optional_ids, list) or not all(isinstance(item, str) for item in optional_ids):
-                    errors.append(f"profile {profile!r}.optional_datasets must be a list of dataset ids")
-                else:
-                    overlap = profile_required_ids.intersection(optional_ids)
-                    if overlap:
-                        errors.append(
-                            f"profile {profile!r} lists the same dataset as required and optional: {sorted(overlap)}"
-                        )
+    profile_required_ids = _activate_profile(manifest.get("profiles"), profile, errors)
     # -----------------------------------------------------------------------
+
+    ctx = _FileCheckContext(
+        manifest_path=manifest_path,
+        root_dir=root_dir,
+        check_files=check_files,
+        verify_hashes=verify_hashes,
+        profile=profile,
+        profile_required_ids=frozenset(profile_required_ids),
+    )
 
     seen_ids = set()
     dataset_reports: List[Dict[str, Any]] = []
@@ -182,112 +358,17 @@ def validate_manifest(
         if dataset is None:
             continue
 
-        missing = [key for key in DATASET_REQUIRED_KEYS if key not in dataset]
-        if missing:
-            errors.append(f"{context} missing required keys: {', '.join(missing)}")
-
-        dataset_id = dataset.get("id")
-        if not isinstance(dataset_id, str) or not dataset_id.strip():
-            errors.append(f"{context}.id must be a non-empty string")
-            dataset_id = f"<index:{index}>"
-        elif dataset_id in seen_ids:
+        dataset_id = _validate_dataset_fields(index, dataset, context, errors)
+        if dataset_id in seen_ids:
             errors.append(f"duplicate dataset id: {dataset_id}")
         seen_ids.add(dataset_id)
         datasets_by_id[dataset_id] = dataset
 
-        status = dataset.get("status")
-        if status not in VALID_STATUSES:
-            errors.append(f"{context}.status={status!r} is invalid; expected one of {sorted(VALID_STATUSES)}")
-
-        source = _as_mapping(dataset.get("source"), f"{context}.source", errors)
-        if source is not None:
-            for key in ("provider", "access", "license"):
-                if key not in source or not str(source.get(key, "")).strip():
-                    errors.append(f"{context}.source.{key} must be documented")
-
-        formats = dataset.get("formats")
-        if not isinstance(formats, list) or not formats or not all(isinstance(item, str) for item in formats):
-            errors.append(f"{context}.formats must be a non-empty list of strings")
-
-        schema = _as_mapping(dataset.get("canonical_schema"), f"{context}.canonical_schema", errors)
-        if schema is not None:
-            required_columns = schema.get("required_columns")
-            if not isinstance(required_columns, list) or not required_columns:
-                errors.append(f"{context}.canonical_schema.required_columns must be a non-empty list")
-
-        quality = _as_mapping(
-            dataset.get("quality_requirements"),
-            f"{context}.quality_requirements",
-            errors,
-        )
-        if quality is not None:
-            if "checks" not in quality or not isinstance(quality.get("checks"), list):
-                errors.append(f"{context}.quality_requirements.checks must be a list")
-
-        file_report: List[Dict[str, Any]] = []
-        # P1-04: profile 激活时，required dataset 的每个文件按 required 语义强制，
-        # 无论 manifest 中的 per-file required 标志如何。
-        profile_forced = dataset_id in profile_required_ids
-        for file_index, file_entry in enumerate(_iter_files(dataset)):
-            file_context = f"{context}.files[{file_index}]"
-            relative_path = file_entry.get("path")
-            required = bool(file_entry.get("required", False)) or profile_forced
-            entry_report: Dict[str, Any] = {
-                "path": relative_path,
-                "required": required,
-                "status": "not_registered",
-            }
-            if relative_path in (None, ""):
-                if required and check_files:
-                    errors.append(f"{file_context} is required but has no path")
-                    entry_report["status"] = "missing_path"
-                elif profile_forced:
-                    # P1-04: profile 激活时要求本地快照路径存在——无路径即失败，
-                    # 不依赖 --check-files（这是"资产齐备"的机器可判定条件）。
-                    errors.append(f"{file_context} is required by profile {profile!r} but has no registered path")
-                    entry_report["status"] = "missing_path"
-                else:
-                    entry_report["status"] = "not_available"
-                file_report.append(entry_report)
-                continue
-            if not isinstance(relative_path, str):
-                errors.append(f"{file_context}.path must be a string or null")
-                entry_report["status"] = "invalid_path"
-                file_report.append(entry_report)
-                continue
-
-            resolved = _resolve_snapshot_path(manifest_path, root_dir, relative_path)
-            entry_report["resolved_path"] = str(resolved)
-            if not check_files:
-                entry_report["status"] = "registered"
-                file_report.append(entry_report)
-                continue
-            if not resolved.is_file():
-                entry_report["status"] = "missing"
-                message = f"{file_context} snapshot not found: {relative_path}"
-                (errors if required else warnings).append(message)
-                file_report.append(entry_report)
-                continue
-
-            actual_hash = sha256_file(resolved)
-            entry_report["status"] = "present"
-            entry_report["sha256_actual"] = actual_hash
-            expected_hash = file_entry.get("sha256")
-            if verify_hashes:
-                if not isinstance(expected_hash, str) or len(expected_hash) != 64:
-                    errors.append(f"{file_context}.sha256 must be a 64-character hash when verifying")
-                    entry_report["status"] = "missing_hash"
-                elif expected_hash.lower() != actual_hash:
-                    errors.append(f"{file_context} SHA-256 mismatch: expected {expected_hash}, got {actual_hash}")
-                    entry_report["status"] = "hash_mismatch"
-            elif expected_hash and str(expected_hash).lower() != actual_hash:
-                warnings.append(f"{file_context} SHA-256 differs from the recorded snapshot")
-            file_report.append(entry_report)
-
+        file_report = _check_dataset_files(ctx, dataset, dataset_id, context, errors, warnings)
         dataset_reports.append(
             {
                 "id": dataset_id,
-                "status": status,
+                "status": dataset.get("status"),
                 "category": dataset.get("category"),
                 "file_checks": file_report,
             }

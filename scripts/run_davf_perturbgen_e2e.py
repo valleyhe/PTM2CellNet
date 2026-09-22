@@ -47,7 +47,7 @@ from dataclasses import fields
 import json
 from pathlib import Path
 import sys
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 import yaml
 
@@ -536,29 +536,11 @@ def _downstream_delta_frame(output_h5ad: str | Path, *, donor_obs_column: str) -
     return pd.DataFrame(delta_by_donor)
 
 
-def _assemble_downstream_target_evaluation(
-    payload: Mapping[str, Any],
-    *,
-    sidecar_path: str | Path,
+def _validate_candidate_sidecar_binding(
+    sidecar: Any,
     raw_candidates: Sequence[dict[str, Any]],
-    donor_obs_column: str,
-) -> dict[str, Any]:
-    """Evaluate the sidecar targets against every gated candidate's result h5ad."""
-
-    import pandas as pd
-
-    from src.integration.perturbgen.downstream_target_evaluation import (
-        DownstreamTargetSidecar,
-        driver_target_gate_to_payload,
-        evaluate_driver_target_gate,
-        evaluate_target_set_deltas,
-        evaluation_to_payload,
-        load_downstream_target_sidecar,
-    )
-    from src.integration.perturbgen.eval_assembly import resolve_run_artifacts
-
-    resolved_sidecar_path = Path(sidecar_path).expanduser().resolve(strict=True)
-    sidecar = load_downstream_target_sidecar(resolved_sidecar_path)
+) -> dict[str, tuple[int, dict[str, Any], str]]:
+    """Cross-check every candidate spec row against the downstream sidecar sources."""
 
     candidate_records: dict[str, tuple[int, dict[str, Any], str]] = {}
     for row, candidate in enumerate(raw_candidates):
@@ -602,6 +584,14 @@ def _assemble_downstream_target_evaluation(
         missing = sorted(candidate_ids - sidecar_id_set)
         extra = sorted(sidecar_id_set - candidate_ids)
         raise ValueError(f"downstream sidecar/spec source mismatch: missing={missing}, extra={extra}")
+    return candidate_records
+
+
+def _collect_gated_candidates(
+    payload: Mapping[str, Any],
+    candidate_records: dict[str, tuple[int, dict[str, Any], str]],
+) -> list[tuple[str, int, dict[str, Any], str, Mapping[str, Any]]]:
+    """Collect the passing candidates with their invocation and direction gate."""
 
     preparations = payload.get("candidates")
     if not isinstance(preparations, list):
@@ -639,6 +629,15 @@ def _assemble_downstream_target_evaluation(
         gated_ids.add(ensembl_id)
     if not gated:
         raise ValueError("downstream target evaluation requires at least one gated candidate")
+    return gated
+
+
+def _collect_result_runs(
+    payload: Mapping[str, Any],
+    candidate_records: dict[str, tuple[int, dict[str, Any], str]],
+    gated_ids: set[str],
+) -> dict[str, Mapping[str, Any]]:
+    """Index the completed perturbgen runs by canonical Ensembl ID."""
 
     raw_runs = payload.get("perturbgen_runs")
     if not isinstance(raw_runs, list) or not raw_runs:
@@ -668,6 +667,88 @@ def _assemble_downstream_target_evaluation(
             "E2E perturbgen runs do not cover every gated candidate: "
             f"missing={sorted(gated_ids - set(runs_by_ensembl))}"
         )
+    return runs_by_ensembl
+
+
+def _load_candidate_delta_frames(
+    artifacts: Mapping[str, Any],
+    ensembl_id: str,
+    donor_obs_column: str,
+) -> tuple[Any, list[dict[str, Any]], list[str]]:
+    """Load every resolved result h5ad into one aligned delta frame plus lineage."""
+
+    frames: list[Any] = []
+    artifact_lineage: list[dict[str, Any]] = []
+    result_paths: list[str] = []
+    gene_index: tuple[object, ...] | None = None
+    for path_kind in sorted(artifacts):
+        for artifact in sorted(
+            artifacts[path_kind],
+            key=lambda item: (str(item.mode), int(item.seed), str(item.path)),
+        ):
+            result_path = Path(artifact.path).expanduser().resolve(strict=True)
+            try:
+                frame = _downstream_delta_frame(result_path, donor_obs_column=donor_obs_column)
+            except (KeyError, OSError, ValueError) as exc:
+                raise ValueError(
+                    f"downstream result {result_path} must provide readable donor obs, pred_counts layer and X: {exc}"
+                ) from exc
+            current_index = tuple(frame.index.tolist())
+            if gene_index is None:
+                gene_index = current_index
+            elif set(current_index) != set(gene_index):
+                raise ValueError(f"resolved result h5ad gene sets differ for candidate {ensembl_id}")
+            frame = frame.reindex(gene_index)
+            frame.columns = [
+                f"{path_kind}|mode={artifact.mode}|seed={artifact.seed}|donor={donor}" for donor in frame.columns
+            ]
+            frames.append(frame)
+            result_path_text = str(result_path)
+            result_paths.append(result_path_text)
+            artifact_lineage.append(
+                {
+                    "path": path_kind,
+                    "mode": str(artifact.mode),
+                    "seed": int(artifact.seed),
+                    "result_h5ad": result_path_text,
+                    "stage_manifest": str(Path(artifact.stage_manifest).expanduser().resolve(strict=True)),
+                    "tokenise_stage_manifest": str(
+                        Path(artifact.tokenise_stage_manifest).expanduser().resolve(strict=True)
+                    ),
+                }
+            )
+    if not frames:
+        raise ValueError(f"no resolved result h5ad artifacts for gated candidate {ensembl_id}")
+    import pandas as pd
+
+    return pd.concat(frames, axis=1), artifact_lineage, result_paths
+
+
+def _assemble_downstream_target_evaluation(
+    payload: Mapping[str, Any],
+    *,
+    sidecar_path: str | Path,
+    raw_candidates: Sequence[dict[str, Any]],
+    donor_obs_column: str,
+) -> dict[str, Any]:
+    """Evaluate the sidecar targets against every gated candidate's result h5ad."""
+
+    from src.integration.perturbgen.downstream_target_evaluation import (
+        DownstreamTargetSidecar,
+        driver_target_gate_to_payload,
+        evaluate_driver_target_gate,
+        evaluate_target_set_deltas,
+        evaluation_to_payload,
+        load_downstream_target_sidecar,
+    )
+    from src.integration.perturbgen.eval_assembly import resolve_run_artifacts
+
+    resolved_sidecar_path = Path(sidecar_path).expanduser().resolve(strict=True)
+    sidecar = load_downstream_target_sidecar(resolved_sidecar_path)
+
+    candidate_records = _validate_candidate_sidecar_binding(sidecar, raw_candidates)
+    gated = _collect_gated_candidates(payload, candidate_records)
+    runs_by_ensembl = _collect_result_runs(payload, candidate_records, {ensembl_id for ensembl_id, *_ in gated})
 
     evaluation_payload: dict[str, Any] | None = None
     driver_target_gates: dict[str, dict[str, Any]] = {}
@@ -687,48 +768,10 @@ def _assemble_downstream_target_evaluation(
             gene_symbol,
             prepare_root=prepare_root,
         )
-        frames: list[Any] = []
-        artifact_lineage: list[dict[str, Any]] = []
-        gene_index: tuple[object, ...] | None = None
-        for path_kind in sorted(artifacts):
-            for artifact in sorted(
-                artifacts[path_kind],
-                key=lambda item: (str(item.mode), int(item.seed), str(item.path)),
-            ):
-                result_path = Path(artifact.path).expanduser().resolve(strict=True)
-                try:
-                    frame = _downstream_delta_frame(result_path, donor_obs_column=donor_obs_column)
-                except (KeyError, OSError, ValueError) as exc:
-                    raise ValueError(
-                        f"downstream result {result_path} must provide readable donor obs, pred_counts layer and X: {exc}"
-                    ) from exc
-                current_index = tuple(frame.index.tolist())
-                if gene_index is None:
-                    gene_index = current_index
-                elif set(current_index) != set(gene_index):
-                    raise ValueError(f"resolved result h5ad gene sets differ for candidate {ensembl_id}")
-                frame = frame.reindex(gene_index)
-                frame.columns = [
-                    f"{path_kind}|mode={artifact.mode}|seed={artifact.seed}|donor={donor}" for donor in frame.columns
-                ]
-                frames.append(frame)
-                result_path_text = str(result_path)
-                all_result_paths.append(result_path_text)
-                artifact_lineage.append(
-                    {
-                        "path": path_kind,
-                        "mode": str(artifact.mode),
-                        "seed": int(artifact.seed),
-                        "result_h5ad": result_path_text,
-                        "stage_manifest": str(Path(artifact.stage_manifest).expanduser().resolve(strict=True)),
-                        "tokenise_stage_manifest": str(
-                            Path(artifact.tokenise_stage_manifest).expanduser().resolve(strict=True)
-                        ),
-                    }
-                )
-        if not frames:
-            raise ValueError(f"no resolved result h5ad artifacts for gated candidate {ensembl_id}")
-        delta_frame = pd.concat(frames, axis=1)
+        delta_frame, artifact_lineage, result_paths = _load_candidate_delta_frames(
+            artifacts, ensembl_id, donor_obs_column
+        )
+        all_result_paths.extend(result_paths)
         source = sidecar.source_by_ensembl(ensembl_id)
         candidate_sidecar = DownstreamTargetSidecar(
             cell_type=sidecar.cell_type,
@@ -784,19 +827,7 @@ def _assemble_downstream_target_evaluation(
     }
 
 
-def _run(args: argparse.Namespace) -> dict[str, Any]:
-    davf_config = _load_davf_config(args.davf_config)
-    context_path, raw_candidates, spec_payload = _load_candidate_spec(args.candidate_spec)
-    admission_rule = spec_payload.get("observed_admission_rule")
-    if not admission_rule:
-        admission_rule = raw_candidates[0].get("observed_admission_rule")
-    significance_required = observed_significance_required(
-        None if admission_rule in {None, ""} else str(admission_rule)
-    )
-    kd_policy = spec_payload.get("kd_policy") or raw_candidates[0].get("kd_policy")
-    if kd_policy == "merged_into_ko_out_of_scope" and str(davf_config.intervention_type).strip().upper() == "KD":
-        raise ValueError("frozen AD kd_policy merged_into_ko_out_of_scope refuses a KD E2E route")
-    proposals = tuple(_build_proposal(candidate, row) for row, candidate in enumerate(raw_candidates))
+def _validate_candidate_direction_fields(raw_candidates: Sequence[dict[str, Any]]) -> None:
     downstream_required = (
         "cell_type",
         "ptm_context",
@@ -812,24 +843,19 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         if not isinstance(candidate["semantic_context"], Mapping):
             raise ValueError(f"candidate {row} semantic_context must be a mapping")
         SemanticContext.from_mapping(candidate["semantic_context"])
-    perturbgen_config: dict[str, Any] | None = None
-    perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None = None
-    perturbgen_pipeline_seed = 0
-    seeds: tuple[int, ...] = ()
-    sensitivity_modes: tuple[PerturbationMode, ...] = ()
-    if args.run_perturbgen:
-        (
-            perturbgen_config,
-            perturbgen_gate0_contract,
-            seeds,
-            sensitivity_modes,
-            perturbgen_pipeline_seed,
-        ) = _resolve_perturbgen_contract(args, context_path)
-    elif args.perturbgen_config is not None:
-        raise ValueError("--perturbgen-config requires --run-perturbgen")
-    statistical_inputs: tuple[Path, Path, Path] | None = None
-    if args.assemble_statistical_evidence:
-        statistical_inputs = _resolve_statistical_evidence_inputs(args, perturbgen_gate0_contract)
+
+
+def _load_context_and_prepare(
+    args: argparse.Namespace,
+    context_path: Path,
+    raw_candidates: Sequence[dict[str, Any]],
+    davf_config: Any,
+    perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None,
+    significance_required: bool,
+    perturbgen_pipeline_seed: int,
+) -> tuple[DAVFPerturbGenOrchestrator, tuple[Any, ...], dict[str, Any] | None]:
+    """Load the context cohort, decode z_0 and prepare all candidate invocations."""
+
     try:
         import anndata as ad
     except ImportError as exc:
@@ -861,6 +887,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     z_0 = scvi_adapter.encode(selected_context)
     orchestrator = DAVFPerturbGenOrchestrator(davf_module=davf)
 
+    proposals = tuple(_build_proposal(candidate, row) for row, candidate in enumerate(raw_candidates))
     preparations = orchestrator.prepare_candidates(
         proposals,
         z_0,
@@ -876,7 +903,20 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         seed=perturbgen_pipeline_seed,
         observed_significance_required=significance_required,
     )
+    return orchestrator, preparations, perturbgen_gate0
 
+
+def _build_initial_payload(
+    *,
+    args: argparse.Namespace,
+    davf_config: Any,
+    admission_rule: Any,
+    significance_required: bool,
+    kd_policy: Any,
+    context_path: Path,
+    preparations: tuple[Any, ...],
+    perturbgen_gate0: Any,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": "davf_perturbgen_e2e/v1",
         "davf_config": str(Path(args.davf_config).expanduser().resolve()),
@@ -903,6 +943,14 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         ]
     if perturbgen_gate0 is not None:
         payload["perturbgen_gate0"] = perturbgen_gate0
+    return payload
+
+
+def _resolve_and_bind_donor_split(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+    perturbgen_config: dict[str, Any] | None,
+) -> None:
     try:
         donor_split = optional_donor_split_from_args(
             train_donors=args.train_donors,
@@ -931,100 +979,187 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             pipeline_section["train_donors"] = list(donor_split.train_donors)
             pipeline_section["held_out_donors"] = list(donor_split.held_out_donors)
 
-    if args.run_perturbgen:
-        runner = PerturbGenRunner(gpu_lock_file=args.gpu_lock_file)
-        base_output = (
-            Path(args.perturbgen_output_root).expanduser().resolve()
-            if args.perturbgen_output_root is not None
-            else (Path(args.output).expanduser().resolve().parent / "perturbgen")
+
+def _execute_perturbgen_stages(
+    args: argparse.Namespace,
+    orchestrator: DAVFPerturbGenOrchestrator,
+    preparations: tuple[Any, ...],
+    payload: dict[str, Any],
+    perturbgen_config: dict[str, Any] | None,
+    seeds: tuple[int, ...],
+    sensitivity_modes: tuple[PerturbationMode, ...],
+) -> None:
+    runner = PerturbGenRunner(gpu_lock_file=args.gpu_lock_file)
+    base_output = (
+        Path(args.perturbgen_output_root).expanduser().resolve()
+        if args.perturbgen_output_root is not None
+        else (Path(args.output).expanduser().resolve().parent / "perturbgen")
+    )
+    gated: list[tuple[Any, PerturbGenInvocation]] = []
+    for preparation in preparations:
+        invocation = preparation.invocation
+        if invocation is not None:
+            gated.append((preparation, invocation))
+    prepare_registry: dict[tuple[str, str], str] = {}
+    prepare_root: Path | None = None
+    if gated:
+        prepare_root = base_output / orchestrator.intervention_type / "_prepare"
+        prepare_plans = build_shared_prepare_plans(
+            cast(dict[str, Any], perturbgen_config),
+            output_root=prepare_root,
+            project_root=PROJECT_ROOT,
         )
-        gated: list[tuple[Any, PerturbGenInvocation]] = []
-        for preparation in preparations:
-            invocation = preparation.invocation
-            if invocation is not None:
-                gated.append((preparation, invocation))
-        prepare_registry: dict[tuple[str, str], str] = {}
-        prepare_root: Path | None = None
-        if gated:
-            prepare_root = base_output / orchestrator.intervention_type / "_prepare"
-            prepare_plans = build_shared_prepare_plans(
-                cast(dict[str, Any], perturbgen_config),
-                output_root=prepare_root,
-                project_root=PROJECT_ROOT,
-            )
-            prepare_results = runner.run_pipeline(prepare_plans, resume=args.resume, dry_run=args.dry_run)
-            payload["perturbgen_prepare"] = {
-                "output_root": str(prepare_root),
-                "stage_names": [plan.name for plan in prepare_plans],
-                "results": to_plain_object(prepare_results),
+        prepare_results = runner.run_pipeline(prepare_plans, resume=args.resume, dry_run=args.dry_run)
+        payload["perturbgen_prepare"] = {
+            "output_root": str(prepare_root),
+            "stage_names": [plan.name for plan in prepare_plans],
+            "results": to_plain_object(prepare_results),
+        }
+        if not args.dry_run:
+            for result in prepare_results:
+                if not isinstance(result, StageExecutionResult):
+                    raise TypeError("non-dry-run prepare stages must return StageExecutionResult objects")
+                for name, path in result.artifacts.items():
+                    prepare_registry[(result.stage, name)] = str(path)
+    for _, invocation in gated:
+        candidate_root = base_output / orchestrator.intervention_type / invocation.ensembl_id
+        stage_results = orchestrator.run_perturbgen(
+            invocation,
+            cast(dict[str, Any], perturbgen_config),
+            runner=runner,
+            output_root=candidate_root,
+            resume=args.resume,
+            dry_run=args.dry_run,
+            project_root=PROJECT_ROOT,
+            seeds=seeds,
+            sensitivity_modes=sensitivity_modes,
+            skip_prepare_stages=True,
+            prepare_artifact_paths=prepare_registry if not args.dry_run else None,
+        )
+        payload["perturbgen_runs"].append(
+            {
+                "intervention_type": invocation.intervention_type,
+                "gene_symbol": invocation.gene_symbol,
+                "ensembl_id": invocation.ensembl_id,
+                "output_root": str(candidate_root),
+                "prepare_root": str(prepare_root) if prepare_root is not None else None,
+                "stages": to_plain_object(stage_results),
             }
-            if not args.dry_run:
-                for result in prepare_results:
-                    if not isinstance(result, StageExecutionResult):
-                        raise TypeError("non-dry-run prepare stages must return StageExecutionResult objects")
-                    for name, path in result.artifacts.items():
-                        prepare_registry[(result.stage, name)] = str(path)
-        for _, invocation in gated:
-            candidate_root = base_output / orchestrator.intervention_type / invocation.ensembl_id
-            stage_results = orchestrator.run_perturbgen(
-                invocation,
-                cast(dict[str, Any], perturbgen_config),
-                runner=runner,
-                output_root=candidate_root,
-                resume=args.resume,
-                dry_run=args.dry_run,
-                project_root=PROJECT_ROOT,
-                seeds=seeds,
-                sensitivity_modes=sensitivity_modes,
-                skip_prepare_stages=True,
-                prepare_artifact_paths=prepare_registry if not args.dry_run else None,
-            )
-            payload["perturbgen_runs"].append(
-                {
-                    "intervention_type": invocation.intervention_type,
-                    "gene_symbol": invocation.gene_symbol,
-                    "ensembl_id": invocation.ensembl_id,
-                    "output_root": str(candidate_root),
-                    "prepare_root": str(prepare_root) if prepare_root is not None else None,
-                    "stages": to_plain_object(stage_results),
-                }
-            )
+        )
+
+
+def _bind_statistical_evidence(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+    statistical_inputs: tuple[Path, Path, Path],
+    perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None,
+) -> None:
+    assert perturbgen_gate0_contract is not None
+    spec, _ = perturbgen_gate0_contract
+    deg_table_path, null_distribution_manifest_path, statistical_dir = statistical_inputs
+    payload["statistical_evidence"] = _assemble_statistical_evidence(
+        payload,
+        deg_table_path=deg_table_path,
+        null_distribution_manifest_path=null_distribution_manifest_path,
+        output_dir=statistical_dir,
+        donor_obs_column=spec.donor_col,
+        cohort_pairing=spec.pairing,
+        deg_donor_column=args.deg_donor_column,
+        deg_gene_column=args.deg_gene_column,
+        deg_effect_column=args.deg_effect_column,
+        deg_fdr_column=args.deg_fdr_column,
+    )
+
+
+def _bind_downstream_target_evaluation(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+    raw_candidates: Sequence[dict[str, Any]],
+    perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None,
+) -> None:
+    downstream_sidecar_path = getattr(args, "downstream_target_sidecar", None)
+    if downstream_sidecar_path is None:
+        return
+    if not args.run_perturbgen:
+        raise ValueError("--downstream-target-sidecar requires --run-perturbgen")
+    if args.dry_run:
+        raise ValueError(
+            "--downstream-target-sidecar requires real PerturbGen result h5ad files; --dry-run cannot evaluate"
+        )
+    if perturbgen_gate0_contract is None:
+        raise ValueError("downstream target evaluation requires the Gate-0 data spec of this run")
+    payload["downstream_target_evaluation"] = _assemble_downstream_target_evaluation(
+        payload,
+        sidecar_path=downstream_sidecar_path,
+        raw_candidates=raw_candidates,
+        donor_obs_column=perturbgen_gate0_contract[0].donor_col,
+    )
+
+
+def _run(args: argparse.Namespace) -> dict[str, Any]:
+    davf_config = _load_davf_config(args.davf_config)
+    context_path, raw_candidates, spec_payload = _load_candidate_spec(args.candidate_spec)
+    admission_rule = spec_payload.get("observed_admission_rule")
+    if not admission_rule:
+        admission_rule = raw_candidates[0].get("observed_admission_rule")
+    significance_required = observed_significance_required(
+        None if admission_rule in {None, ""} else str(admission_rule)
+    )
+    kd_policy = spec_payload.get("kd_policy") or raw_candidates[0].get("kd_policy")
+    if kd_policy == "merged_into_ko_out_of_scope" and str(davf_config.intervention_type).strip().upper() == "KD":
+        raise ValueError("frozen AD kd_policy merged_into_ko_out_of_scope refuses a KD E2E route")
+    _validate_candidate_direction_fields(raw_candidates)
+    perturbgen_config: dict[str, Any] | None = None
+    perturbgen_gate0_contract: tuple[PerturbGenDataSpec, Path] | None = None
+    perturbgen_pipeline_seed = 0
+    seeds: tuple[int, ...] = ()
+    sensitivity_modes: tuple[PerturbationMode, ...] = ()
+    if args.run_perturbgen:
+        (
+            perturbgen_config,
+            perturbgen_gate0_contract,
+            seeds,
+            sensitivity_modes,
+            perturbgen_pipeline_seed,
+        ) = _resolve_perturbgen_contract(args, context_path)
+    elif args.perturbgen_config is not None:
+        raise ValueError("--perturbgen-config requires --run-perturbgen")
+    statistical_inputs: tuple[Path, Path, Path] | None = None
+    if args.assemble_statistical_evidence:
+        statistical_inputs = _resolve_statistical_evidence_inputs(args, perturbgen_gate0_contract)
+
+    orchestrator, preparations, perturbgen_gate0 = _load_context_and_prepare(
+        args,
+        context_path,
+        raw_candidates,
+        davf_config,
+        perturbgen_gate0_contract,
+        significance_required,
+        perturbgen_pipeline_seed,
+    )
+    payload = _build_initial_payload(
+        args=args,
+        davf_config=davf_config,
+        admission_rule=admission_rule,
+        significance_required=significance_required,
+        kd_policy=kd_policy,
+        context_path=context_path,
+        preparations=preparations,
+        perturbgen_gate0=perturbgen_gate0,
+    )
+    _resolve_and_bind_donor_split(args, payload, perturbgen_config)
+
+    if args.run_perturbgen:
+        _execute_perturbgen_stages(
+            args, orchestrator, preparations, payload, perturbgen_config, seeds, sensitivity_modes
+        )
     elif args.dry_run or args.resume:
         raise ValueError("--dry-run/--resume require --run-perturbgen")
 
-    downstream_sidecar_path = getattr(args, "downstream_target_sidecar", None)
-    if downstream_sidecar_path is not None:
-        if not args.run_perturbgen:
-            raise ValueError("--downstream-target-sidecar requires --run-perturbgen")
-        if args.dry_run:
-            raise ValueError(
-                "--downstream-target-sidecar requires real PerturbGen result h5ad files; --dry-run cannot evaluate"
-            )
-        if perturbgen_gate0_contract is None:
-            raise ValueError("downstream target evaluation requires the Gate-0 data spec of this run")
-        payload["downstream_target_evaluation"] = _assemble_downstream_target_evaluation(
-            payload,
-            sidecar_path=downstream_sidecar_path,
-            raw_candidates=raw_candidates,
-            donor_obs_column=perturbgen_gate0_contract[0].donor_col,
-        )
+    _bind_downstream_target_evaluation(args, payload, raw_candidates, perturbgen_gate0_contract)
 
     if statistical_inputs is not None:
-        assert perturbgen_gate0_contract is not None
-        spec, _ = perturbgen_gate0_contract
-        deg_table_path, null_distribution_manifest_path, statistical_dir = statistical_inputs
-        payload["statistical_evidence"] = _assemble_statistical_evidence(
-            payload,
-            deg_table_path=deg_table_path,
-            null_distribution_manifest_path=null_distribution_manifest_path,
-            output_dir=statistical_dir,
-            donor_obs_column=spec.donor_col,
-            cohort_pairing=spec.pairing,
-            deg_donor_column=args.deg_donor_column,
-            deg_gene_column=args.deg_gene_column,
-            deg_effect_column=args.deg_effect_column,
-            deg_fdr_column=args.deg_fdr_column,
-        )
+        _bind_statistical_evidence(args, payload, statistical_inputs, perturbgen_gate0_contract)
 
     return payload
 

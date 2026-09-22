@@ -599,30 +599,31 @@ def _run_identity(run: Mapping[str, Any]) -> tuple[str, str, str]:
     return (str(run.get("path", "")), str(run.get("mode", "")), str(run.get("seed", "")))
 
 
-def _validate_report_against_eval_input(
-    report_manifest: Mapping[str, Any],
-    eval_input: Mapping[str, Any],
-) -> list[str]:
-    """Ensure report replay inputs are the ones supplied in ``eval_input``."""
-
-    report_candidates = report_manifest.get("candidates")
-    eval_candidates = eval_input.get("candidates")
-    if not isinstance(report_candidates, list) or not isinstance(eval_candidates, list):
-        return ["report and eval input candidates must both be lists"]
+def _index_eval_candidates(
+    eval_candidates: list[Any],
+) -> tuple[dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]] | None, list[str]]:
+    """Index eval-input candidates by ensembl_id; a fatal shape error returns None."""
 
     expected_by_id: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]] = {}
     for index, raw_entry in enumerate(eval_candidates):
         if not isinstance(raw_entry, Mapping):
-            return [f"eval input candidate[{index}] must be an object"]
+            return None, [f"eval input candidate[{index}] must be an object"]
         raw_candidate = raw_entry.get("candidate")
         if not isinstance(raw_candidate, Mapping):
-            return [f"eval input candidate[{index}] must declare a candidate object"]
+            return None, [f"eval input candidate[{index}] must declare a candidate object"]
         ensembl_id = str(raw_candidate.get("ensembl_id", "")).strip()
         if not ensembl_id:
-            return [f"eval input candidate[{index}] is missing ensembl_id"]
+            return None, [f"eval input candidate[{index}] is missing ensembl_id"]
         if ensembl_id in expected_by_id:
-            return [f"eval input contains duplicate candidate {ensembl_id}"]
+            return None, [f"eval input contains duplicate candidate {ensembl_id}"]
         expected_by_id[ensembl_id] = (raw_entry, raw_candidate)
+    return expected_by_id, []
+
+
+def _index_report_candidates(
+    report_candidates: list[Any],
+) -> tuple[dict[str, Mapping[str, Any]], list[str]]:
+    """Index report replay candidates by ensembl_id, collecting shape issues."""
 
     actual_by_id: dict[str, Mapping[str, Any]] = {}
     issues: list[str] = []
@@ -642,6 +643,94 @@ def _validate_report_against_eval_input(
             issues.append(f"report contains duplicate candidate {ensembl_id}")
         else:
             actual_by_id[ensembl_id] = raw_entry
+    return actual_by_id, issues
+
+
+def _compare_replay_runs(ensembl_id: str, expected_runs: Any, actual_runs: Any) -> list[str]:
+    """Compare per-run fields between the eval input and the report replay."""
+
+    issues: list[str] = []
+    if not isinstance(expected_runs, list) or not isinstance(actual_runs, list):
+        return [f"{ensembl_id}: report/eval input runs must both be lists"]
+    actual_by_identity: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    for raw_run in actual_runs:
+        if isinstance(raw_run, Mapping):
+            actual_by_identity[_run_identity(raw_run)] = raw_run
+    for index, raw_run in enumerate(expected_runs):
+        if not isinstance(raw_run, Mapping):
+            issues.append(f"{ensembl_id}: eval input run[{index}] must be an object")
+            continue
+        identity = _run_identity(raw_run)
+        actual_run = actual_by_identity.get(identity)
+        if actual_run is None:
+            issues.append(f"{ensembl_id}: report is missing eval input run {identity}")
+            continue
+        for field_name, expected_value in raw_run.items():
+            if field_name not in actual_run:
+                issues.append(f"{ensembl_id} run {identity}: report is missing {field_name}")
+            else:
+                issues.extend(
+                    _compare_replay_values(expected_value, actual_run[field_name], f"{ensembl_id}.run.{field_name}")
+                )
+    if len(expected_runs) != len(actual_runs):
+        issues.append(f"{ensembl_id}: report/eval input run counts differ")
+    return issues
+
+
+def _compare_candidate_replay(
+    ensembl_id: str,
+    expected_entry: Mapping[str, Any],
+    expected_candidate: Mapping[str, Any],
+    actual_entry: Mapping[str, Any],
+    eval_mode: str,
+) -> list[str]:
+    """Compare one candidate's replay fields against its eval-input entry."""
+
+    issues: list[str] = []
+    replay = actual_entry.get("replay")
+    if not isinstance(replay, Mapping):
+        return issues
+    actual_candidate = replay.get("candidate")
+    if not isinstance(actual_candidate, Mapping):
+        return issues
+    for field_name, expected_value in expected_candidate.items():
+        if field_name not in actual_candidate:
+            issues.append(f"{ensembl_id}: report replay candidate is missing {field_name}")
+        else:
+            issues.extend(
+                _compare_replay_values(
+                    expected_value, actual_candidate[field_name], f"{ensembl_id}.candidate.{field_name}"
+                )
+            )
+    for field_name in ("observed_direction", "unperturbed_quality_status"):
+        if expected_entry.get(field_name) != replay.get(field_name):
+            issues.append(f"{ensembl_id}: report replay {field_name} does not match eval input")
+
+    if eval_mode != "formal" and "candidate_pvalue" in expected_entry:
+        if actual_entry.get("candidate_pvalue") != expected_entry.get("candidate_pvalue"):
+            issues.append(f"{ensembl_id}: report candidate_pvalue does not match eval input")
+
+    expected_runs = expected_entry.get("runs")
+    actual_runs = replay.get("runs")
+    issues.extend(_compare_replay_runs(ensembl_id, expected_runs, actual_runs))
+    return issues
+
+
+def _validate_report_against_eval_input(
+    report_manifest: Mapping[str, Any],
+    eval_input: Mapping[str, Any],
+) -> list[str]:
+    """Ensure report replay inputs are the ones supplied in ``eval_input``."""
+
+    report_candidates = report_manifest.get("candidates")
+    eval_candidates = eval_input.get("candidates")
+    if not isinstance(report_candidates, list) or not isinstance(eval_candidates, list):
+        return ["report and eval input candidates must both be lists"]
+
+    expected_by_id, fatal = _index_eval_candidates(eval_candidates)
+    if expected_by_id is None:
+        return fatal
+    actual_by_id, issues = _index_report_candidates(report_candidates)
 
     if set(expected_by_id) != set(actual_by_id):
         issues.append(
@@ -650,60 +739,14 @@ def _validate_report_against_eval_input(
             f"extra={sorted(set(actual_by_id) - set(expected_by_id))}"
         )
 
+    eval_mode = _evaluation_mode(eval_input)
     for ensembl_id, (expected_entry, expected_candidate) in expected_by_id.items():
         actual_entry = actual_by_id.get(ensembl_id)
         if actual_entry is None:
             continue
-        replay = actual_entry.get("replay")
-        if not isinstance(replay, Mapping):
-            continue
-        actual_candidate = replay.get("candidate")
-        if not isinstance(actual_candidate, Mapping):
-            continue
-        for field_name, expected_value in expected_candidate.items():
-            if field_name not in actual_candidate:
-                issues.append(f"{ensembl_id}: report replay candidate is missing {field_name}")
-            else:
-                issues.extend(
-                    _compare_replay_values(
-                        expected_value, actual_candidate[field_name], f"{ensembl_id}.candidate.{field_name}"
-                    )
-                )
-        for field_name in ("observed_direction", "unperturbed_quality_status"):
-            if expected_entry.get(field_name) != replay.get(field_name):
-                issues.append(f"{ensembl_id}: report replay {field_name} does not match eval input")
-
-        if _evaluation_mode(eval_input) != "formal" and "candidate_pvalue" in expected_entry:
-            if actual_entry.get("candidate_pvalue") != expected_entry.get("candidate_pvalue"):
-                issues.append(f"{ensembl_id}: report candidate_pvalue does not match eval input")
-
-        expected_runs = expected_entry.get("runs")
-        actual_runs = replay.get("runs")
-        if not isinstance(expected_runs, list) or not isinstance(actual_runs, list):
-            issues.append(f"{ensembl_id}: report/eval input runs must both be lists")
-            continue
-        actual_by_identity: dict[tuple[str, str, str], Mapping[str, Any]] = {}
-        for raw_run in actual_runs:
-            if isinstance(raw_run, Mapping):
-                actual_by_identity[_run_identity(raw_run)] = raw_run
-        for index, raw_run in enumerate(expected_runs):
-            if not isinstance(raw_run, Mapping):
-                issues.append(f"{ensembl_id}: eval input run[{index}] must be an object")
-                continue
-            identity = _run_identity(raw_run)
-            actual_run = actual_by_identity.get(identity)
-            if actual_run is None:
-                issues.append(f"{ensembl_id}: report is missing eval input run {identity}")
-                continue
-            for field_name, expected_value in raw_run.items():
-                if field_name not in actual_run:
-                    issues.append(f"{ensembl_id} run {identity}: report is missing {field_name}")
-                else:
-                    issues.extend(
-                        _compare_replay_values(expected_value, actual_run[field_name], f"{ensembl_id}.run.{field_name}")
-                    )
-        if len(expected_runs) != len(actual_runs):
-            issues.append(f"{ensembl_id}: report/eval input run counts differ")
+        issues.extend(
+            _compare_candidate_replay(ensembl_id, expected_entry, expected_candidate, actual_entry, eval_mode)
+        )
     return issues
 
 
@@ -1047,6 +1090,154 @@ def _independently_recompute_run(
     return extraction, mismatches
 
 
+def _validate_stage_manifest_binding(
+    path_kind: str,
+    mode: str,
+    seed: int,
+    output_h5ad: Path | None,
+    stage_manifest_path: Path | None,
+    stage_payload: Mapping[str, Any] | None,
+) -> list[str]:
+    """Cross-check the loaded stage manifest against the run declaration."""
+
+    issues: list[str] = []
+    if stage_payload is None:
+        return issues
+    if stage_payload.get("status") != "success":
+        issues.append("stage_manifest status is not success")
+    if stage_payload.get("stage") != path_kind:
+        issues.append("stage_manifest stage does not match run path")
+    artifacts = stage_payload.get("artifacts")
+    outputs = stage_payload.get("outputs")
+    if not isinstance(artifacts, Mapping) or not isinstance(outputs, Mapping):
+        issues.append("stage_manifest must contain artifacts and outputs mappings")
+    elif "result_h5ad" not in artifacts:
+        issues.append("stage_manifest is missing result_h5ad")
+    elif output_h5ad is not None:
+        try:
+            artifact_path = Path(str(artifacts["result_h5ad"])).expanduser()
+            if not artifact_path.is_absolute():
+                artifact_path = stage_manifest_path.parent / artifact_path  # type: ignore[union-attr]
+            if artifact_path.resolve(strict=True) != output_h5ad:
+                issues.append("stage_manifest result_h5ad does not match output_h5ad")
+        except (OSError, ValueError) as exc:
+            issues.append(f"stage_manifest result_h5ad is not readable: {exc}")
+
+    material = stage_payload.get("fingerprint_material")
+    fingerprint_config = material.get("fingerprint_config") if isinstance(material, Mapping) else None
+    raw_stage_seed = material.get("random_seed") if isinstance(material, Mapping) else None
+    if raw_stage_seed is None and isinstance(fingerprint_config, Mapping):
+        raw_stage_seed = fingerprint_config.get("random_seed")
+    try:
+        stage_seed = int(raw_stage_seed) if raw_stage_seed is not None else -1
+    except (TypeError, ValueError):
+        stage_seed = -1
+    if stage_seed != seed:
+        issues.append("stage_manifest random_seed does not match run seed")
+
+    stage_config = fingerprint_config.get("stage_config") if isinstance(fingerprint_config, Mapping) else None
+    perturb_config = stage_config.get("perturb_config") if isinstance(stage_config, Mapping) else None
+    trainer = perturb_config.get("trainer") if isinstance(perturb_config, Mapping) else None
+    if not isinstance(trainer, Mapping):
+        issues.append("stage_manifest is missing perturb trainer configuration")
+    else:
+        if str(trainer.get("perturbation_mode", "")).strip().lower() != mode:
+            issues.append("stage trainer perturbation_mode does not match run mode")
+        sequence = trainer.get("perturbation_sequence")
+        expected_sequence = _PATH_TO_SEQUENCE[path_kind]
+        if sequence != [expected_sequence]:
+            issues.append("stage trainer perturbation_sequence does not match run path")
+    return issues
+
+
+def _validate_output_binding(
+    candidate: FrozenCandidate,
+    path_kind: str,
+    mode: str,
+    output_h5ad: Path | None,
+    manifest: FrozenCohortManifest,
+) -> list[str]:
+    """Check the output h5ad filename binding and its donor coverage."""
+
+    issues: list[str] = []
+    if output_h5ad is None:
+        return issues
+    match = _H5AD_NAME_PATTERN.search(output_h5ad.name)
+    expected_sequence = _PATH_TO_SEQUENCE[path_kind]
+    if match is None:
+        issues.append("output_h5ad name does not carry gene/sequence/mode binding")
+    else:
+        if match.group("gene").upper() != candidate.gene_symbol.upper():
+            issues.append("output_h5ad gene does not match frozen candidate")
+        if match.group("sequence") != expected_sequence:
+            issues.append("output_h5ad sequence does not match frozen path")
+        if match.group("mode").lower() != mode:
+            issues.append("output_h5ad mode does not match run mode")
+    issues.extend(_validate_output_donors(manifest, output_h5ad))
+    return issues
+
+
+def _validate_run_cohort_reference(
+    manifest: FrozenCohortManifest,
+    run: Mapping[str, Any],
+    provenance: Any,
+    eval_input: Mapping[str, Any],
+) -> list[str]:
+    """Validate the declared cohort reference, wherever the run declares it."""
+
+    cohort_source = run if run.get("cohort_h5ad") is not None or run.get("cohort_sha256") is not None else None
+    provenance_source = provenance if isinstance(provenance, Mapping) else None
+    if cohort_source is not None:
+        return _validate_declared_cohort_reference(manifest, cohort_source)
+    if provenance_source is not None and (
+        provenance_source.get("cohort_h5ad") is not None or provenance_source.get("cohort_sha256") is not None
+    ):
+        return _validate_declared_cohort_reference(manifest, provenance_source)
+    if eval_input.get("cohort_h5ad") is not None or eval_input.get("cohort_sha256") is not None:
+        return _validate_declared_cohort_reference(manifest, eval_input)
+    return []
+
+
+def _validate_bound_null_distribution(
+    candidate: FrozenCandidate,
+    path_kind: str,
+    mode: str,
+    seed: int,
+    run: Mapping[str, Any],
+) -> list[str]:
+    """Verify inline nulls equal the manifest-bound null distribution."""
+
+    issues: list[str] = []
+    if run.get("null_distribution_path") is not None:
+        issues.append("legacy unbound null_distribution_path cannot satisfy frozen verification")
+    null_path = run.get("null_distribution_manifest_path")
+    inline_nulls = run.get("null_distribution")
+    if null_path is None or not str(null_path).strip():
+        issues.append("run is missing null_distribution_manifest_path")
+        return issues
+    if not isinstance(inline_nulls, list):
+        issues.append("run is missing manifest-bound null_distribution values")
+        return issues
+    try:
+        from .null_selection import load_null_distribution_manifest
+
+        distribution = load_null_distribution_manifest(
+            str(null_path),
+            candidate_ensembl_id=candidate.ensembl_id,
+            path_name=path_kind,
+            mode=mode,
+            seed=seed,
+            required_count=candidate.matched_nulls,
+        )
+        actual_values = [float(value) for value in inline_nulls]
+        expected_values = [float(value) for value in distribution["values"]]
+        if actual_values != expected_values:
+            issues.append("inline null_distribution does not equal the bound null manifest")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        issues.append(f"bound null distribution is invalid: {exc}")
+    return issues
+
+
 def _validate_frozen_run(
     manifest: FrozenCohortManifest,
     candidate: FrozenCandidate,
@@ -1101,107 +1292,15 @@ def _validate_frozen_run(
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 issues.append(f"stage_manifest cannot be read: {exc}")
 
-    if stage_payload is not None:
-        if stage_payload.get("status") != "success":
-            issues.append("stage_manifest status is not success")
-        if stage_payload.get("stage") != path_kind:
-            issues.append("stage_manifest stage does not match run path")
-        artifacts = stage_payload.get("artifacts")
-        outputs = stage_payload.get("outputs")
-        if not isinstance(artifacts, Mapping) or not isinstance(outputs, Mapping):
-            issues.append("stage_manifest must contain artifacts and outputs mappings")
-        elif "result_h5ad" not in artifacts:
-            issues.append("stage_manifest is missing result_h5ad")
-        elif output_h5ad is not None:
-            try:
-                artifact_path = Path(str(artifacts["result_h5ad"])).expanduser()
-                if not artifact_path.is_absolute():
-                    artifact_path = stage_manifest_path.parent / artifact_path  # type: ignore[union-attr]
-                if artifact_path.resolve(strict=True) != output_h5ad:
-                    issues.append("stage_manifest result_h5ad does not match output_h5ad")
-            except (OSError, ValueError) as exc:
-                issues.append(f"stage_manifest result_h5ad is not readable: {exc}")
-
-        material = stage_payload.get("fingerprint_material")
-        fingerprint_config = material.get("fingerprint_config") if isinstance(material, Mapping) else None
-        raw_stage_seed = material.get("random_seed") if isinstance(material, Mapping) else None
-        if raw_stage_seed is None and isinstance(fingerprint_config, Mapping):
-            raw_stage_seed = fingerprint_config.get("random_seed")
-        try:
-            stage_seed = int(raw_stage_seed) if raw_stage_seed is not None else -1
-        except (TypeError, ValueError):
-            stage_seed = -1
-        if stage_seed != seed:
-            issues.append("stage_manifest random_seed does not match run seed")
-
-        stage_config = fingerprint_config.get("stage_config") if isinstance(fingerprint_config, Mapping) else None
-        perturb_config = stage_config.get("perturb_config") if isinstance(stage_config, Mapping) else None
-        trainer = perturb_config.get("trainer") if isinstance(perturb_config, Mapping) else None
-        if not isinstance(trainer, Mapping):
-            issues.append("stage_manifest is missing perturb trainer configuration")
-        else:
-            if str(trainer.get("perturbation_mode", "")).strip().lower() != mode:
-                issues.append("stage trainer perturbation_mode does not match run mode")
-            sequence = trainer.get("perturbation_sequence")
-            expected_sequence = _PATH_TO_SEQUENCE[path_kind]
-            if sequence != [expected_sequence]:
-                issues.append("stage trainer perturbation_sequence does not match run path")
-
-    if output_h5ad is not None:
-        match = _H5AD_NAME_PATTERN.search(output_h5ad.name)
-        expected_sequence = _PATH_TO_SEQUENCE[path_kind]
-        if match is None:
-            issues.append("output_h5ad name does not carry gene/sequence/mode binding")
-        else:
-            if match.group("gene").upper() != candidate.gene_symbol.upper():
-                issues.append("output_h5ad gene does not match frozen candidate")
-            if match.group("sequence") != expected_sequence:
-                issues.append("output_h5ad sequence does not match frozen path")
-            if match.group("mode").lower() != mode:
-                issues.append("output_h5ad mode does not match run mode")
-        issues.extend(_validate_output_donors(manifest, output_h5ad))
-
-    cohort_source = run if run.get("cohort_h5ad") is not None or run.get("cohort_sha256") is not None else None
-    provenance_source = provenance if isinstance(provenance, Mapping) else None
-    if cohort_source is not None:
-        issues.extend(_validate_declared_cohort_reference(manifest, cohort_source))
-    elif provenance_source is not None and (
-        provenance_source.get("cohort_h5ad") is not None or provenance_source.get("cohort_sha256") is not None
-    ):
-        issues.extend(_validate_declared_cohort_reference(manifest, provenance_source))
-    elif eval_input.get("cohort_h5ad") is not None or eval_input.get("cohort_sha256") is not None:
-        issues.extend(_validate_declared_cohort_reference(manifest, eval_input))
-    issues.extend(_validate_stage_lineage(manifest, stage_manifest_path, stage_payload, run, provenance_source))
+    issues.extend(
+        _validate_stage_manifest_binding(path_kind, mode, seed, output_h5ad, stage_manifest_path, stage_payload)
+    )
+    issues.extend(_validate_output_binding(candidate, path_kind, mode, output_h5ad, manifest))
+    issues.extend(_validate_run_cohort_reference(manifest, run, provenance, eval_input))
+    issues.extend(_validate_stage_lineage(manifest, stage_manifest_path, stage_payload, run, provenance))
     issues.extend(_independent_replay_parameter_issues(run))
-
     issues.extend(_validate_deg_training_donors(manifest, run))
-
-    if run.get("null_distribution_path") is not None:
-        issues.append("legacy unbound null_distribution_path cannot satisfy frozen verification")
-    null_path = run.get("null_distribution_manifest_path")
-    inline_nulls = run.get("null_distribution")
-    if null_path is None or not str(null_path).strip():
-        issues.append("run is missing null_distribution_manifest_path")
-    elif not isinstance(inline_nulls, list):
-        issues.append("run is missing manifest-bound null_distribution values")
-    else:
-        try:
-            from .null_selection import load_null_distribution_manifest
-
-            distribution = load_null_distribution_manifest(
-                str(null_path),
-                candidate_ensembl_id=candidate.ensembl_id,
-                path_name=path_kind,
-                mode=mode,
-                seed=seed,
-                required_count=candidate.matched_nulls,
-            )
-            actual_values = [float(value) for value in inline_nulls]
-            expected_values = [float(value) for value in distribution["values"]]
-            if actual_values != expected_values:
-                issues.append("inline null_distribution does not equal the bound null manifest")
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            issues.append(f"bound null distribution is invalid: {exc}")
+    issues.extend(_validate_bound_null_distribution(candidate, path_kind, mode, seed, run))
     return issues
 
 

@@ -58,6 +58,150 @@ def _as_tensor(array: np.ndarray) -> Tensor:
     return tensor
 
 
+def _validate_schema_version(arrays: dict[str, np.ndarray], errors: list[str]) -> None:
+    raw_version = arrays.get("schema_version")
+    version = str(raw_version.item()) if raw_version is not None and raw_version.ndim == 0 else None
+    if version != CROSS_SCALE_DATA_SCHEMA_VERSION:
+        errors.append(f"schema_version 必须为 {CROSS_SCALE_DATA_SCHEMA_VERSION!r}，实际为 {version!r}")
+
+
+def _validate_required_keys(
+    arrays: dict[str, np.ndarray],
+    backbone_names: Sequence[str],
+    require_targets: bool,
+    errors: list[str],
+) -> None:
+    embedding_keys = [f"{name}_embeddings" for name in backbone_names]
+    for key in embedding_keys:
+        if key not in arrays:
+            errors.append(f"缺少必需数组 {key}")
+    for key in ("signal_edge_index", "signal_gene_map", "cell_edge_index"):
+        if key not in arrays:
+            errors.append(f"缺少必需图数组 {key}")
+    if require_targets:
+        for key in ("delta_expression", "cell_state"):
+            if key not in arrays:
+                errors.append(f"缺少训练 target 数组 {key}")
+
+
+def _validate_embeddings(
+    arrays: dict[str, np.ndarray],
+    embedding_keys: list[str],
+    errors: list[str],
+) -> tuple[int, int]:
+    first_embedding = arrays[embedding_keys[0]]
+    if first_embedding.ndim != 3 or min(first_embedding.shape) <= 0:
+        errors.append(f"{embedding_keys[0]} 必须为非空 [N, L, D]")
+        sample_count, sequence_length = 0, 0
+    else:
+        sample_count, sequence_length = first_embedding.shape[:2]
+    for key in embedding_keys:
+        value = arrays[key]
+        if value.ndim != 3 or value.shape[:2] != (sample_count, sequence_length):
+            errors.append(f"{key} 必须共享 [N, L]=[{sample_count}, {sequence_length}]")
+        elif not np.issubdtype(value.dtype, np.floating) or not np.isfinite(value).all():
+            errors.append(f"{key} 必须是有限浮点数组")
+    return int(sample_count), int(sequence_length)
+
+
+def _validate_graph_arrays(
+    arrays: dict[str, np.ndarray],
+    sequence_length: int,
+    errors: list[str],
+) -> int:
+    signal_edge_index = arrays["signal_edge_index"]
+    cell_edge_index = arrays["cell_edge_index"]
+    signal_gene_map = arrays["signal_gene_map"]
+    if signal_edge_index.ndim != 2 or signal_edge_index.shape[0] != 2:
+        errors.append("signal_edge_index 必须为 [2, E]")
+    if cell_edge_index.ndim != 2 or cell_edge_index.shape[0] != 2:
+        errors.append("cell_edge_index 必须为 [2, E]")
+    if not np.issubdtype(signal_edge_index.dtype, np.integer):
+        errors.append("signal_edge_index 必须使用整数 dtype")
+    if not np.issubdtype(cell_edge_index.dtype, np.integer):
+        errors.append("cell_edge_index 必须使用整数 dtype")
+    if signal_gene_map.ndim != 2 or signal_gene_map.shape[0] != sequence_length:
+        errors.append(f"signal_gene_map 必须为 [{sequence_length}, G]")
+        gene_count = 0
+    else:
+        gene_count = signal_gene_map.shape[1]
+    if not np.issubdtype(signal_gene_map.dtype, np.floating) or not np.isfinite(signal_gene_map).all():
+        errors.append("signal_gene_map 必须是有限浮点数组")
+
+    if signal_edge_index.size and (signal_edge_index.min() < 0 or signal_edge_index.max() >= sequence_length):
+        errors.append("signal_edge_index 含越界节点")
+    if cell_edge_index.size and (cell_edge_index.min() < 0 or cell_edge_index.max() >= gene_count):
+        errors.append("cell_edge_index 含越界节点")
+
+    _validate_cell_edge_weight(arrays.get("cell_edge_weight"), cell_edge_index, errors)
+    return int(gene_count)
+
+
+def _validate_cell_edge_weight(
+    cell_edge_weight: np.ndarray | None,
+    cell_edge_index: np.ndarray,
+    errors: list[str],
+) -> None:
+    # TD-M02（2026-08-09）: 模型 forward 会读取可选的 cell_edge_weight
+    # （见 src/models/cross_scale.py cell_head 的 cell_edge_weight 参数），
+    # 此前 NPZ schema 未承载该数组，导致带权细胞图数据静默丢失。现在：
+    # - 存在时要求 shape 与 cell_edge_index 边数一致、有限浮点且非负，
+    #   在构造阶段 fail-fast，而不是等模型运行时报错；
+    # - 缺省时保持兼容（模型回退为全 1 权重，旧 NPZ 无需迁移）。
+    if cell_edge_weight is None:
+        return
+    if cell_edge_weight.ndim != 1 or cell_edge_weight.shape[0] != cell_edge_index.shape[1]:
+        errors.append(
+            f"cell_edge_weight 必须为 [{cell_edge_index.shape[1]}]（与 "
+            f"cell_edge_index 边数一致），实际 shape={cell_edge_weight.shape}"
+        )
+    elif not np.issubdtype(cell_edge_weight.dtype, np.floating) or not np.isfinite(cell_edge_weight).all():
+        errors.append("cell_edge_weight 必须是有限浮点数组")
+    elif (cell_edge_weight < 0).any():
+        errors.append("cell_edge_weight 必须非负")
+
+
+def _validate_optional_sample_arrays(
+    arrays: dict[str, np.ndarray],
+    sample_count: int,
+    sequence_length: int,
+    errors: list[str],
+) -> None:
+    for key in _OPTIONAL_SAMPLE_INPUT_KEYS:
+        optional_value = arrays.get(key)
+        if optional_value is not None and (optional_value.ndim == 0 or optional_value.shape[0] != sample_count):
+            errors.append(f"{key} 的首维必须为样本数 {sample_count}")
+    if ("ptm_types" in arrays) != ("ptm_positions" in arrays):
+        errors.append("ptm_types 与 ptm_positions 必须同时存在")
+    if "ptm_types" in arrays and arrays["ptm_types"].shape != arrays["ptm_positions"].shape:
+        errors.append("ptm_types 与 ptm_positions shape 必须一致")
+    mask = arrays.get("protein_attention_mask")
+    if mask is not None and mask.shape != (sample_count, sequence_length):
+        errors.append(f"protein_attention_mask 必须为 [{sample_count}, {sequence_length}]")
+
+
+def _validate_targets(
+    arrays: dict[str, np.ndarray],
+    sample_count: int,
+    gene_count: int,
+    require_targets: bool,
+    errors: list[str],
+) -> None:
+    if require_targets and "delta_expression" in arrays:
+        target = arrays["delta_expression"]
+        if target.shape != (sample_count, gene_count):
+            errors.append(f"delta_expression 必须为 [{sample_count}, {gene_count}]")
+        elif not np.issubdtype(target.dtype, np.floating) or not np.isfinite(target).all():
+            errors.append("delta_expression 必须是有限浮点数组")
+    if require_targets and "cell_state" in arrays:
+        target = arrays["cell_state"]
+        if target.shape != (sample_count,) or not np.issubdtype(target.dtype, np.integer):
+            errors.append(f"cell_state 必须为整数 [{sample_count}]")
+    sample_ids = arrays.get("sample_id")
+    if sample_ids is not None and sample_ids.shape != (sample_count,):
+        errors.append(f"sample_id 必须为 [{sample_count}]")
+
+
 class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
     """Validated, in-memory view of a versioned cross-scale ``.npz`` split."""
 
@@ -84,106 +228,16 @@ class CrossScaleNPZDataset(Dataset[Dict[str, Any]]):
 
     def _validate(self) -> None:
         errors: list[str] = []
-        raw_version = self._arrays.get("schema_version")
-        version = str(raw_version.item()) if raw_version is not None and raw_version.ndim == 0 else None
-        if version != CROSS_SCALE_DATA_SCHEMA_VERSION:
-            errors.append(f"schema_version 必须为 {CROSS_SCALE_DATA_SCHEMA_VERSION!r}，实际为 {version!r}")
-
-        embedding_keys = [f"{name}_embeddings" for name in self.backbone_names]
-        for key in embedding_keys:
-            if key not in self._arrays:
-                errors.append(f"缺少必需数组 {key}")
-        for key in ("signal_edge_index", "signal_gene_map", "cell_edge_index"):
-            if key not in self._arrays:
-                errors.append(f"缺少必需图数组 {key}")
-        if self.require_targets:
-            for key in ("delta_expression", "cell_state"):
-                if key not in self._arrays:
-                    errors.append(f"缺少训练 target 数组 {key}")
+        _validate_schema_version(self._arrays, errors)
+        _validate_required_keys(self._arrays, self.backbone_names, self.require_targets, errors)
         if errors:
             raise CrossScaleDataContractError("; ".join(errors))
 
-        first_embedding = self._arrays[embedding_keys[0]]
-        if first_embedding.ndim != 3 or min(first_embedding.shape) <= 0:
-            errors.append(f"{embedding_keys[0]} 必须为非空 [N, L, D]")
-            sample_count, sequence_length = 0, 0
-        else:
-            sample_count, sequence_length = first_embedding.shape[:2]
-        for key in embedding_keys:
-            value = self._arrays[key]
-            if value.ndim != 3 or value.shape[:2] != (sample_count, sequence_length):
-                errors.append(f"{key} 必须共享 [N, L]=[{sample_count}, {sequence_length}]")
-            elif not np.issubdtype(value.dtype, np.floating) or not np.isfinite(value).all():
-                errors.append(f"{key} 必须是有限浮点数组")
-
-        signal_edge_index = self._arrays["signal_edge_index"]
-        cell_edge_index = self._arrays["cell_edge_index"]
-        signal_gene_map = self._arrays["signal_gene_map"]
-        if signal_edge_index.ndim != 2 or signal_edge_index.shape[0] != 2:
-            errors.append("signal_edge_index 必须为 [2, E]")
-        if cell_edge_index.ndim != 2 or cell_edge_index.shape[0] != 2:
-            errors.append("cell_edge_index 必须为 [2, E]")
-        if not np.issubdtype(signal_edge_index.dtype, np.integer):
-            errors.append("signal_edge_index 必须使用整数 dtype")
-        if not np.issubdtype(cell_edge_index.dtype, np.integer):
-            errors.append("cell_edge_index 必须使用整数 dtype")
-        if signal_gene_map.ndim != 2 or signal_gene_map.shape[0] != sequence_length:
-            errors.append(f"signal_gene_map 必须为 [{sequence_length}, G]")
-            gene_count = 0
-        else:
-            gene_count = signal_gene_map.shape[1]
-        if not np.issubdtype(signal_gene_map.dtype, np.floating) or not np.isfinite(signal_gene_map).all():
-            errors.append("signal_gene_map 必须是有限浮点数组")
-
-        if signal_edge_index.size and (signal_edge_index.min() < 0 or signal_edge_index.max() >= sequence_length):
-            errors.append("signal_edge_index 含越界节点")
-        if cell_edge_index.size and (cell_edge_index.min() < 0 or cell_edge_index.max() >= gene_count):
-            errors.append("cell_edge_index 含越界节点")
-
-        # TD-M02（2026-08-09）: 模型 forward 会读取可选的 cell_edge_weight
-        # （见 src/models/cross_scale.py cell_head 的 cell_edge_weight 参数），
-        # 此前 NPZ schema 未承载该数组，导致带权细胞图数据静默丢失。现在：
-        # - 存在时要求 shape 与 cell_edge_index 边数一致、有限浮点且非负，
-        #   在构造阶段 fail-fast，而不是等模型运行时报错；
-        # - 缺省时保持兼容（模型回退为全 1 权重，旧 NPZ 无需迁移）。
-        cell_edge_weight = self._arrays.get("cell_edge_weight")
-        if cell_edge_weight is not None:
-            if cell_edge_weight.ndim != 1 or cell_edge_weight.shape[0] != cell_edge_index.shape[1]:
-                errors.append(
-                    f"cell_edge_weight 必须为 [{cell_edge_index.shape[1]}]（与 "
-                    f"cell_edge_index 边数一致），实际 shape={cell_edge_weight.shape}"
-                )
-            elif not np.issubdtype(cell_edge_weight.dtype, np.floating) or not np.isfinite(cell_edge_weight).all():
-                errors.append("cell_edge_weight 必须是有限浮点数组")
-            elif (cell_edge_weight < 0).any():
-                errors.append("cell_edge_weight 必须非负")
-
-        for key in _OPTIONAL_SAMPLE_INPUT_KEYS:
-            optional_value = self._arrays.get(key)
-            if optional_value is not None and (optional_value.ndim == 0 or optional_value.shape[0] != sample_count):
-                errors.append(f"{key} 的首维必须为样本数 {sample_count}")
-        if ("ptm_types" in self._arrays) != ("ptm_positions" in self._arrays):
-            errors.append("ptm_types 与 ptm_positions 必须同时存在")
-        if "ptm_types" in self._arrays and self._arrays["ptm_types"].shape != self._arrays["ptm_positions"].shape:
-            errors.append("ptm_types 与 ptm_positions shape 必须一致")
-        mask = self._arrays.get("protein_attention_mask")
-        if mask is not None and mask.shape != (sample_count, sequence_length):
-            errors.append(f"protein_attention_mask 必须为 [{sample_count}, {sequence_length}]")
-
-        if self.require_targets and "delta_expression" in self._arrays:
-            target = self._arrays["delta_expression"]
-            if target.shape != (sample_count, gene_count):
-                errors.append(f"delta_expression 必须为 [{sample_count}, {gene_count}]")
-            elif not np.issubdtype(target.dtype, np.floating) or not np.isfinite(target).all():
-                errors.append("delta_expression 必须是有限浮点数组")
-        if self.require_targets and "cell_state" in self._arrays:
-            target = self._arrays["cell_state"]
-            if target.shape != (sample_count,) or not np.issubdtype(target.dtype, np.integer):
-                errors.append(f"cell_state 必须为整数 [{sample_count}]")
-
-        sample_ids = self._arrays.get("sample_id")
-        if sample_ids is not None and sample_ids.shape != (sample_count,):
-            errors.append(f"sample_id 必须为 [{sample_count}]")
+        embedding_keys = [f"{name}_embeddings" for name in self.backbone_names]
+        sample_count, sequence_length = _validate_embeddings(self._arrays, embedding_keys, errors)
+        gene_count = _validate_graph_arrays(self._arrays, sequence_length, errors)
+        _validate_optional_sample_arrays(self._arrays, sample_count, sequence_length, errors)
+        _validate_targets(self._arrays, sample_count, gene_count, self.require_targets, errors)
         if errors:
             raise CrossScaleDataContractError("; ".join(errors))
         self.sample_count = int(sample_count)

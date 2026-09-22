@@ -103,6 +103,240 @@ def _requested_cell_types(cell_types: Sequence[str]) -> tuple[str, ...]:
     return requested
 
 
+def _validate_deg_request(
+    *,
+    cohort_pairing: str,
+    donor_aggregation: str,
+    cohort_column: str | None,
+    min_donors_per_state: int,
+    normal_state: str,
+    disease_state: str,
+) -> bool:
+    """Validate the frozen request; returns whether cohort centering is active."""
+
+    if cohort_pairing not in {"within_donor", "between_donor"}:
+        raise ADDEGError("cohort_pairing must be 'within_donor' or 'between_donor'")
+    if cohort_pairing != "between_donor":
+        raise ADDEGError(
+            "AD DEG table requires between_donor pairing; within_donor is not a valid independent "
+            "normal/disease DEG contract"
+        )
+    if donor_aggregation not in VALID_DONOR_AGGREGATIONS:
+        raise ADDEGError(
+            f"donor_aggregation must be one of {', '.join(VALID_DONOR_AGGREGATIONS)}; got {donor_aggregation!r}"
+        )
+    centered = donor_aggregation == "pseudobulk_counts_centered"
+    if centered and cohort_column is None:
+        raise ADDEGError("donor_aggregation 'pseudobulk_counts_centered' requires a cohort_column")
+    if cohort_column is not None and not centered:
+        raise ADDEGError(
+            "cohort_column is only consumed by donor_aggregation 'pseudobulk_counts_centered'; "
+            f"got {donor_aggregation!r}"
+        )
+    if isinstance(min_donors_per_state, bool) or not isinstance(min_donors_per_state, int) or min_donors_per_state < 1:
+        raise ADDEGError("min_donors_per_state must be a positive integer")
+    if normal_state not in {"normal", "disease"} or disease_state not in {"normal", "disease"}:
+        raise ADDEGError("normal_state and disease_state must be 'normal' or 'disease'")
+    if normal_state == disease_state:
+        raise ADDEGError("normal_state and disease_state must differ")
+    return centered
+
+
+def _load_deg_matrices(
+    adata: Any,
+    *,
+    counts_layer: str,
+    cell_type_column: str,
+    state_column: str,
+    donor_column: str,
+    cohort_column: str | None,
+) -> tuple[Any, pd.DataFrame, Any, pd.Series]:
+    """Extract counts/obs/gene identifiers under the direction-input contract."""
+
+    direction_adata = _direction_adata(
+        adata,
+        cell_type_column=cell_type_column,
+        state_column=state_column,
+        donor_column=donor_column,
+        cohort_column=cohort_column,
+    )
+    counts, obs, gene_names = _validate_direction_input(direction_adata, counts_layer=counts_layer)
+    if "gene_symbol" not in adata.var.columns:
+        raise ADDEGError("AnnData is missing var['gene_symbol']")
+    raw_symbols = adata.var["gene_symbol"]
+    if raw_symbols.isna().any():
+        raise ADDEGError("var['gene_symbol'] must not contain missing values")
+    gene_symbols = raw_symbols.astype(str).str.strip()
+    if gene_symbols.eq("").any():
+        raise ADDEGError("var['gene_symbol'] must not contain empty values")
+    return counts, obs, gene_names, gene_symbols
+
+
+def _cell_type_donors(
+    *,
+    cell_mask: np.ndarray,
+    state_values: np.ndarray,
+    donor_values: np.ndarray,
+    normal_state: str,
+    disease_state: str,
+    min_donors_per_state: int,
+    cell_type: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Resolve one cell type's disjoint normal/disease donor sets."""
+
+    donor_states: dict[str, set[str]] = {}
+    for donor, state in zip(donor_values[cell_mask], state_values[cell_mask], strict=True):
+        donor_states.setdefault(str(donor), set()).add(str(state))
+    leaking_donors = sorted(donor for donor, states in donor_states.items() if len(states) > 1)
+    if leaking_donors:
+        raise ADDEGError(f"donor cannot occur in both states for cell type {cell_type!r}: {leaking_donors}")
+
+    normal_donors = tuple(sorted(set(donor_values[cell_mask & (state_values == normal_state)])))
+    disease_donors = tuple(sorted(set(donor_values[cell_mask & (state_values == disease_state)])))
+    if len(normal_donors) < min_donors_per_state or len(disease_donors) < min_donors_per_state:
+        raise ADDEGError(
+            f"cell type {cell_type!r} requires at least {min_donors_per_state} donors in each state; "
+            f"got {len(normal_donors)} and {len(disease_donors)}"
+        )
+    return normal_donors, disease_donors
+
+
+def _compute_donor_means(
+    counts: Any,
+    *,
+    cell_mask: np.ndarray,
+    state_values: np.ndarray,
+    donor_values: np.ndarray,
+    normal_donors: tuple[str, ...],
+    disease_donors: tuple[str, ...],
+    normal_state: str,
+    disease_state: str,
+    aggregation_fn: Any,
+    cell_type: str,
+) -> dict[tuple[str, str], np.ndarray]:
+    """Compute per-donor log2 profiles for both states of one cell type."""
+
+    donor_means: dict[tuple[str, str], np.ndarray] = {}
+    for state, donors in ((normal_state, normal_donors), (disease_state, disease_donors)):
+        for donor in donors:
+            indices = np.flatnonzero(cell_mask & (state_values == state) & (donor_values == donor))
+            if len(indices) == 0:
+                raise ADDEGError(f"donor {donor!r} has no cells for cell type {cell_type!r}")
+            donor_means[(state, str(donor))] = aggregation_fn(counts, indices)
+    return donor_means
+
+
+def _center_donor_means_by_cohort(
+    donor_means: dict[tuple[str, str], np.ndarray],
+    *,
+    obs: pd.DataFrame,
+    cell_mask: np.ndarray,
+    donor_values: np.ndarray,
+    normal_donors: tuple[str, ...],
+    disease_donors: tuple[str, ...],
+    normal_state: str,
+    cell_type: str,
+) -> tuple[dict[str, dict[str, int]], list[str]]:
+    """Subtract each cohort's normal-donor baseline in place; return audit counts."""
+
+    donor_cohorts: dict[str, str] = {}
+    cell_cohort_values = obs["cohort"].to_numpy()[cell_mask]
+    for donor, cohort in zip(donor_values[cell_mask], cell_cohort_values, strict=True):
+        previous = donor_cohorts.setdefault(str(donor), str(cohort))
+        if previous != str(cohort):
+            raise ADDEGError(f"donor {donor!r} spans multiple cohorts for cell type {cell_type!r}")
+    cohorts_per_cell_type = sorted(set(cell_cohort_values.tolist()))
+    cohort_reference: dict[str, np.ndarray] = {}
+    for cohort in cohorts_per_cell_type:
+        baseline = [
+            donor_means[(normal_state, str(donor))] for donor in normal_donors if donor_cohorts[str(donor)] == cohort
+        ]
+        if not baseline:
+            raise ADDEGError(f"cell type {cell_type!r} cohort {cohort!r} has no {normal_state} donors for centering")
+        cohort_reference[cohort] = np.mean(np.vstack(baseline), axis=0)
+    for (state, donor), profile in list(donor_means.items()):
+        donor_means[(state, donor)] = profile - cohort_reference[donor_cohorts[str(donor)]]
+    donor_counts_by_cohort = {
+        cohort: {
+            "normal": sum(1 for donor in normal_donors if donor_cohorts[str(donor)] == cohort),
+            "disease": sum(1 for donor in disease_donors if donor_cohorts[str(donor)] == cohort),
+        }
+        for cohort in cohorts_per_cell_type
+    }
+    return donor_counts_by_cohort, cohorts_per_cell_type
+
+
+def _append_cell_type_rows(
+    *,
+    aggregate_rows: list[dict[str, Any]],
+    donor_rows: list[dict[str, Any]],
+    donor_means: dict[tuple[str, str], np.ndarray],
+    normal_donors: tuple[str, ...],
+    disease_donors: tuple[str, ...],
+    normal_state: str,
+    disease_state: str,
+    centered: bool,
+    direction_epsilon: float,
+    cell_type: str,
+    gene_names: Any,
+    gene_symbols: pd.Series,
+) -> None:
+    """Run the disease-vs-normal test for one cell type and append its rows."""
+
+    normal_matrix = np.vstack([donor_means[(normal_state, str(donor))] for donor in normal_donors])
+    disease_matrix = np.vstack([donor_means[(disease_state, str(donor))] for donor in disease_donors])
+    delta = disease_matrix.mean(axis=0) - normal_matrix.mean(axis=0)
+    test = ttest_ind(disease_matrix, normal_matrix, axis=0, equal_var=False, nan_policy="omit")
+    p_values = np.asarray(test.pvalue, dtype=np.float64)
+    invalid = ~np.isfinite(p_values)
+    p_values[invalid] = np.where(np.isclose(delta[invalid], 0.0), 1.0, 0.0)
+    fdr = _bh_adjust(p_values)
+    direction = np.where(delta > direction_epsilon, "up", np.where(delta < -direction_epsilon, "down", "neutral"))
+    normal_reference = normal_matrix.mean(axis=0)
+
+    for gene_index, (ensembl_id, gene_symbol) in enumerate(zip(gene_names, gene_symbols, strict=True)):
+        aggregate_rows.append(
+            {
+                "cell_type": cell_type,
+                "ensembl_id": ensembl_id,
+                "gene_symbol": gene_symbol,
+                "log2fc": float(delta[gene_index]),
+                "fdr": float(fdr[gene_index]),
+                "observed_direction": str(direction[gene_index]),
+                "n_normal_donors": len(normal_donors),
+                "n_disease_donors": len(disease_donors),
+            }
+        )
+        for donor in disease_donors:
+            if centered:
+                donor_log2fc = float(donor_means[(disease_state, str(donor))][gene_index])
+            else:
+                donor_log2fc = float(
+                    donor_means[(disease_state, str(donor))][gene_index] - normal_reference[gene_index]
+                )
+            donor_rows.append(
+                {
+                    "cell_type": cell_type,
+                    "donor": str(donor),
+                    "ensembl_id": ensembl_id,
+                    "gene_symbol": gene_symbol,
+                    "log2fc": donor_log2fc,
+                    "fdr": float(fdr[gene_index]),
+                }
+            )
+
+
+def _deg_normal_reference(donor_aggregation: str, cohort_column: str | None, normal_state: str) -> str:
+    if donor_aggregation == "pseudobulk_counts_centered":
+        return (
+            f"per cell type and cohort {normal_state} donor pseudobulk log2(normalized counts) mean "
+            f"(cohort column {cohort_column!r}); donor values are cohort-centered"
+        )
+    if donor_aggregation == "pseudobulk_counts":
+        return f"per cell type {normal_state} donor pseudobulk log2(normalized counts)"
+    return f"per cell type {normal_state} donor-level log2(normalized counts) mean"
+
+
 def build_ad_deg_tables(
     adata: Any,
     *,
@@ -122,52 +356,22 @@ def build_ad_deg_tables(
     """Build aggregate and disease-donor AD DEG tables."""
 
     try:
-        if cohort_pairing not in {"within_donor", "between_donor"}:
-            raise ADDEGError("cohort_pairing must be 'within_donor' or 'between_donor'")
-        if cohort_pairing != "between_donor":
-            raise ADDEGError(
-                "AD DEG table requires between_donor pairing; within_donor is not a valid independent "
-                "normal/disease DEG contract"
-            )
-        if donor_aggregation not in VALID_DONOR_AGGREGATIONS:
-            raise ADDEGError(
-                f"donor_aggregation must be one of {', '.join(VALID_DONOR_AGGREGATIONS)}; got {donor_aggregation!r}"
-            )
-        centered = donor_aggregation == "pseudobulk_counts_centered"
-        if centered and cohort_column is None:
-            raise ADDEGError("donor_aggregation 'pseudobulk_counts_centered' requires a cohort_column")
-        if cohort_column is not None and not centered:
-            raise ADDEGError(
-                "cohort_column is only consumed by donor_aggregation 'pseudobulk_counts_centered'; "
-                f"got {donor_aggregation!r}"
-            )
-        if (
-            isinstance(min_donors_per_state, bool)
-            or not isinstance(min_donors_per_state, int)
-            or min_donors_per_state < 1
-        ):
-            raise ADDEGError("min_donors_per_state must be a positive integer")
-        if normal_state not in {"normal", "disease"} or disease_state not in {"normal", "disease"}:
-            raise ADDEGError("normal_state and disease_state must be 'normal' or 'disease'")
-        if normal_state == disease_state:
-            raise ADDEGError("normal_state and disease_state must differ")
-
-        direction_adata = _direction_adata(
+        centered = _validate_deg_request(
+            cohort_pairing=cohort_pairing,
+            donor_aggregation=donor_aggregation,
+            cohort_column=cohort_column,
+            min_donors_per_state=min_donors_per_state,
+            normal_state=normal_state,
+            disease_state=disease_state,
+        )
+        counts, obs, gene_names, gene_symbols = _load_deg_matrices(
             adata,
+            counts_layer=counts_layer,
             cell_type_column=cell_type_column,
             state_column=state_column,
             donor_column=donor_column,
             cohort_column=cohort_column,
         )
-        counts, obs, gene_names = _validate_direction_input(direction_adata, counts_layer=counts_layer)
-        if "gene_symbol" not in adata.var.columns:
-            raise ADDEGError("AnnData is missing var['gene_symbol']")
-        raw_symbols = adata.var["gene_symbol"]
-        if raw_symbols.isna().any():
-            raise ADDEGError("var['gene_symbol'] must not contain missing values")
-        gene_symbols = raw_symbols.astype(str).str.strip()
-        if gene_symbols.eq("").any():
-            raise ADDEGError("var['gene_symbol'] must not contain empty values")
 
         obs = _clean_obs(obs, cohort=centered)
         requested = _requested_cell_types(cell_types)
@@ -193,130 +397,70 @@ def build_ad_deg_tables(
         state_values = obs["state"].to_numpy()
         cell_type_values = obs["cell_type"].to_numpy()
         donor_values = obs["donor"].to_numpy()
+        aggregation_fn = _donor_log2_means if donor_aggregation == "per_cell_log2_mean" else _donor_pseudobulk_log2
 
         for cell_type in requested:
             cell_mask = cell_type_values == cell_type
-            donor_states: dict[str, set[str]] = {}
-            for donor, state in zip(donor_values[cell_mask], state_values[cell_mask], strict=True):
-                donor_states.setdefault(str(donor), set()).add(str(state))
-            leaking_donors = sorted(donor for donor, states in donor_states.items() if len(states) > 1)
-            if leaking_donors:
-                raise ADDEGError(f"donor cannot occur in both states for cell type {cell_type!r}: {leaking_donors}")
+            normal_donors, disease_donors = _cell_type_donors(
+                cell_mask=cell_mask,
+                state_values=state_values,
+                donor_values=donor_values,
+                normal_state=normal_state,
+                disease_state=disease_state,
+                min_donors_per_state=min_donors_per_state,
+                cell_type=cell_type,
+            )
+            donor_counts[cell_type] = {"normal": len(normal_donors), "disease": len(disease_donors)}
 
-            normal_donors = tuple(sorted(set(donor_values[cell_mask & (state_values == normal_state)])))
-            disease_donors = tuple(sorted(set(donor_values[cell_mask & (state_values == disease_state)])))
-            if len(normal_donors) < min_donors_per_state or len(disease_donors) < min_donors_per_state:
-                raise ADDEGError(
-                    f"cell type {cell_type!r} requires at least {min_donors_per_state} donors in each state; "
-                    f"got {len(normal_donors)} and {len(disease_donors)}"
-                )
-            donor_counts[cell_type] = {
-                "normal": len(normal_donors),
-                "disease": len(disease_donors),
-            }
-
-            donor_means: dict[tuple[str, str], np.ndarray] = {}
-            aggregation_fn = _donor_log2_means if donor_aggregation == "per_cell_log2_mean" else _donor_pseudobulk_log2
-            for state, donors in ((normal_state, normal_donors), (disease_state, disease_donors)):
-                for donor in donors:
-                    indices = np.flatnonzero(cell_mask & (state_values == state) & (donor_values == donor))
-                    if len(indices) == 0:
-                        raise ADDEGError(f"donor {donor!r} has no cells for cell type {cell_type!r}")
-                    donor_means[(state, str(donor))] = aggregation_fn(counts, indices)
+            donor_means = _compute_donor_means(
+                counts,
+                cell_mask=cell_mask,
+                state_values=state_values,
+                donor_values=donor_values,
+                normal_donors=normal_donors,
+                disease_donors=disease_donors,
+                normal_state=normal_state,
+                disease_state=disease_state,
+                aggregation_fn=aggregation_fn,
+                cell_type=cell_type,
+            )
 
             if centered:
-                donor_cohorts: dict[str, str] = {}
-                cell_cohort_values = obs["cohort"].to_numpy()[cell_mask]
-                for donor, cohort in zip(donor_values[cell_mask], cell_cohort_values, strict=True):
-                    previous = donor_cohorts.setdefault(str(donor), str(cohort))
-                    if previous != str(cohort):
-                        raise ADDEGError(f"donor {donor!r} spans multiple cohorts for cell type {cell_type!r}")
-                cohorts_per_cell_type = sorted(set(cell_cohort_values.tolist()))
-                cohort_reference: dict[str, np.ndarray] = {}
-                for cohort in cohorts_per_cell_type:
-                    baseline = [
-                        donor_means[(normal_state, str(donor))]
-                        for donor in normal_donors
-                        if donor_cohorts[str(donor)] == cohort
-                    ]
-                    if not baseline:
-                        raise ADDEGError(
-                            f"cell type {cell_type!r} cohort {cohort!r} has no {normal_state} donors for centering"
-                        )
-                    cohort_reference[cohort] = np.mean(np.vstack(baseline), axis=0)
-                for (state, donor), profile in list(donor_means.items()):
-                    donor_means[(state, donor)] = profile - cohort_reference[donor_cohorts[str(donor)]]
-                donor_counts_by_cohort[cell_type] = {
-                    cohort: {
-                        "normal": sum(1 for donor in normal_donors if donor_cohorts[str(donor)] == cohort),
-                        "disease": sum(1 for donor in disease_donors if donor_cohorts[str(donor)] == cohort),
-                    }
-                    for cohort in cohorts_per_cell_type
-                }
-                cohorts_by_cell_type[cell_type] = cohorts_per_cell_type
-
-            normal_matrix = np.vstack([donor_means[(normal_state, str(donor))] for donor in normal_donors])
-            disease_matrix = np.vstack([donor_means[(disease_state, str(donor))] for donor in disease_donors])
-            delta = disease_matrix.mean(axis=0) - normal_matrix.mean(axis=0)
-            test = ttest_ind(disease_matrix, normal_matrix, axis=0, equal_var=False, nan_policy="omit")
-            p_values = np.asarray(test.pvalue, dtype=np.float64)
-            invalid = ~np.isfinite(p_values)
-            p_values[invalid] = np.where(np.isclose(delta[invalid], 0.0), 1.0, 0.0)
-            fdr = _bh_adjust(p_values)
-            direction = np.where(
-                delta > direction_epsilon, "up", np.where(delta < -direction_epsilon, "down", "neutral")
-            )
-            normal_reference = normal_matrix.mean(axis=0)
-
-            for gene_index, (ensembl_id, gene_symbol) in enumerate(zip(gene_names, gene_symbols, strict=True)):
-                aggregate_rows.append(
-                    {
-                        "cell_type": cell_type,
-                        "ensembl_id": ensembl_id,
-                        "gene_symbol": gene_symbol,
-                        "log2fc": float(delta[gene_index]),
-                        "fdr": float(fdr[gene_index]),
-                        "observed_direction": str(direction[gene_index]),
-                        "n_normal_donors": len(normal_donors),
-                        "n_disease_donors": len(disease_donors),
-                    }
+                donor_counts_by_cohort[cell_type], cohorts_by_cell_type[cell_type] = _center_donor_means_by_cohort(
+                    donor_means,
+                    obs=obs,
+                    cell_mask=cell_mask,
+                    donor_values=donor_values,
+                    normal_donors=normal_donors,
+                    disease_donors=disease_donors,
+                    normal_state=normal_state,
+                    cell_type=cell_type,
                 )
-                for donor in disease_donors:
-                    if centered:
-                        donor_log2fc = float(donor_means[(disease_state, str(donor))][gene_index])
-                    else:
-                        donor_log2fc = float(
-                            donor_means[(disease_state, str(donor))][gene_index] - normal_reference[gene_index]
-                        )
-                    donor_rows.append(
-                        {
-                            "cell_type": cell_type,
-                            "donor": str(donor),
-                            "ensembl_id": ensembl_id,
-                            "gene_symbol": gene_symbol,
-                            "log2fc": donor_log2fc,
-                            "fdr": float(fdr[gene_index]),
-                        }
-                    )
+
+            _append_cell_type_rows(
+                aggregate_rows=aggregate_rows,
+                donor_rows=donor_rows,
+                donor_means=donor_means,
+                normal_donors=normal_donors,
+                disease_donors=disease_donors,
+                normal_state=normal_state,
+                disease_state=disease_state,
+                centered=centered,
+                direction_epsilon=direction_epsilon,
+                cell_type=cell_type,
+                gene_names=gene_names,
+                gene_symbols=gene_symbols,
+            )
 
         aggregate = pd.DataFrame(aggregate_rows, columns=_AGGREGATE_COLUMNS)
         donor = pd.DataFrame(donor_rows, columns=_DONOR_COLUMNS)
-        if donor_aggregation == "pseudobulk_counts_centered":
-            normal_reference = (
-                f"per cell type and cohort {normal_state} donor pseudobulk log2(normalized counts) mean "
-                f"(cohort column {cohort_column!r}); donor values are cohort-centered"
-            )
-        elif donor_aggregation == "pseudobulk_counts":
-            normal_reference = f"per cell type {normal_state} donor pseudobulk log2(normalized counts)"
-        else:
-            normal_reference = f"per cell type {normal_state} donor-level log2(normalized counts) mean"
         audit: dict[str, Any] = {
             "cell_types": list(requested),
             "counts_layer": counts_layer,
             "donor_aggregation": donor_aggregation,
             "normal_state": normal_state,
             "disease_state": disease_state,
-            "normal_reference": normal_reference,
+            "normal_reference": _deg_normal_reference(donor_aggregation, cohort_column, normal_state),
             "effect_scale": f"{disease_state} donor mean minus {normal_state} donor mean",
             "state_counts": {
                 "normal": int(np.count_nonzero(state_values == "normal")),

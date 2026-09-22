@@ -62,6 +62,133 @@ class CrossValidationResult(TypedDict, total=False):
     fold_predictions: List[Array]
 
 
+def _map_ptm_type_ids(ptm_type: object, config: Optional[Dict[str, object]]) -> List[str]:
+    """Map per-sample ptm_type ids to names using the optional config mapping."""
+
+    names: List[str] = []
+    if isinstance(ptm_type, list):
+        names.extend(str(x) for x in ptm_type)
+        return names
+    assert isinstance(ptm_type, torch.Tensor)
+    ptm_type_names = config.get("ptm_type_names") if config else None
+    for x in ptm_type.tolist():
+        if ptm_type_names is not None and isinstance(ptm_type_names, (list, dict)):
+            if isinstance(ptm_type_names, list) and 0 <= int(x) < len(ptm_type_names):
+                names.append(str(ptm_type_names[int(x)]))
+            elif isinstance(ptm_type_names, dict) and str(x) in ptm_type_names:
+                names.append(str(ptm_type_names[str(x)]))
+            else:
+                names.append(str(int(x)))
+        else:
+            names.append(str(int(x)))
+    return names
+
+
+def _resolve_model_outputs(outputs: object) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """Normalize a model forward result into (predictions, probabilities)."""
+
+    if isinstance(outputs, dict):
+        predictions = outputs.get("predictions")
+        probabilities = outputs.get("probabilities")
+    else:
+        if not isinstance(outputs, torch.Tensor):
+            raise TypeError("Model output must be tensor or dict")
+        probabilities = torch.softmax(outputs, dim=-1)
+        predictions = torch.argmax(probabilities, dim=-1)
+
+    if not isinstance(predictions, torch.Tensor):
+        raise TypeError("Model output must contain tensor predictions")
+    probabilities_tensor: Optional[torch.Tensor]
+    if isinstance(probabilities, torch.Tensor):
+        probabilities_tensor = probabilities
+    elif probabilities is None:
+        probabilities_tensor = None
+    else:
+        raise TypeError("Model output probabilities must be a tensor")
+    return predictions, probabilities_tensor
+
+
+def _run_eval_batches(
+    model: nn.Module,
+    dataloader: DataLoader[Batch],
+    device: str,
+    config: Optional[Dict[str, object]],
+) -> tuple[List[Array], List[Array], List[Array], List[str]]:
+    """Collect predictions/probabilities/targets across the eval dataloader."""
+
+    all_predictions: List[Array] = []
+    all_probabilities: List[Array] = []
+    all_targets: List[Array] = []
+    all_ptm_types: List[str] = []
+
+    with torch.no_grad():
+        for batch in dataloader:
+            if not isinstance(batch, dict):
+                raise TypeError("Batch must be a dict")
+
+            for key in batch:
+                if isinstance(batch[key], torch.Tensor):
+                    batch[key] = batch[key].to(device)
+
+            outputs = model(batch)
+            predictions, probabilities_tensor = _resolve_model_outputs(outputs)
+
+            targets = batch.get("label")
+            if not isinstance(targets, torch.Tensor):
+                raise TypeError("Batch must contain tensor label")
+
+            all_predictions.append(np.asarray(predictions.cpu().numpy()))
+            if probabilities_tensor is not None:
+                all_probabilities.append(np.asarray(probabilities_tensor.cpu().numpy()))
+            all_targets.append(np.asarray(targets.cpu().numpy()))
+
+            ptm_type = batch.get("ptm_type")
+            if ptm_type is not None:
+                all_ptm_types.extend(_map_ptm_type_ids(ptm_type, config))
+
+    return all_predictions, all_probabilities, all_targets, all_ptm_types
+
+
+def _enrich_classification_metrics(
+    metrics: ClassificationMetrics,
+    targets_array: Array,
+    predictions_array: Array,
+    probabilities_array: Optional[Array],
+) -> None:
+    """Add optional ranking metrics and bootstrap confidence intervals in place."""
+
+    try:
+        from .metrics import calculate_ranking_metrics
+
+        if probabilities_array is not None and probabilities_array.shape[-1] > 1:
+            ranking = calculate_ranking_metrics(targets_array, probabilities_array)
+            if ranking:
+                metrics["ranking_ndcg"] = ranking.get("ndcg", 0.0)
+                metrics["ranking_map"] = ranking.get("map", 0.0)
+    except (ImportError, AttributeError, ValueError) as e:
+        logger.debug("Ranking metrics not computed: %s", e)
+
+    try:
+        from .metrics import calculate_metric_ci
+
+        if len(targets_array) >= 10:
+            ci_results = {}
+            for metric_name, metric_fn in [
+                ("accuracy", calculate_accuracy),
+                ("f1", calculate_f1_score),
+                ("precision", calculate_precision),
+                ("recall", calculate_recall),
+            ]:
+                if metric_name in metrics:
+                    ci = calculate_metric_ci(targets_array, predictions_array, metric_fn)
+                    if ci:
+                        ci_results[f"{metric_name}_ci"] = ci
+            if ci_results:
+                metrics["confidence_intervals"] = ci_results
+    except (ImportError, AttributeError, ValueError) as e:
+        logger.debug("Confidence intervals not computed: %s", e)
+
+
 def evaluate(
     model: nn.Module,
     dataloader: DataLoader[Batch],
@@ -98,67 +225,9 @@ def evaluate(
 
     logger.info("开始评估")
 
-    all_predictions: List[Array] = []
-    all_probabilities: List[Array] = []
-    all_targets: List[Array] = []
-    all_ptm_types: List[str] = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            if not isinstance(batch, dict):
-                raise TypeError("Batch must be a dict")
-
-            for key in batch:
-                if isinstance(batch[key], torch.Tensor):
-                    batch[key] = batch[key].to(device)
-
-            outputs = model(batch)
-
-            if isinstance(outputs, dict):
-                predictions = outputs.get("predictions")
-                probabilities = outputs.get("probabilities")
-            else:
-                if not isinstance(outputs, torch.Tensor):
-                    raise TypeError("Model output must be tensor or dict")
-                probabilities = torch.softmax(outputs, dim=-1)
-                predictions = torch.argmax(probabilities, dim=-1)
-
-            if not isinstance(predictions, torch.Tensor):
-                raise TypeError("Model output must contain tensor predictions")
-
-            probabilities_tensor: Optional[torch.Tensor]
-            if isinstance(probabilities, torch.Tensor):
-                probabilities_tensor = probabilities
-            elif probabilities is None:
-                probabilities_tensor = None
-            else:
-                raise TypeError("Model output probabilities must be a tensor")
-
-            targets = batch.get("label")
-            if not isinstance(targets, torch.Tensor):
-                raise TypeError("Batch must contain tensor label")
-
-            all_predictions.append(np.asarray(predictions.cpu().numpy()))
-            if probabilities_tensor is not None:
-                all_probabilities.append(np.asarray(probabilities_tensor.cpu().numpy()))
-            all_targets.append(np.asarray(targets.cpu().numpy()))
-
-            ptm_type = batch.get("ptm_type")
-            if ptm_type is not None:
-                if isinstance(ptm_type, list):
-                    all_ptm_types.extend([str(x) for x in ptm_type])
-                elif isinstance(ptm_type, torch.Tensor):
-                    ptm_type_names = config.get("ptm_type_names") if config else None
-                    for x in ptm_type.tolist():
-                        if ptm_type_names is not None and isinstance(ptm_type_names, (list, dict)):
-                            if isinstance(ptm_type_names, list) and 0 <= int(x) < len(ptm_type_names):
-                                all_ptm_types.append(str(ptm_type_names[int(x)]))
-                            elif isinstance(ptm_type_names, dict) and str(x) in ptm_type_names:
-                                all_ptm_types.append(str(ptm_type_names[str(x)]))
-                            else:
-                                all_ptm_types.append(str(int(x)))
-                        else:
-                            all_ptm_types.append(str(int(x)))
+    all_predictions, all_probabilities, all_targets, all_ptm_types = _run_eval_batches(
+        model, dataloader, device, config
+    )
 
     predictions_array = np.concatenate(all_predictions, axis=0)
     targets_array = np.concatenate(all_targets, axis=0)
@@ -177,40 +246,7 @@ def evaluate(
             probabilities_array,
             all_ptm_types if all_ptm_types else None,
         )
-
-        # Compute ranking metrics if applicable
-        try:
-            from .metrics import calculate_ranking_metrics
-
-            if probabilities_array is not None and probabilities_array.shape[-1] > 1:
-                ranking = calculate_ranking_metrics(targets_array, probabilities_array)
-                if ranking:
-                    metrics["ranking_ndcg"] = ranking.get("ndcg", 0.0)
-                    metrics["ranking_map"] = ranking.get("map", 0.0)
-        except (ImportError, AttributeError, ValueError) as e:
-            logger.debug("Ranking metrics not computed: %s", e)
-
-        # Compute bootstrap confidence intervals for main metrics
-        try:
-            from .metrics import calculate_metric_ci
-
-            if len(targets_array) >= 10:
-                ci_results = {}
-                for metric_name, metric_fn in [
-                    ("accuracy", calculate_accuracy),
-                    ("f1", calculate_f1_score),
-                    ("precision", calculate_precision),
-                    ("recall", calculate_recall),
-                ]:
-                    if metric_name in metrics:
-                        ci = calculate_metric_ci(targets_array, predictions_array, metric_fn)
-                        if ci:
-                            ci_results[f"{metric_name}_ci"] = ci
-                if ci_results:
-                    metrics["confidence_intervals"] = ci_results
-        except (ImportError, AttributeError, ValueError) as e:
-            logger.debug("Confidence intervals not computed: %s", e)
-
+        _enrich_classification_metrics(metrics, targets_array, predictions_array, probabilities_array)
     else:
         metrics = cast(
             ClassificationMetrics,

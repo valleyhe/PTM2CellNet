@@ -523,6 +523,574 @@ def split_target_cells(
     return {split: tuple(rows_by_split[split]) for split in split_order}
 
 
+def _validate_pair_build_options(
+    modality: str,
+    split_strategy: str,
+    control_baseline: str,
+    max_cells_per_target: int,
+    encoder_batch_size: int,
+) -> None:
+    if modality not in DIRECTION_CODES:
+        raise DAVFScPerturbError(f"unsupported DAVF modality {modality!r}")
+    if split_strategy not in {"target", "cell"}:
+        raise DAVFScPerturbError("split_strategy must be 'target' or 'cell'")
+    if control_baseline not in {"mean", "cell"}:
+        raise DAVFScPerturbError("control_baseline must be 'mean' or 'cell'")
+    if max_cells_per_target <= 0 or encoder_batch_size <= 0:
+        raise DAVFScPerturbError("max_cells_per_target and encoder_batch_size must be positive")
+
+
+def _load_prepared_anndata(prepared_path: str | Path, modality: str) -> tuple[Any, Path]:
+    """Load the prepared AnnData and enforce the shared data contract."""
+
+    ad = _require_anndata()
+    prepared = Path(prepared_path).expanduser().resolve()
+    adata = ad.read_h5ad(prepared)
+    metadata = adata.uns.get("davf_preparation")
+    if not isinstance(metadata, Mapping):
+        raise DAVFScPerturbError("prepared AnnData is missing uns['davf_preparation']")
+    if metadata.get("modality") != modality:
+        raise DAVFScPerturbError(
+            f"prepared AnnData modality={metadata.get('modality')!r} does not match requested {modality!r}"
+        )
+    if adata.n_vars != FORMAL_DAVF_NUM_GENES:
+        raise DAVFScPerturbError(f"prepared AnnData must have {FORMAL_DAVF_NUM_GENES} genes, got {adata.n_vars}")
+    if "davf_target_ensembl" not in adata.obs or "davf_batch" not in adata.obs:
+        raise DAVFScPerturbError("prepared AnnData must contain davf_target_ensembl and davf_batch columns")
+    return adata, prepared
+
+
+def _resolve_donor_labels(
+    adata: Any,
+    donor_obs_column: str | None,
+    donor_split: Mapping[str, Any] | None,
+    require_state_coverage: bool,
+) -> tuple[np.ndarray | None, frozenset[str] | None, frozenset[str] | None]:
+    """Validate the donor split payload and derive per-cell donor labels."""
+
+    if require_state_coverage and donor_split is None:
+        raise DAVFScPerturbError("require_state_coverage only applies to donor-bound splits; provide donor_split")
+    if donor_split is None:
+        return None, None, None
+    if donor_obs_column is None:
+        raise DAVFScPerturbError("donor_split requires donor_obs_column")
+    if donor_obs_column not in adata.obs.columns:
+        raise DAVFScPerturbError(f"prepared AnnData has no donor column {donor_obs_column!r} for donor-bound splitting")
+    train_list = donor_split.get("train_donors")
+    held_list = donor_split.get("held_out_donors")
+    if not isinstance(train_list, list) or not train_list or not isinstance(held_list, list) or not held_list:
+        raise DAVFScPerturbError("donor_split payload requires non-empty train_donors and held_out_donors lists")
+    if not all(isinstance(item, str) and item for item in (*train_list, *held_list)):
+        raise DAVFScPerturbError("donor_split donor labels must be non-empty strings")
+    train_donors = frozenset(train_list)
+    held_out_donors = frozenset(held_list)
+    if train_donors & held_out_donors:
+        overlap = sorted(train_donors & held_out_donors)
+        raise DAVFScPerturbError(f"donor_split leaks donors into both pools: {overlap}")
+    raw_donors = adata.obs[donor_obs_column]
+    donor_labels = np.asarray(
+        raw_donors.astype(object).where(raw_donors.notna(), ""),
+        dtype="U",
+    )
+    unknown = sorted(set(donor_labels.tolist()) - train_donors - held_out_donors)
+    if unknown:
+        raise DAVFScPerturbError(
+            "every prepared cell must carry a donor from the donor_split pools; "
+            f"unassigned/missing donors: {unknown[:10]}"
+        )
+    if not (set(donor_labels.tolist()) & train_donors) or not (set(donor_labels.tolist()) & held_out_donors):
+        raise DAVFScPerturbError("both the train_donor pool and the held-out donor pool must contain cells")
+    return donor_labels, train_donors, held_out_donors
+
+
+def _encode_latent_with_scvi(
+    adata: Any,
+    scvi_model_path: str | Path,
+    device: str,
+    encoder_batch_size: int,
+) -> tuple[tuple[str, ...], Path, np.ndarray]:
+    """Load the scVI adapter, verify gene order and encode the latent matrix."""
+
+    from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
+
+    require_extras(["scvi"], feature="DAVF latent-pair construction")
+    scvi_path = Path(scvi_model_path).expanduser().resolve()
+    adapter = ScVIAdapter.from_trained_model(
+        scvi_path,
+        config=ScVIAdapterConfig(
+            model_path=str(scvi_path),
+            n_latent=FORMAL_DAVF_LATENT_DIM,
+            batch_key="davf_batch",
+            device=device,
+        ),
+        adata=adata,
+    )
+    gene_names = tuple(str(name) for name in adapter.gene_names)
+    adapter.validate_compatibility(
+        expected_latent_dim=FORMAL_DAVF_LATENT_DIM,
+        expected_num_genes=FORMAL_DAVF_NUM_GENES,
+        expected_gene_names=gene_names,
+    )
+    if gene_names != tuple(str(name) for name in adata.var_names):
+        raise DAVFScPerturbError("prepared AnnData gene order does not match the scVI decoder vocabulary")
+    latent = np.asarray(adapter.encode(adata, batch_size=encoder_batch_size), dtype=np.float32)
+    if latent.shape != (adata.n_obs, FORMAL_DAVF_LATENT_DIM) or not np.isfinite(latent).all():
+        raise DAVFScPerturbError(f"scVI encoder returned invalid latent array with shape {latent.shape}")
+    return gene_names, scvi_path, latent
+
+
+def _check_held_out_state_coverage(
+    adata: Any,
+    state_obs_column: str | None,
+    held_mask: np.ndarray,
+) -> dict[str, int]:
+    """Demand that the held-out donor pool covers at least two states."""
+
+    if state_obs_column is None:
+        raise DAVFScPerturbError("require_state_coverage needs an explicit state_obs_column")
+    if state_obs_column not in adata.obs.columns:
+        raise DAVFScPerturbError(
+            f"prepared AnnData has no state column {state_obs_column!r} for held-out state coverage"
+        )
+    held_states = adata.obs[state_obs_column].astype(str).str.strip().to_numpy()[held_mask]
+    coverage = {str(state): int((held_states == state).sum()) for state in sorted(set(held_states) - {""})}
+    if len(coverage) < 2:
+        raise DAVFScPerturbError(
+            "held-out donor pool covers fewer than two states of "
+            f"{state_obs_column!r}: {coverage}; rescue judgements on the "
+            "test split would lose their state contrast"
+        )
+    return coverage
+
+
+def _donor_pool_label_split(
+    unique: np.ndarray,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Shuffle donor-pool target labels and apportion them into train/val."""
+
+    shuffled_labels = unique[np.random.default_rng(seed).permutation(len(unique))]
+    ratios = np.asarray([train_ratio, val_ratio], dtype=float)
+    if np.any(ratios <= 0):
+        raise DAVFScPerturbError("train/val ratios must be positive for donor-bound splits")
+    counts = np.maximum(np.floor(ratios / ratios.sum() * len(unique)).astype(int), 1)
+    while int(counts.sum()) > len(unique):
+        index = int(np.argmax(counts))
+        counts[index] -= 1
+    while int(counts.sum()) < len(unique):
+        counts[int(np.argmax(ratios - counts / len(unique)))] += 1
+    return (
+        tuple(str(value) for value in shuffled_labels[: int(counts[0])]),
+        tuple(str(value) for value in shuffled_labels[int(counts[0]) :]),
+    )
+
+
+def _donor_bound_target_rows(
+    target_values: np.ndarray,
+    target_labels: tuple[str, ...],
+    train_mask: np.ndarray,
+    held_mask: np.ndarray,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+) -> dict[str, dict[str, np.ndarray]]:
+    """Split donor-bound rows by target gene inside the train donor pool."""
+
+    train_pool_labels = tuple(sorted(set(target_values[train_mask]) - {""}))
+    if len(train_pool_labels) < 2:
+        raise DAVFScPerturbError("donor-bound target split needs at least two target genes inside the train donor pool")
+    unique = np.asarray(train_pool_labels, dtype="U")
+    train_labels, val_labels = _donor_pool_label_split(unique, seed, train_ratio, val_ratio)
+    pool_label_splits = {"train": train_labels, "val": val_labels}
+    target_rows_by_split = {
+        split: {
+            label: np.flatnonzero((target_values == label) & train_mask)
+            for label in labels
+            if np.any((target_values == label) & train_mask)
+        }
+        for split, labels in pool_label_splits.items()
+    }
+    target_rows_by_split["test"] = {
+        label: np.flatnonzero((target_values == label) & held_mask)
+        for label in target_labels
+        if np.any((target_values == label) & held_mask)
+    }
+    return target_rows_by_split
+
+
+def _donor_bound_cell_rows(
+    target_values: np.ndarray,
+    target_labels: tuple[str, ...],
+    train_mask: np.ndarray,
+    held_mask: np.ndarray,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+) -> dict[str, dict[str, np.ndarray]]:
+    """Split donor-bound rows at cell level within the train donor pool."""
+
+    pool_ratio = train_ratio / (train_ratio + val_ratio)
+    pool_rows_by_split: dict[str, list[int]] = {"train": [], "val": []}
+    for label_index, label in enumerate(target_labels):
+        label_rows = np.flatnonzero((target_values == label) & train_mask)
+        if len(label_rows) == 0:
+            continue
+        if len(label_rows) == 1:
+            pool_rows_by_split["train"].extend(int(row) for row in label_rows)
+            continue
+        shuffled_rows = label_rows[np.random.default_rng(seed + 7919 * (label_index + 1)).permutation(len(label_rows))]
+        train_count = max(1, int(np.floor(pool_ratio * len(label_rows))))
+        train_count = min(train_count, len(label_rows) - 1)
+        pool_rows_by_split["train"].extend(int(row) for row in shuffled_rows[:train_count])
+        pool_rows_by_split["val"].extend(int(row) for row in shuffled_rows[train_count:])
+    target_rows_by_split: dict[str, dict[str, np.ndarray]] = {}
+    donor_split_row_sets = (
+        ("train", pool_rows_by_split["train"]),
+        ("val", pool_rows_by_split["val"]),
+        ("test", np.flatnonzero(held_mask).tolist()),
+    )
+    for split, rows in donor_split_row_sets:
+        donor_grouped_rows: dict[str, list[int]] = {}
+        for index in rows:
+            if str(target_values[index]) == "":
+                continue
+            donor_grouped_rows.setdefault(str(target_values[index]), []).append(int(index))
+        target_rows_by_split[split] = {
+            label: np.asarray(indices, dtype=np.int64) for label, indices in sorted(donor_grouped_rows.items())
+        }
+    return target_rows_by_split
+
+
+def _plain_target_rows(
+    target_values: np.ndarray,
+    target_labels: tuple[str, ...],
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+    test_ratio: float,
+) -> dict[str, dict[str, np.ndarray]]:
+    label_splits = split_target_labels(
+        target_labels,
+        seed=seed,
+        train_ratio=train_ratio,
+        val_ratio=val_ratio,
+        test_ratio=test_ratio,
+    )
+    return {
+        split: {label: np.flatnonzero(target_values == label) for label in labels}
+        for split, labels in label_splits.items()
+    }
+
+
+def _plain_cell_rows(
+    target_values: np.ndarray,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+    test_ratio: float,
+) -> dict[str, dict[str, np.ndarray]]:
+    row_splits = split_target_cells(
+        target_values,
+        seed=seed,
+        train_ratio=train_ratio,
+        val_ratio=val_ratio,
+        test_ratio=test_ratio,
+    )
+    target_rows_by_split: dict[str, dict[str, np.ndarray]] = {}
+    for split, rows in row_splits.items():
+        grouped_rows: dict[str, list[int]] = {}
+        for index in rows:
+            grouped_rows.setdefault(str(target_values[index]), []).append(int(index))
+        target_rows_by_split[split] = {
+            label: np.asarray(indices, dtype=np.int64) for label, indices in sorted(grouped_rows.items())
+        }
+    return target_rows_by_split
+
+
+def _build_target_rows_by_split(
+    adata: Any,
+    target_values: np.ndarray,
+    target_labels: tuple[str, ...],
+    donor_labels: np.ndarray | None,
+    train_donors: frozenset[str] | None,
+    held_out_donors: frozenset[str] | None,
+    split_strategy: str,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+    test_ratio: float,
+    require_state_coverage: bool,
+    state_obs_column: str | None,
+) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, int] | None]:
+    """Assign every row to a split under the active split strategy."""
+
+    held_out_state_coverage: dict[str, int] | None = None
+    if donor_labels is not None:
+        assert train_donors is not None and held_out_donors is not None
+        train_mask = np.isin(donor_labels, sorted(train_donors))
+        held_mask = np.isin(donor_labels, sorted(held_out_donors))
+        if require_state_coverage:
+            held_out_state_coverage = _check_held_out_state_coverage(adata, state_obs_column, held_mask)
+        if split_strategy == "target":
+            target_rows_by_split = _donor_bound_target_rows(
+                target_values, target_labels, train_mask, held_mask, seed, train_ratio, val_ratio
+            )
+        else:
+            target_rows_by_split = _donor_bound_cell_rows(
+                target_values, target_labels, train_mask, held_mask, seed, train_ratio, val_ratio
+            )
+        return target_rows_by_split, held_out_state_coverage
+    if split_strategy == "target":
+        return _plain_target_rows(target_values, target_labels, seed, train_ratio, val_ratio, test_ratio), None
+    return _plain_cell_rows(target_values, seed, train_ratio, val_ratio, test_ratio), None
+
+
+def _allocate_pool_counts(pool: np.ndarray, pool_ratios: np.ndarray) -> np.ndarray:
+    """Apportion shuffled control cells across ratios without dropping any cell."""
+
+    counts = np.maximum(np.floor(pool_ratios / pool_ratios.sum() * len(pool)).astype(int), 1)
+    while int(counts.sum()) > len(pool):
+        index = int(np.argmax(counts))
+        counts[index] -= 1
+    while int(counts.sum()) < len(pool):
+        deficits = pool_ratios - counts / len(pool)
+        counts[int(np.argmax(deficits))] += 1
+    return np.asarray(counts)
+
+
+def _allocate_donor_bound_controls(
+    target_values: np.ndarray,
+    batches: np.ndarray,
+    donor_labels: np.ndarray,
+    train_donors: frozenset[str],
+    held_out_donors: frozenset[str],
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+    control_indices: dict[str, dict[str, np.ndarray]],
+) -> None:
+    train_mask = np.isin(donor_labels, sorted(train_donors))
+    held_mask = np.isin(donor_labels, sorted(held_out_donors))
+    for batch in sorted(set(batches)):
+        for pool_mask, pool_splits, pool_ratios in (
+            (train_mask, ("train", "val"), np.asarray([train_ratio, val_ratio])),
+            (held_mask, ("test",), np.asarray([1.0])),
+        ):
+            pool = np.flatnonzero((target_values == "") & (batches == batch) & pool_mask)
+            if len(pool) < len(pool_splits):
+                raise DAVFScPerturbError(
+                    f"batch {batch!r} has fewer than {len(pool_splits)} control cells in a donor pool"
+                )
+            shuffled = pool[np.random.default_rng(seed + sum(map(ord, batch))).permutation(len(pool))]
+            counts = _allocate_pool_counts(pool, pool_ratios)
+            start = 0
+            for split, count in zip(pool_splits, counts, strict=True):
+                stop = start + int(count)
+                control_indices[split][batch] = shuffled[start:stop]
+                start = stop
+
+
+def _allocate_plain_controls(
+    target_values: np.ndarray,
+    batches: np.ndarray,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+    test_ratio: float,
+    control_indices: dict[str, dict[str, np.ndarray]],
+) -> None:
+    split_order = ("train", "val", "test")
+    for batch in sorted(set(batches)):
+        pool = np.flatnonzero((target_values == "") & (batches == batch))
+        if len(pool) < 3:
+            raise DAVFScPerturbError(f"batch {batch!r} has fewer than three control cells")
+        shuffled = pool[np.random.default_rng(seed + sum(map(ord, batch))).permutation(len(pool))]
+        counts = np.floor(np.asarray([train_ratio, val_ratio, test_ratio]) * len(pool)).astype(int)
+        counts = np.maximum(counts, 1)
+        while int(counts.sum()) > len(pool):
+            index = int(np.argmax(counts))
+            counts[index] -= 1
+        while int(counts.sum()) < len(pool):
+            index = int(np.argmax(np.asarray([train_ratio, val_ratio, test_ratio]) - counts / len(pool)))
+            counts[index] += 1
+        start = 0
+        for split, count in zip(split_order, counts, strict=True):
+            stop = start + int(count)
+            control_indices[split][batch] = shuffled[start:stop]
+            start = stop
+
+
+@dataclass
+class _SplitExportContext:
+    """Shared state for exporting one leakage-free split NPZ."""
+
+    adata: Any
+    latent: np.ndarray
+    batches: np.ndarray
+    donor_labels: np.ndarray | None
+    train_donors: frozenset[str] | None
+    held_out_donors: frozenset[str] | None
+    embedding_asset: Any
+    embedding_asset_path: str | Path
+    scvi_path: Path
+    prepared_path: Path
+    gene_names: tuple[str, ...]
+    modality: str
+    direction_code: int
+    split_strategy: str
+    control_baseline: str
+    seed: int
+    max_cells_per_target: int
+    donor_obs_column: str | None
+    donor_split: Mapping[str, Any] | None
+
+
+def _export_split_npz(
+    ctx: _SplitExportContext,
+    split: str,
+    split_target_rows: Mapping[str, np.ndarray],
+    split_controls: Mapping[str, np.ndarray],
+    rng: np.random.Generator,
+    output_path: Path,
+) -> dict[str, Any]:
+    """Assemble one split's pairs, validate donor binding and write the NPZ."""
+
+    rows_z0: list[np.ndarray] = []
+    rows_z1: list[np.ndarray] = []
+    rows_gene: list[int] = []
+    rows_direction: list[int] = []
+    rows_cell_ids: list[str] = []
+    rows_batches: list[str] = []
+    rows_donors: list[str] = []
+    control_cell_ids: list[str] = []
+    control_batches: list[str] = []
+    control_donors: list[str] = []
+    pair_control_cell_ids: list[str] = []
+    pair_control_batches: list[str] = []
+    labels = tuple(sorted(split_target_rows))
+    split_control_count = sum(len(values) for values in split_controls.values())
+    for batch in sorted(split_controls):
+        indices = split_controls[batch]
+        control_cell_ids.extend(str(ctx.adata.obs_names[index]) for index in indices)
+        control_batches.extend([batch] * len(indices))
+        if ctx.donor_labels is not None:
+            control_donors.extend(str(ctx.donor_labels[index]) for index in indices)
+    if len(control_cell_ids) != split_control_count:
+        raise DAVFScPerturbError(f"split {split} control barcode count does not match its allocation")
+    control_means = {
+        batch: ctx.latent[indices].mean(axis=0).astype(np.float32) for batch, indices in split_controls.items()
+    }
+    for label in labels:
+        target_rows = split_target_rows[label]
+        if len(target_rows) > ctx.max_cells_per_target:
+            target_rows = np.sort(rng.choice(target_rows, size=ctx.max_cells_per_target, replace=False))
+        token = ctx.embedding_asset.gene_to_token.get(label)
+        if token is None:
+            raise DAVFScPerturbError(f"target {label!r} is absent from the PerturbGen asset")
+        for row in target_rows:
+            batch = ctx.batches[row]
+            if batch not in control_means:
+                raise DAVFScPerturbError(f"target row {row} has no control baseline in batch {batch!r}")
+            control_pool = split_controls[batch]
+            if ctx.control_baseline == "cell":
+                control_index = int(rng.choice(control_pool))
+                baseline = ctx.latent[control_index]
+                pair_control_cell_ids.append(str(ctx.adata.obs_names[control_index]))
+                pair_control_batches.append(batch)
+            else:
+                baseline = control_means[batch]
+                pair_control_cell_ids.append("")
+                pair_control_batches.append(batch)
+            rows_z0.append(baseline)
+            rows_z1.append(ctx.latent[row])
+            rows_gene.append(int(token))
+            rows_direction.append(ctx.direction_code)
+            rows_cell_ids.append(str(ctx.adata.obs_names[row]))
+            rows_batches.append(batch)
+            if ctx.donor_labels is not None:
+                rows_donors.append(str(ctx.donor_labels[row]))
+    if not rows_z1:
+        raise DAVFScPerturbError(f"split {split} contains no target cells")
+    if ctx.donor_labels is not None and ctx.train_donors is not None and ctx.held_out_donors is not None:
+        expected_pool = sorted(ctx.train_donors) if split in ("train", "val") else sorted(ctx.held_out_donors)
+        leaked = sorted(set(rows_donors) - set(expected_pool))
+        if leaked:
+            raise DAVFScPerturbError(f"split {split} target rows carry donors outside their donor pool: {leaked}")
+
+    split_metadata: dict[str, Any] = {
+        "schema_version": "ptm2cellnet.latent-davf-pairs.v1",
+        "scvi": {
+            "model_path": str(ctx.scvi_path),
+            "latent_dim": FORMAL_DAVF_LATENT_DIM,
+            "num_genes": FORMAL_DAVF_NUM_GENES,
+            "gene_names": list(ctx.gene_names),
+        },
+        "embedding_asset": {
+            "path": str(Path(ctx.embedding_asset_path).expanduser().resolve()),
+            "vocab_size": int(ctx.embedding_asset.vocab_size),
+            "embedding_dim": int(ctx.embedding_asset.embedding_dim),
+            "manifest": dict(ctx.embedding_asset.manifest),
+        },
+        "dataset": {
+            "name": "scPerturb prepared AnnData",
+            "modality": ctx.modality,
+            "intervention_type": ctx.modality,
+            "direction_code": ctx.direction_code,
+            "split": split,
+            "split_strategy": ctx.split_strategy,
+            "seed": int(ctx.seed),
+            "pair_direction": (
+                "within_batch_control_cell_to_perturbation_cell"
+                if ctx.control_baseline == "cell"
+                else "within_batch_control_mean_to_perturbation_cell"
+            ),
+            "control_baseline": (
+                "same_batch_split_disjoint_control_cell"
+                if ctx.control_baseline == "cell"
+                else "latent_mean_of_split_disjoint_control_cells"
+            ),
+            "target_labels": list(labels),
+            "target_cells": len(rows_z1),
+            "control_cells": int(split_control_count),
+            "target_gene_tokens": {label: int(ctx.embedding_asset.gene_to_token[label]) for label in labels},
+            "prepared_anndata": str(ctx.prepared_path),
+        },
+    }
+    if ctx.donor_labels is not None:
+        split_metadata["dataset"]["donor_obs_column"] = ctx.donor_obs_column
+        split_metadata["dataset"]["donor_rows"] = rows_donors
+        split_metadata["dataset"]["donor_pool"] = "train_donors" if split in ("train", "val") else "held_out_donors"
+        split_metadata["donor_split"] = dict(ctx.donor_split) if ctx.donor_split is not None else None
+    npz_arrays: dict[str, Any] = {
+        "metadata_json": np.asarray(
+            json.dumps(split_metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        ),
+        "z_0": np.asarray(rows_z0, dtype=np.float32),
+        "z_1": np.asarray(rows_z1, dtype=np.float32),
+        "gene_ids": np.asarray(rows_gene, dtype=np.int64)[:, None],
+        "directions": np.asarray(rows_direction, dtype=np.int64)[:, None],
+        "attention_mask": np.ones((len(rows_z1), 1), dtype=np.float32),
+        "target_cell_ids": np.asarray(rows_cell_ids, dtype="U"),
+        "target_batches": np.asarray(rows_batches, dtype="U"),
+        "control_cell_ids": np.asarray(control_cell_ids, dtype="U"),
+        "control_batches": np.asarray(control_batches, dtype="U"),
+        "pair_control_cell_ids": np.asarray(pair_control_cell_ids, dtype="U"),
+        "pair_control_batches": np.asarray(pair_control_batches, dtype="U"),
+    }
+    if ctx.donor_labels is not None:
+        npz_arrays["target_donors"] = np.asarray(rows_donors, dtype="U")
+        npz_arrays["control_donors"] = np.asarray(control_donors, dtype="U")
+    np.savez_compressed(output_path, **npz_arrays)
+    return {
+        "path": str(output_path),
+        "samples": len(rows_z1),
+        "target_labels": list(labels),
+        "control_cells": int(split_control_count),
+    }
+
+
 def build_scperturb_latent_pairs(
     prepared_path: str | Path,
     *,
@@ -562,92 +1130,12 @@ def build_scperturb_latent_pairs(
     the pair manifest so the declared design stays auditable.
     """
 
-    if modality not in DIRECTION_CODES:
-        raise DAVFScPerturbError(f"unsupported DAVF modality {modality!r}")
-    if split_strategy not in {"target", "cell"}:
-        raise DAVFScPerturbError("split_strategy must be 'target' or 'cell'")
-    if control_baseline not in {"mean", "cell"}:
-        raise DAVFScPerturbError("control_baseline must be 'mean' or 'cell'")
-    if max_cells_per_target <= 0 or encoder_batch_size <= 0:
-        raise DAVFScPerturbError("max_cells_per_target and encoder_batch_size must be positive")
-    ad = _require_anndata()
-    from src.models.scvi_adapter import ScVIAdapter, ScVIAdapterConfig
-
-    prepared = Path(prepared_path).expanduser().resolve()
-    adata = ad.read_h5ad(prepared)
-    metadata = adata.uns.get("davf_preparation")
-    if not isinstance(metadata, Mapping):
-        raise DAVFScPerturbError("prepared AnnData is missing uns['davf_preparation']")
-    if metadata.get("modality") != modality:
-        raise DAVFScPerturbError(
-            f"prepared AnnData modality={metadata.get('modality')!r} does not match requested {modality!r}"
-        )
-    if adata.n_vars != FORMAL_DAVF_NUM_GENES:
-        raise DAVFScPerturbError(f"prepared AnnData must have {FORMAL_DAVF_NUM_GENES} genes, got {adata.n_vars}")
-    if "davf_target_ensembl" not in adata.obs or "davf_batch" not in adata.obs:
-        raise DAVFScPerturbError("prepared AnnData must contain davf_target_ensembl and davf_batch columns")
-
-    donor_labels: np.ndarray | None = None
-    train_donors: frozenset[str] | None = None
-    held_out_donors: frozenset[str] | None = None
-    if require_state_coverage and donor_split is None:
-        raise DAVFScPerturbError("require_state_coverage only applies to donor-bound splits; provide donor_split")
-    if donor_split is not None:
-        if donor_obs_column is None:
-            raise DAVFScPerturbError("donor_split requires donor_obs_column")
-        if donor_obs_column not in adata.obs.columns:
-            raise DAVFScPerturbError(
-                f"prepared AnnData has no donor column {donor_obs_column!r} for donor-bound splitting"
-            )
-        train_list = donor_split.get("train_donors")
-        held_list = donor_split.get("held_out_donors")
-        if not isinstance(train_list, list) or not train_list or not isinstance(held_list, list) or not held_list:
-            raise DAVFScPerturbError("donor_split payload requires non-empty train_donors and held_out_donors lists")
-        if not all(isinstance(item, str) and item for item in (*train_list, *held_list)):
-            raise DAVFScPerturbError("donor_split donor labels must be non-empty strings")
-        train_donors = frozenset(train_list)
-        held_out_donors = frozenset(held_list)
-        if train_donors & held_out_donors:
-            overlap = sorted(train_donors & held_out_donors)
-            raise DAVFScPerturbError(f"donor_split leaks donors into both pools: {overlap}")
-        raw_donors = adata.obs[donor_obs_column]
-        donor_labels = np.asarray(
-            raw_donors.astype(object).where(raw_donors.notna(), ""),
-            dtype="U",
-        )
-        unknown = sorted(set(donor_labels.tolist()) - train_donors - held_out_donors)
-        if unknown:
-            raise DAVFScPerturbError(
-                "every prepared cell must carry a donor from the donor_split pools; "
-                f"unassigned/missing donors: {unknown[:10]}"
-            )
-        if not (set(donor_labels.tolist()) & train_donors) or not (set(donor_labels.tolist()) & held_out_donors):
-            raise DAVFScPerturbError("both the train_donor pool and the held-out donor pool must contain cells")
-
-    require_extras(["scvi"], feature="DAVF latent-pair construction")
-    scvi_path = Path(scvi_model_path).expanduser().resolve()
-    adapter = ScVIAdapter.from_trained_model(
-        scvi_path,
-        config=ScVIAdapterConfig(
-            model_path=str(scvi_path),
-            n_latent=FORMAL_DAVF_LATENT_DIM,
-            batch_key="davf_batch",
-            device=device,
-        ),
-        adata=adata,
+    _validate_pair_build_options(modality, split_strategy, control_baseline, max_cells_per_target, encoder_batch_size)
+    adata, prepared = _load_prepared_anndata(prepared_path, modality)
+    donor_labels, train_donors, held_out_donors = _resolve_donor_labels(
+        adata, donor_obs_column, donor_split, require_state_coverage
     )
-    gene_names = tuple(str(name) for name in adapter.gene_names)
-    adapter.validate_compatibility(
-        expected_latent_dim=FORMAL_DAVF_LATENT_DIM,
-        expected_num_genes=FORMAL_DAVF_NUM_GENES,
-        expected_gene_names=gene_names,
-    )
-    if gene_names != tuple(str(name) for name in adata.var_names):
-        raise DAVFScPerturbError("prepared AnnData gene order does not match the scVI decoder vocabulary")
-    latent = np.asarray(adapter.encode(adata, batch_size=encoder_batch_size), dtype=np.float32)
-    if latent.shape != (adata.n_obs, FORMAL_DAVF_LATENT_DIM) or not np.isfinite(latent).all():
-        raise DAVFScPerturbError(f"scVI encoder returned invalid latent array with shape {latent.shape}")
-
+    gene_names, scvi_path, latent = _encode_latent_with_scvi(adata, scvi_model_path, device, encoder_batch_size)
     target_values = np.asarray(
         adata.obs["davf_target_ensembl"].astype(object).where(adata.obs["davf_target_ensembl"].notna(), ""),
         dtype="U",
@@ -657,122 +1145,21 @@ def build_scperturb_latent_pairs(
         dtype="U",
     )
     target_labels = tuple(sorted(set(target_values) - {""}))
-    held_out_state_coverage: dict[str, int] | None = None
-    if donor_labels is not None:
-        assert train_donors is not None and held_out_donors is not None
-        train_mask = np.isin(donor_labels, sorted(train_donors))
-        held_mask = np.isin(donor_labels, sorted(held_out_donors))
-        if require_state_coverage:
-            if state_obs_column is None:
-                raise DAVFScPerturbError("require_state_coverage needs an explicit state_obs_column")
-            if state_obs_column not in adata.obs.columns:
-                raise DAVFScPerturbError(
-                    f"prepared AnnData has no state column {state_obs_column!r} for held-out state coverage"
-                )
-            held_states = adata.obs[state_obs_column].astype(str).str.strip().to_numpy()[held_mask]
-            held_out_state_coverage = {
-                str(state): int((held_states == state).sum()) for state in sorted(set(held_states) - {""})
-            }
-            if len(held_out_state_coverage) < 2:
-                raise DAVFScPerturbError(
-                    "held-out donor pool covers fewer than two states of "
-                    f"{state_obs_column!r}: {held_out_state_coverage}; rescue judgements on the "
-                    "test split would lose their state contrast"
-                )
-        if split_strategy == "target":
-            train_pool_labels = tuple(sorted(set(target_values[train_mask]) - {""}))
-            if len(train_pool_labels) < 2:
-                raise DAVFScPerturbError(
-                    "donor-bound target split needs at least two target genes inside the train donor pool"
-                )
-            unique = np.asarray(train_pool_labels, dtype="U")
-            shuffled_labels = unique[np.random.default_rng(seed).permutation(len(unique))]
-            ratios = np.asarray([train_ratio, val_ratio], dtype=float)
-            if np.any(ratios <= 0):
-                raise DAVFScPerturbError("train/val ratios must be positive for donor-bound splits")
-            counts = np.maximum(np.floor(ratios / ratios.sum() * len(unique)).astype(int), 1)
-            while int(counts.sum()) > len(unique):
-                index = int(np.argmax(counts))
-                counts[index] -= 1
-            while int(counts.sum()) < len(unique):
-                counts[int(np.argmax(ratios - counts / len(unique)))] += 1
-            pool_label_splits = {
-                "train": tuple(str(value) for value in shuffled_labels[: int(counts[0])]),
-                "val": tuple(str(value) for value in shuffled_labels[int(counts[0]) :]),
-            }
-            target_rows_by_split = {
-                split: {
-                    label: np.flatnonzero((target_values == label) & train_mask)
-                    for label in labels
-                    if np.any((target_values == label) & train_mask)
-                }
-                for split, labels in pool_label_splits.items()
-            }
-            target_rows_by_split["test"] = {
-                label: np.flatnonzero((target_values == label) & held_mask)
-                for label in target_labels
-                if np.any((target_values == label) & held_mask)
-            }
-        else:
-            pool_ratio = train_ratio / (train_ratio + val_ratio)
-            pool_rows_by_split: dict[str, list[int]] = {"train": [], "val": []}
-            for label_index, label in enumerate(target_labels):
-                label_rows = np.flatnonzero((target_values == label) & train_mask)
-                if len(label_rows) == 0:
-                    continue
-                if len(label_rows) == 1:
-                    pool_rows_by_split["train"].extend(int(row) for row in label_rows)
-                    continue
-                shuffled_rows = label_rows[
-                    np.random.default_rng(seed + 7919 * (label_index + 1)).permutation(len(label_rows))
-                ]
-                train_count = max(1, int(np.floor(pool_ratio * len(label_rows))))
-                train_count = min(train_count, len(label_rows) - 1)
-                pool_rows_by_split["train"].extend(int(row) for row in shuffled_rows[:train_count])
-                pool_rows_by_split["val"].extend(int(row) for row in shuffled_rows[train_count:])
-            target_rows_by_split = {}
-            donor_split_row_sets = (
-                ("train", pool_rows_by_split["train"]),
-                ("val", pool_rows_by_split["val"]),
-                ("test", np.flatnonzero(held_mask).tolist()),
-            )
-            for split, rows in donor_split_row_sets:
-                donor_grouped_rows: dict[str, list[int]] = {}
-                for index in rows:
-                    if str(target_values[index]) == "":
-                        continue
-                    donor_grouped_rows.setdefault(str(target_values[index]), []).append(int(index))
-                target_rows_by_split[split] = {
-                    label: np.asarray(indices, dtype=np.int64) for label, indices in sorted(donor_grouped_rows.items())
-                }
-    elif split_strategy == "target":
-        label_splits = split_target_labels(
-            target_labels,
-            seed=seed,
-            train_ratio=train_ratio,
-            val_ratio=val_ratio,
-            test_ratio=test_ratio,
-        )
-        target_rows_by_split = {
-            split: {label: np.flatnonzero(target_values == label) for label in labels}
-            for split, labels in label_splits.items()
-        }
-    else:
-        row_splits = split_target_cells(
-            target_values,
-            seed=seed,
-            train_ratio=train_ratio,
-            val_ratio=val_ratio,
-            test_ratio=test_ratio,
-        )
-        target_rows_by_split = {}
-        for split, rows in row_splits.items():
-            grouped_rows: dict[str, list[int]] = {}
-            for index in rows:
-                grouped_rows.setdefault(str(target_values[index]), []).append(int(index))
-            target_rows_by_split[split] = {
-                label: np.asarray(indices, dtype=np.int64) for label, indices in sorted(grouped_rows.items())
-            }
+    target_rows_by_split, held_out_state_coverage = _build_target_rows_by_split(
+        adata,
+        target_values,
+        target_labels,
+        donor_labels,
+        train_donors,
+        held_out_donors,
+        split_strategy,
+        seed,
+        train_ratio,
+        val_ratio,
+        test_ratio,
+        require_state_coverage,
+        state_obs_column,
+    )
 
     # Allocate control cells once, independently per batch and split. This
     # makes the control barcode sets disjoint across the three exported files.
@@ -780,190 +1167,55 @@ def build_scperturb_latent_pairs(
     control_indices: dict[str, dict[str, np.ndarray]] = {split: {} for split in split_order}
     if donor_labels is not None:
         assert train_donors is not None and held_out_donors is not None
-        train_mask = np.isin(donor_labels, sorted(train_donors))
-        held_mask = np.isin(donor_labels, sorted(held_out_donors))
-        for batch in sorted(set(batches)):
-            for pool_mask, pool_splits, pool_ratios in (
-                (train_mask, ("train", "val"), np.asarray([train_ratio, val_ratio])),
-                (held_mask, ("test",), np.asarray([1.0])),
-            ):
-                pool = np.flatnonzero((target_values == "") & (batches == batch) & pool_mask)
-                if len(pool) < len(pool_splits):
-                    raise DAVFScPerturbError(
-                        f"batch {batch!r} has fewer than {len(pool_splits)} control cells in a donor pool"
-                    )
-                shuffled = pool[np.random.default_rng(seed + sum(map(ord, batch))).permutation(len(pool))]
-                counts = np.maximum(np.floor(pool_ratios / pool_ratios.sum() * len(pool)).astype(int), 1)
-                while int(counts.sum()) > len(pool):
-                    index = int(np.argmax(counts))
-                    counts[index] -= 1
-                while int(counts.sum()) < len(pool):
-                    deficits = pool_ratios - counts / len(pool)
-                    counts[int(np.argmax(deficits))] += 1
-                start = 0
-                for split, count in zip(pool_splits, counts, strict=True):
-                    stop = start + int(count)
-                    control_indices[split][batch] = shuffled[start:stop]
-                    start = stop
+        _allocate_donor_bound_controls(
+            target_values,
+            batches,
+            donor_labels,
+            train_donors,
+            held_out_donors,
+            seed,
+            train_ratio,
+            val_ratio,
+            control_indices,
+        )
     else:
-        for batch in sorted(set(batches)):
-            pool = np.flatnonzero((target_values == "") & (batches == batch))
-            if len(pool) < 3:
-                raise DAVFScPerturbError(f"batch {batch!r} has fewer than three control cells")
-            shuffled = pool[np.random.default_rng(seed + sum(map(ord, batch))).permutation(len(pool))]
-            counts = np.floor(np.asarray([train_ratio, val_ratio, test_ratio]) * len(pool)).astype(int)
-            counts = np.maximum(counts, 1)
-            while int(counts.sum()) > len(pool):
-                index = int(np.argmax(counts))
-                counts[index] -= 1
-            while int(counts.sum()) < len(pool):
-                index = int(np.argmax(np.asarray([train_ratio, val_ratio, test_ratio]) - counts / len(pool)))
-                counts[index] += 1
-            start = 0
-            for split, count in zip(split_order, counts, strict=True):
-                stop = start + int(count)
-                control_indices[split][batch] = shuffled[start:stop]
-                start = stop
+        _allocate_plain_controls(target_values, batches, seed, train_ratio, val_ratio, test_ratio, control_indices)
 
     output_root = Path(output_dir).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     direction_code = DIRECTION_CODES[modality]
+    ctx = _SplitExportContext(
+        adata=adata,
+        latent=latent,
+        batches=batches,
+        donor_labels=donor_labels,
+        train_donors=train_donors,
+        held_out_donors=held_out_donors,
+        embedding_asset=embedding_asset,
+        embedding_asset_path=embedding_asset_path,
+        scvi_path=scvi_path,
+        prepared_path=prepared,
+        gene_names=gene_names,
+        modality=modality,
+        direction_code=direction_code,
+        split_strategy=split_strategy,
+        control_baseline=control_baseline,
+        seed=seed,
+        max_cells_per_target=max_cells_per_target,
+        donor_obs_column=donor_obs_column,
+        donor_split=donor_split,
+    )
     report: dict[str, dict[str, Any]] = {}
     for split_index, split in enumerate(split_order):
         rng = np.random.default_rng(seed + 1009 * (split_index + 1))
-        rows_z0: list[np.ndarray] = []
-        rows_z1: list[np.ndarray] = []
-        rows_gene: list[int] = []
-        rows_direction: list[int] = []
-        rows_cell_ids: list[str] = []
-        rows_batches: list[str] = []
-        rows_donors: list[str] = []
-        control_cell_ids: list[str] = []
-        control_batches: list[str] = []
-        control_donors: list[str] = []
-        pair_control_cell_ids: list[str] = []
-        pair_control_batches: list[str] = []
-        labels = tuple(sorted(target_rows_by_split[split]))
-        split_control_count = sum(len(values) for values in control_indices[split].values())
-        for batch in sorted(control_indices[split]):
-            indices = control_indices[split][batch]
-            control_cell_ids.extend(str(adata.obs_names[index]) for index in indices)
-            control_batches.extend([batch] * len(indices))
-            if donor_labels is not None:
-                control_donors.extend(str(donor_labels[index]) for index in indices)
-        if len(control_cell_ids) != split_control_count:
-            raise DAVFScPerturbError(f"split {split} control barcode count does not match its allocation")
-        control_means = {
-            batch: latent[indices].mean(axis=0).astype(np.float32) for batch, indices in control_indices[split].items()
-        }
-        for label in labels:
-            target_rows = target_rows_by_split[split][label]
-            if len(target_rows) > max_cells_per_target:
-                target_rows = np.sort(rng.choice(target_rows, size=max_cells_per_target, replace=False))
-            token = embedding_asset.gene_to_token.get(label)
-            if token is None:
-                raise DAVFScPerturbError(f"target {label!r} is absent from the PerturbGen asset")
-            for row in target_rows:
-                batch = batches[row]
-                if batch not in control_means:
-                    raise DAVFScPerturbError(f"target row {row} has no control baseline in batch {batch!r}")
-                control_pool = control_indices[split][batch]
-                if control_baseline == "cell":
-                    control_index = int(rng.choice(control_pool))
-                    baseline = latent[control_index]
-                    pair_control_cell_ids.append(str(adata.obs_names[control_index]))
-                    pair_control_batches.append(batch)
-                else:
-                    baseline = control_means[batch]
-                    pair_control_cell_ids.append("")
-                    pair_control_batches.append(batch)
-                rows_z0.append(baseline)
-                rows_z1.append(latent[row])
-                rows_gene.append(int(token))
-                rows_direction.append(direction_code)
-                rows_cell_ids.append(str(adata.obs_names[row]))
-                rows_batches.append(batch)
-                if donor_labels is not None:
-                    rows_donors.append(str(donor_labels[row]))
-        if not rows_z1:
-            raise DAVFScPerturbError(f"split {split} contains no target cells")
-        if donor_labels is not None and train_donors is not None and held_out_donors is not None:
-            expected_pool = sorted(train_donors) if split in ("train", "val") else sorted(held_out_donors)
-            leaked = sorted(set(rows_donors) - set(expected_pool))
-            if leaked:
-                raise DAVFScPerturbError(f"split {split} target rows carry donors outside their donor pool: {leaked}")
-
-        split_metadata: dict[str, Any] = {
-            "schema_version": "ptm2cellnet.latent-davf-pairs.v1",
-            "scvi": {
-                "model_path": str(scvi_path),
-                "latent_dim": FORMAL_DAVF_LATENT_DIM,
-                "num_genes": FORMAL_DAVF_NUM_GENES,
-                "gene_names": list(gene_names),
-            },
-            "embedding_asset": {
-                "path": str(Path(embedding_asset_path).expanduser().resolve()),
-                "vocab_size": int(embedding_asset.vocab_size),
-                "embedding_dim": int(embedding_asset.embedding_dim),
-                "manifest": dict(embedding_asset.manifest),
-            },
-            "dataset": {
-                "name": "scPerturb prepared AnnData",
-                "modality": modality,
-                "intervention_type": modality,
-                "direction_code": direction_code,
-                "split": split,
-                "split_strategy": split_strategy,
-                "seed": int(seed),
-                "pair_direction": (
-                    "within_batch_control_cell_to_perturbation_cell"
-                    if control_baseline == "cell"
-                    else "within_batch_control_mean_to_perturbation_cell"
-                ),
-                "control_baseline": (
-                    "same_batch_split_disjoint_control_cell"
-                    if control_baseline == "cell"
-                    else "latent_mean_of_split_disjoint_control_cells"
-                ),
-                "target_labels": list(labels),
-                "target_cells": len(rows_z1),
-                "control_cells": int(split_control_count),
-                "target_gene_tokens": {label: int(embedding_asset.gene_to_token[label]) for label in labels},
-                "prepared_anndata": str(prepared),
-            },
-        }
-        if donor_labels is not None:
-            split_metadata["dataset"]["donor_obs_column"] = donor_obs_column
-            split_metadata["dataset"]["donor_rows"] = rows_donors
-            split_metadata["dataset"]["donor_pool"] = "train_donors" if split in ("train", "val") else "held_out_donors"
-            split_metadata["donor_split"] = dict(donor_split) if donor_split is not None else None
-        output_path = output_root / f"{split}.npz"
-        npz_arrays: dict[str, Any] = {
-            "metadata_json": np.asarray(
-                json.dumps(split_metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            ),
-            "z_0": np.asarray(rows_z0, dtype=np.float32),
-            "z_1": np.asarray(rows_z1, dtype=np.float32),
-            "gene_ids": np.asarray(rows_gene, dtype=np.int64)[:, None],
-            "directions": np.asarray(rows_direction, dtype=np.int64)[:, None],
-            "attention_mask": np.ones((len(rows_z1), 1), dtype=np.float32),
-            "target_cell_ids": np.asarray(rows_cell_ids, dtype="U"),
-            "target_batches": np.asarray(rows_batches, dtype="U"),
-            "control_cell_ids": np.asarray(control_cell_ids, dtype="U"),
-            "control_batches": np.asarray(control_batches, dtype="U"),
-            "pair_control_cell_ids": np.asarray(pair_control_cell_ids, dtype="U"),
-            "pair_control_batches": np.asarray(pair_control_batches, dtype="U"),
-        }
-        if donor_labels is not None:
-            npz_arrays["target_donors"] = np.asarray(rows_donors, dtype="U")
-            npz_arrays["control_donors"] = np.asarray(control_donors, dtype="U")
-        np.savez_compressed(output_path, **npz_arrays)
-        report[split] = {
-            "path": str(output_path),
-            "samples": len(rows_z1),
-            "target_labels": list(labels),
-            "control_cells": int(split_control_count),
-        }
+        report[split] = _export_split_npz(
+            ctx,
+            split,
+            target_rows_by_split[split],
+            control_indices[split],
+            rng,
+            output_root / f"{split}.npz",
+        )
 
     report_path = output_root / "pair_manifest.json"
     pair_manifest: dict[str, Any] = {
