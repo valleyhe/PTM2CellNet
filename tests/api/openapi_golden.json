@@ -1,0 +1,1976 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PTM2CellNet API",
+    "description": "蛋白质PTM与细胞状态预测API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/predict": {
+      "post": {
+        "summary": "Predict",
+        "description": "预测细胞状态\n\n参数:\n    request: 预测请求，包含序列和PTM位点\n\n返回:\n    预测响应，包含细胞状态、置信度和概率分布",
+        "operationId": "predict_api_v1_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/batch_predict": {
+      "post": {
+        "summary": "Batch Predict",
+        "description": "批量预测细胞状态\n\n参数:\n    request: 批量预测请求，包含样本列表\n\n返回:\n    批量预测响应",
+        "operationId": "batch_predict_api_v1_batch_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPredictionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchPredictionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/predict/batch": {
+      "post": {
+        "summary": "Batch Predict",
+        "description": "批量预测细胞状态\n\n参数:\n    request: 批量预测请求，包含样本列表\n\n返回:\n    批量预测响应",
+        "operationId": "batch_predict_api_v1_predict_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPredictionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchPredictionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/predict/variant": {
+      "post": {
+        "summary": "Predict Variant",
+        "description": "Predict cell state changes from protein variant.\n\nArgs:\n    request: Variant prediction request with HGVS notation\n\nReturns:\n    Variant effect prediction with PTM and pathway impacts",
+        "operationId": "predict_variant_api_v1_predict_variant_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantPredictionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariantPredictionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "综合健康检查（遗留/兼容端点）",
+        "description": "返回服务综合健康状态（含模型加载情况）。\n\n**职责边界**：\n- `/live`：进程存活探针（liveness），始终返回 200，用于判断进程是否存活。\n- `/ready`：服务就绪探针（readiness），模型未加载时返回 **503**，用于 Kubernetes `readinessProbe` 与 Docker `HEALTHCHECK` 的流量接入判断。\n- `/health`（本端点）：**遗留/综合**健康检查，始终返回 200，通过 `status` 字段（`healthy` / `unhealthy`）与 `model_loaded` 反映模型加载情况。\n\n⚠️ **不要用 `/health` 作为 readiness 判断**：它在模型未加载时也返回 200，会把未就绪实例判定为健康。流量接入判断请使用 `/ready`，存活判断请使用 `/live`。",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/live": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "存活探针（liveness）",
+        "description": "进程存活探针。只要 FastAPI 进程在运行就返回 200 `{\"status\": \"alive\"}`，与模型是否加载无关。\n\n**用途**：Kubernetes `livenessProbe` / 负载均衡存活判断。失败（非 200）意味着进程需要被重启。",
+        "operationId": "live_check_api_v1_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "就绪探针（readiness）",
+        "description": "服务就绪探针。模型未加载（未调用 `/initialize`）时返回 **HTTP 503**，模型加载后返回 200 `{\"status\": \"ready\", \"model_loaded\": true}`。\n\n**用途**：Kubernetes `readinessProbe`、Docker `HEALTHCHECK`、负载均衡流量接入判断。**不要用 `/health` 替代本端点**做流量判断。",
+        "operationId": "ready_check_api_v1_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ready/variant": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "变体预测就绪探针（P1-1）",
+        "description": "单独报告变体预测能力的就绪状态。\n\n核心模型加载成功但 variant workflow 初始化失败时，`/ready` 返回 200 而 `/ready/variant` 返回 **503**，从而可以分别对核心预测与变体预测做流量接入判断。\n\n**用途**：当部署只暴露 `/predict/variant` 时，用它作为 readinessProbe。",
+        "operationId": "variant_ready_check_api_v1_ready_variant_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariantReadyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model_info": {
+      "get": {
+        "summary": "Get Model Info",
+        "description": "获取模型信息\n\n返回:\n    模型信息",
+        "operationId": "get_model_info_api_v1_model_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model/info": {
+      "get": {
+        "summary": "Get Model Info",
+        "description": "获取模型信息\n\n返回:\n    模型信息",
+        "operationId": "get_model_info_api_v1_model_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/initialize": {
+      "post": {
+        "summary": "Initialize Endpoint",
+        "description": "热加载模型权重与配置。\n\n步骤：\n    0. 验证 API Key（若 PTM2CELLNET_API_KEY 环境变量已设置）。\n    1. 通过 ``resolve_inference_config`` 解析 checkpoint 与 config。\n    2. 构建模型并加载 state_dict（strict=False，允许部分加载）。\n    3. 调用 ``initialize_model`` 更新全局 STATE。",
+        "operationId": "initialize_endpoint_api_v1_initialize_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitializeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitializeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cross-scale/initialize": {
+      "post": {
+        "summary": "Cross Scale Initialize",
+        "description": "加载跨尺度 artifact 并登记服务状态。\n\n加载本身（权重反序列化 + 模型构建）是阻塞 CPU 工作，卸载到线程池\n（N01 惯例）。失败时置 ``initialization_failed`` 以便运维排障。",
+        "operationId": "cross_scale_initialize_api_v1_cross_scale_initialize_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrossScaleInitializeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossScaleInitializeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cross-scale/predict": {
+      "post": {
+        "summary": "Cross Scale Predict",
+        "description": "单样本跨尺度预测。",
+        "operationId": "cross_scale_predict_api_v1_cross_scale_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrossScalePredictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossScalePredictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cross-scale/batch_predict": {
+      "post": {
+        "summary": "Cross Scale Batch Predict",
+        "description": "批量跨尺度预测。\n\n\"纯序列且无 PTM 位点\"的样本按 ``batch_size`` 组批共享一次 forward；\n其余样本（带 PTM 位点或 embedding 引用）逐个推理。失败策略由\n``fail_fast`` 控制：False（默认）逐样本收集 errors 并返回部分成功\n结果，保证可审计（契约）；True 时首个错误即中止并返回 400。",
+        "operationId": "cross_scale_batch_predict_api_v1_cross_scale_batch_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrossScaleBatchPredictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossScaleBatchPredictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Metrics",
+        "description": "Service metrics endpoint.\n\nBy default returns Prometheus text exposition format\n(``text/plain; version=0.0.4``) so a Prometheus scraper can ingest\nit directly. Pass ``Accept: application/json`` (or\n``?format=json``) to receive the legacy JSON payload — useful for\nad-hoc inspection or dashboards that already consume the JSON.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/detailed": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Health Detailed",
+        "description": "Detailed health check with component-level status.",
+        "operationId": "health_detailed_health_detailed_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "description": "根路径",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchPredictionRequest": {
+        "properties": {
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionRequest"
+            },
+            "type": "array",
+            "title": "Samples",
+            "description": "样本列表"
+          }
+        },
+        "type": "object",
+        "required": [
+          "samples"
+        ],
+        "title": "BatchPredictionRequest",
+        "description": "批量预测请求模型"
+      },
+      "BatchPredictionResponse": {
+        "properties": {
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionResponse"
+            },
+            "type": "array",
+            "title": "Predictions",
+            "description": "预测结果列表"
+          },
+          "total_processing_time_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Processing Time Ms",
+            "description": "总处理时间（毫秒）"
+          },
+          "sample_count": {
+            "type": "integer",
+            "title": "Sample Count",
+            "description": "处理的样本数量"
+          }
+        },
+        "type": "object",
+        "required": [
+          "predictions",
+          "sample_count"
+        ],
+        "title": "BatchPredictionResponse",
+        "description": "批量预测响应模型"
+      },
+      "CrossScaleBatchError": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "sample_id",
+          "detail"
+        ],
+        "title": "CrossScaleBatchError"
+      },
+      "CrossScaleBatchPredictRequest": {
+        "properties": {
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/CrossScalePredictRequest"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Samples"
+          },
+          "batch_size": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Batch Size",
+            "default": 8
+          },
+          "fail_fast": {
+            "type": "boolean",
+            "title": "Fail Fast",
+            "description": "True 时首个失败样本立即中止并返回 400；False 时逐样本收集 errors",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "samples"
+        ],
+        "title": "CrossScaleBatchPredictRequest"
+      },
+      "CrossScaleBatchPredictResponse": {
+        "properties": {
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/CrossScalePrediction"
+            },
+            "type": "array",
+            "title": "Predictions"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/CrossScaleBatchError"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CrossScaleBatchSummary"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provenance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "predictions",
+          "errors",
+          "summary",
+          "provenance"
+        ],
+        "title": "CrossScaleBatchPredictResponse"
+      },
+      "CrossScaleBatchSummary": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "succeeded": {
+            "type": "integer",
+            "title": "Succeeded"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "title": "CrossScaleBatchSummary"
+      },
+      "CrossScaleInitializeRequest": {
+        "properties": {
+          "artifact_path": {
+            "type": "string",
+            "title": "Artifact Path",
+            "description": "跨尺度 artifact 目录（train_cross_scale.py --output 产物）"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device",
+            "description": "加载设备（cpu/cuda），留空自动选择"
+          },
+          "strict_assets": {
+            "type": "boolean",
+            "title": "Strict Assets",
+            "description": "严格模式：仅接受 best_checkpoint。False 时 best 缺失回退 last_checkpoint，其余校验（schema/词表/权重 strict 加载）保持不变。",
+            "default": true
+          },
+          "max_batch_size": {
+            "type": "integer",
+            "maximum": 512.0,
+            "minimum": 1.0,
+            "title": "Max Batch Size",
+            "description": "服务端推理批次上限",
+            "default": 8
+          },
+          "graph_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Ref",
+            "description": "服务端默认图 NPZ 路径（含 cell_edge_index，可选 signal_edge_index/signal_gene_map/cell_edge_weight）。模型契约要求 cell graph 显式提供；在线请求无图数组时使用此默认图。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_path"
+        ],
+        "title": "CrossScaleInitializeRequest",
+        "description": "跨尺度 artifact 加载请求（F-01 契约）。"
+      },
+      "CrossScaleInitializeResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "model_type": {
+            "type": "string",
+            "title": "Model Type",
+            "default": "cross_scale"
+          },
+          "checkpoint_schema": {
+            "type": "string",
+            "title": "Checkpoint Schema",
+            "default": "ptm2cellnet.cross-scale.checkpoint.v1"
+          },
+          "artifact_schema": {
+            "type": "string",
+            "title": "Artifact Schema",
+            "default": "ptm2cellnet.cross-scale.artifact.v1"
+          },
+          "artifact_path": {
+            "type": "string",
+            "title": "Artifact Path"
+          },
+          "manifest_digest": {
+            "type": "string",
+            "title": "Manifest Digest"
+          },
+          "label_vocabulary": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Label Vocabulary"
+          },
+          "device": {
+            "type": "string",
+            "title": "Device"
+          },
+          "max_batch_size": {
+            "type": "integer",
+            "title": "Max Batch Size"
+          },
+          "readiness": {
+            "type": "string",
+            "title": "Readiness"
+          },
+          "graph_registered": {
+            "type": "boolean",
+            "title": "Graph Registered",
+            "default": false
+          },
+          "model_summary": {
+            "$ref": "#/components/schemas/CrossScaleModelSummary"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "artifact_path",
+          "manifest_digest",
+          "device",
+          "max_batch_size",
+          "readiness",
+          "model_summary"
+        ],
+        "title": "CrossScaleInitializeResponse"
+      },
+      "CrossScaleModelSummary": {
+        "properties": {
+          "protein_backbones": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Protein Backbones"
+          },
+          "loaded_plm_model_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Loaded Plm Model Names"
+          },
+          "num_cell_genes": {
+            "type": "integer",
+            "title": "Num Cell Genes",
+            "default": 0
+          },
+          "num_cell_states": {
+            "type": "integer",
+            "title": "Num Cell States",
+            "default": 0
+          },
+          "num_ptm_types": {
+            "type": "integer",
+            "title": "Num Ptm Types",
+            "default": 0
+          },
+          "allow_plm_fallback": {
+            "type": "boolean",
+            "title": "Allow Plm Fallback",
+            "default": false
+          },
+          "allow_graph_approximation": {
+            "type": "boolean",
+            "title": "Allow Graph Approximation",
+            "default": false
+          },
+          "signal_graph_version": {
+            "type": "string",
+            "title": "Signal Graph Version",
+            "default": "unversioned"
+          },
+          "data_manifest_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Manifest Digest"
+          }
+        },
+        "type": "object",
+        "title": "CrossScaleModelSummary"
+      },
+      "CrossScalePredictRequest": {
+        "properties": {
+          "sequence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sequence",
+            "description": "原始氨基酸序列"
+          },
+          "embedding_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Ref",
+            "description": "预计算 embedding NPZ 的服务端路径（prepare_cross_scale_embeddings.py 产物或跨尺度 NPZ），需含 {backbone}_embeddings 数组"
+          },
+          "sample_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sample Index",
+            "description": "embedding_ref NPZ 中的样本行号",
+            "default": 0
+          },
+          "ptm_sites": {
+            "items": {
+              "$ref": "#/components/schemas/PTMSite"
+            },
+            "type": "array",
+            "title": "Ptm Sites"
+          },
+          "sample_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Id"
+          },
+          "include_delta_expression": {
+            "type": "boolean",
+            "title": "Include Delta Expression",
+            "description": "是否返回 num_cell_genes 维 delta_expression 向量（默认关闭，响应更小）",
+            "default": false
+          },
+          "allow_uniform_signal_map": {
+            "type": "boolean",
+            "title": "Allow Uniform Signal Map",
+            "description": "显式工程选择：缺少可用的 signal_gene_map 时，按当前请求的蛋白质节点数构造均匀映射（signal→gene 无信息退化），并在 fallback_flags.signal_map_uniform 标记。默认关闭，缺少映射时显式 400。",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CrossScalePredictRequest",
+        "description": "单样本跨尺度预测请求（F-01 契约：sequence / embedding_ref 二选一）。"
+      },
+      "CrossScalePredictResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "cell_state": {
+            "type": "string",
+            "title": "Cell State"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Probabilities"
+          },
+          "cell_state_logits": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Cell State Logits"
+          },
+          "delta_expression": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Expression"
+          },
+          "num_cell_genes": {
+            "type": "integer",
+            "title": "Num Cell Genes"
+          },
+          "ptm_sites_applied": {
+            "type": "integer",
+            "title": "Ptm Sites Applied"
+          },
+          "fallback_flags": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Fallback Flags"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provenance"
+          },
+          "processing_time_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Time Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_id",
+          "cell_state",
+          "confidence",
+          "probabilities",
+          "cell_state_logits",
+          "num_cell_genes",
+          "ptm_sites_applied",
+          "fallback_flags",
+          "provenance"
+        ],
+        "title": "CrossScalePredictResponse"
+      },
+      "CrossScalePrediction": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "cell_state": {
+            "type": "string",
+            "title": "Cell State"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Probabilities"
+          },
+          "cell_state_logits": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Cell State Logits"
+          },
+          "delta_expression": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Expression"
+          },
+          "num_cell_genes": {
+            "type": "integer",
+            "title": "Num Cell Genes"
+          },
+          "ptm_sites_applied": {
+            "type": "integer",
+            "title": "Ptm Sites Applied"
+          },
+          "fallback_flags": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Fallback Flags"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provenance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_id",
+          "cell_state",
+          "confidence",
+          "probabilities",
+          "cell_state_logits",
+          "num_cell_genes",
+          "ptm_sites_applied",
+          "fallback_flags",
+          "provenance"
+        ],
+        "title": "CrossScalePrediction"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "服务状态，'healthy' 或 'unhealthy'"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "API版本"
+          },
+          "model_loaded": {
+            "type": "boolean",
+            "title": "Model Loaded",
+            "description": "模型是否已加载"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "响应时间戳"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "model_loaded",
+          "timestamp"
+        ],
+        "title": "HealthResponse",
+        "description": "健康检查响应模型"
+      },
+      "InitializeRequest": {
+        "properties": {
+          "checkpoint_path": {
+            "type": "string",
+            "title": "Checkpoint Path",
+            "description": "模型权重文件路径"
+          },
+          "config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Path",
+            "description": "配置文件路径。若留空，则自动查找 checkpoint 同目录的 <name>.config.yaml"
+          },
+          "cell_states": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell States",
+            "description": "细胞状态标签列表。若留空，则使用配置文件中的 data.cell_states。"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device",
+            "description": "加载设备（cuda/cpu）。留空时自动选择。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checkpoint_path"
+        ],
+        "title": "InitializeRequest",
+        "description": "热加载模型的请求体。"
+      },
+      "InitializeResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "加载状态: success/failed"
+          },
+          "checkpoint_path": {
+            "type": "string",
+            "title": "Checkpoint Path",
+            "description": "实际加载的权重路径"
+          },
+          "config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Path",
+            "description": "实际使用的配置路径"
+          },
+          "cell_states": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cell States",
+            "description": "加载的细胞状态标签"
+          },
+          "device": {
+            "type": "string",
+            "title": "Device",
+            "description": "模型所在设备"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "附加信息（如警告）"
+          },
+          "loaded_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loaded Format",
+            "description": "识别到的 checkpoint 格式：state_dict/lightning/legacy"
+          },
+          "missing_keys_count": {
+            "type": "integer",
+            "title": "Missing Keys Count",
+            "description": "加载时缺失的权重键数量",
+            "default": 0
+          },
+          "unexpected_keys_count": {
+            "type": "integer",
+            "title": "Unexpected Keys Count",
+            "description": "加载时多余的权重键数量",
+            "default": 0
+          },
+          "loaded_parameter_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loaded Parameter Ratio",
+            "description": "已加载参数占模型总参数的比例 (0-1)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "checkpoint_path",
+          "device"
+        ],
+        "title": "InitializeResponse",
+        "description": "热加载结果。"
+      },
+      "LiveResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "服务存活状态"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LiveResponse",
+        "description": "存活检查响应模型"
+      },
+      "ModelInfoResponse": {
+        "properties": {
+          "model_name": {
+            "type": "string",
+            "title": "Model Name",
+            "description": "模型名称"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version",
+            "description": "模型版本"
+          },
+          "encoder_type": {
+            "type": "string",
+            "title": "Encoder Type",
+            "description": "编码器类型"
+          },
+          "embed_dim": {
+            "type": "integer",
+            "title": "Embed Dim",
+            "description": "嵌入维度"
+          },
+          "num_classes": {
+            "type": "integer",
+            "title": "Num Classes",
+            "description": "类别数量"
+          },
+          "cell_states": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cell States",
+            "description": "支持的细胞状态列表"
+          },
+          "supported_ptm_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Ptm Types",
+            "description": "支持的PTM类型列表"
+          },
+          "variant_workflow_loaded": {
+            "type": "boolean",
+            "title": "Variant Workflow Loaded",
+            "description": "变体预测 workflow 是否已加载",
+            "default": false
+          },
+          "pathway_mapper_loaded": {
+            "type": "boolean",
+            "title": "Pathway Mapper Loaded",
+            "description": "信号通路分析器是否已加载",
+            "default": false
+          },
+          "model_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Kind",
+            "description": "模型性质：'demo' / 'real' / None（未知）"
+          },
+          "is_demo_model": {
+            "type": "boolean",
+            "title": "Is Demo Model",
+            "description": "是否为合成数据训练的 demo 模型（不可用于真实生物学预测）",
+            "default": false
+          },
+          "checkpoint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Path",
+            "description": "当前加载的 checkpoint 路径"
+          },
+          "config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Path",
+            "description": "当前加载的配置文件路径"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_name",
+          "model_version",
+          "encoder_type",
+          "embed_dim",
+          "num_classes",
+          "cell_states",
+          "supported_ptm_types"
+        ],
+        "title": "ModelInfoResponse",
+        "description": "模型信息响应模型"
+      },
+      "PTMEffect": {
+        "properties": {
+          "ptm_type": {
+            "type": "string",
+            "title": "Ptm Type",
+            "description": "PTM type (Phosphorylation, Ubiquitination, etc.)"
+          },
+          "wildtype_prob": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Wildtype Prob",
+            "description": "PTM probability in wildtype"
+          },
+          "mutant_prob": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Mutant Prob",
+            "description": "PTM probability in mutant"
+          },
+          "delta_prob": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Delta Prob",
+            "description": "Change in probability"
+          },
+          "effect": {
+            "type": "string",
+            "title": "Effect",
+            "description": "Effect classification: gain/loss/neutral/error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ptm_type",
+          "wildtype_prob",
+          "mutant_prob",
+          "delta_prob",
+          "effect"
+        ],
+        "title": "PTMEffect",
+        "description": "PTM effect prediction for a specific modification type."
+      },
+      "PTMSite": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Position",
+            "description": "PTM位点在序列中的位置（从1开始）"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "PTM类型，如phosphorylation、acetylation等"
+          },
+          "amino_acid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amino Acid",
+            "description": "该位点的氨基酸"
+          },
+          "gene_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gene Symbol",
+            "description": "基因符号（如BRAF、TP53）。启用 DAVF 推理（use_davf=true）时必填，用于将 PTM 位点映射到 DAVF 基因潜在空间。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "type"
+        ],
+        "title": "PTMSite",
+        "description": "PTM位点模型\n表示单个蛋白质翻译后修饰位点\n\nExtends the data-layer :class:`src.data.schemas.PTMSite` with\nAPI-specific fields (e.g. ``gene_symbol`` for DAVF inference).\n\n``gene_symbol`` is optional but required when the request enables DAVF\ninference (DAVF plan Task 5): without a gene identifier the DAVF branch\ncannot map the PTM site to a gene latent. It is accepted (and ignored)\nby the non-DAVF path for backwards compatibility."
+      },
+      "PathwayImpact": {
+        "properties": {
+          "pathway_name": {
+            "type": "string",
+            "title": "Pathway Name",
+            "description": "Pathway name"
+          },
+          "activity_change": {
+            "type": "number",
+            "title": "Activity Change",
+            "description": "Predicted activity change"
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence",
+            "description": "Confidence level: high/medium/low"
+          },
+          "key_genes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Key Genes",
+            "description": "Affected key genes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pathway_name",
+          "activity_change",
+          "confidence"
+        ],
+        "title": "PathwayImpact",
+        "description": "Signal pathway impact from variant."
+      },
+      "PredictionRequest": {
+        "properties": {
+          "sequence": {
+            "type": "string",
+            "title": "Sequence",
+            "description": "蛋白质氨基酸序列"
+          },
+          "ptm_sites": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PTMSite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ptm Sites",
+            "description": "PTM位点列表"
+          },
+          "use_davf": {
+            "type": "boolean",
+            "title": "Use Davf",
+            "description": "是否启用 DAVF（PTM→细胞状态方向感知向量）特征。启用后，模型会联合序列嵌入与 DAVF 特征进行预测；ptm_sites 中的 gene_symbol 字段将被传递给 DAVF 模块。",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "sequence"
+        ],
+        "title": "PredictionRequest",
+        "description": "单样本预测请求模型"
+      },
+      "PredictionResponse": {
+        "properties": {
+          "cell_state": {
+            "type": "string",
+            "title": "Cell State",
+            "description": "预测的细胞状态"
+          },
+          "predicted_cell_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Cell State",
+            "description": "预测的细胞状态（旧字段名，等价于 cell_state）"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "预测置信度"
+          },
+          "probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Probabilities",
+            "description": "各类别的概率分布"
+          },
+          "pathway_impacts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PathwayImpact"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pathway Impacts",
+            "description": "信号通路影响分析"
+          },
+          "model_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Kind",
+            "description": "Model nature: 'demo' / 'real' / 'synthetic_fallback' / None (unknown)"
+          },
+          "is_demo_model": {
+            "type": "boolean",
+            "title": "Is Demo Model",
+            "description": "Trained on synthetic data (not for real biology)",
+            "default": false
+          },
+          "processing_time_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Time Ms",
+            "description": "处理时间（毫秒）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cell_state",
+          "confidence",
+          "probabilities"
+        ],
+        "title": "PredictionResponse",
+        "description": "单样本预测响应模型\n\n``cell_state`` 是规范字段；``predicted_cell_state`` 为旧字段名，\n通过真实字段和校验回填保留，以兼容 Pydantic v1/v2 以及仍读取旧键的客户端与测试。"
+      },
+      "ReadyResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "服务就绪状态"
+          },
+          "model_loaded": {
+            "type": "boolean",
+            "title": "Model Loaded",
+            "description": "模型是否已加载"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "model_loaded"
+        ],
+        "title": "ReadyResponse",
+        "description": "就绪检查响应模型"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VariantInfo": {
+        "properties": {
+          "hgvs": {
+            "type": "string",
+            "title": "Hgvs",
+            "description": "HGVS notation"
+          },
+          "gene_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gene Symbol",
+            "description": "Gene symbol"
+          },
+          "uniprot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uniprot Id",
+            "description": "UniProt ID"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Position",
+            "description": "Variant position (1-based)"
+          },
+          "ref_aa": {
+            "type": "string",
+            "title": "Ref Aa",
+            "description": "Reference amino acid"
+          },
+          "alt_aa": {
+            "type": "string",
+            "title": "Alt Aa",
+            "description": "Alternate amino acid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hgvs",
+          "position",
+          "ref_aa",
+          "alt_aa"
+        ],
+        "title": "VariantInfo",
+        "description": "Variant information."
+      },
+      "VariantPredictionRequest": {
+        "properties": {
+          "hgvs": {
+            "type": "string",
+            "title": "Hgvs",
+            "description": "HGVS variant notation (e.g., 'BRAF:p.V600E')"
+          },
+          "sequence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sequence",
+            "description": "Protein sequence (optional)"
+          },
+          "uniprot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uniprot Id",
+            "description": "UniProt ID for sequence lookup"
+          },
+          "include_pathways": {
+            "type": "boolean",
+            "title": "Include Pathways",
+            "description": "Include pathway impact analysis",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "hgvs"
+        ],
+        "title": "VariantPredictionRequest",
+        "description": "Variant effect prediction request."
+      },
+      "VariantPredictionResponse": {
+        "properties": {
+          "variant": {
+            "$ref": "#/components/schemas/VariantInfo",
+            "description": "Parsed variant information"
+          },
+          "ptm_effects": {
+            "items": {
+              "$ref": "#/components/schemas/PTMEffect"
+            },
+            "type": "array",
+            "title": "Ptm Effects",
+            "description": "PTM effects by type"
+          },
+          "pathway_impacts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PathwayImpact"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pathway Impacts",
+            "description": "Pathway impacts"
+          },
+          "cell_state_prediction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell State Prediction",
+            "description": "Predicted cell state change"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "Overall confidence"
+          },
+          "processing_time_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Time Ms",
+            "description": "Processing time"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Any warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "variant",
+          "ptm_effects",
+          "confidence"
+        ],
+        "title": "VariantPredictionResponse",
+        "description": "Variant effect prediction response."
+      },
+      "VariantReadyResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "变体能力就绪状态：'ready' 或 'not_ready'"
+          },
+          "variant_workflow_loaded": {
+            "type": "boolean",
+            "title": "Variant Workflow Loaded",
+            "description": "变体预测 workflow 是否已加载"
+          },
+          "model_loaded": {
+            "type": "boolean",
+            "title": "Model Loaded",
+            "description": "核心模型是否已加载"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "variant_workflow_loaded",
+          "model_loaded"
+        ],
+        "title": "VariantReadyResponse",
+        "description": "变体预测就绪探针响应模型（P1-1）\n\n核心模型已加载但变体 workflow 不可用时，``/predict`` 可用而\n``/predict/variant`` 不可用。该响应让运维/K8s 单独判断变体能力就绪状态。"
+      }
+    }
+  }
+}
